@@ -163,8 +163,15 @@ jobs:
       # rather than a separate artifact. Without this the build fails at
       # compile time, which is the intended failure and one step earlier than
       # the old runtime path resolution gave.
+      #
+      # `pnpm build`, not `pnpm --filter @ghostwire/web build`. The filtered
+      # form runs that one package's script and nothing else, and the web app
+      # imports `@ghostwire/protocol` and `@ghostwire/i18n`, whose `exports`
+      # resolve to `dist/` outside a dev server. Turbo is what knows to build
+      # those two first; the filter skips it and the bundle fails to resolve
+      # its own workspace imports.
       - name: Build the web bundle
-        run: pnpm --filter @ghostwire/web build
+        run: pnpm build
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

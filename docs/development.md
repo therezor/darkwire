@@ -235,8 +235,10 @@ handles drive letters on every platform — so adding Windows later is a port of
 keychain and the process teardown, not a rewrite.
 
 **The web bundle is a build input, not a separate artifact.** `rust-embed` compiles
-`packages/web/dist` into the binary, so `pnpm --filter @ghostwire/web build` runs before
-`cargo build` in every matrix job. Without it the build fails at compile time, which is
+`packages/web/dist` into the binary, so `pnpm build` runs before `cargo build` in every
+matrix job — the whole graph, not `--filter @ghostwire/web`, because the web app imports
+`@ghostwire/protocol` and `@ghostwire/i18n` and their `exports` resolve to `dist/`
+outside a dev server. Turbo is what knows to build those two first. Without it the build fails at compile time, which is
 the intended failure and one step earlier than resolving a path at startup used to give.
 For a build with no bundle — a headless server, or a CI job that only wants the tests —
 `GHOSTAI_HEADLESS_BUILD=1` skips the embed and `GET /` answers a JSON 404 with a
