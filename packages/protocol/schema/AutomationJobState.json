@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "nextRunAtMs": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "lastRunAtMs": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "lastStatus": {
+      "default": "pending",
+      "type": "string",
+      "enum": [
+        "pending",
+        "ok",
+        "error",
+        "skipped"
+      ]
+    },
+    "lastError": {
+      "default": "",
+      "type": "string"
+    },
+    "runCount": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}

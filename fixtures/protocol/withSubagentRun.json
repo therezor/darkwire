@@ -1,0 +1,154 @@
+{
+  "function": "withSubagentRun",
+  "cases": [
+    {
+      "name": "adds to an empty bag",
+      "input": {
+        "metadata": {},
+        "callId": "c1",
+        "run": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      },
+      "output": {
+        "subagentRuns": {
+          "c1": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Researcher"
+          }
+        }
+      }
+    },
+    {
+      "name": "keeps other keys",
+      "input": {
+        "metadata": {
+          "other": 1,
+          "subagent": {
+            "parentSessionKey": "p"
+          }
+        },
+        "callId": "c1",
+        "run": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      },
+      "output": {
+        "other": 1,
+        "subagent": {
+          "parentSessionKey": "p"
+        },
+        "subagentRuns": {
+          "c1": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Researcher"
+          }
+        }
+      }
+    },
+    {
+      "name": "appends to an existing map",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        },
+        "callId": "c2",
+        "run": {
+          "sessionKey": "sub-2",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      },
+      "output": {
+        "subagentRuns": {
+          "c1": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Researcher"
+          },
+          "c2": {
+            "sessionKey": "sub-2",
+            "agentId": "researcher",
+            "label": "Researcher"
+          }
+        }
+      }
+    },
+    {
+      "name": "replaces an existing call",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        },
+        "callId": "c1",
+        "run": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Renamed"
+        }
+      },
+      "output": {
+        "subagentRuns": {
+          "c1": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Renamed"
+          }
+        }
+      }
+    },
+    {
+      "name": "drops malformed entries on the way through",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "bad": "x",
+            "c1": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        },
+        "callId": "c2",
+        "run": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      },
+      "output": {
+        "subagentRuns": {
+          "c1": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Researcher"
+          },
+          "c2": {
+            "sessionKey": "sub-1",
+            "agentId": "researcher",
+            "label": "Researcher"
+          }
+        }
+      }
+    }
+  ]
+}

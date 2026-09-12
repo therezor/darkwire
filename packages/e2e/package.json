@@ -1,0 +1,28 @@
+{
+  "name": "@ghostwire/e2e",
+  "version": "0.0.0",
+  "description": "End-to-end browser tests and the design-fidelity gate.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "screenshots": "tsx src/screenshots/capture.ts",
+    "baseline": "tsx src/fidelity/capture.ts"
+  },
+  "dependencies": {
+    "@ghostwire/protocol": "workspace:*",
+    "@ghostwire/web": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.19.0",
+    "zod": "^4.0.0"
+  }
+}

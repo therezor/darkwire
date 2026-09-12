@@ -1,0 +1,23 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "turn.end",
+    "seq": 52,
+    "turnId": "t1",
+    "stopReason": "complete",
+    "usage": {
+      "promptTokens": 100,
+      "completionTokens": 250,
+      "totalTokens": 350,
+      "cachedTokens": 80,
+      "reasoningTokens": 10
+    },
+    "iterations": 2,
+    "elapsedMs": 10000,
+    "generationMs": 1000,
+    "generationTokens": 250,
+    "firstTokenMs": 400,
+    "firstSeq": 7,
+    "lastSeq": 9
+  }
+}

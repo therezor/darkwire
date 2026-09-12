@@ -1,0 +1,137 @@
+/**
+ * Layout primitives.
+ *
+ * The whole of the generic layer — five classes, no size variants, no colours.
+ * Everything else in `styles/` names a *thing* (`.sidebar`, `.tool-card`) and
+ * sets its own values.
+ *
+ * That split is the point. A utility framework lets a component's layout be
+ * written at the call site, which is why a sidebar's width can drift from 17rem
+ * to 16rem in one file without anyone deciding to change it. These three
+ * layout classes carry direction and alignment only; the *gap* is set by the
+ * owning component through `--gap`, so spacing is always a decision recorded in
+ * the stylesheet next to the thing it spaces.
+ *
+ * `> * { min-width: 0 }` is the load-bearing line. A flex child's automatic
+ * minimum size is its content, so an unbreakable string — a session key, a
+ * base64 blob in a tool result — refuses to shrink and pushes the whole column
+ * wide instead of ellipsising.
+ */
+
+@layer layout {
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap, var(--space-2));
+  }
+
+  .row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--gap, var(--space-2));
+  }
+
+  .cluster {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--gap, var(--space-2));
+  }
+
+  .stack > *,
+  .row > *,
+  .cluster > * {
+    min-width: 0;
+  }
+
+  /** Eats the remaining main-axis space, so siblings after it sit at the end. */
+  .spacer {
+    flex: 1 1 auto;
+  }
+
+  /** One line, ellipsised. Needs an ancestor that has actually been given a width. */
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /**
+   * Available to a screen reader, absent from the page.
+   *
+   * `clip-path` rather than `display: none` or `visibility: hidden`, both of
+   * which remove the element from the accessibility tree along with the
+   * layout — which is the opposite of what this is for.
+   *
+   * **The offsets are load-bearing, and their absence was a real bug.** An
+   * absolutely positioned element with no `inset` keeps its *static position* —
+   * where it would have sat in flow — and its containing block is the nearest
+   * positioned ancestor, or the document when there is none. Inside a tall
+   * scrollport with no positioned ancestor, both of those are true at once: the
+   * hairline landed at its flow position a thousand pixels down, measured
+   * against the document, and stretched the document to reach it. The result was
+   * a page-level scrollbar beside the app's own, and a strip of background below
+   * the shell when you scrolled it.
+   *
+   * Pinning it to the start of whatever contains it costs nothing — the element
+   * is a clipped hairline with no visual position to lose — and means it can
+   * never extend anything. Nothing here reveals an `.sr-only` on focus, which is
+   * the one pattern that would want the static position kept.
+   */
+  .sr-only {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    width: var(--hairline);
+    height: var(--hairline);
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+@layer layout {
+  /**
+   * The auto-grow textarea: a mirror and the input in one grid cell.
+   *
+   * The mirror sizes the cell and the input fills it, so there is no measured
+   * height anywhere — which is what makes it reflow correctly at 200% zoom. See
+   * `components/auto-grow-textarea.tsx`.
+   */
+  .auto-grow {
+    display: grid;
+    width: 100%;
+    max-height: 16rem;
+    overflow-y: auto;
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .auto-grow__mirror,
+  .auto-grow__input {
+    grid-column: 1;
+    grid-row: 1;
+    padding: var(--space-2) var(--space-3);
+    /* No `font-size`: `body` sets the base and this inherits it. Restating it
+     * here is what `stylesheets.test.ts` exists to catch. */
+    line-height: var(--leading-base);
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .auto-grow__mirror {
+    visibility: hidden;
+  }
+
+  .auto-grow__input {
+    resize: none;
+    overflow: hidden;
+    background-color: transparent;
+    color: var(--fg-1);
+  }
+}

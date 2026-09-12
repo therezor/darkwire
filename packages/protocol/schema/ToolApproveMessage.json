@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "tool.approve"
+    },
+    "callId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "scope": {
+      "default": "once",
+      "type": "string",
+      "enum": [
+        "once",
+        "session",
+        "always"
+      ]
+    }
+  },
+  "required": [
+    "type",
+    "callId",
+    "approved"
+  ]
+}

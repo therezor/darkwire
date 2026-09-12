@@ -1,0 +1,40 @@
+# cargo-deny is the Cargo analogue of pnpm's `minimumReleaseAge` and `allowBuilds`
+# in pnpm-workspace.yaml: nothing arrives from a git URL, nothing is a wildcard
+# version, no licence outside the list ships, and a crate with a published
+# advisory fails the build. Cargo has no release-age hold, so `cargo update` is
+# reviewed rather than delayed.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+  # MIT without the attribution clause; `borrow-or-share`, under jsonschema.
+  "MIT-0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace crates reference each other by path with no version, which cargo-deny
+# counts as a wildcard; that is the one place it is the intended shape.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

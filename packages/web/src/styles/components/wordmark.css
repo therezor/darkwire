@@ -1,0 +1,64 @@
+/**
+ * The brand lockup: the mark, a gap, the name.
+ *
+ * Every length here is an `em` rather than a token, and that is the one decision
+ * this file makes. The header sets the name semibold at the inherited base size
+ * and the login card sets it as an uppercase micro-label; a mark sized in `rem`
+ * would be correct next to one of them and wrong next to the other, and the fix
+ * would be a size prop, which is a second decision to keep in step. In `em` the
+ * mark is a fixed fraction of its own text, so the lockup is one relationship
+ * that holds at any size — including at a 200% browser setting, which is where a
+ * `rem` mark beside `em`-scaled text drifts apart.
+ *
+ * **Two tones, not one.** The mark carries the accent and the name inherits its
+ * colour from the caller. Both were the accent to begin with, and a mark and a
+ * name in one colour at one weight is not a lockup — it is a green blob with a
+ * shape at the front. Splitting them gives the pair a hierarchy (mark first,
+ * name second) and gives the accent one job in the header instead of six
+ * characters' worth of it.
+ *
+ * **Tracked out, not in.** This used to carry `-0.02em`, copied from the habit
+ * of tightening a display face. It is the wrong instinct for a monospace: every
+ * glyph already sits on a fixed advance, so negative tracking does not tighten
+ * the word, it eats into sidebearings that were drawn to be equal — and the
+ * unevenness is exactly what read as "cheap" at the header's size. A hair of
+ * positive tracking is what a mono wordmark wants; it reads deliberate, like a
+ * prompt rather than a variable name.
+ */
+
+@layer components {
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55em;
+    /* Identity rather than type: the product's name is set in the same face as
+     * the code it writes and the commands it runs. Prose stays in the sans. */
+    font-family: var(--font-mono);
+    letter-spacing: 0.015em;
+  }
+
+  /* The lockup as a micro-label, above the title of a full-screen card.
+   *
+   * A component rule rather than one per screen because the login card and the
+   * setup card are the same header in two situations, and two copies of it is
+   * how they drift — one of them was going to gain a hover state or lose the
+   * tracking. It sizes the mark with it, because the mark is in `em`. */
+  .eyebrow {
+    color: var(--accent-fg);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+  }
+
+  /* 1.3em, not 1em. The mark is a filled silhouette with knockouts cut out of
+   * it, so it carries less ink than a run of semibold letters of the same
+   * height and reads smaller than it measures. Matching the cap height exactly
+   * is what made it look undersized. */
+  .wordmark__mark {
+    flex-shrink: 0;
+    width: 1.3em;
+    height: 1.3em;
+    color: var(--accent-fg);
+  }
+}

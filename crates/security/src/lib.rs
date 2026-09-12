@@ -1,0 +1,90 @@
+//! The crate that has to be right.
+//!
+//! Everything that judges an agent-supplied path, host, command or manifest lives
+//! here and nowhere else: the workspace jail, the exec guard, the pinned-address
+//! fetch, the credential vault, tool-output fencing and the approval stores.
+//! Isolated so the whole surface is one directory rather than a grep. Coverage
+//! bar 95/95, because an untested branch here is a bypass, not a bug.
+//!
+//! The guards, and the class of attack each one closes:
+//!
+//!  - [`WorkspaceJail`] — path traversal and symlink escape, by normalising every
+//!    input into the workspace root lexically and then canonicalising through
+//!    the filesystem before deciding containment.
+//!  - [`wrap_tool_output`] — prompt injection, by fencing untrusted output inside
+//!    a per-turn random delimiter. Detection is non-destructive: content passes
+//!    through byte-for-byte and a notice raises the badge.
+//!  - [`guarded_fetch`] — SSRF and DNS rebinding, by pinning the addresses that
+//!    validation resolved into the client that connects, and re-validating every
+//!    redirect hop.
+//!  - [`guard_exec`] — command injection, by taking an argv, jailing every
+//!    path-shaped argument, and refusing the shell invocations that would put a
+//!    parser back in the middle.
+//!  - [`CredentialVault`] — credential theft at rest, with AES-256-GCM under a
+//!    key from the OS keychain or a `0600` keyfile.
+//!  - [`parse_toolbox`] / [`assert_toolbox_policy`] — an agent choosing its own
+//!    toolbox, by making the image and its capability set a hash-authorised
+//!    manifest an operator installs rather than a field any config patch could
+//!    reach.
+//!  - [`extension_digest`] / [`ExtensionStore`] — code loading itself into the
+//!    host, by hashing every byte of an install directory and refusing to load
+//!    one whose digest is not the one an operator approved.
+//!
+//! The layering that makes the isolation true is enforced by Cargo:
+//! `ghostai-core` lists no HTTP client and spawns no process, so there is no
+//! way to reach either without coming through here first.
+#![forbid(unsafe_code)]
+
+pub mod exec_guard;
+pub mod extension;
+pub mod extension_store;
+pub mod fetch;
+pub mod ip;
+pub mod jail;
+pub mod keychain;
+pub mod nonce;
+pub mod random;
+pub mod toolbox;
+pub mod toolbox_store;
+pub mod vault;
+
+#[cfg(feature = "testkit")]
+pub mod testkit;
+
+pub use exec_guard::{
+    ExecGuardOptions, ExecPlan, OutputCap, OutputCapResult, SHELL_BINARIES, binary_name, guard_exec,
+};
+pub use extension::{
+    EXTENSION_MANIFEST_FILE, MAX_EXTENSION_BYTES, MAX_EXTENSION_FILES, assert_extension_policy,
+    extension_digest, parse_extension, read_extension_manifest,
+};
+pub use extension_store::{ExtensionResolution, ExtensionResolutionState, ExtensionStore};
+pub use fetch::{
+    DnsResolver, GuardedFetchOptions, GuardedFetchResult, GuardedResponse, HickoryResolver,
+    NetworkPolicy, PinnedTarget, guarded_fetch, validate_target,
+};
+pub use ip::{
+    AddressCategory, AddressRange, BLOCKED_RANGES, IpFamily, ParsedCidr, ParsedIp, cidr_contains,
+    classify_address, parse_cidr, parse_ip_literal,
+};
+pub use jail::{
+    JailAccept, JailCheck, JailOptions, JailRejection, JailResolver, PathShape, SingleJail,
+    WorkspaceJail, path_shapes, single_jail,
+};
+pub use keychain::{
+    CommandResult, CommandRunner, KeychainOptions, KeychainStore, Platform, SystemCommandRunner,
+};
+pub use nonce::{
+    InjectionFinding, InjectionSignal, TOOL_OUTPUT_NONCE_BYTES, WrapToolOutputOptions,
+    WrappedToolOutput, create_tool_output_nonce, describe_injection_findings,
+    detect_prompt_injection, tool_output_policy, tool_output_tag, wrap_tool_output,
+};
+pub use random::{OsRandom, RandomSource};
+pub use toolbox::{
+    BUILTIN_TOOL_NAMES, EffectiveNetwork, assert_network_within_ceiling, assert_toolbox_policy,
+    effective_network, manifest_hash, parse_toolbox, weakened_in,
+};
+pub use toolbox_store::{ApprovedToolbox, ToolboxListing, ToolboxStore};
+pub use vault::{
+    CredentialVault, KeyFileStore, KeyStore, ResolvedVaultKey, VAULT_KEY_BYTES, resolve_vault_key,
+};

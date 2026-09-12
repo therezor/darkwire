@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "default": true,
+      "type": "boolean"
+    },
+    "concurrency": {
+      "default": 2,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "catchUpOnBoot": {
+      "default": true,
+      "type": "boolean"
+    },
+    "runRetention": {
+      "default": 200,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}

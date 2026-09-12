@@ -1,0 +1,11 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "tool.progress",
+    "seq": 48,
+    "turnId": "t1",
+    "callId": "c1",
+    "elapsedMs": 15000,
+    "message": "still running"
+  }
+}

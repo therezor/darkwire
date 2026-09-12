@@ -1,0 +1,19 @@
+/**
+ * The test's own project, and the only TypeScript left in this example.
+ *
+ * It extends the base config directly rather than a project beside `src`,
+ * because there is no `src`: an extension is a script the host spawns, not a
+ * package that builds. Nothing here is emitted; `tsc -b` runs it as a checker,
+ * and ESLint's `projectService` finds it by walking up from the test file.
+ */
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "isolatedDeclarations": false,
+    "tsBuildInfoFile": "../test.tsbuildinfo"
+  },
+  "include": ["**/*"]
+}

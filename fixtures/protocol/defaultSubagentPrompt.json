@@ -1,0 +1,33 @@
+{
+  "function": "defaultSubagentPrompt",
+  "cases": [
+    {
+      "name": "a label",
+      "input": {
+        "label": "Researcher"
+      },
+      "output": "Hand a self-contained task to the \"Researcher\" agent and wait for its answer. It does not see this conversation, so say everything it needs; it replies with a written result, not with raw tool output."
+    },
+    {
+      "name": "an empty label",
+      "input": {
+        "label": ""
+      },
+      "output": "Hand a self-contained task to the \"\" agent and wait for its answer. It does not see this conversation, so say everything it needs; it replies with a written result, not with raw tool output."
+    },
+    {
+      "name": "a label with quotes",
+      "input": {
+        "label": "The \"Fixer\""
+      },
+      "output": "Hand a self-contained task to the \"The \"Fixer\"\" agent and wait for its answer. It does not see this conversation, so say everything it needs; it replies with a written result, not with raw tool output."
+    },
+    {
+      "name": "an astral-plane label",
+      "input": {
+        "label": "😀 𝔉𝔦𝔵𝔢𝔯"
+      },
+      "output": "Hand a self-contained task to the \"😀 𝔉𝔦𝔵𝔢𝔯\" agent and wait for its answer. It does not see this conversation, so say everything it needs; it replies with a written result, not with raw tool output."
+    }
+  ]
+}

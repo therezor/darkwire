@@ -1,0 +1,7 @@
+{
+  "schema": "ghostai.extension/1",
+  "id": "oldschool",
+  "label": "Old School",
+  "entry": "dist/index.js",
+  "contributes": ["tools"]
+}

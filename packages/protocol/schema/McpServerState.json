@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "enum": [
+    "connecting",
+    "ready",
+    "needs_authorization",
+    "failed",
+    "disabled"
+  ]
+}

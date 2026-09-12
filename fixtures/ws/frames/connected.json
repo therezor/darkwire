@@ -1,0 +1,11 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "connected",
+    "protocolVersion": 2,
+    "sessionKey": "web:abc",
+    "serverTimeMs": 1700000000000,
+    "lastSeq": 41,
+    "workspaceId": "acme"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "args": {
+      "default": "",
+      "type": "string"
+    },
+    "sessionKey": {
+      "type": "string"
+    }
+  }
+}

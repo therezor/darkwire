@@ -1,0 +1,27 @@
+[package]
+name = "ghostai-i18n"
+description = "Mirror of @ghostwire/i18n: i18next-compatible lookup over the shared locale bundles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+icu_locale_core = { workspace = true }
+icu_plurals = { workspace = true }
+serde_json = { workspace = true }
+
+# `build.rs` reads the same bundle `include_str!` embeds, to write the key
+# constants. One parser for both sides, so they cannot disagree about a key.
+[build-dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "apiBase": {
+      "default": "",
+      "type": "string"
+    },
+    "extraHeaders": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "apiKey": {
+      "type": "string"
+    },
+    "instanceId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ]
+}

@@ -1,0 +1,43 @@
+[package]
+name = "ghostai-providers"
+description = "The provider registry, the openai-chat wire, SSE parsing, resilience, token accounting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Test doubles other crates' tests reach through `features = ["testkit"]`:
+# a scripted provider, a scripted HTTP server and the conformance suite.
+# Excluded from coverage.
+testkit = []
+
+[dependencies]
+ghostai-core.workspace = true
+ghostai-protocol.workspace = true
+ghostai-security.workspace = true
+chrono.workspace = true
+futures.workspace = true
+indexmap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+# The crate's own test doubles, and the clocks and random sources of the
+# crates below it, reach the tests through the feature the gate does not
+# otherwise turn on.
+ghostai-providers = { workspace = true, features = ["testkit"] }
+ghostai-core = { workspace = true, features = ["testkit"] }
+ghostai-security = { workspace = true, features = ["testkit"] }
+proptest.workspace = true
+# `start_paused` for the backoff tests: nothing sleeps for real.
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true

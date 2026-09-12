@@ -1,0 +1,9 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "tool.approve",
+    "callId": "c1",
+    "approved": true,
+    "scope": "session"
+  }
+}

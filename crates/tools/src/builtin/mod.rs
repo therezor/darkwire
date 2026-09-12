@@ -1,0 +1,108 @@
+//! The built-in tool set.
+//!
+//! Eight tools, and the reason there are only eight is that every one of them
+//! is a capability the agent cannot obtain any other way. Anything expressible
+//! as a command — `grep`, `find`, `git` — is `exec`'s job, and adding a tool
+//! per command would spend context on definitions the model already knows how
+//! to write in argv form.
+//!
+//! `memory` and `skill` are the two that do not quite fit that test, and they
+//! are here for a second reason: a tool carries a per-agent permission, so
+//! being a tool is what makes each feature switchable without a config flag
+//! beside it that could disagree.
+//!
+//! `exec` is registered conditionally. A disabled exec tool that still appears
+//! in the definitions list is worse than no exec tool at all: the model spends
+//! a turn calling it, gets `permission_denied`, and has learned nothing it
+//! could not have been told by its absence. `automation` follows the same rule
+//! against `scheduler.enabled` — an install with the scheduler switched off
+//! should not advertise a way to schedule.
+//!
+//! `automation` is also the one built-in absent from `DEFAULT_AGENT_TOOLS`, so
+//! being registered is not the same as being reachable: no agent has it until
+//! an operator grants it.
+
+pub mod automation;
+pub mod edit_file;
+pub mod exec;
+pub mod list_dir;
+pub mod memory;
+pub mod read_file;
+pub mod shared;
+pub mod skill;
+pub mod write_file;
+
+use std::sync::Arc;
+
+use ghostai_core::Result;
+use ghostai_protocol::{ToolSource, ToolsConfig};
+
+pub use automation::automation_tool;
+pub use edit_file::edit_file_tool;
+pub use exec::{exec_tool, render_run};
+pub use list_dir::list_dir_tool;
+pub use memory::memory_tool;
+pub use read_file::read_file_tool;
+pub use shared::format_bytes;
+pub use skill::skill_tool;
+pub use write_file::write_file_tool;
+
+use crate::registry::ToolRegistry;
+use crate::tool::{AnyTool, ToolHandler, TypedTool};
+
+/// A built-in as an [`AnyTool`].
+///
+/// Every built-in's spec is a literal checked by the crate's own tests, so a
+/// construction failure is a defect in this crate rather than a condition to
+/// report; the `unreachable!` says so at the one place it could surface.
+pub(crate) fn built<H: ToolHandler>(tool: Result<TypedTool<H>>) -> AnyTool {
+    Arc::new(tool.unwrap_or_else(|error| unreachable!("a built-in's spec is a literal: {error}")))
+}
+
+/// Every built-in, including `exec` and `automation`, in registration order.
+pub fn all_builtin_tools() -> Vec<AnyTool> {
+    vec![
+        read_file_tool(),
+        write_file_tool(),
+        edit_file_tool(),
+        list_dir_tool(),
+        exec_tool(),
+        automation_tool(),
+        memory_tool(),
+        skill_tool(),
+    ]
+}
+
+/// Which of the conditionally-registered built-ins this install wants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinOptions {
+    /// `false` drops `automation`. Defaults to keeping it.
+    pub scheduler: bool,
+}
+
+impl Default for BuiltinOptions {
+    fn default() -> BuiltinOptions {
+        BuiltinOptions { scheduler: true }
+    }
+}
+
+/// The built-ins that config can switch off, and the switches that do it.
+pub fn builtin_tools(config: Option<&ToolsConfig>, options: BuiltinOptions) -> Vec<AnyTool> {
+    let exec_enabled = config.is_none_or(|config| config.exec.enable);
+    all_builtin_tools()
+        .into_iter()
+        .filter(|tool| {
+            let name = tool.definition().name.as_str();
+            (name != "exec" || exec_enabled) && (name != "automation" || options.scheduler)
+        })
+        .collect()
+}
+
+/// Registers the built-ins under the `builtin` source.
+pub fn register_builtins(
+    registry: &ToolRegistry,
+    config: Option<&ToolsConfig>,
+    options: BuiltinOptions,
+) -> Result<()> {
+    registry.register_all(builtin_tools(config, options), ToolSource::Builtin)
+}

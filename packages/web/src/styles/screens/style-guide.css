@@ -1,0 +1,221 @@
+/**
+ * The living style guide.
+ *
+ * A page whose whole content is swatches needs a handful of classes that exist
+ * nowhere else: a colour chip, a radius chip. They are here rather than in the
+ * component layer because nothing else in the app renders a token as an object —
+ * everything else renders a token as an effect.
+ *
+ * The swatches themselves take their colour from an inline `--swatch`, set at
+ * the call site from the token name being demonstrated. That is the one place
+ * in this package where a style is written in TSX, and it is unavoidable: the
+ * page's subject *is* the list of token names, so the mapping has to be a loop
+ * over data rather than a stylesheet with one rule per token.
+ */
+
+@layer screens {
+  .style-guide {
+    --gap: var(--space-12);
+
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: var(--space-12) var(--space-6);
+  }
+
+  .style-guide__header {
+    padding-bottom: var(--space-6);
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  .style-guide__title {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+    font-weight: var(--weight-semibold);
+  }
+
+  .style-guide__lede {
+    color: var(--fg-2);
+  }
+
+  .style-guide__section {
+    --gap: var(--space-3);
+  }
+
+  .style-guide__section-title {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+    font-weight: var(--weight-medium);
+  }
+
+  .style-guide__hint {
+    max-width: 72ch;
+    color: var(--fg-3);
+  }
+
+  .style-guide__label {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+  }
+
+  .style-guide__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .style-guide__grid--single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 40rem) {
+    .style-guide__grid,
+    .style-guide__grid--single {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .style-guide__surface {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: 6rem;
+    padding: var(--space-3);
+    background-color: var(--swatch);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__text-card {
+    --gap: var(--space-1);
+
+    padding: var(--space-3);
+    background-color: var(--swatch);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__text-line {
+    font-size: var(--text-sm);
+    color: var(--swatch-fg);
+  }
+
+  .style-guide__overlay-card {
+    padding: var(--space-3);
+    background-color: var(--surface-2);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__overlay-chip {
+    height: var(--space-12);
+    margin-bottom: var(--space-2);
+    background-color: var(--swatch);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__role-row {
+    --gap: var(--space-3);
+  }
+
+  .style-guide__role-fill {
+    display: inline-flex;
+    width: 6rem;
+    height: var(--size-control-md);
+    align-items: center;
+    justify-content: center;
+    background-color: var(--swatch);
+    border-radius: var(--radius-md);
+    font-weight: var(--weight-medium);
+    color: var(--on-fill);
+  }
+
+  .style-guide__role-soft {
+    display: inline-flex;
+    height: var(--size-control-md);
+    align-items: center;
+    padding-inline: var(--space-3);
+    background-color: var(--swatch);
+    border-radius: var(--radius-md);
+    color: var(--swatch-fg);
+  }
+
+  .style-guide__role-text {
+    color: var(--swatch-fg);
+  }
+
+  .style-guide__panel {
+    --gap: var(--space-2);
+
+    padding: var(--space-4);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__type-line {
+    font-size: var(--swatch-size);
+    line-height: var(--swatch-leading);
+  }
+
+  .style-guide__type-name {
+    color: var(--fg-3);
+  }
+
+  .style-guide__mono-line {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+  }
+
+  .style-guide__chips {
+    --gap: var(--space-4);
+  }
+
+  .style-guide__chip {
+    --gap: var(--space-2);
+
+    align-items: center;
+  }
+
+  .style-guide__radius-box {
+    width: var(--space-16);
+    height: var(--space-16);
+    background-color: var(--surface-3);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--swatch-radius);
+  }
+
+  .style-guide__interaction {
+    --gap: var(--space-4);
+
+    padding: var(--space-4);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .style-guide__switch-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--fg-2);
+  }
+
+  .style-guide__select {
+    width: 12rem;
+  }
+
+  .style-guide__tab-body {
+    color: var(--fg-2);
+  }
+
+  .style-guide__fields {
+    --gap: var(--space-3);
+
+    max-width: 24rem;
+  }
+
+  .style-guide__stack {
+    --gap: var(--space-2);
+  }
+}

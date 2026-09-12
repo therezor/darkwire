@@ -1,0 +1,41 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        // The translation resources live beside `src` rather than inside it, so
+        // that the web token gates never scan them. Without this line turbo
+        // cannot see them change: an edit to a bundle replays a cached build,
+        // and the app ships the previous wording while every test that imports
+        // the JSON directly passes. That failure is invisible until e2e runs.
+        "locales/**",
+        "index.html",
+        "tsconfig.json",
+        "tsup.config.ts",
+        "vite.config.ts",
+        "package.json"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tsconfig.json"],
+      "outputs": ["*.tsbuildinfo"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "test/**", "vitest.config.ts"],
+      "outputs": ["coverage/**"]
+    },
+    "lint": {
+      "inputs": ["src/**", "test/**", "eslint.config.js"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

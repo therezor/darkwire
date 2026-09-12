@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "path"
+  ]
+}

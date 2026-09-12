@@ -1,0 +1,82 @@
+/**
+ * A short advisory block: an icon, a bold label and a sentence.
+ *
+ * It lived in `screens/chat.css` because the transcript's five advisory badges
+ * were its first caller. It is now used by the file browser's delete dialog,
+ * the file preview, the context inspector and the style guide as well — four
+ * screens, which makes it a component rather than a piece of the chat screen.
+ * A class defined in one screen's stylesheet and used by four is a class the
+ * next person deletes while tidying the screen it appears to belong to.
+ *
+ * The tone is carried by three custom properties rather than by three
+ * declarations per variant, so a new tone is one rule and cannot get the edge
+ * right and the fill wrong.
+ *
+ * `.notice__message` deliberately goes back to body text: the tone colours the
+ * label and the edge, and a whole paragraph in a semantic hue is harder to read
+ * than the same paragraph in the foreground tier.
+ */
+
+@layer components {
+  .notice {
+    --tone-fill: var(--hover);
+    --tone-edge: var(--line-strong);
+    --tone-fg: var(--fg-2);
+
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background-color: var(--tone-fill);
+    border: var(--hairline) solid var(--tone-edge);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--tone-fg);
+  }
+
+  .notice--accent {
+    --tone-fill: var(--accent-soft);
+    --tone-edge: var(--accent-edge);
+    --tone-fg: var(--accent-fg);
+  }
+
+  .notice--success {
+    --tone-fill: var(--success-soft);
+    --tone-edge: var(--success-edge);
+    --tone-fg: var(--success-fg);
+  }
+
+  .notice--warning {
+    --tone-fill: var(--warning-soft);
+    --tone-edge: var(--warning-edge);
+    --tone-fg: var(--warning-fg);
+  }
+
+  .notice--danger {
+    --tone-fill: var(--danger-soft);
+    --tone-edge: var(--danger-edge);
+    --tone-fg: var(--danger-fg);
+  }
+
+  .notice--info {
+    --tone-fill: var(--info-soft);
+    --tone-edge: var(--info-edge);
+    --tone-fg: var(--info-fg);
+  }
+
+  .notice > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    margin-top: var(--space-0-5);
+  }
+
+  .notice__label {
+    font-weight: var(--weight-medium);
+  }
+
+  .notice__message {
+    color: var(--fg-2);
+  }
+}

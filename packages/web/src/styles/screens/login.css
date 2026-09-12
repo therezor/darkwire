@@ -1,0 +1,42 @@
+/**
+ * The login overlay.
+ *
+ * Not a dialog: there is nothing behind it to return focus to, and its "closed"
+ * state is a successful login rather than an Escape key. So it is an opaque
+ * page-coloured sheet rather than a scrim — what is behind it is a UI the user
+ * is not entitled to see yet, and blurring it would be a hint rather than a
+ * boundary.
+ */
+
+@layer screens {
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    background-color: var(--surface-0);
+  }
+
+  .login-card {
+    --gap: var(--space-4);
+
+    width: min(24rem, 100%);
+    padding: var(--space-6);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .login-card__header {
+    --gap: var(--space-1);
+  }
+
+  .login-card__title {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+    font-weight: var(--weight-medium);
+  }
+}

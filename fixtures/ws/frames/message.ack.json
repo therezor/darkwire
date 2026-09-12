@@ -1,0 +1,10 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "message.ack",
+    "seq": 42,
+    "sessionKey": "web:abc",
+    "messageId": "m7",
+    "clientMessageId": "cm-1"
+  }
+}

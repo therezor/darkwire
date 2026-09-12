@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "enum": [
+    "complete",
+    "aborted",
+    "max_iterations",
+    "wall_timeout",
+    "error"
+  ]
+}

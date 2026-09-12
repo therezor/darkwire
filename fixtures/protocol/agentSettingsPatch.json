@@ -1,0 +1,542 @@
+{
+  "function": "agentSettingsPatch",
+  "cases": [
+    {
+      "name": "the default agent, moved to a new model",
+      "input": {
+        "config": {},
+        "agentId": "default",
+        "changes": {
+          "model": "gpt-4o",
+          "provider": "openai"
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "default": {
+              "model": "gpt-4o",
+              "provider": "openai",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "",
+              "systemPrompt": "",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow",
+                "list_dir": "allow",
+                "write_file": "allow",
+                "edit_file": "allow",
+                "exec": "ask",
+                "memory": "allow",
+                "skill": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a named agent is sent back whole",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {
+          "model": "gpt-4o",
+          "provider": "openai"
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "gpt-4o",
+              "provider": "openai",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "temperature": 0.7,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "Coder",
+              "systemPrompt": "Write code.",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "null clears the temperature",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {
+          "temperature": null
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "llama3",
+              "provider": "ollama",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "Coder",
+              "systemPrompt": "Write code.",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a number sets the temperature",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {
+          "temperature": 1.5
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "llama3",
+              "provider": "ollama",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "temperature": 1.5,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "Coder",
+              "systemPrompt": "Write code.",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "null clears the reasoning effort",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "reasoningEffort": "high"
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {
+          "reasoningEffort": null
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "",
+              "provider": "auto",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "",
+              "systemPrompt": "",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow",
+                "list_dir": "allow",
+                "write_file": "allow",
+                "edit_file": "allow",
+                "exec": "ask",
+                "memory": "allow",
+                "skill": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a value sets the reasoning effort",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {
+          "reasoningEffort": "low"
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "llama3",
+              "provider": "ollama",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "temperature": 0.7,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "Coder",
+              "systemPrompt": "Write code.",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": [],
+              "reasoningEffort": "low"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an unknown id writes a whole agent",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "ghost",
+        "changes": {
+          "model": "gpt-4o"
+        }
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "ghost": {
+              "model": "gpt-4o",
+              "provider": "auto",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "",
+              "systemPrompt": "",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow",
+                "list_dir": "allow",
+                "write_file": "allow",
+                "edit_file": "allow",
+                "exec": "ask",
+                "memory": "allow",
+                "skill": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "nothing mentioned sends the entry back unchanged",
+      "input": {
+        "config": {
+          "agents": {
+            "list": {
+              "coder": {
+                "label": "Coder",
+                "systemPrompt": "Write code.",
+                "model": "llama3",
+                "provider": "ollama",
+                "temperature": 0.7,
+                "tools": {
+                  "read_file": "allow"
+                }
+              }
+            }
+          }
+        },
+        "agentId": "coder",
+        "changes": {}
+      },
+      "output": {
+        "agents": {
+          "list": {
+            "coder": {
+              "model": "llama3",
+              "provider": "ollama",
+              "maxTokens": 8192,
+              "contextWindowTokens": 65536,
+              "temperature": 0.7,
+              "maxToolIterations": 40,
+              "toolTimeoutMs": 0,
+              "loopWallTimeoutMs": 0,
+              "subagentTimeoutMs": 0,
+              "visionEnabled": true,
+              "toolsEnabled": true,
+              "label": "Coder",
+              "systemPrompt": "Write code.",
+              "livePrompt": "",
+              "wrapUpPrompt": "",
+              "promptMode": "template",
+              "platformPrompt": "",
+              "toolboxPrompt": "",
+              "toolPolicyPrompt": "",
+              "memoryPrompt": "",
+              "skillsPrompt": "",
+              "toolPrompts": {},
+              "enabled": true,
+              "tools": {
+                "read_file": "allow"
+              },
+              "toolbox": {
+                "name": "",
+                "network": {
+                  "mode": "none",
+                  "allow": []
+                },
+                "tools": {}
+              },
+              "subagents": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}

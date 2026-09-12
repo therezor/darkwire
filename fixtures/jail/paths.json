@@ -1,0 +1,863 @@
+{
+  "description": "WorkspaceJail.check(path) and pathShapes(path) over the workspace described in `layout` (paths relative to the workspace root; symlink targets relative to the link; `outside` files live beside the root in its parent). `<root>` in an input stands for the absolute, canonical workspace root and `<base>` for its parent — in an output, also for the parent with its leading `/` removed, which is what clamping an absolute path that is not under the root leaves behind. `output.check` is {ok: true, relative, canonical, rewrites} — `relative` is the verdict's clamped workspace-relative form and `canonical` is the verified path relative to the root (they differ when a symlink was resolved), both with `/` separators — or {ok: false, rejection, message}. `output.shapes` is pathShapes(), the pre-chroot syntactic rule the exec guard refuses on. The 4096-character name is `unverifiable` because the filesystem answers ENAMETOOLONG.",
+  "layout": {
+    "files": [
+      "here.txt",
+      "real/file.txt",
+      "a/b.txt"
+    ],
+    "directories": [
+      "real",
+      "a",
+      "nested/dir"
+    ],
+    "symlinks": {
+      "alias": "real",
+      "alias.txt": "../outside/secret.txt",
+      "escape": "../outside",
+      "up": "..",
+      "vault": "../vault.json",
+      "link": "../gone"
+    },
+    "outside": [
+      "outside/secret.txt"
+    ]
+  },
+  "cases": [
+    {
+      "name": "\"notes.md\"",
+      "input": {
+        "path": "notes.md"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "notes.md",
+          "canonical": "notes.md",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"a/b/c/d.txt\"",
+      "input": {
+        "path": "a/b/c/d.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/b/c/d.txt",
+          "canonical": "a/b/c/d.txt",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"here.txt\"",
+      "input": {
+        "path": "here.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "here.txt",
+          "canonical": "here.txt",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\".\"",
+      "input": {
+        "path": "."
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"./\"",
+      "input": {
+        "path": "./"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"alias/file.txt\"",
+      "input": {
+        "path": "alias/file.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "alias/file.txt",
+          "canonical": "real/file.txt",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"a/b.txt\"",
+      "input": {
+        "path": "a/b.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/b.txt",
+          "canonical": "a/b.txt",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"a/~/b\"",
+      "input": {
+        "path": "a/~/b"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/~/b",
+          "canonical": "a/~/b",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"a/C:/b\"",
+      "input": {
+        "path": "a/C:/b"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/C:/b",
+          "canonical": "a/C:/b",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"~\"",
+      "input": {
+        "path": "~"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "home_prefix"
+        ]
+      }
+    },
+    {
+      "name": "\"~/.ssh/id_ed25519\"",
+      "input": {
+        "path": "~/.ssh/id_ed25519"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": ".ssh/id_ed25519",
+          "canonical": ".ssh/id_ed25519",
+          "rewrites": [
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "home_prefix"
+        ]
+      }
+    },
+    {
+      "name": "\"~\\\\.ssh\"",
+      "input": {
+        "path": "~\\.ssh"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": ".ssh",
+          "canonical": ".ssh",
+          "rewrites": [
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "home_prefix"
+        ]
+      }
+    },
+    {
+      "name": "\"~user/x\"",
+      "input": {
+        "path": "~user/x"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "x",
+          "canonical": "x",
+          "rewrites": [
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "home_prefix"
+        ]
+      }
+    },
+    {
+      "name": "\"/etc/passwd\"",
+      "input": {
+        "path": "/etc/passwd"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "etc/passwd",
+          "canonical": "etc/passwd",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"\\\\Windows\\\\System32\"",
+      "input": {
+        "path": "\\Windows\\System32"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "Windows/System32",
+          "canonical": "Windows/System32",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"C:\\\\Windows\\\\System32\"",
+      "input": {
+        "path": "C:\\Windows\\System32"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "Windows/System32",
+          "canonical": "Windows/System32",
+          "rewrites": [
+            "drive"
+          ]
+        },
+        "shapes": [
+          "drive"
+        ]
+      }
+    },
+    {
+      "name": "\"c:/windows\"",
+      "input": {
+        "path": "c:/windows"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "windows",
+          "canonical": "windows",
+          "rewrites": [
+            "drive"
+          ]
+        },
+        "shapes": [
+          "drive"
+        ]
+      }
+    },
+    {
+      "name": "\"C:Windows\"",
+      "input": {
+        "path": "C:Windows"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "Windows",
+          "canonical": "Windows",
+          "rewrites": [
+            "drive"
+          ]
+        },
+        "shapes": [
+          "drive"
+        ]
+      }
+    },
+    {
+      "name": "\"\\\\\\\\server\\\\share\\\\file\"",
+      "input": {
+        "path": "\\\\server\\share\\file"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "server/share/file",
+          "canonical": "server/share/file",
+          "rewrites": [
+            "unc"
+          ]
+        },
+        "shapes": [
+          "unc"
+        ]
+      }
+    },
+    {
+      "name": "\"//server/share/file\"",
+      "input": {
+        "path": "//server/share/file"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "server/share/file",
+          "canonical": "server/share/file",
+          "rewrites": [
+            "unc"
+          ]
+        },
+        "shapes": [
+          "unc"
+        ]
+      }
+    },
+    {
+      "name": "\"///\"",
+      "input": {
+        "path": "///"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "unc"
+          ]
+        },
+        "shapes": [
+          "unc"
+        ]
+      }
+    },
+    {
+      "name": "\"../secret.txt\"",
+      "input": {
+        "path": "../secret.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "secret.txt",
+          "canonical": "secret.txt",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"a/b/../../../etc/passwd\"",
+      "input": {
+        "path": "a/b/../../../etc/passwd"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "etc/passwd",
+          "canonical": "etc/passwd",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"a/../notes.md\"",
+      "input": {
+        "path": "a/../notes.md"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "notes.md",
+          "canonical": "notes.md",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"a\\\\..\\\\..\\\\outside\"",
+      "input": {
+        "path": "a\\..\\..\\outside"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "outside",
+          "canonical": "outside",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"./c:..\"",
+      "input": {
+        "path": "./c:.."
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "drive",
+            "traversal"
+          ]
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"/~\"",
+      "input": {
+        "path": "/~"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "absolute",
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"/~/x\"",
+      "input": {
+        "path": "/~/x"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "x",
+          "canonical": "x",
+          "rewrites": [
+            "absolute",
+            "home_prefix"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"~/../x\"",
+      "input": {
+        "path": "~/../x"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "x",
+          "canonical": "x",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "home_prefix",
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"..\"",
+      "input": {
+        "path": ".."
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"../..\"",
+      "input": {
+        "path": "../.."
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"a//b///c\"",
+      "input": {
+        "path": "a//b///c"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/b/c",
+          "canonical": "a/b/c",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"..foo/.hidden/a..b/x.\"",
+      "input": {
+        "path": "..foo/.hidden/a..b/x."
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "..foo/.hidden/a..b/x.",
+          "canonical": "..foo/.hidden/a..b/x.",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"nested/dir/../../here.txt\"",
+      "input": {
+        "path": "nested/dir/../../here.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "here.txt",
+          "canonical": "here.txt",
+          "rewrites": [
+            "traversal"
+          ]
+        },
+        "shapes": [
+          "traversal"
+        ]
+      }
+    },
+    {
+      "name": "\"é/é/ﬁle\"",
+      "input": {
+        "path": "é/é/ﬁle"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "é/é/ﬁle",
+          "canonical": "é/é/ﬁle",
+          "rewrites": []
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"<root>\"",
+      "input": {
+        "path": "<root>"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "",
+          "canonical": "",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"<root>/notes/x.md\"",
+      "input": {
+        "path": "<root>/notes/x.md"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "notes/x.md",
+          "canonical": "notes/x.md",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"<root>/a/b.txt\"",
+      "input": {
+        "path": "<root>/a/b.txt"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "a/b.txt",
+          "canonical": "a/b.txt",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"<root>-other/notes/x.md\"",
+      "input": {
+        "path": "<root>-other/notes/x.md"
+      },
+      "output": {
+        "check": {
+          "ok": true,
+          "relative": "<base>/workspace-other/notes/x.md",
+          "canonical": "<base>/workspace-other/notes/x.md",
+          "rewrites": [
+            "absolute"
+          ]
+        },
+        "shapes": [
+          "absolute"
+        ]
+      }
+    },
+    {
+      "name": "\"\"",
+      "input": {
+        "path": ""
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "empty",
+          "message": "Path is empty"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"notes\\u0000.md\"",
+      "input": {
+        "path": "notes\u0000.md"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "nul_byte",
+          "message": "Path contains a NUL byte"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"ok.txt\\u0000.png\"",
+      "input": {
+        "path": "ok.txt\u0000.png"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "nul_byte",
+          "message": "Path contains a NUL byte"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+      "input": {
+        "path": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "unverifiable",
+          "message": "Path cannot be verified: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (ENAMETOOLONG)"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"escape/secret.txt\"",
+      "input": {
+        "path": "escape/secret.txt"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "outside_root",
+          "message": "Path resolves outside the workspace: escape/secret.txt"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"escape\"",
+      "input": {
+        "path": "escape"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "outside_root",
+          "message": "Path resolves outside the workspace: escape"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"up/outside/secret.txt\"",
+      "input": {
+        "path": "up/outside/secret.txt"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "outside_root",
+          "message": "Path resolves outside the workspace: up/outside/secret.txt"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"alias.txt\"",
+      "input": {
+        "path": "alias.txt"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "outside_root",
+          "message": "Path resolves outside the workspace: alias.txt"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"vault\"",
+      "input": {
+        "path": "vault"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "unverifiable",
+          "message": "Path cannot be verified: vault (ENOENT)"
+        },
+        "shapes": []
+      }
+    },
+    {
+      "name": "\"link/child.txt\"",
+      "input": {
+        "path": "link/child.txt"
+      },
+      "output": {
+        "check": {
+          "ok": false,
+          "rejection": "unverifiable",
+          "message": "Path cannot be verified: link/child.txt (ENOENT)"
+        },
+        "shapes": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+
+    // Nothing imports this package — it is a test runner's entry point, not a
+    // library — so there is no declaration to emit and no bundle to build.
+    // `tsc -b` here is a checker, the same role it plays in `@ghostwire/web`.
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "tsBuildInfoFile": "./.tsbuildinfo",
+
+    // Playwright's `expect` and a page's evaluated callbacks are inferred
+    // shapes; with nothing to declare, there is nothing for the flag to
+    // protect.
+    "isolatedDeclarations": false,
+
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  // No `references`, for the same reason `@ghostwire/web` has none: everything
+  // here is imported by package name and resolves to built declarations, and
+  // Playwright's own config loader reads this file and rejects a reference it
+  // cannot resolve. The root `tsconfig.json` lists this project last, which is
+  // what orders the build.
+  "include": ["src/**/*", "test/**/*", "playwright.config.ts"]
+}

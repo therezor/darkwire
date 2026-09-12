@@ -1,0 +1,77 @@
+{
+  "function": "tokensPerSecond",
+  "cases": [
+    {
+      "name": "divides completion tokens by wall time",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "elapsedMs": 1000
+      },
+      "output": 250
+    },
+    {
+      "name": "two seconds",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "elapsedMs": 2000
+      },
+      "output": 125
+    },
+    {
+      "name": "a fractional rate",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "elapsedMs": 3000
+      },
+      "output": 83.33333333333333
+    },
+    {
+      "name": "nothing for zero elapsed",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "elapsedMs": 0
+      },
+      "output": null
+    },
+    {
+      "name": "nothing for negative elapsed",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "elapsedMs": -1
+      },
+      "output": null
+    },
+    {
+      "name": "nothing for a turn that produced nothing",
+      "input": {
+        "usage": {
+          "promptTokens": 10,
+          "completionTokens": 0,
+          "totalTokens": 10
+        },
+        "elapsedMs": 1000
+      },
+      "output": null
+    }
+  ]
+}

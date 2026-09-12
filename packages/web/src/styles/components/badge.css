@@ -1,0 +1,103 @@
+/**
+ * Badge.
+ *
+ * Six tones times three variants is eighteen pairings, and the recipe used to
+ * spell all eighteen out. Here the tone sets four custom properties and the
+ * variant reads them, so the eighteen become six plus three — and, more to the
+ * point, the *rule* becomes readable: a soft badge is the tone's soft fill with
+ * the tone's foreground, and that sentence is now written once instead of
+ * being implied by six near-identical lines.
+ *
+ * `--tone-fg` on `--tone-fill` over any of the four surfaces is asserted at AA
+ * by `tokens/contrast.test.ts`, which is why a badge can be dropped onto a
+ * popover or a card without checking.
+ */
+
+@layer components {
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border: var(--hairline) solid transparent;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+  }
+
+  .badge > svg {
+    width: var(--space-3);
+    height: var(--space-3);
+    flex-shrink: 0;
+  }
+
+  /* ── Tones ─────────────────────────────────────────────────── *
+   *
+   * Neutral is a tone like the others rather than a set of defaults on
+   * `.badge`, so that a badge rendered without one is visibly unstyled instead
+   * of quietly grey. The recipe always applies exactly one.
+   */
+
+  .badge--neutral {
+    --tone-fill: var(--hover);
+    --tone-fg: var(--fg-2);
+    --tone-solid: var(--line-strong);
+    --tone-solid-fg: var(--fg-1);
+  }
+
+  .badge--accent {
+    --tone-fill: var(--accent-soft);
+    --tone-fg: var(--accent-fg);
+    --tone-solid: var(--accent);
+    --tone-solid-fg: var(--on-fill);
+  }
+
+  .badge--success {
+    --tone-fill: var(--success-soft);
+    --tone-fg: var(--success-fg);
+    --tone-solid: var(--success);
+    --tone-solid-fg: var(--on-fill);
+  }
+
+  .badge--warning {
+    --tone-fill: var(--warning-soft);
+    --tone-fg: var(--warning-fg);
+    --tone-solid: var(--warning);
+    --tone-solid-fg: var(--on-fill);
+  }
+
+  .badge--danger {
+    --tone-fill: var(--danger-soft);
+    --tone-fg: var(--danger-fg);
+    --tone-solid: var(--danger);
+    --tone-solid-fg: var(--on-fill);
+  }
+
+  .badge--info {
+    --tone-fill: var(--info-soft);
+    --tone-fg: var(--info-fg);
+    --tone-solid: var(--info);
+    --tone-solid-fg: var(--on-fill);
+  }
+
+  /* ── Variants ──────────────────────────────────────────────── */
+
+  .badge--soft {
+    background-color: var(--tone-fill);
+    color: var(--tone-fg);
+  }
+
+  .badge--solid {
+    background-color: var(--tone-solid);
+    color: var(--tone-solid-fg);
+  }
+
+  .badge--outline {
+    background-color: transparent;
+    border-color: var(--tone-fg);
+    color: var(--tone-fg);
+  }
+}

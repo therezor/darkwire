@@ -1,0 +1,2022 @@
+{
+  "description": "Two kinds of case. `input: {host}` -> `output.literal` is parseIpLiteral(host) with `bytes` as hex (4 bytes for family 4, 16 for family 6; an IPv4-mapped IPv6 literal comes back as family 4) or null when the host is a name, and `output.range` is classifyAddress() — the most specific BLOCKED_RANGES entry {cidr, label, category} or null for a routable address. `input: {cidr, host}` -> `output.cidr` is parseCidr(cidr) with the network bytes as hex (host bits are NOT masked) or null when refused, and `output.contains` is cidrContains(cidr, host) (null when the CIDR did not parse).",
+  "cases": [
+    {
+      "name": "literal \"127.0.0.1\"",
+      "input": {
+        "host": "127.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"8.8.8.8\"",
+      "input": {
+        "host": "8.8.8.8"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "8.8.8.8",
+          "bytes": "08080808"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"0.0.0.0\"",
+      "input": {
+        "host": "0.0.0.0"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "0.0.0.0",
+          "bytes": "00000000"
+        },
+        "range": {
+          "cidr": "0.0.0.0/8",
+          "label": "this network",
+          "category": "unspecified"
+        }
+      }
+    },
+    {
+      "name": "literal \"255.255.255.255\"",
+      "input": {
+        "host": "255.255.255.255"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "255.255.255.255",
+          "bytes": "ffffffff"
+        },
+        "range": {
+          "cidr": "240.0.0.0/4",
+          "label": "reserved, including broadcast",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"2130706433\"",
+      "input": {
+        "host": "2130706433"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"3232235777\"",
+      "input": {
+        "host": "3232235777"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.168.1.1",
+          "bytes": "c0a80101"
+        },
+        "range": {
+          "cidr": "192.168.0.0/16",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"2852039166\"",
+      "input": {
+        "host": "2852039166"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"0177.0.0.1\"",
+      "input": {
+        "host": "0177.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"0177.0.0.01\"",
+      "input": {
+        "host": "0177.0.0.01"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"017700000001\"",
+      "input": {
+        "host": "017700000001"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"0251.0376.0251.0376\"",
+      "input": {
+        "host": "0251.0376.0251.0376"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"0x7f.0.0.1\"",
+      "input": {
+        "host": "0x7f.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"0x7f000001\"",
+      "input": {
+        "host": "0x7f000001"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"0X7F000001\"",
+      "input": {
+        "host": "0X7F000001"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"0xa9fea9fe\"",
+      "input": {
+        "host": "0xa9fea9fe"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"127.1\"",
+      "input": {
+        "host": "127.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"127.0.1\"",
+      "input": {
+        "host": "127.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"192.168.257\"",
+      "input": {
+        "host": "192.168.257"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.168.1.1",
+          "bytes": "c0a80101"
+        },
+        "range": {
+          "cidr": "192.168.0.0/16",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"10.0xffff\"",
+      "input": {
+        "host": "10.0xffff"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "10.0.255.255",
+          "bytes": "0a00ffff"
+        },
+        "range": {
+          "cidr": "10.0.0.0/8",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"169.254.43518\"",
+      "input": {
+        "host": "169.254.43518"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"127.0.0.1.\"",
+      "input": {
+        "host": "127.0.0.1."
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"1.2.3.\"",
+      "input": {
+        "host": "1.2.3."
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "1.2.0.3",
+          "bytes": "01020003"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"  127.0.0.1  \"",
+      "input": {
+        "host": "  127.0.0.1  "
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"example.com\"",
+      "input": {
+        "host": "example.com"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"localhost\"",
+      "input": {
+        "host": "localhost"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"\"",
+      "input": {
+        "host": ""
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"   \"",
+      "input": {
+        "host": "   "
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1.2.3.4.5\"",
+      "input": {
+        "host": "1.2.3.4.5"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"256.1.1.1\"",
+      "input": {
+        "host": "256.1.1.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1.256.1.1\"",
+      "input": {
+        "host": "1.256.1.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"4294967296\"",
+      "input": {
+        "host": "4294967296"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"127.0.0.256\"",
+      "input": {
+        "host": "127.0.0.256"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"08.1.1.1\"",
+      "input": {
+        "host": "08.1.1.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"0x.1.1.1\"",
+      "input": {
+        "host": "0x.1.1.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"0x\"",
+      "input": {
+        "host": "0x"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1..2\"",
+      "input": {
+        "host": "1..2"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \".1.2.3\"",
+      "input": {
+        "host": ".1.2.3"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"a.b.c.d\"",
+      "input": {
+        "host": "a.b.c.d"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"-1.0.0.1\"",
+      "input": {
+        "host": "-1.0.0.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1.2.3.4/8\"",
+      "input": {
+        "host": "1.2.3.4/8"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"127.0.0.1x\"",
+      "input": {
+        "host": "127.0.0.1x"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"127.0.0.1.evil.com\"",
+      "input": {
+        "host": "127.0.0.1.evil.com"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::1\"",
+      "input": {
+        "host": "::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::1",
+          "bytes": "00000000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "::1/128",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"::\"",
+      "input": {
+        "host": "::"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::",
+          "bytes": "00000000000000000000000000000000"
+        },
+        "range": {
+          "cidr": "::/96",
+          "label": "unspecified and IPv4-compatible",
+          "category": "unspecified"
+        }
+      }
+    },
+    {
+      "name": "literal \"[::1]\"",
+      "input": {
+        "host": "[::1]"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::1",
+          "bytes": "00000000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "::1/128",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"fe80::1\"",
+      "input": {
+        "host": "fe80::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fe80::1",
+          "bytes": "fe800000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "fe80::/10",
+          "label": "link-local",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"fe80::1%eth0\"",
+      "input": {
+        "host": "fe80::1%eth0"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fe80::1",
+          "bytes": "fe800000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "fe80::/10",
+          "label": "link-local",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"[fe80::1%25eth0]\"",
+      "input": {
+        "host": "[fe80::1%25eth0]"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fe80::1",
+          "bytes": "fe800000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "fe80::/10",
+          "label": "link-local",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"2606:4700:4700::1111\"",
+      "input": {
+        "host": "2606:4700:4700::1111"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2606:4700:4700::1111",
+          "bytes": "26064700470000000000000000001111"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"0:0:0:0:0:0:0:1\"",
+      "input": {
+        "host": "0:0:0:0:0:0:0:1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::1",
+          "bytes": "00000000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "::1/128",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"2001:db8:0:0:1:0:0:1\"",
+      "input": {
+        "host": "2001:db8:0:0:1:0:0:1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2001:db8::1:0:0:1",
+          "bytes": "20010db8000000000001000000000001"
+        },
+        "range": {
+          "cidr": "2001:db8::/32",
+          "label": "documentation",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"fc00:0:0:0:0:0:0:0\"",
+      "input": {
+        "host": "fc00:0:0:0:0:0:0:0"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fc00::",
+          "bytes": "fc000000000000000000000000000000"
+        },
+        "range": {
+          "cidr": "fc00::/7",
+          "label": "unique local",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"1:2:3:4:5:6:7:8\"",
+      "input": {
+        "host": "1:2:3:4:5:6:7:8"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "1:2:3:4:5:6:7:8",
+          "bytes": "00010002000300040005000600070008"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"FE80::ABCD\"",
+      "input": {
+        "host": "FE80::ABCD"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fe80::abcd",
+          "bytes": "fe80000000000000000000000000abcd"
+        },
+        "range": {
+          "cidr": "fe80::/10",
+          "label": "link-local",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"::7f00:1\"",
+      "input": {
+        "host": "::7f00:1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::7f00:1",
+          "bytes": "0000000000000000000000007f000001"
+        },
+        "range": {
+          "cidr": "::/96",
+          "label": "unspecified and IPv4-compatible",
+          "category": "unspecified"
+        }
+      }
+    },
+    {
+      "name": "literal \"1:0:0:2:0:0:0:3\"",
+      "input": {
+        "host": "1:0:0:2:0:0:0:3"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "1:0:0:2::3",
+          "bytes": "00010000000000020000000000000003"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"0:0:1:0:0:2:0:0\"",
+      "input": {
+        "host": "0:0:1:0:0:2:0:0"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "::1:0:0:2:0:0",
+          "bytes": "00000000000100000000000200000000"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::ffff:127.0.0.1\"",
+      "input": {
+        "host": "::ffff:127.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"::ffff:7f00:1\"",
+      "input": {
+        "host": "::ffff:7f00:1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.0.0.1",
+          "bytes": "7f000001"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"[::ffff:169.254.169.254]\"",
+      "input": {
+        "host": "[::ffff:169.254.169.254]"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"0:0:0:0:0:ffff:0a00:0001\"",
+      "input": {
+        "host": "0:0:0:0:0:ffff:0a00:0001"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "10.0.0.1",
+          "bytes": "0a000001"
+        },
+        "range": {
+          "cidr": "10.0.0.0/8",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"::ffff:a9fe:a9fe\"",
+      "input": {
+        "host": "::ffff:a9fe:a9fe"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"1::2::3\"",
+      "input": {
+        "host": "1::2::3"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \":::\"",
+      "input": {
+        "host": ":::"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"gggg::1\"",
+      "input": {
+        "host": "gggg::1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"12345::1\"",
+      "input": {
+        "host": "12345::1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1:2:3:4:5:6:7:8:9\"",
+      "input": {
+        "host": "1:2:3:4:5:6:7:8:9"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1:2:3:4:5:6:7\"",
+      "input": {
+        "host": "1:2:3:4:5:6:7"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1:2:3:4:5:6:7:8::9\"",
+      "input": {
+        "host": "1:2:3:4:5:6:7:8::9"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::1.2.3\"",
+      "input": {
+        "host": "::1.2.3"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::1.2.3.4.5\"",
+      "input": {
+        "host": "::1.2.3.4.5"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::1.2.3.256\"",
+      "input": {
+        "host": "::1.2.3.256"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::0x7f.0.0.1\"",
+      "input": {
+        "host": "::0x7f.0.0.1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1.2.3.4::5\"",
+      "input": {
+        "host": "1.2.3.4::5"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \":1\"",
+      "input": {
+        "host": ":1"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"1:\"",
+      "input": {
+        "host": "1:"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"::ffff:\"",
+      "input": {
+        "host": "::ffff:"
+      },
+      "output": {
+        "literal": null,
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"127.1.2.3\"",
+      "input": {
+        "host": "127.1.2.3"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "127.1.2.3",
+          "bytes": "7f010203"
+        },
+        "range": {
+          "cidr": "127.0.0.0/8",
+          "label": "loopback",
+          "category": "loopback"
+        }
+      }
+    },
+    {
+      "name": "literal \"10.1.2.3\"",
+      "input": {
+        "host": "10.1.2.3"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "10.1.2.3",
+          "bytes": "0a010203"
+        },
+        "range": {
+          "cidr": "10.0.0.0/8",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"172.16.0.1\"",
+      "input": {
+        "host": "172.16.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "172.16.0.1",
+          "bytes": "ac100001"
+        },
+        "range": {
+          "cidr": "172.16.0.0/12",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"172.31.255.255\"",
+      "input": {
+        "host": "172.31.255.255"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "172.31.255.255",
+          "bytes": "ac1fffff"
+        },
+        "range": {
+          "cidr": "172.16.0.0/12",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"172.32.0.1\"",
+      "input": {
+        "host": "172.32.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "172.32.0.1",
+          "bytes": "ac200001"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"172.15.0.1\"",
+      "input": {
+        "host": "172.15.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "172.15.0.1",
+          "bytes": "ac0f0001"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"192.168.1.1\"",
+      "input": {
+        "host": "192.168.1.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.168.1.1",
+          "bytes": "c0a80101"
+        },
+        "range": {
+          "cidr": "192.168.0.0/16",
+          "label": "private",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"100.64.0.1\"",
+      "input": {
+        "host": "100.64.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "100.64.0.1",
+          "bytes": "64400001"
+        },
+        "range": {
+          "cidr": "100.64.0.0/10",
+          "label": "carrier-grade NAT",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"100.127.255.255\"",
+      "input": {
+        "host": "100.127.255.255"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "100.127.255.255",
+          "bytes": "647fffff"
+        },
+        "range": {
+          "cidr": "100.64.0.0/10",
+          "label": "carrier-grade NAT",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"100.128.0.0\"",
+      "input": {
+        "host": "100.128.0.0"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "100.128.0.0",
+          "bytes": "64800000"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"fc00::1\"",
+      "input": {
+        "host": "fc00::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fc00::1",
+          "bytes": "fc000000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "fc00::/7",
+          "label": "unique local",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"fd12:3456::1\"",
+      "input": {
+        "host": "fd12:3456::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "fd12:3456::1",
+          "bytes": "fd123456000000000000000000000001"
+        },
+        "range": {
+          "cidr": "fc00::/7",
+          "label": "unique local",
+          "category": "private"
+        }
+      }
+    },
+    {
+      "name": "literal \"169.254.169.254\"",
+      "input": {
+        "host": "169.254.169.254"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "169.254.169.254",
+          "bytes": "a9fea9fe"
+        },
+        "range": {
+          "cidr": "169.254.0.0/16",
+          "label": "link-local and cloud metadata",
+          "category": "link-local"
+        }
+      }
+    },
+    {
+      "name": "literal \"224.0.0.1\"",
+      "input": {
+        "host": "224.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "224.0.0.1",
+          "bytes": "e0000001"
+        },
+        "range": {
+          "cidr": "224.0.0.0/4",
+          "label": "multicast",
+          "category": "multicast"
+        }
+      }
+    },
+    {
+      "name": "literal \"ff02::1\"",
+      "input": {
+        "host": "ff02::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "ff02::1",
+          "bytes": "ff020000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "ff00::/8",
+          "label": "multicast",
+          "category": "multicast"
+        }
+      }
+    },
+    {
+      "name": "literal \"64:ff9b::7f00:1\"",
+      "input": {
+        "host": "64:ff9b::7f00:1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "64:ff9b::7f00:1",
+          "bytes": "0064ff9b00000000000000007f000001"
+        },
+        "range": {
+          "cidr": "64:ff9b::/96",
+          "label": "NAT64, embeds IPv4",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"2002::1\"",
+      "input": {
+        "host": "2002::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2002::1",
+          "bytes": "20020000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "2002::/16",
+          "label": "6to4, embeds IPv4",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"2001::1\"",
+      "input": {
+        "host": "2001::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2001::1",
+          "bytes": "20010000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "2001::/32",
+          "label": "Teredo, embeds IPv4",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"2001:db8::1\"",
+      "input": {
+        "host": "2001:db8::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2001:db8::1",
+          "bytes": "20010db8000000000000000000000001"
+        },
+        "range": {
+          "cidr": "2001:db8::/32",
+          "label": "documentation",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"2001:1::1\"",
+      "input": {
+        "host": "2001:1::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2001:1::1",
+          "bytes": "20010001000000000000000000000001"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"100::1\"",
+      "input": {
+        "host": "100::1"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "100::1",
+          "bytes": "01000000000000000000000000000001"
+        },
+        "range": {
+          "cidr": "100::/64",
+          "label": "discard-only",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"192.0.0.1\"",
+      "input": {
+        "host": "192.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.0.0.1",
+          "bytes": "c0000001"
+        },
+        "range": {
+          "cidr": "192.0.0.0/24",
+          "label": "IETF protocol assignments",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"192.0.2.1\"",
+      "input": {
+        "host": "192.0.2.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.0.2.1",
+          "bytes": "c0000201"
+        },
+        "range": {
+          "cidr": "192.0.2.0/24",
+          "label": "documentation",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"192.88.99.1\"",
+      "input": {
+        "host": "192.88.99.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "192.88.99.1",
+          "bytes": "c0586301"
+        },
+        "range": {
+          "cidr": "192.88.99.0/24",
+          "label": "6to4 relay anycast",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"198.18.0.1\"",
+      "input": {
+        "host": "198.18.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "198.18.0.1",
+          "bytes": "c6120001"
+        },
+        "range": {
+          "cidr": "198.18.0.0/15",
+          "label": "benchmarking",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"198.19.255.255\"",
+      "input": {
+        "host": "198.19.255.255"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "198.19.255.255",
+          "bytes": "c613ffff"
+        },
+        "range": {
+          "cidr": "198.18.0.0/15",
+          "label": "benchmarking",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"198.20.0.1\"",
+      "input": {
+        "host": "198.20.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "198.20.0.1",
+          "bytes": "c6140001"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"198.51.100.7\"",
+      "input": {
+        "host": "198.51.100.7"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "198.51.100.7",
+          "bytes": "c6336407"
+        },
+        "range": {
+          "cidr": "198.51.100.0/24",
+          "label": "documentation",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"203.0.113.9\"",
+      "input": {
+        "host": "203.0.113.9"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "203.0.113.9",
+          "bytes": "cb007109"
+        },
+        "range": {
+          "cidr": "203.0.113.0/24",
+          "label": "documentation",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"240.0.0.1\"",
+      "input": {
+        "host": "240.0.0.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "240.0.0.1",
+          "bytes": "f0000001"
+        },
+        "range": {
+          "cidr": "240.0.0.0/4",
+          "label": "reserved, including broadcast",
+          "category": "reserved"
+        }
+      }
+    },
+    {
+      "name": "literal \"1.1.1.1\"",
+      "input": {
+        "host": "1.1.1.1"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "1.1.1.1",
+          "bytes": "01010101"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"93.184.216.34\"",
+      "input": {
+        "host": "93.184.216.34"
+      },
+      "output": {
+        "literal": {
+          "family": 4,
+          "canonical": "93.184.216.34",
+          "bytes": "5db8d822"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "literal \"2606:4700::1111\"",
+      "input": {
+        "host": "2606:4700::1111"
+      },
+      "output": {
+        "literal": {
+          "family": 6,
+          "canonical": "2606:4700::1111",
+          "bytes": "26064700000000000000000000001111"
+        },
+        "range": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/8 vs 10.255.255.255",
+      "input": {
+        "cidr": "10.0.0.0/8",
+        "host": "10.255.255.255"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a000000",
+          "prefix": 8
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/8 vs 11.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/8",
+        "host": "11.0.0.1"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a000000",
+          "prefix": 8
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr 192.168.1.0/24 vs 192.168.1.42",
+      "input": {
+        "cidr": "192.168.1.0/24",
+        "host": "192.168.1.42"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "c0a80100",
+          "prefix": 24
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 192.168.1.0/24 vs 192.168.2.42",
+      "input": {
+        "cidr": "192.168.1.0/24",
+        "host": "192.168.2.42"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "c0a80100",
+          "prefix": 24
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr 10.1.2.3/32 vs 10.1.2.3",
+      "input": {
+        "cidr": "10.1.2.3/32",
+        "host": "10.1.2.3"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a010203",
+          "prefix": 32
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 10.1.2.3/32 vs 10.1.2.4",
+      "input": {
+        "cidr": "10.1.2.3/32",
+        "host": "10.1.2.4"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a010203",
+          "prefix": 32
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr 0.0.0.0/0 vs 203.0.113.9",
+      "input": {
+        "cidr": "0.0.0.0/0",
+        "host": "203.0.113.9"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "00000000",
+          "prefix": 0
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/12 vs 10.15.255.255",
+      "input": {
+        "cidr": "10.0.0.0/12",
+        "host": "10.15.255.255"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a000000",
+          "prefix": 12
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/12 vs 10.16.0.0",
+      "input": {
+        "cidr": "10.0.0.0/12",
+        "host": "10.16.0.0"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a000000",
+          "prefix": 12
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr 10.1.2.3/8 vs 10.9.9.9",
+      "input": {
+        "cidr": "10.1.2.3/8",
+        "host": "10.9.9.9"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a010203",
+          "prefix": 8
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 0.0.0.0/0 vs ::1",
+      "input": {
+        "cidr": "0.0.0.0/0",
+        "host": "::1"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "00000000",
+          "prefix": 0
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr ::/0 vs 10.0.0.1",
+      "input": {
+        "cidr": "::/0",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": {
+          "family": 6,
+          "bytes": "00000000000000000000000000000000",
+          "prefix": 0
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr 2001:db8::/32 vs 2001:db8:ffff::1",
+      "input": {
+        "cidr": "2001:db8::/32",
+        "host": "2001:db8:ffff::1"
+      },
+      "output": {
+        "cidr": {
+          "family": 6,
+          "bytes": "20010db8000000000000000000000000",
+          "prefix": 32
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr 2001:db8::/32 vs 2001:db9::1",
+      "input": {
+        "cidr": "2001:db8::/32",
+        "host": "2001:db9::1"
+      },
+      "output": {
+        "cidr": {
+          "family": 6,
+          "bytes": "20010db8000000000000000000000000",
+          "prefix": 32
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr fe80::/10 vs febf::1",
+      "input": {
+        "cidr": "fe80::/10",
+        "host": "febf::1"
+      },
+      "output": {
+        "cidr": {
+          "family": 6,
+          "bytes": "fe800000000000000000000000000000",
+          "prefix": 10
+        },
+        "contains": true
+      }
+    },
+    {
+      "name": "cidr fe80::/10 vs fec0::1",
+      "input": {
+        "cidr": "fe80::/10",
+        "host": "fec0::1"
+      },
+      "output": {
+        "cidr": {
+          "family": 6,
+          "bytes": "fe800000000000000000000000000000",
+          "prefix": 10
+        },
+        "contains": false
+      }
+    },
+    {
+      "name": "cidr ::ffff:0:0/96 vs 1.2.3.4",
+      "input": {
+        "cidr": "::ffff:0:0/96",
+        "host": "1.2.3.4"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0 vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/ vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/8abc vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/8abc",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/+8 vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/+8",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/ 8 vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/ 8",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/33 vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/33",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 2001:db8::/129 vs ::1",
+      "input": {
+        "cidr": "2001:db8::/129",
+        "host": "::1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr not-an-address/8 vs 10.0.0.1",
+      "input": {
+        "cidr": "not-an-address/8",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr /8 vs 10.0.0.1",
+      "input": {
+        "cidr": "/8",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": null,
+        "contains": null
+      }
+    },
+    {
+      "name": "cidr 10.0.0.0/008 vs 10.0.0.1",
+      "input": {
+        "cidr": "10.0.0.0/008",
+        "host": "10.0.0.1"
+      },
+      "output": {
+        "cidr": {
+          "family": 4,
+          "bytes": "0a000000",
+          "prefix": 8
+        },
+        "contains": true
+      }
+    }
+  ]
+}

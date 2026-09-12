@@ -1,0 +1,182 @@
+{
+  "function": "turnRate",
+  "cases": [
+    {
+      "name": "divides by generation time",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 1000,
+          "generationTokens": 250,
+          "elapsedMs": 10000
+        }
+      },
+      "output": 250
+    },
+    {
+      "name": "divides the timed tokens only",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 1000,
+          "generationTokens": 150,
+          "elapsedMs": 10000
+        }
+      },
+      "output": 150
+    },
+    {
+      "name": "falls back to the wall clock",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "elapsedMs": 2000
+        }
+      },
+      "output": 125
+    },
+    {
+      "name": "a zero window is unmeasured",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 0,
+          "generationTokens": 0,
+          "elapsedMs": 2000
+        }
+      },
+      "output": 125
+    },
+    {
+      "name": "a window without tokens falls back",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 1000,
+          "elapsedMs": 2000
+        }
+      },
+      "output": 125
+    },
+    {
+      "name": "a window with zero tokens falls back",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 1000,
+          "generationTokens": 0,
+          "elapsedMs": 2000
+        }
+      },
+      "output": 125
+    },
+    {
+      "name": "tokens without a window fall back",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationTokens": 150,
+          "elapsedMs": 2000
+        }
+      },
+      "output": 125
+    },
+    {
+      "name": "nothing with no divisor",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {}
+      },
+      "output": null
+    },
+    {
+      "name": "nothing with only a zero window",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 0
+        }
+      },
+      "output": null
+    },
+    {
+      "name": "nothing with only a window",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 1000
+        }
+      },
+      "output": null
+    },
+    {
+      "name": "nothing for a turn that produced no tokens",
+      "input": {
+        "usage": {
+          "promptTokens": 10,
+          "completionTokens": 0,
+          "totalTokens": 10
+        },
+        "timing": {
+          "generationMs": 1000
+        }
+      },
+      "output": null
+    },
+    {
+      "name": "a fractional rate",
+      "input": {
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 250,
+          "totalTokens": 350
+        },
+        "timing": {
+          "generationMs": 3000,
+          "generationTokens": 100
+        }
+      },
+      "output": 33.333333333333336
+    }
+  ]
+}

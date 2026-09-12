@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "notice"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "prompt_injection",
+        "degraded",
+        "truncated_history",
+        "provider_fallback",
+        "approval_denied",
+        "agent_fallback",
+        "tools_disabled"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "callId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "seq",
+    "kind",
+    "message"
+  ]
+}

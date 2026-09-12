@@ -1,0 +1,44 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vite/client"],
+
+    // Vite owns the JavaScript here, so `tsc -b` is a checker rather than a
+    // compiler — unlike every other package, where tsup emits the JS and tsc
+    // emits the declarations. Nothing imports `@ghostwire/web` for its types:
+    // `ghostai serve` resolves its `package.json` to find `dist/`, at runtime.
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "tsBuildInfoFile": "./.tsbuildinfo",
+
+    // A React component's props are inferred from JSX, which is exactly the
+    // shape `isolatedDeclarations` cannot write a declaration for — and with
+    // nothing to declare, there is nothing for it to protect.
+    "isolatedDeclarations": false,
+
+    // `.` rather than `./src`, because `test/` is checked by this project too
+    // — the only package where that is true. Everywhere else the tests get a
+    // `test/tsconfig.json` of their own, to keep them out of `rootDir` and so
+    // out of the emitted `dist`. Here there is no emit to keep them out of, and
+    // a separate project could not reference this one anyway: `tsc -b` refuses
+    // a reference to a project that sets `noEmit` (TS6310), since a reference
+    // is a promise of declarations.
+    "rootDir": ".",
+
+    // `@/` for anything outside the current directory. The repo bans
+    // `../../*` imports because that is how one package reaches into another's
+    // source — and inside a package with a `components/ui/` depth, the same
+    // pattern is just a relative path. The alias sidesteps the ambiguity
+    // instead of loosening the rule that catches the real thing.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@testkit/*": ["./test/testkit/*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

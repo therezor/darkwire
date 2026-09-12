@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "servers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "sse",
+              "streamableHttp"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "connecting",
+              "ready",
+              "needs_authorization",
+              "failed",
+              "disabled"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "tools": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filteredTools": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "serverName": {
+            "default": "",
+            "type": "string"
+          },
+          "serverVersion": {
+            "default": "",
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "lastConnectedAtMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "warnings": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "enabled"
+        ]
+      }
+    }
+  },
+  "required": [
+    "servers"
+  ]
+}

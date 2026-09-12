@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "sendProgress": {
+      "default": true,
+      "type": "boolean"
+    },
+    "sendToolHints": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": {}
+}

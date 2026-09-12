@@ -1,0 +1,9 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "assistant.delta",
+    "seq": 45,
+    "turnId": "t1",
+    "text": "Hel"
+  }
+}

@@ -1,0 +1,289 @@
+/**
+ * Rendered markdown.
+ *
+ * The one place in this package styled by descendant selector rather than by
+ * class, and deliberately so: the elements here are produced by a renderer
+ * walking a token tree, so there is no call site to put a class on that would
+ * not be the renderer inventing one per tag. `.markdown h2` is the honest
+ * expression of "a heading inside an answer", and it keeps `markdown.tsx` about
+ * tokens rather than about appearance.
+ *
+ * The type is the answer's own voice: `--text-md`, a touch larger than the
+ * chrome around it, because this is the page's content and everything else on
+ * screen is furniture.
+ */
+
+@layer screens {
+  .markdown {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    font-size: var(--text-md);
+    line-height: var(--leading-md);
+    overflow-wrap: break-word;
+  }
+
+  .markdown h1,
+  .markdown h2,
+  .markdown h3,
+  .markdown h4,
+  .markdown h5,
+  .markdown h6 {
+    margin-top: var(--space-1);
+    line-height: var(--leading-md);
+    font-weight: var(--weight-semibold);
+  }
+
+  .markdown h1 {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+  }
+
+  .markdown h2 {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+  }
+
+  .markdown h3 {
+    font-size: var(--text-md);
+  }
+
+  .markdown h4 {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+  }
+
+  .markdown h5 {
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+  }
+
+  .markdown h6 {
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    color: var(--fg-2);
+  }
+
+  .markdown blockquote {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: var(--space-0-5) solid var(--line-strong);
+    color: var(--fg-2);
+  }
+
+  .markdown ul,
+  .markdown ol {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-left: var(--space-6);
+  }
+
+  .markdown ul {
+    list-style: disc;
+  }
+
+  .markdown ol {
+    list-style: decimal;
+  }
+
+  /* A task list draws its own checkboxes; a bullet beside one is a second
+   * marker for the same item. */
+  .markdown ul[data-task='true'],
+  .markdown ol[data-task='true'] {
+    padding-left: var(--space-1);
+    list-style: none;
+  }
+
+  .markdown li {
+    line-height: var(--leading-md);
+  }
+
+  .markdown li[data-task='true'] {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .markdown li > input[type='checkbox'] {
+    margin-top: var(--space-2);
+    accent-color: var(--fg-2);
+  }
+
+  .markdown li > div {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .markdown hr {
+    border: none;
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .markdown a {
+    color: var(--accent-fg);
+    text-decoration: underline;
+    text-underline-offset: 0.125rem;
+  }
+
+  .markdown a:hover {
+    filter: brightness(1.1);
+  }
+
+  .markdown strong {
+    font-weight: var(--weight-semibold);
+  }
+
+  .markdown em {
+    font-style: italic;
+  }
+
+  .markdown del {
+    color: var(--fg-3);
+    text-decoration: line-through;
+  }
+
+  /* Inline code only. The fenced-block case is `.code-block` below, which has
+   * its own `<pre>` and must not inherit a pill. */
+  .markdown :not(pre) > code {
+    padding: var(--space-0-5) var(--space-1);
+    background-color: var(--surface-3);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  .markdown img {
+    margin-block: var(--space-1);
+    max-width: 100%;
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  /* The scroller is the table's own, not the column's: a wide table scrolls
+   * sideways inside the message rather than making the whole page do it. */
+  .markdown__table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .markdown table {
+    width: 100%;
+    font-size: var(--text-sm);
+  }
+
+  .markdown th,
+  .markdown td {
+    padding: var(--space-2) var(--space-2);
+  }
+
+  .markdown th {
+    font-weight: var(--weight-medium);
+  }
+
+  .markdown td {
+    vertical-align: top;
+  }
+
+  .markdown thead tr {
+    border-bottom: var(--hairline) solid var(--line-strong);
+  }
+
+  .markdown tbody tr {
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  .markdown tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .markdown [data-align='left'] {
+    text-align: left;
+  }
+
+  .markdown [data-align='center'] {
+    text-align: center;
+  }
+
+  .markdown [data-align='right'] {
+    text-align: right;
+  }
+
+  /* Raw HTML a model wrote in prose, rendered as its own source text. */
+  .markdown__html {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+  }
+
+  /* ── Fenced code ───────────────────────────────────────────── */
+
+  .code-block {
+    overflow: hidden;
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .code-block__caption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  .code-block__lang {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+
+  .code-block__copy {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-0-5) var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .code-block__copy:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .code-block__copy--done {
+    color: var(--success-fg);
+  }
+
+  .code-block__copy > svg {
+    width: var(--space-3);
+    height: var(--space-3);
+  }
+
+  .code-block__code {
+    padding: var(--space-3);
+    overflow-x: auto;
+    font-size: var(--text-sm);
+    line-height: var(--leading-md);
+  }
+
+  .code-block__code > code {
+    font-family: var(--font-mono);
+  }
+
+  /* An empty line still occupies one line box, so a blank line in the source
+   * stays a blank line on screen. */
+  .code-block__line {
+    display: block;
+    min-height: 1lh;
+  }
+}

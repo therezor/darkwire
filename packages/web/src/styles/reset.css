@@ -1,0 +1,126 @@
+/**
+ * The reset.
+ *
+ * This used to arrive with the utility framework. Writing it out is the price
+ * of not having one, and it is a price worth naming: everything a reset does is
+ * a decision, and a decision that arrives invisibly is one nobody reviews. The
+ * three that matter here are `box-sizing`, the form-control font inheritance,
+ * and `min-width: 0` on flex children — the last of which is the difference
+ * between a long token wrapping inside a code block and the whole column
+ * scrolling sideways.
+ *
+ * Deliberately short. A reset that normalises every element is a reset that
+ * fights the browser on elements this app never renders.
+ *
+ * The flex-child `min-width: 0` rule that belongs beside these lives in
+ * `layout.css` instead, on the two layout primitives that need it — a blanket
+ * `* { min-width: 0 }` also breaks every intentionally unshrinkable thing.
+ */
+
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  * {
+    margin: 0;
+  }
+
+  html {
+    /* Deliberately no `font-size`. Density comes from the type scale, and a
+     * root font size in px is how a UI stops honouring the browser setting. */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Replaced elements are inline by default, which leaves the notorious
+   * descender gap under every image and icon. */
+  img,
+  picture,
+  video,
+  canvas,
+  svg {
+    display: block;
+    max-width: 100%;
+  }
+
+  /* Form controls do not inherit type from their ancestors, so without this
+   * every input and button on the page is the browser's own default face at
+   * the browser's own default size — which is neither the type scale nor a rem. */
+  input,
+  button,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+
+  button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  /* `overflow-wrap` rather than `word-break`: this breaks a word only when it
+   * would otherwise overflow, instead of breaking wherever the line ends. */
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  li,
+  dd,
+  dt {
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  ul,
+  ol {
+    list-style: none;
+    padding: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}

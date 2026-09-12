@@ -1,0 +1,135 @@
+/**
+ * The header bell and the glance behind it.
+ *
+ * The unread signal is a dot rather than a count, and the count lives in the
+ * button's accessible name instead. A numeral inside a control the size of an
+ * icon is either too small to read or bursts the control, and "3" beside a bell
+ * is not a sentence a screen reader can do anything with.
+ *
+ * The dot is `--accent` as a *fill*, which is the side of the accent-position
+ * rule a background belongs on — see `tokens.css`.
+ */
+
+@layer components {
+  .notification-bell {
+    position: relative;
+  }
+
+  .notification-bell__dot {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-full);
+    background-color: var(--accent);
+  }
+
+  /* Wide enough for a title and a relative time on one line, narrow enough that
+   * it reads as a glance rather than as the page it links to. */
+  .popover--notifications {
+    --gap: var(--space-2);
+
+    width: 22rem;
+    max-width: calc(100vw - var(--space-8));
+    padding: var(--space-2);
+  }
+
+  .notification-bell__header {
+    --gap: var(--space-2);
+
+    align-items: center;
+    padding-inline: var(--space-2);
+  }
+
+  .notification-bell__title {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--fg-2);
+  }
+
+  .notification-bell__list {
+    --gap: var(--space-0-5);
+
+    max-height: 20rem;
+    overflow-y: auto;
+  }
+
+  .notification-mini {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    color: var(--fg-2);
+  }
+
+  .notification-mini--link:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .notification-mini__text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0-5);
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .notification-mini__title {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+  }
+
+  /* Unread, said the way the full page says it.
+   *
+   * The popover had no read/unread distinction at all — every row looked
+   * identical, so the bell's dot told you *that* something was unread and the
+   * list could not tell you *which*. This is deliberately the same two signals
+   * `/notifications` already uses (`notification--unread`): a raised surface,
+   * and the title at full strength in medium weight. A third vocabulary for one
+   * state is how the two screens start disagreeing about what unread looks
+   * like.
+   *
+   * Neither signal is colour on its own, and the row also carries the word for
+   * a reader who gets neither — see `NotificationRow`. */
+  .notification-mini--unread {
+    background-color: var(--surface-2);
+  }
+
+  .notification-mini--unread .notification-mini__title {
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  /* `sm`, matching `.notification__time` on the page this summarises. A
+   * timestamp that shrank on the way into the popover would be the same
+   * information rendered two ways. */
+  .notification-mini__time {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .notification-bell__empty {
+    padding: var(--space-4) var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+    text-align: center;
+  }
+
+  .notification-bell__footer {
+    padding: var(--space-2);
+    border-top: var(--hairline) solid var(--line);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+    text-align: center;
+  }
+
+  .notification-bell__footer:hover {
+    color: var(--fg-1);
+  }
+}

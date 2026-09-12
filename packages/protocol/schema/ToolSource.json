@@ -1,0 +1,8 @@
+{
+  "type": "string",
+  "enum": [
+    "builtin",
+    "mcp",
+    "extension"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "session.status",
+    "seq": 55,
+    "sessionKey": "web:abc",
+    "busy": true,
+    "queueDepth": 0,
+    "workspaceId": "acme",
+    "turnId": "t1"
+  }
+}

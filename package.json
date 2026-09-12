@@ -1,0 +1,45 @@
+{
+  "name": "ghostai-monorepo",
+  "version": "0.8.1",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "tsc -b --pretty",
+    "typecheck:clean": "tsc -b --clean",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "screenshots": "pnpm build && cargo build -p ghostai --features test-hooks && pnpm --filter @ghostwire/e2e exec playwright install chromium && pnpm --filter @ghostwire/e2e screenshots",
+    "demo": "pnpm build && cargo build --release -p ghostai && node scripts/demo-cast.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "i18n:extract": "i18next 'packages/web/src/**/*.{ts,tsx}' --config i18next-parser.web.js",
+    "i18n:check": "pnpm i18n:extract && git diff --exit-code -- 'packages/i18n/locales/*/web.json'",
+    "protocol:check": "pnpm --filter @ghostwire/protocol exec tsx scripts/emit-schemas.ts && git diff --exit-code -- packages/protocol/schema"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "eslint": "^9.0.0",
+    "eslint-import-resolver-typescript": "^3.7.0",
+    "eslint-plugin-import-x": "^4.6.0",
+    "i18next-parser": "^9.4.0",
+    "prettier": "^3.4.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^3.0.0"
+  }
+}

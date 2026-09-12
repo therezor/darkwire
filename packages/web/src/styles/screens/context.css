@@ -1,0 +1,280 @@
+/**
+ * The context inspector.
+ *
+ * The bar is of the *window*, not of what is used, so the empty space to the
+ * right is the headroom left. Its segments are the one place a semantic fill is
+ * used as a categorical colour rather than as a meaning — `--info` for the
+ * system prompt says nothing about information, it just has to be
+ * distinguishable from the other three. That is acceptable here and nowhere
+ * else, because the same four colours are repeated as swatches beside the same
+ * four labels in the table below, which is what makes them a legend rather than
+ * a code.
+ */
+
+@layer screens {
+  .context {
+    --gap: var(--space-4);
+  }
+
+  .dialog--context {
+    width: min(44rem, calc(100vw - var(--space-8)));
+  }
+
+  .context__headline {
+    --gap: var(--space-2);
+
+    align-items: baseline;
+  }
+
+  .context__used {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .context__of {
+    color: var(--fg-3);
+  }
+
+  .context__bar {
+    display: flex;
+    width: 100%;
+    height: var(--space-3);
+    overflow: hidden;
+    background-color: var(--surface-3);
+    border-radius: var(--radius-sm);
+  }
+
+  .context__table {
+    width: 100%;
+  }
+
+  .context__table thead tr {
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+    text-align: left;
+  }
+
+  .context__table th {
+    padding-bottom: var(--space-1);
+    font-weight: inherit;
+  }
+
+  .context__table tbody tr {
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .context__table tbody th {
+    padding-block: var(--space-2);
+    font-weight: var(--weight-normal);
+    color: var(--fg-2);
+    text-align: left;
+  }
+
+  .context__table td {
+    padding-block: var(--space-2);
+    text-align: right;
+  }
+
+  .context__tokens {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-1);
+  }
+
+  .context__share {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .context__swatch {
+    display: inline-block;
+    flex-shrink: 0;
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+
+  /* Segment fills. The name is the section, so a section the server adds later
+   * falls through to `--fallback` rather than borrowing another's colour. */
+  .context-fill--system-prompt {
+    background-color: var(--info);
+  }
+
+  .context-fill--tools {
+    background-color: var(--accent);
+  }
+
+  .context-fill--messages {
+    background-color: var(--success);
+  }
+
+  /* The one section a provider's cache cannot serve, so it is the one the eye
+   * should land on: `--danger` is not "broken" here, it is "you pay for this
+   * again on every request". */
+  .context-fill--runtime-block {
+    background-color: var(--danger);
+  }
+
+  .context-fill--other {
+    background-color: var(--warning);
+  }
+
+  .context-fill--fallback {
+    background-color: var(--line-strong);
+  }
+
+  .context__meta {
+    --gap: var(--space-4);
+
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .context__sections {
+    --gap: var(--space-2);
+  }
+
+  /* One card per section of the prompt. The swatch in the summary is what ties
+   * it back to its row in the table and its band in the bar. */
+  .context__section {
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .context__section > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+
+  .context__section > summary:hover {
+    color: var(--fg-1);
+  }
+
+  .context__section-body {
+    padding: var(--space-2) var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  /* Capped and scrollable: a system prompt is a couple of screens and the
+   * conversation can be twenty, and a dialog that grows to fit them is a dialog
+   * whose own scrolling fights the page's. */
+  .context__text {
+    max-height: 16rem;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .context__tools,
+  .context__messages {
+    --gap: var(--space-3);
+
+    padding: 0;
+    list-style: none;
+  }
+
+  /* No scroller of their own. Both lists sit inside a section that is already
+   * inside the dialog's scroller, and a capped list there is the third nested
+   * scrollbar in one column: the dialog's, the list's, and — inside a message —
+   * the `pre`'s. Reaching a message meant scrolling one box to find another box
+   * to scroll, with the wheel landing on whichever the pointer happened to be
+   * over. The disclosure is the control that hides this content; a height cap on
+   * an already-collapsed section is a second answer to a question that was asked
+   * once. */
+  .context__message .context__text {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .context__tool,
+  .context__message {
+    --gap: var(--space-1);
+
+    padding-bottom: var(--space-2);
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  .context__tool-head,
+  .context__message-head {
+    --gap: var(--space-2);
+
+    align-items: center;
+    font-size: var(--text-sm);
+  }
+
+  .context__tool-desc {
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+  }
+
+  .context__message-seq {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* ── The strip under the composer ──────────────────────────── *
+   *
+   * The one-line version of everything above, sitting where the question is
+   * asked. It shares `.context-fill--*` with the dialog deliberately: a bar
+   * whose blue meant "system prompt" in one place and something else in the
+   * other would be worse than no colour at all.
+   */
+
+  /* Inline, on the right of the composer's hint line. It was a full-width row
+   * under the composer first, which put a horizontal rule's worth of weight
+   * under the thing the eye is meant to be on — the box you type into. */
+  .context-strip {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--space-2);
+    align-items: center;
+    color: var(--fg-3);
+    transition: color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .context-strip:hover {
+    color: var(--fg-2);
+  }
+
+  /* Deliberately slighter than the dialog's bar. This is a glance, and a
+   * full-height meter under the composer would compete with the answer above
+   * it — status here is ambient, not the loudest thing on screen. */
+  .context-strip__bar {
+    display: flex;
+    flex: 0 0 auto;
+    width: 4rem;
+    height: var(--space-1);
+    overflow: hidden;
+    background-color: var(--surface-3);
+    border-radius: var(--radius-full);
+  }
+
+  .context-strip__fill {
+    height: 100%;
+  }
+
+  .context-strip__label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+  }
+
+  .context-strip__over {
+    color: var(--warning-fg);
+  }
+}

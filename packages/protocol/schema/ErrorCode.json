@@ -1,0 +1,15 @@
+{
+  "type": "string",
+  "enum": [
+    "unauthorized",
+    "bad_request",
+    "not_found",
+    "rate_limited",
+    "provider_error",
+    "tool_error",
+    "config_invalid",
+    "not_configured",
+    "session_busy",
+    "internal"
+  ]
+}

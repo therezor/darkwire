@@ -1,0 +1,7 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "session.switch",
+    "sessionKey": "web:abc"
+  }
+}

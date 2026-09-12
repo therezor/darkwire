@@ -1,0 +1,77 @@
+[package]
+name = "ghostai"
+description = "The ghostai binary: chat, serve, and the install commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# A library beside the binary, and not for reuse: `tests/` is a separate crate
+# that cannot reach into `main.rs`, and coverage measures `src/`. So every
+# module lives in the library, `main.rs` is the shim that maps a run to an exit
+# code, and the integration tests drive the same code the binary does.
+[lib]
+name = "ghostai"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ghostai"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[features]
+# Routes and seams only the end-to-end suite uses, passed down to the server.
+# `schemars` comes with it rather than unconditionally: the only thing this
+# crate derives a JSON Schema for is `e2e_wait`'s argument type, which no
+# shipping build contains.
+test-hooks = ["ghostai-server/test-hooks", "dep:schemars"]
+
+[dependencies]
+ghostai-agent.workspace = true
+ghostai-channels.workspace = true
+ghostai-core.workspace = true
+ghostai-extension-host.workspace = true
+ghostai-i18n.workspace = true
+ghostai-protocol.workspace = true
+ghostai-providers.workspace = true
+ghostai-runtime.workspace = true
+ghostai-security.workspace = true
+ghostai-server.workspace = true
+ghostai-tools.workspace = true
+ghostai-tui.workspace = true
+# Only `main.rs` may use it; everything else returns `GhostError`.
+anyhow.workspace = true
+clap.workspace = true
+futures.workspace = true
+# Preset validation: the schema declares its constraints with `garde`, and a
+# preset that parsed but violates one is a refusal with a line per issue.
+garde.workspace = true
+indexmap.workspace = true
+parking_lot.workspace = true
+owo-colors.workspace = true
+schemars = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+# The logger is a `tracing` layer; installing it needs the registry.
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+ghostai-agent = { workspace = true, features = ["testkit"] }
+ghostai-channels = { workspace = true, features = ["testkit"] }
+ghostai-core = { workspace = true, features = ["testkit"] }
+ghostai-providers = { workspace = true, features = ["testkit"] }
+ghostai-security = { workspace = true, features = ["testkit"] }
+ghostai-server = { workspace = true, features = ["testkit"] }
+ghostai-tools = { workspace = true, features = ["testkit"] }
+# A real client for the tests that drive a bound listener; everything else in
+# this crate talks to the server in-process.
+reqwest.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

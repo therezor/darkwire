@@ -1,0 +1,324 @@
+/**
+ * The list chrome every CRUD screen in the app shares.
+ *
+ * Files had it first and Agents needed the same thing, which is the moment to
+ * move it rather than to copy it: two stylesheets that both mean "a row in a
+ * list" are two stylesheets that eventually disagree about what one looks like,
+ * and the disagreement shows up as one screen that feels like a different
+ * application.
+ *
+ * What is here is the list, the toolbar above it and the two controls that sit
+ * in that toolbar. What is *not* here is anything about files or agents — a
+ * drop target, a breadcrumb, a badge — which stays on the screen that owns it.
+ *
+ * **A row is one grid, and the breakpoint moves its areas rather than its
+ * markup.** Wide, it is a single line — name, then the meta, then the kebab —
+ * which is the arrangement the tables this replaced were right about: reading
+ * a list means comparing the same field down a column, and a field that starts
+ * at a different x on every row cannot be compared at all. That is why the meta
+ * track is a fraction and not `auto`. Narrow, the meta drops under the name and
+ * wraps as far as it needs to.
+ *
+ * The `<table>` could not do the second half. A `<td>` is sized by its content
+ * and cannot be told to give way, so a provider's endpoint pushed the whole
+ * table past the viewport and the page scrolled sideways; shedding columns at
+ * 40rem was the patch, and it only ever covered two of the four screens.
+ */
+
+@layer components {
+  /* The two controls that change what the list shows, and the rule the list
+   * begins under.
+   *
+   * **The sentence above is not in here.** It used to be — the toolbar was a
+   * stack of a paragraph and a control row — and before that the two shared one
+   * line, which was a slow-motion disaster: a paragraph and a pair of
+   * fixed-width boxes competing for a line have no arrangement that works at
+   * every width, and each weight or floor that fixed one viewport broke
+   * another. Giving the sentence its own row fixed the layout and left the
+   * grouping wrong, which is what a reader actually sees: the note is a
+   * description of the page, the controls belong to the list, and a container
+   * holding both says they are one thing. So the note is a plain child of
+   * `.page` now, a full `--space-6` clear of the controls, and this class is
+   * only ever the control row.
+   *
+   * Search on the left and sort on the right, which is the way round nearly
+   * every list on the web does it — and the reason is worth stating rather than
+   * appealing to: filtering is what an operator came to the toolbar to do, so
+   * it goes where reading starts. Sorting refines whatever is left after that,
+   * so it anchors to the far end and stays out of the way. `space-between`
+   * needs both items to be non-growers or there is no free space left for it to
+   * distribute — see `.list-filter`.
+   *
+   * **The negative margin cancels the page gap outright**, and the number it
+   * lands on is not a taste call. Every row in the list sits `--space-3` below
+   * the divider above it, because that is the row's own top padding. Cancelling
+   * the whole `--space-6` puts the first row exactly that far below this rule —
+   * so the toolbar's boundary and a row divider are the same distance from the
+   * text under them, and the whole thing reads as one ruled grid instead of a
+   * control that happens to have a line beneath it. */
+  .list-toolbar {
+    --gap: var(--space-3);
+
+    justify-content: space-between;
+    padding-bottom: var(--space-3);
+    margin-bottom: calc(var(--space-6) * -1);
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  /* Loading, failed, or nothing matched the filter: a sentence standing where
+     the rows would be. It needs the padding the row would have brought with
+     it, or it sits against the rule with nothing under it. */
+  .list-toolbar + p {
+    padding-top: var(--space-3);
+  }
+
+  /* ── The list ──────────────────────────────────────────────── */
+
+  .data-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* The phone arrangement, and the base one because it is the constrained one:
+     the name with everything under it, and the kebab pinned top-right. The
+     kebab spans both rows rather than taking one of its own, so it stays level
+     with the name however many lines the meta wraps to — an actions button that
+     drifts down the card as a URL gets longer is a button in a different place
+     on every row.
+
+     `minmax(0, 1fr)` rather than `1fr`, and it is load-bearing: a grid track's
+     automatic minimum is its content, so an unbreakable string — an API base, a
+     session key — would widen the track past the card instead of wrapping in
+     it. This is the same failure `.row > * { min-width: 0 }` prevents in
+     `layout.css`, in the one place grid does not inherit it. */
+  .data-list__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'primary actions'
+      'meta actions';
+    align-items: start;
+    gap: var(--space-1) var(--space-2);
+    padding-block: var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  /* One line, once there is room for one. Stacking the meta under the name at
+     every width spent a line per row on a screen with a thousand pixels going
+     spare, and it threw away the one thing the tables did well: `2fr 1fr` is
+     the same template on every row, so the meta starts at the same x all the
+     way down and the column can be read as a column.
+
+     An even split, not the two-to-one the name's importance suggests. The meta
+     is the side that wraps: three items — an endpoint and two badges — need
+     most of a panel's half, and at a third of it the badges fell to a second
+     line on some rows and not others, which is a list that looks broken rather
+     than dense. The name is the side with slack in it, so the name gives.
+
+     `center` rather than `start`, because the name is two lines on the screens
+     that carry a summary under it and the meta is one — aligned to the top it
+     sits against the name and reads as part of it. */
+  @media (min-width: 40rem) {
+    .data-list__row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      grid-template-areas: 'primary meta actions';
+      align-items: center;
+    }
+  }
+
+  /* The first rule would be a line under the toolbar rather than between two
+     rows, which is a different statement. */
+  .data-list__row:first-child {
+    border-top: none;
+  }
+
+  .data-list__primary {
+    grid-area: primary;
+    min-width: 0;
+  }
+
+  /* Wraps, and that is what makes the card fit a phone without a breakpoint:
+     three badges and an endpoint sit on one line at 1440 and on three at 375,
+     with no rule anywhere having to know which. */
+  .data-list__meta {
+    --gap: var(--space-1) var(--space-3);
+
+    grid-area: meta;
+    min-width: 0;
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .data-list__actions {
+    grid-area: actions;
+  }
+
+  /* The name, its icon, and whatever badges sit beside it. A button or a link;
+     the row has exactly one of them and it is what opening the row means. */
+  .data-list__open {
+    display: flex;
+    max-width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1);
+    border-radius: var(--radius-md);
+    text-align: left;
+  }
+
+  .data-list__open:hover {
+    background-color: var(--hover);
+  }
+
+  .data-list__open > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    color: var(--fg-3);
+  }
+
+  /* An identifier rather than prose — an endpoint, a model, a path.
+   *
+   * The wrap is stated here rather than left to the reset, which already sets
+   * `break-word` on `li` and would reach this through inheritance. Two reasons
+   * to restate it, and the first is the honest one: that inheritance is a
+   * coincidence of the row being an `<li>`, and the day it stops being one this
+   * readout silently goes back to pushing a URL out of its card. The second is
+   * that `anywhere` is the stronger of the two — it drops the text's min-content
+   * contribution as well as breaking the line, so a long single-label host
+   * cannot size the track it sits in.
+   *
+   * `a11y.spec.ts` has the case: an endpoint whose host is one unbroken run,
+   * measured on a phone. Both of these have to be gone before it fails, which
+   * is why it is a spec and not a comment. */
+  .data-list__code {
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  /* ── The toolbar's own controls ────────────────────────────── */
+
+  /* A measure, not a fixed control: the filter is one word most of the time,
+     and a search box as wide as the list reads as the page's main input rather
+     than as a way to narrow what is already on screen.
+
+     `0 1 16rem` — it may shrink but never grow. Growing is what would break the
+     arrangement above it: a flex item that grows absorbs the free space that
+     `space-between` needs, so the sort control would slide left until it sat
+     against the filter instead of at the end of the row. Shrinking is what
+     keeps the pair on one line on a phone, where a rigid 16rem box would push
+     the sort control off it. */
+  .list-filter {
+    position: relative;
+    display: flex;
+    flex: 0 1 16rem;
+  }
+
+  /* Inside the field, vertically centred against whatever height the control
+     scale currently gives an input. `pointer-events: none` so the icon is not a
+     dead spot in the middle of a box you are trying to click into. */
+  .list-filter > svg {
+    position: absolute;
+    inset-inline-start: var(--space-3);
+    top: 50%;
+    translate: 0 -50%;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--fg-3);
+    pointer-events: none;
+  }
+
+  /* Room for the icon, derived from where the icon was put rather than guessed:
+     its inset, its width, and the same inset again as the gap after it. */
+  .list-filter__input {
+    padding-inline-start: calc(var(--space-3) * 2 + var(--size-icon-sm));
+  }
+
+  /* The same treatment as `.composer__picker`, and for the same reason:
+     both are a quiet control that names the value it currently holds. Muted and
+     small, because which column a list is ordered by is context rather than an
+     action — the bordered select this replaced read as the loudest thing in a
+     toolbar whose subject is the list underneath it. */
+  .list-sort {
+    flex: none;
+    gap: var(--space-2);
+    max-width: 12rem;
+    padding-inline: var(--space-2);
+    color: var(--fg-2);
+    font-size: var(--text-sm);
+  }
+
+  .list-sort > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--fg-3);
+  }
+
+  /* ── Pagination ────────────────────────────────────────────── */
+
+  /* The mirror image of `.list-toolbar`, and deliberately so: the toolbar rules
+     the list off at the top and this closes it at the bottom, so the rows sit
+     inside a pair of lines rather than trailing off. Same `--space-3` between
+     the rule and the text either side of it, which is a row's own padding — see
+     the note on `.list-toolbar`.
+
+     The count reads first and the controls anchor to the far end, matching the
+     filter-then-sort arrangement above. `.spacer` between them rather than
+     `space-between`, because the three control groups on the right have to stay
+     together as one cluster. */
+  .pagination {
+    --gap: var(--space-1);
+
+    align-items: center;
+    padding-top: var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  /* Wraps under the controls on a narrow screen rather than squeezing them: it
+     is the part that can be read later, and `1 1 auto` on a flex line with
+     `flex-wrap` in `.row` is what lets it take its own line. */
+  .pagination__count {
+    flex: 1 1 auto;
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .pagination__pages {
+    --gap: var(--space-0-5);
+
+    align-items: center;
+  }
+
+  /* Square, so a column of numbers is a row of equal boxes rather than one that
+     jostles when the page count crosses ten. `--size-control-sm` is the height
+     `.btn--sm` already has, so this only pins the width to match it — a `4rem`
+     typed here would be a number that has to be re-derived every time the
+     control scale moves. */
+  .pagination__page,
+  .pagination__step {
+    min-width: var(--size-control-sm);
+    padding-inline: var(--space-1);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The same statement selection makes everywhere else in this UI: a raised
+     surface and the full-strength text tier. Not the accent — see the note at
+     the head of `pagination.tsx`. */
+  .pagination__page--current {
+    background-color: var(--surface-3);
+    color: var(--fg-1);
+  }
+
+  /* Sized like the buttons either side of it so the run of numbers keeps its
+     rhythm across the elision, and centred because it stands where a digit
+     would. */
+  .pagination__gap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--size-control-sm);
+    color: var(--fg-3);
+  }
+}

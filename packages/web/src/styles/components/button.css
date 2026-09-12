@@ -1,0 +1,173 @@
+/**
+ * Button.
+ *
+ * Five variants and three sizes, composed rather than multiplied: the variant
+ * decides colour, the size decides geometry, and neither knows about the other.
+ *
+ * There were four. `lg` had exactly one caller — the style guide showing off
+ * that `lg` existed — which is what a size variant looks like when the product
+ * never needed it. A gold accent is also long gone from the note below; the
+ * reasoning it records is about opacity, and that still stands.
+ *
+ * **The disabled rule is the interesting one.** It used to be `opacity: 0.7`
+ * over a muted foreground, which is unreadable in the two places it matters
+ * most: a muted grey label at 70% over the accent fill, and the same over a red
+ * one. Opacity is the wrong tool for a disabled state — it fades the text and
+ * its background by the same factor, so a pairing that was 8:1 stays 8:1 only
+ * if the two composite over an identical backdrop, which they never do. So
+ * disabled here is a *pairing*, not a filter: the control drops to a measured
+ * surface and a measured foreground, both of which the contrast suite already
+ * covers. Nothing is faded, and there is no combination of variant and theme
+ * that produces text you cannot read.
+ */
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    border: var(--hairline) solid transparent;
+    border-radius: var(--radius-md);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+    user-select: none;
+    transition:
+      background-color var(--duration-fast) var(--ease-out-quint),
+      border-color var(--duration-fast) var(--ease-out-quint),
+      color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .btn > svg {
+    flex-shrink: 0;
+    width: var(--icon, var(--size-icon-md));
+    height: var(--icon, var(--size-icon-md));
+    pointer-events: none;
+  }
+
+  /* ── Sizes ─────────────────────────────────────────────────── */
+
+  .btn--sm {
+    --icon: var(--size-icon-sm);
+
+    height: var(--size-control-sm);
+    padding-inline: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .btn--md {
+    --icon: var(--size-icon-md);
+
+    height: var(--size-control-md);
+    padding-inline: var(--space-4);
+  }
+
+  /* Square, so the glyph is centred rather than sitting in a pill. */
+  .btn--icon {
+    --icon: var(--size-icon-md);
+
+    width: var(--size-control-md);
+    height: var(--size-control-md);
+    padding: 0;
+  }
+
+  /* ── Variants ──────────────────────────────────────────────── */
+
+  .btn--primary {
+    background-color: var(--accent);
+    color: var(--on-fill);
+  }
+
+  .btn--primary:hover {
+    filter: brightness(1.08);
+  }
+
+  .btn--primary:active {
+    filter: brightness(0.95);
+  }
+
+  .btn--secondary {
+    background-color: var(--surface-3);
+    border-color: var(--line);
+    color: var(--fg-1);
+  }
+
+  /* `--hover` is a translucent overlay rather than a stop on the surface ramp,
+   * so it is layered over the fill as an image instead of replacing it. That is
+   * what lets the same token lighten in dark and darken in light. */
+  .btn--secondary:hover {
+    border-color: var(--line-strong);
+    background-image: linear-gradient(var(--hover), var(--hover));
+  }
+
+  .btn--ghost {
+    background-color: transparent;
+    color: var(--fg-2);
+  }
+
+  .btn--ghost:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .btn--danger {
+    background-color: var(--danger);
+    color: var(--on-fill);
+  }
+
+  .btn--danger:hover {
+    filter: brightness(1.08);
+  }
+
+  .btn--danger:active {
+    filter: brightness(0.95);
+  }
+
+  .btn--link {
+    height: auto;
+    padding: 0;
+    background-color: transparent;
+    color: var(--accent-fg);
+    text-decoration: underline;
+    text-underline-offset: 0.125rem;
+  }
+
+  .btn--link:hover {
+    filter: brightness(1.1);
+  }
+
+  /* ── Disabled ──────────────────────────────────────────────── */
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    pointer-events: none;
+    filter: none;
+    box-shadow: none;
+    background-image: none;
+  }
+
+  /* Filled variants land on a real surface with a real foreground, so the
+   * label is legible by construction rather than by luck of the backdrop. */
+  .btn--primary:disabled,
+  .btn--secondary:disabled,
+  .btn--danger:disabled,
+  .btn--primary[aria-disabled='true'],
+  .btn--secondary[aria-disabled='true'],
+  .btn--danger[aria-disabled='true'] {
+    background-color: var(--surface-2);
+    border-color: var(--line);
+    color: var(--fg-3);
+  }
+
+  /* The two variants that have no fill keep not having one — a grey patch
+   * appearing where a ghost button was is a worse tell than muted text. */
+  .btn--ghost:disabled,
+  .btn--link:disabled,
+  .btn--ghost[aria-disabled='true'],
+  .btn--link[aria-disabled='true'] {
+    background-color: transparent;
+    color: var(--fg-3);
+    text-decoration: none;
+  }
+}

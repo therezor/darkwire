@@ -1,0 +1,152 @@
+{
+  "function": "isLoopbackHost",
+  "cases": [
+    {
+      "name": "loopback: 127.0.0.1",
+      "input": {
+        "host": "127.0.0.1"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: 127.1.2.3",
+      "input": {
+        "host": "127.1.2.3"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: 127.255.255.255",
+      "input": {
+        "host": "127.255.255.255"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: localhost",
+      "input": {
+        "host": "localhost"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: LOCALHOST",
+      "input": {
+        "host": "LOCALHOST"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: ::1",
+      "input": {
+        "host": "::1"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback: [::1]",
+      "input": {
+        "host": "[::1]"
+      },
+      "output": true
+    },
+    {
+      "name": "loopback:   127.0.0.1 ",
+      "input": {
+        "host": "  127.0.0.1 "
+      },
+      "output": true
+    },
+    {
+      "name": "remote: 0.0.0.0",
+      "input": {
+        "host": "0.0.0.0"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: ::",
+      "input": {
+        "host": "::"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: (empty)",
+      "input": {
+        "host": ""
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 192.168.1.10",
+      "input": {
+        "host": "192.168.1.10"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 10.0.0.1",
+      "input": {
+        "host": "10.0.0.1"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: example.com",
+      "input": {
+        "host": "example.com"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 128.0.0.1",
+      "input": {
+        "host": "128.0.0.1"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 127.0.0.1.evil.com",
+      "input": {
+        "host": "127.0.0.1.evil.com"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 1270.0.0.1",
+      "input": {
+        "host": "1270.0.0.1"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 127.0.0",
+      "input": {
+        "host": "127.0.0"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 127.0.0.1000",
+      "input": {
+        "host": "127.0.0.1000"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 127.a.b.c",
+      "input": {
+        "host": "127.a.b.c"
+      },
+      "output": false
+    },
+    {
+      "name": "remote: 😀",
+      "input": {
+        "host": "😀"
+      },
+      "output": false
+    }
+  ]
+}

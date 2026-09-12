@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "sessionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agentId": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionKey",
+    "agentId",
+    "label"
+  ]
+}

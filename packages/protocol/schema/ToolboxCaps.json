@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "drop": {
+      "default": [
+        "ALL"
+      ],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "add": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

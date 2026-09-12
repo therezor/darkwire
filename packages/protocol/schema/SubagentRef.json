@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "prompt": {
+      "default": "",
+      "type": "string"
+    },
+    "permission": {
+      "default": "allow",
+      "type": "string",
+      "enum": [
+        "allow",
+        "ask",
+        "deny"
+      ]
+    }
+  },
+  "required": [
+    "id"
+  ]
+}

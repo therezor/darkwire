@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAtMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "finishedAtMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "ok",
+        "error",
+        "skipped"
+      ]
+    },
+    "skipReason": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "output": {
+      "type": "string"
+    },
+    "sessionKey": {
+      "type": "string"
+    },
+    "warnings": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "jobId",
+    "startedAtMs",
+    "status"
+  ]
+}

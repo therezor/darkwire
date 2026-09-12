@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "message.ack"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "sessionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "messageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "clientMessageId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "seq",
+    "sessionKey",
+    "messageId"
+  ]
+}

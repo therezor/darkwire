@@ -1,0 +1,37 @@
+{
+  "name": "@ghostwire/protocol",
+  "version": "0.8.1",
+  "description": "Zod schemas and derived types shared by every GhostAI package.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/therezor/GhostAI.git",
+    "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/therezor/GhostAI",
+  "bugs": "https://github.com/therezor/GhostAI/issues",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "imports": {
+    "#src/*": "./src/*"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup && tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "lint": "eslint src test",
+    "schema:dump": "tsx scripts/emit-schemas.ts"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  }
+}

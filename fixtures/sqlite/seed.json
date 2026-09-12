@@ -1,0 +1,209 @@
+{
+  "description": "Every row of every table in seed.db, by table, in rowid order, as node:sqlite reads them: INTEGER columns as numbers, BLOB columns as {hex}, NULL as null. Written by the stores themselves with a clock starting at 1700000000000 ms and advancing 1 s per operation, counter ids (`msg-1`, `note-1`, `job-1`, `job-2` for the run), a random source filling each buffer with 1, 2, 3, … and a fake password hasher writing `fake:<password>`. The session token issued is <id>.<secret> with both halves base64url of the random buffers; token_sha256 is sha256 of the secret text. The extension digest covers a directory `sample/` holding the manifest and entry recorded in `inputs`.",
+  "inputs": {
+    "extension": {
+      "ghostai.extension.json": "{\"schema\":\"ghostai.extension/1\",\"id\":\"sample\",\"entry\":\"dist/index.js\"}\n",
+      "dist/index.js": "export const activate = () => {};\n"
+    },
+    "toolbox": {
+      "toolbox.json": "{\"schema\":\"ghostai.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}"
+    }
+  },
+  "tables": {
+    "auth_secrets": [
+      {
+        "name": "password",
+        "value": "fake:a-test-password",
+        "updated_at_ms": 1700000007000
+      },
+      {
+        "name": "username",
+        "value": "operator",
+        "updated_at_ms": 1700000007000
+      },
+      {
+        "name": "media-signing",
+        "value": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "updated_at_ms": 1700000008000
+      }
+    ],
+    "auth_sessions": [
+      {
+        "id": "AgICAgICAgICAgIC",
+        "token_sha256": {
+          "hex": "83bee072fbd3423f7481fc163821636ad8cfb73faef0dd0581f3979ea0c731b9"
+        },
+        "label": "browser",
+        "created_at_ms": 1700000009000,
+        "expires_at_ms": 1700604809000,
+        "last_seen_at_ms": 1700000009000
+      }
+    ],
+    "auth_throttle": [
+      {
+        "scope": "account",
+        "failures": 1,
+        "last_failed_ms": 1700000010000,
+        "locked_until_ms": 1700000010000
+      },
+      {
+        "scope": "ip:203.0.113.9",
+        "failures": 1,
+        "last_failed_ms": 1700000010000,
+        "locked_until_ms": 1700000010000
+      }
+    ],
+    "automation_jobs": [
+      {
+        "id": "job-1",
+        "name": "Morning report",
+        "schedule_json": "{\"kind\":\"cron\",\"expr\":\"0 9 * * 1-5\"}",
+        "payload_json": "{\"kind\":\"scheduled\",\"message\":\"Summarise the overnight logs.\",\"deliver\":false,\"targets\":{}}",
+        "enabled": 1,
+        "delete_after_run": 0,
+        "next_run_at_ms": 1700086400000,
+        "last_run_at_ms": 1700000013000,
+        "last_status": "ok",
+        "last_error": "",
+        "run_count": 1,
+        "created_at_ms": 1700000012000,
+        "updated_at_ms": 1700000014000,
+        "created_by_agent": "default",
+        "created_by_session": "session-1"
+      }
+    ],
+    "automation_runs": [
+      {
+        "id": "job-2",
+        "job_id": "job-1",
+        "started_at_ms": 1700000013000,
+        "finished_at_ms": 1700000014000,
+        "status": "ok",
+        "skip_reason": null,
+        "error": null,
+        "output": "Nothing happened overnight.",
+        "warnings_json": "[\"deliver requested with no channel wired\"]",
+        "session_key": "automation:job-1:run"
+      }
+    ],
+    "extension_approvals": [
+      {
+        "id": "sample",
+        "digest": "c46c28a3e43b552ed91f5ca1781e0af75ec77c69a4a57980248f809652218fd7",
+        "approved_at_ms": 1700000006000
+      }
+    ],
+    "messages": [
+      {
+        "id": "msg-1",
+        "session_key": "session-1",
+        "seq": 1,
+        "created_at_ms": 1700000003000,
+        "turn_id": "turn-1",
+        "role": "user",
+        "payload_json": "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"read a.txt\"}]}"
+      },
+      {
+        "id": "msg-2",
+        "session_key": "session-1",
+        "seq": 2,
+        "created_at_ms": 1700000003000,
+        "turn_id": "turn-1",
+        "role": "assistant",
+        "payload_json": "{\"role\":\"assistant\",\"content\":[],\"toolCalls\":[{\"id\":\"call_1\",\"name\":\"read_file\",\"argumentsJson\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}],\"reasoning\":\"I should read the file.\"}"
+      },
+      {
+        "id": "msg-3",
+        "session_key": "session-1",
+        "seq": 3,
+        "created_at_ms": 1700000003000,
+        "turn_id": "turn-1",
+        "role": "tool",
+        "payload_json": "{\"role\":\"tool\",\"toolCallId\":\"call_1\",\"name\":\"read_file\",\"content\":\"hello\",\"isError\":false,\"truncated\":false}"
+      },
+      {
+        "id": "msg-4",
+        "session_key": "session-1",
+        "seq": 4,
+        "created_at_ms": 1700000003000,
+        "turn_id": "turn-1",
+        "role": "assistant",
+        "payload_json": "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It says hello.\"}],\"toolCalls\":[]}"
+      }
+    ],
+    "notifications": [
+      {
+        "id": "note-1",
+        "title": "Job finished",
+        "body": "Morning report is ready.",
+        "level": "success",
+        "created_at_ms": 1700000011000,
+        "read_at_ms": null,
+        "session_key": "session-1",
+        "job_id": "job-1"
+      }
+    ],
+    "sessions": [
+      {
+        "key": "session-1",
+        "title": "Fixture conversation",
+        "origin": "web",
+        "agent_id": "default",
+        "workspace_id": "research",
+        "created_at_ms": 1700000002000,
+        "updated_at_ms": 1700000003000,
+        "metadata_json": "{\"source\":\"fixture\"}",
+        "next_seq": 5
+      }
+    ],
+    "toolbox_approvals": [
+      {
+        "name": "research",
+        "manifest_sha256": "4fbd58f762c9575cc57a812b28fc561873a83a5e2e3aadab9c955661e85fdd22",
+        "image": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "approved_at_ms": 1700000005000
+      }
+    ],
+    "turn_stats": [
+      {
+        "turn_id": "turn-1",
+        "session_key": "session-1",
+        "agent_id": "default",
+        "workspace_id": "research",
+        "provider": "ollama",
+        "model": "qwen3:8b",
+        "started_at_ms": 1700000003000,
+        "ended_at_ms": 1700000004000,
+        "iterations": 2,
+        "stop_reason": "complete",
+        "prompt_tokens": 120,
+        "completion_tokens": 40,
+        "total_tokens": 160,
+        "cached_tokens": 100,
+        "reasoning_tokens": 8,
+        "generation_ms": 800,
+        "generation_tokens": 32,
+        "first_token_ms": 150,
+        "error": null
+      }
+    ],
+    "workspaces": [
+      {
+        "id": "default",
+        "name": "Default",
+        "created_at_ms": 1700000000000,
+        "updated_at_ms": 1700000000000,
+        "is_default": 1,
+        "metadata_json": "{}"
+      },
+      {
+        "id": "research",
+        "name": "Research",
+        "created_at_ms": 1700000001000,
+        "updated_at_ms": 1700000001000,
+        "is_default": 0,
+        "metadata_json": "{\"colour\":\"teal\"}"
+      }
+    ]
+  }
+}

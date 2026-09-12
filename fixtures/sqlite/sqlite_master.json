@@ -1,0 +1,149 @@
+{
+  "description": "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name over a database every store has initialised. `sql` is the statement text as SQLite stores it.",
+  "rows": [
+    {
+      "type": "table",
+      "name": "auth_secrets",
+      "tbl_name": "auth_secrets",
+      "sql": "CREATE TABLE auth_secrets (\n  name          TEXT PRIMARY KEY,\n  value         TEXT NOT NULL,\n  updated_at_ms INTEGER NOT NULL\n) STRICT"
+    },
+    {
+      "type": "table",
+      "name": "auth_sessions",
+      "tbl_name": "auth_sessions",
+      "sql": "CREATE TABLE auth_sessions (\n  id              TEXT    PRIMARY KEY,\n  token_sha256    BLOB    NOT NULL,\n  label           TEXT    NOT NULL DEFAULT '',\n  created_at_ms   INTEGER NOT NULL,\n  expires_at_ms   INTEGER NOT NULL,\n  last_seen_at_ms INTEGER NOT NULL\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "auth_sessions_expiry",
+      "tbl_name": "auth_sessions",
+      "sql": "CREATE INDEX auth_sessions_expiry ON auth_sessions(expires_at_ms)"
+    },
+    {
+      "type": "table",
+      "name": "auth_throttle",
+      "tbl_name": "auth_throttle",
+      "sql": "CREATE TABLE auth_throttle (\n  scope           TEXT    PRIMARY KEY,\n  failures        INTEGER NOT NULL,\n  last_failed_ms  INTEGER NOT NULL,\n  locked_until_ms INTEGER NOT NULL\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "auth_throttle_last_failed",
+      "tbl_name": "auth_throttle",
+      "sql": "CREATE INDEX auth_throttle_last_failed ON auth_throttle(last_failed_ms)"
+    },
+    {
+      "type": "table",
+      "name": "automation_jobs",
+      "tbl_name": "automation_jobs",
+      "sql": "CREATE TABLE automation_jobs (\n  id               TEXT    PRIMARY KEY,\n  name             TEXT    NOT NULL,\n  schedule_json    TEXT    NOT NULL,\n  payload_json     TEXT    NOT NULL,\n  enabled          INTEGER NOT NULL DEFAULT 1,\n  delete_after_run INTEGER NOT NULL DEFAULT 0,\n  next_run_at_ms   INTEGER NOT NULL DEFAULT 0,\n  last_run_at_ms   INTEGER NOT NULL DEFAULT 0,\n  last_status      TEXT    NOT NULL DEFAULT 'pending',\n  last_error       TEXT    NOT NULL DEFAULT '',\n  run_count        INTEGER NOT NULL DEFAULT 0,\n  created_at_ms    INTEGER NOT NULL,\n  updated_at_ms    INTEGER NOT NULL,\n  -- Who asked for this, when it was not a person. Empty is the operator, which\n  -- is the common case, so these default rather than being nullable: a job the\n  -- panel made and a job whose agent has been forgotten are the same row shape.\n  created_by_agent   TEXT NOT NULL DEFAULT '',\n  created_by_session TEXT NOT NULL DEFAULT ''\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "automation_jobs_due",
+      "tbl_name": "automation_jobs",
+      "sql": "CREATE INDEX automation_jobs_due\n  ON automation_jobs(next_run_at_ms ASC, id ASC)\n  WHERE enabled = 1 AND next_run_at_ms > 0"
+    },
+    {
+      "type": "table",
+      "name": "automation_runs",
+      "tbl_name": "automation_runs",
+      "sql": "CREATE TABLE automation_runs (\n  id             TEXT    PRIMARY KEY,\n  job_id         TEXT    NOT NULL REFERENCES automation_jobs(id) ON DELETE CASCADE,\n  started_at_ms  INTEGER NOT NULL,\n  finished_at_ms INTEGER,\n  status         TEXT    NOT NULL,\n  skip_reason    TEXT,\n  error          TEXT,\n  output         TEXT,\n  warnings_json  TEXT    NOT NULL DEFAULT '[]',\n  session_key    TEXT\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "automation_runs_job",
+      "tbl_name": "automation_runs",
+      "sql": "CREATE INDEX automation_runs_job\n  ON automation_runs(job_id, started_at_ms DESC, id ASC)"
+    },
+    {
+      "type": "table",
+      "name": "extension_approvals",
+      "tbl_name": "extension_approvals",
+      "sql": "CREATE TABLE extension_approvals (\n  id             TEXT    PRIMARY KEY,\n  digest         TEXT    NOT NULL,\n  approved_at_ms INTEGER NOT NULL\n) STRICT"
+    },
+    {
+      "type": "table",
+      "name": "messages",
+      "tbl_name": "messages",
+      "sql": "CREATE TABLE messages (\n  id            TEXT    PRIMARY KEY,\n  session_key   TEXT    NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,\n  seq           INTEGER NOT NULL,\n  created_at_ms INTEGER NOT NULL,\n  turn_id       TEXT,\n  role          TEXT    NOT NULL,\n  payload_json  TEXT    NOT NULL\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "messages_session_seq",
+      "tbl_name": "messages",
+      "sql": "CREATE UNIQUE INDEX messages_session_seq ON messages(session_key, seq)"
+    },
+    {
+      "type": "index",
+      "name": "messages_turn",
+      "tbl_name": "messages",
+      "sql": "CREATE INDEX messages_turn ON messages(session_key, turn_id)"
+    },
+    {
+      "type": "table",
+      "name": "notifications",
+      "tbl_name": "notifications",
+      "sql": "CREATE TABLE notifications (\n  id            TEXT    PRIMARY KEY,\n  title         TEXT    NOT NULL,\n  body          TEXT    NOT NULL DEFAULT '',\n  level         TEXT    NOT NULL DEFAULT 'info',\n  created_at_ms INTEGER NOT NULL,\n  read_at_ms    INTEGER,\n  session_key   TEXT,\n  job_id        TEXT\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "notifications_created",
+      "tbl_name": "notifications",
+      "sql": "CREATE INDEX notifications_created ON notifications(created_at_ms DESC, id ASC)"
+    },
+    {
+      "type": "index",
+      "name": "notifications_unread",
+      "tbl_name": "notifications",
+      "sql": "CREATE INDEX notifications_unread ON notifications(created_at_ms DESC) WHERE read_at_ms IS NULL"
+    },
+    {
+      "type": "table",
+      "name": "sessions",
+      "tbl_name": "sessions",
+      "sql": "CREATE TABLE sessions (\n  key                   TEXT    PRIMARY KEY,\n  title                 TEXT    NOT NULL DEFAULT '',\n  origin                TEXT    NOT NULL DEFAULT 'web',\n  agent_id              TEXT,\n  workspace_id          TEXT    NOT NULL DEFAULT 'default',\n  created_at_ms         INTEGER NOT NULL,\n  updated_at_ms         INTEGER NOT NULL,\n  metadata_json         TEXT    NOT NULL DEFAULT '{}',\n  next_seq              INTEGER NOT NULL DEFAULT 1\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "sessions_updated",
+      "tbl_name": "sessions",
+      "sql": "CREATE INDEX sessions_updated ON sessions(updated_at_ms DESC)"
+    },
+    {
+      "type": "index",
+      "name": "sessions_workspace",
+      "tbl_name": "sessions",
+      "sql": "CREATE INDEX sessions_workspace ON sessions(workspace_id, updated_at_ms DESC)"
+    },
+    {
+      "type": "table",
+      "name": "toolbox_approvals",
+      "tbl_name": "toolbox_approvals",
+      "sql": "CREATE TABLE toolbox_approvals (\n  name           TEXT    PRIMARY KEY,\n  manifest_sha256 TEXT   NOT NULL,\n  image          TEXT    NOT NULL,\n  approved_at_ms INTEGER NOT NULL\n) STRICT"
+    },
+    {
+      "type": "table",
+      "name": "turn_stats",
+      "tbl_name": "turn_stats",
+      "sql": "CREATE TABLE turn_stats (\n  turn_id           TEXT    PRIMARY KEY,\n  session_key       TEXT    NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,\n  agent_id          TEXT    NOT NULL DEFAULT '',\n  workspace_id      TEXT    NOT NULL DEFAULT 'default',\n  provider          TEXT    NOT NULL DEFAULT '',\n  model             TEXT    NOT NULL DEFAULT '',\n  started_at_ms     INTEGER NOT NULL,\n  ended_at_ms       INTEGER NOT NULL,\n  iterations        INTEGER NOT NULL DEFAULT 0,\n  stop_reason       TEXT    NOT NULL DEFAULT '',\n  prompt_tokens     INTEGER NOT NULL DEFAULT 0,\n  completion_tokens INTEGER NOT NULL DEFAULT 0,\n  total_tokens      INTEGER NOT NULL DEFAULT 0,\n  cached_tokens     INTEGER,\n  reasoning_tokens  INTEGER,\n  generation_ms     INTEGER,\n  generation_tokens INTEGER,\n  first_token_ms    INTEGER,\n  error             TEXT\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "turn_stats_session",
+      "tbl_name": "turn_stats",
+      "sql": "CREATE INDEX turn_stats_session ON turn_stats(session_key, ended_at_ms DESC)"
+    },
+    {
+      "type": "table",
+      "name": "workspaces",
+      "tbl_name": "workspaces",
+      "sql": "CREATE TABLE workspaces (\n  id            TEXT    PRIMARY KEY,\n  name          TEXT    NOT NULL DEFAULT '',\n  created_at_ms INTEGER NOT NULL,\n  updated_at_ms INTEGER NOT NULL,\n  is_default    INTEGER NOT NULL DEFAULT 0,\n  metadata_json TEXT    NOT NULL DEFAULT '{}'\n) STRICT"
+    },
+    {
+      "type": "index",
+      "name": "workspaces_default",
+      "tbl_name": "workspaces",
+      "sql": "CREATE UNIQUE INDEX workspaces_default ON workspaces(is_default) WHERE is_default = 1"
+    }
+  ]
+}

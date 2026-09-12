@@ -1,0 +1,14 @@
+/**
+ * Popover — a floating surface that takes focus, unlike a tooltip.
+ *
+ * Everything visual comes from `.floating` in `menu.css`; the only difference
+ * between a popover and a menu is that a popover holds content rather than
+ * rows, so it carries padding and lets that content overflow into a scroll.
+ */
+
+@layer components {
+  .popover {
+    padding: var(--space-3);
+    overflow: visible;
+  }
+}

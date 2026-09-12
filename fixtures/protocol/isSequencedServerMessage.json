@@ -1,0 +1,63 @@
+{
+  "function": "isSequencedServerMessage",
+  "cases": [
+    {
+      "name": "connected",
+      "input": {
+        "message": {
+          "type": "connected",
+          "protocolVersion": 2,
+          "sessionKey": "s",
+          "serverTimeMs": 0,
+          "lastSeq": 0
+        }
+      },
+      "output": false
+    },
+    {
+      "name": "pong",
+      "input": {
+        "message": {
+          "type": "pong",
+          "serverTimeMs": 0
+        }
+      },
+      "output": false
+    },
+    {
+      "name": "error",
+      "input": {
+        "message": {
+          "type": "error",
+          "code": "internal",
+          "message": "x"
+        }
+      },
+      "output": false
+    },
+    {
+      "name": "assistant.delta",
+      "input": {
+        "message": {
+          "type": "assistant.delta",
+          "seq": 1,
+          "turnId": "t",
+          "text": "x"
+        }
+      },
+      "output": true
+    },
+    {
+      "name": "session.status",
+      "input": {
+        "message": {
+          "type": "session.status",
+          "seq": 2,
+          "sessionKey": "s",
+          "busy": false
+        }
+      },
+      "output": true
+    }
+  ]
+}

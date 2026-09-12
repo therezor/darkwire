@@ -1,0 +1,349 @@
+{
+  "type": "object",
+  "properties": {
+    "sessionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seq": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "const": "system"
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role",
+                  "content"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "text"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "text"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "image"
+                            },
+                            "mimeType": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "data": {
+                              "type": "string"
+                            },
+                            "url": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mimeType"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "file"
+                            },
+                            "mimeType": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mimeType",
+                            "path"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "role",
+                  "content"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "const": "assistant"
+                  },
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "text"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "text"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "image"
+                            },
+                            "mimeType": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "data": {
+                              "type": "string"
+                            },
+                            "url": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mimeType"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "file"
+                            },
+                            "mimeType": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mimeType",
+                            "path"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "toolCalls": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "argumentsJson": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "argumentsJson"
+                      ]
+                    }
+                  },
+                  "reasoning": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role",
+                  "content"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "const": "tool"
+                  },
+                  "toolCallId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "isError": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "truncated": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "role",
+                  "toolCallId",
+                  "name",
+                  "content"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "sessionKey",
+          "seq",
+          "createdAtMs",
+          "message"
+        ]
+      }
+    },
+    "nextCursor": {
+      "type": "string"
+    },
+    "subagentRuns": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "sessionKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionKey",
+          "agentId",
+          "label"
+        ]
+      }
+    },
+    "failures": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "sessionKey",
+    "messages"
+  ]
+}

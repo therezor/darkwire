@@ -1,0 +1,9 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "turn.regenerate",
+    "sessionKey": "web:abc",
+    "seq": 4,
+    "clientMessageId": "cm-2"
+  }
+}

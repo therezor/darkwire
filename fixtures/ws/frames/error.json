@@ -1,0 +1,10 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "error",
+    "code": "session_busy",
+    "message": "a turn is running",
+    "retryable": true,
+    "turnId": "t1"
+  }
+}

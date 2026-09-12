@@ -1,0 +1,8 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "session.resume",
+    "sessionKey": "web:abc",
+    "lastSeq": 41
+  }
+}

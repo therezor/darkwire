@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "uptimeMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "configured": {
+      "type": "boolean"
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspaceCount": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "authEnabled": {
+      "type": "boolean"
+    },
+    "toolCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "mcpServersConnected": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "extensionsLoaded": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "version",
+    "protocolVersion",
+    "uptimeMs",
+    "model",
+    "provider",
+    "configured",
+    "workspaceId",
+    "workspaceCount",
+    "authEnabled",
+    "toolCount",
+    "mcpServersConnected",
+    "extensionsLoaded"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "reasoning.delta"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "turnId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "seq",
+    "turnId",
+    "text"
+  ]
+}

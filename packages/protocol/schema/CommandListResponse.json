@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "extensionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "argsHint": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "extensionId"
+        ]
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ]
+}

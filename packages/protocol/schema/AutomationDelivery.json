@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "deliver": {
+      "default": false,
+      "type": "boolean"
+    },
+    "channel": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    },
+    "sessionKey": {
+      "type": "string"
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agentId": {
+      "type": "string"
+    },
+    "targets": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

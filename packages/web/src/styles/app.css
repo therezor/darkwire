@@ -1,0 +1,55 @@
+/**
+ * The one stylesheet the app imports.
+ *
+ * The cascade layers are declared here, once, in the order they should win.
+ * That is the whole reason this file exists as something other than a list: a
+ * screen rule can override a component rule without being written more
+ * specifically, so `.settings__actions .btn` never has to become
+ * `.settings__actions .btn.btn--primary` to take effect. Specificity stops
+ * being a currency.
+ *
+ * `@import` order does not decide layer order — the `@layer` statement below
+ * does — so the imports are grouped for reading rather than for precedence.
+ */
+
+@layer reset, base, layout, components, screens;
+
+@import './tokens.css';
+@import './reset.css';
+@import './base.css';
+@import './layout.css';
+
+/* Primitives: the vocabulary every screen is assembled from. */
+@import './components/button.css';
+@import './components/badge.css';
+@import './components/field.css';
+@import './components/dialog.css';
+@import './components/menu.css';
+@import './components/popover.css';
+@import './components/notification-bell.css';
+@import './components/select.css';
+@import './components/switch.css';
+@import './components/tabs.css';
+@import './components/toast.css';
+@import './components/tooltip.css';
+@import './components/scroll-area.css';
+@import './components/notice.css';
+@import './components/micro-label.css';
+@import './components/data-list.css';
+@import './components/wordmark.css';
+@import './components/spinner.css';
+
+/* Screens: one file per region of the app. */
+@import './screens/shell.css';
+@import './screens/sidebar.css';
+@import './screens/workspaces.css';
+@import './screens/agents.css';
+@import './screens/chat.css';
+@import './screens/markdown.css';
+@import './screens/files.css';
+@import './screens/context.css';
+@import './screens/settings.css';
+@import './screens/notifications.css';
+@import './screens/login.css';
+@import './screens/setup.css';
+@import './screens/style-guide.css';

@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "cron"
+    },
+    "expr": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "kind",
+    "expr"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,65 @@
+/**
+ * What the workspaces page needs of its own.
+ *
+ * No new tokens. Almost nothing is here: `/workspaces` is a `data-list` like
+ * Files and Agents, so the shared chrome carries the rows and this file holds
+ * only the two-line name cell and the monospaced folder.
+ *
+ * The sidebar switcher's rules used to open this file. It is gone — a workspace
+ * is where a conversation's files live, not a drawer conversations are filed
+ * under, so the choice belongs beside the agent in the composer rather than
+ * above the session list. Its trigger, caret, name and hint went with it.
+ */
+
+@layer screens {
+  /* ----------------------------------------------------------------------- */
+  /* The list                                                                */
+  /* ----------------------------------------------------------------------- */
+
+  /* Everything the manager dialog used to declare — its own row geometry, an
+   * inline rename form, a create form pinned to the bottom — is gone with it.
+   * `/workspaces` is a `data-list` like Files and Agents, so the shared chrome
+   * in `components/data-list.css` is the whole of its layout.
+   *
+   * What is left is the two-line name cell, which is the same shape the agents
+   * list uses and is deliberately styled to the same numbers: what it is
+   * called, and where its files actually are. The second line stopped being
+   * decoration when the folder became a separate answer at creation — "Client
+   * Acme" may live in `workspace/acme`, and a list that showed only the label
+   * would make you open the row to learn that. */
+  .workspaces__name {
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+
+  .workspaces__name-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    color: var(--fg-1);
+  }
+
+  /* Mono, like every other identifier readout in the app: this is a path
+     segment, and proportional type makes two similar slugs hard to tell
+     apart. */
+  .workspaces__folder {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /* Every row, including the default's: it reads `workspace` where the others
+     read `workspace/acme`, so the column shows the nesting rather than
+     describing it in a sentence one row has and the rest do not. */
+
+  /* The editor is otherwise `editor__head` from `shell.css`, a `Section` of
+     `TextField`s and a `SaveBar` — the agent and provider editors' shape. This
+     is the one field that is not ordinary prose: the folder box holds a path
+     segment, so it reads in mono like the list line it corresponds to and like
+     every other identifier in the app. */
+  .workspaces__folder-input {
+    font-family: var(--font-mono);
+  }
+}

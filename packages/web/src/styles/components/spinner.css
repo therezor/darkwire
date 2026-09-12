@@ -1,0 +1,60 @@
+/**
+ * The two "something is happening" indicators.
+ *
+ * `.spinner` is for a control that is busy — a send button mid-turn, a panel
+ * fetching. `.thinking-dots` is the reference's three-dot bounce, used where
+ * the agent is composing and there is nothing yet to show.
+ *
+ * Both are covered by the reduced-motion rule in `base.css`, which flattens
+ * the animation rather than removing the element: a user who has asked for less
+ * motion still needs to know the thing is working.
+ */
+
+@layer components {
+  .spinner {
+    display: inline-block;
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    border: var(--space-0-5) solid var(--line-strong);
+    border-top-color: var(--accent-fg);
+    border-radius: var(--radius-full);
+    animation: spin 700ms linear infinite;
+  }
+
+  .thinking-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .thinking-dots > span {
+    width: var(--space-2);
+    height: var(--space-2);
+    background-color: var(--accent-fg);
+    border-radius: var(--radius-full);
+    animation: dot-bounce 1.4s var(--ease-out-quint) infinite;
+  }
+
+  .thinking-dots > span:nth-child(2) {
+    animation-delay: 160ms;
+  }
+
+  .thinking-dots > span:nth-child(3) {
+    animation-delay: 320ms;
+  }
+
+  @keyframes dot-bounce {
+    0%,
+    80%,
+    100% {
+      scale: 0.6;
+      opacity: 0.4;
+    }
+
+    40% {
+      scale: 1;
+      opacity: 1;
+    }
+  }
+}

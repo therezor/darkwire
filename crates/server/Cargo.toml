@@ -1,0 +1,84 @@
+[package]
+name = "ghostai-server"
+description = "The HTTP server: REST, the WebSocket hub, auth, the scheduler, static UI, OpenAPI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["embed-ui"]
+# The built SPA compiled into the binary. Off in a headless build; see
+# `GHOSTAI_HEADLESS_BUILD` in build.rs, which is the escape CI uses when
+# `packages/web/dist` has not been built.
+embed-ui = ["dep:rust-embed"]
+# Test doubles the e2e harness and `ghostai-runtime` reach through
+# `features = ["testkit"]`; excluded from coverage. It stands a whole server up
+# over a scripted model, so it needs the doubles of the crates below it too.
+testkit = [
+  "dep:tempfile",
+  "ghostai-agent/testkit",
+  "ghostai-core/testkit",
+  "ghostai-providers/testkit",
+]
+# Routes and seams only the end-to-end suite uses. Both this feature and
+# `GHOSTAI_TEST_HOOKS=1` are required at run time, so a shipped binary that was
+# built without the feature cannot be talked into them.
+test-hooks = []
+
+[dependencies]
+ghostai-agent.workspace = true
+ghostai-core.workspace = true
+ghostai-protocol.workspace = true
+ghostai-providers.workspace = true
+ghostai-security.workspace = true
+ghostai-tools.workspace = true
+argon2.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+base64.workspace = true
+futures.workspace = true
+garde.workspace = true
+hmac.workspace = true
+indexmap.workspace = true
+lru.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
+rust-embed = { workspace = true, optional = true }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Dotted paths on a deserialisation failure, which is what a 422's `details`
+# map is keyed by.
+serde_path_to_error.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+# The testkit's temporary home; optional so a production build never links it.
+tempfile = { workspace = true, optional = true }
+tokio.workspace = true
+# `io` on top of the workspace line's `rt`: the signed-media body is a
+# `ReaderStream` over the open file rather than the whole file in memory.
+tokio-util = { workspace = true, features = ["io"] }
+# `util` for `ServiceExt::oneshot`, which is how a test drives the router with
+# no listener at all.
+tower = { workspace = true, features = ["util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# The crate's own doubles and hook routes, plus the doubles of the crates below
+# it, reach the tests through features the gate does not otherwise turn on.
+ghostai-server = { workspace = true, features = ["testkit", "test-hooks"] }
+ghostai-agent = { workspace = true, features = ["testkit"] }
+ghostai-core = { workspace = true, features = ["testkit"] }
+ghostai-providers = { workspace = true, features = ["testkit"] }
+ghostai-security = { workspace = true, features = ["testkit"] }
+ghostai-tools = { workspace = true, features = ["testkit"] }
+tempfile.workspace = true
+# A real client for the one test that has to complete a WebSocket handshake;
+# everything else goes through `tower::ServiceExt::oneshot` with no listener.
+tokio-tungstenite.workspace = true

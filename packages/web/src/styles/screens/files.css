@@ -1,0 +1,300 @@
+/**
+ * The file browser, its editor and its preview.
+ *
+ * This was a table, and the argument for one was that the columns are the
+ * point: a reader scanning a workspace compares sizes and times down a column.
+ * That argument did not survive contact with a phone. A `<td>` is sized by its
+ * content and cannot be told to give way, so the `Modified` column had to be
+ * dropped below 40rem to keep the page from scrolling sideways — which is to
+ * say the column layout was already being abandoned at the width where it was
+ * hardest to hold, and only on this screen and Workspaces, because Agents and
+ * Providers never got the same treatment.
+ *
+ * It is a `data-list` now, like the other three, and the sort control that used
+ * to live in the headings lives in the toolbar. What that costs is the column
+ * scan; what it buys is one list shape across the whole app and a row that fits
+ * any width without a rule anywhere knowing what width it is.
+ */
+
+@layer screens {
+  /* A directory is the one thing in this list worth the accent: it is the only
+   * row whose click changes where you are rather than what you are looking at. */
+  .data-list__open--directory > svg {
+    color: var(--accent-fg);
+  }
+
+  /* ── The drop target ───────────────────────────────────────── */
+
+  .file-drop {
+    border: var(--hairline) dashed transparent;
+    border-radius: var(--radius-md);
+  }
+
+  /* The clearance every other screen gets from `.list-toolbar + p`.
+   *
+   * That selector stopped matching here the day the listing was wrapped in a
+   * drop target: the element after the rule is this box, not the sentence
+   * inside it, so the first row sat against the toolbar's border with nothing
+   * between them. A margin rather than padding, because the toolbar's negative
+   * bottom margin is what the gap is being measured from — see
+   * `components/data-list.css`. */
+  .list-toolbar + .file-drop {
+    margin-top: var(--space-3);
+  }
+
+  /* An empty directory is the one state where the target has to look like one.
+   *
+   * With rows in it there is something to aim at and a dashed box drawn around
+   * a list would be a second frame saying nothing; the edge only shows itself
+   * under a drag. With nothing in it, the previous version offered one line of
+   * grey text a few pixels below a rule — no target, no size, and no sign that
+   * the sentence naming a drop meant the space beneath it. So the box draws
+   * itself, at a height worth throwing a file at. */
+  .file-drop--empty {
+    display: grid;
+    place-items: center;
+    min-height: 16rem;
+    padding: var(--space-12) var(--space-6);
+    border-color: var(--line-strong);
+  }
+
+  /* After `--empty`, so a drag wins the border it shares with it. */
+  .file-drop--over {
+    border-color: var(--accent-fg);
+    background-color: var(--accent-soft);
+  }
+
+  .file-drop__empty {
+    --gap: var(--space-2);
+
+    align-items: center;
+    max-width: 32rem;
+    text-align: center;
+  }
+
+  /* `--size-icon-md`, not a bigger one drawn for this box: the scale has two
+   * steps and an empty state is not a reason to add a third. */
+  .file-drop__empty > svg {
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    color: var(--fg-3);
+  }
+
+  .file-drop__empty-title {
+    color: var(--fg-2);
+  }
+
+  .file-drop__empty-hint {
+    color: var(--fg-3);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+  }
+
+  /* ── Breadcrumbs ───────────────────────────────────────────── */
+
+  .breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .breadcrumbs li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .breadcrumbs__separator {
+    color: var(--fg-3);
+  }
+
+  .breadcrumbs__current {
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .breadcrumbs__link {
+    padding: var(--space-0-5) var(--space-1);
+    border-radius: var(--radius-md);
+    color: var(--fg-2);
+  }
+
+  .breadcrumbs__link:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  /* ── Preview ───────────────────────────────────────────────── */
+
+  .file-preview {
+    --gap: var(--space-2);
+  }
+
+  .file-preview__meta {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .file-preview__body {
+    max-height: 60vh;
+    overflow: auto;
+    padding: var(--space-3);
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .file-preview__image {
+    max-height: 60vh;
+    margin-inline: auto;
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    object-fit: contain;
+  }
+
+  .file-preview__note {
+    color: var(--fg-3);
+  }
+
+  /* ── Editor ────────────────────────────────────────────────── */
+
+  .file-editor {
+    --gap: var(--space-2);
+  }
+
+  .file-editor__toolbar {
+    --gap: var(--space-1);
+  }
+
+  /* The editor's two status words are `.micro-label` — see
+   * `components/micro-label.css`. They were two identical rules here, and the
+   * agent editor wanted a third. */
+
+  /* ── The code surface ──────────────────────────────────────── */
+
+  /**
+   * The one element that scrolls.
+   *
+   * The textarea inside grows to its own content and the highlight layer is
+   * pinned over it, so both move together with no scroll handler — see
+   * `code-editor.tsx`. The type is declared once, here, and inherited by every
+   * layer: a `<pre>` and a `<textarea>` that disagree about font, size or
+   * line-height are two texts that drift apart a fraction of a pixel per line,
+   * and by line forty the colouring sits visibly above the caret.
+   */
+  .code-editor {
+    position: relative;
+    display: flex;
+    /* `start`, not the default `stretch`. Stretch sizes a flex item to the
+     * *scroller's* height, and the text is taller than the scroller — so the
+     * layer stacked over the textarea ended one screenful down while the
+     * textarea itself, transparent, ran on to the end of the file. A long file
+     * scrolled into an empty rectangle. Sizing the columns to their content is
+     * what makes the two agree; `min-height: 100%` below keeps a short file
+     * filling the box. */
+    align-items: start;
+    height: 60vh;
+    overflow: auto;
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    tab-size: 2;
+  }
+
+  /* A second, calmer edge while the caret is in it. The textarea keeps its own
+   * `:focus-visible` ring — nothing here removes it — but that ring hugs a box
+   * as tall as the file, so this is the part of it a reader can actually see. */
+  .code-editor:focus-within {
+    border-color: var(--accent-fg);
+  }
+
+  /* Sticky rather than fixed-position, so it holds its column through a
+   * horizontal scroll while still scrolling vertically with the code. Opaque
+   * for the same reason: long lines pass underneath it. */
+  .code-editor__gutter {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    flex: none;
+    min-height: 100%;
+    padding: var(--space-3) var(--space-2);
+    background-color: var(--surface-1);
+    border-right: var(--hairline) solid var(--line);
+    color: var(--fg-3);
+    text-align: right;
+    white-space: pre;
+    user-select: none;
+  }
+
+  /* One grid cell holding both layers, rather than one absolutely positioned
+   * over the other. Absolute positioning resolves against the *box*; a shared
+   * grid area resolves against whichever layer is bigger, so the colouring is
+   * the same size as the text it colours by construction rather than by two
+   * rules agreeing. `max-content` does the same for the horizontal axis, which
+   * `wrap="off"` makes just as real: a long line used to run out of colour past
+   * the right edge for the same reason. */
+  .code-editor__code {
+    display: grid;
+    grid-template-areas: 'stack';
+    flex: 1 1 auto;
+    min-width: 100%;
+    width: max-content;
+    min-height: 100%;
+  }
+
+  .code-editor__highlight,
+  .code-editor__input {
+    grid-area: stack;
+  }
+
+  .code-editor__highlight,
+  .code-editor__input {
+    margin: 0;
+    padding: var(--space-3);
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    tab-size: inherit;
+    white-space: pre;
+  }
+
+  .code-editor__input {
+    display: block;
+    /* Grows to the text, so the box above is the only scroller. The grid cell
+     * takes its size from this, and the highlight layer is stretched to match. */
+    field-sizing: content;
+    width: 100%;
+    min-width: 100%;
+    overflow: hidden;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    color: var(--fg-1);
+    resize: none;
+  }
+
+  /* Only while the colouring underneath is current. The caret and the selection
+   * stay visible; the glyphs come from the layer behind. */
+  .code-editor__input--ghost {
+    color: transparent;
+    caret-color: var(--fg-1);
+  }
+
+  .code-editor__highlight {
+    /* Clicks belong to the textarea; this layer is a picture of it. */
+    pointer-events: none;
+  }
+
+  .dialog--preview {
+    width: min(48rem, calc(100vw - var(--space-8)));
+  }
+}

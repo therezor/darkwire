@@ -1,0 +1,87 @@
+/**
+ * Text inputs, labels and the message line under them.
+ *
+ * **One border, on all four sides, and it does not change on focus.** An
+ * earlier version borrowed the reference's treatment — a heavier bottom edge
+ * that turned gold when the caret arrived — and it was wrong twice over. At
+ * rest the asymmetric edge reads as an underline nobody asked for, and on focus
+ * it is a second focus indicator competing with the `:focus-visible` ring that
+ * the base layer already draws on every focusable element. Two indicators for
+ * one state is noise, and the ring is the one that is consistent across the
+ * whole app.
+ *
+ * So the border's only jobs are the two it can do alone: mark the edge of the
+ * control, and turn red when the value is invalid.
+ */
+
+@layer components {
+  .input,
+  .textarea {
+    width: 100%;
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    color: var(--fg-1);
+    transition:
+      border-color var(--duration-fast) var(--ease-out-quint),
+      background-color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .input {
+    height: var(--size-control-md);
+    padding-inline: var(--space-4);
+  }
+
+  .textarea {
+    /* Grows with what is typed. The lists edited in Settings are two lines on
+     * one provider and twelve on another, and a fixed `rows` is wrong for both.
+     * The floor is a rem, so it grows with the user's font size rather than
+     * clipping at 200%. */
+    field-sizing: content;
+    min-height: var(--space-16);
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+  }
+
+  /* The lists this control was built for hold identifiers, which is why the
+   * base rule is mono. A textarea holding a sentence is prose, and prose is set
+   * in the sans face — see the type rule. */
+  .textarea--prose {
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    line-height: var(--leading-md);
+  }
+
+  .input[aria-invalid='true'],
+  .textarea[aria-invalid='true'] {
+    border-color: var(--danger-fg);
+  }
+
+  .input:disabled,
+  .textarea:disabled {
+    pointer-events: none;
+    background-color: var(--surface-2);
+    color: var(--fg-3);
+  }
+
+  .label {
+    font-weight: var(--weight-medium);
+    color: var(--fg-2);
+  }
+
+  .field {
+    --gap: var(--space-2);
+  }
+
+  .field__message {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .field__message--error {
+    color: var(--danger-fg);
+  }
+}

@@ -1,0 +1,3 @@
+# Screenshots, traces and the fidelity captures. All regenerable:
+# `pnpm test:e2e` writes the first two, `pnpm baseline` the third.
+artifacts/

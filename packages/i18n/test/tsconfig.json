@@ -1,0 +1,20 @@
+/**
+ * The tests' own project. It lives here rather than beside `src`'s tsconfig so
+ * that ESLint's `projectService` finds it the way it finds every other config —
+ * by walking up from the file — and so `rootDir: ./src` can keep meaning "this
+ * is what ships". Nothing here is emitted; `tsc -b` runs it as a checker.
+ */
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    // Tests export fixtures and helpers whose types are worth inferring; there
+    // is no declaration file for the rule to protect.
+    "isolatedDeclarations": false,
+    "tsBuildInfoFile": "../test.tsbuildinfo"
+  },
+  "include": ["**/*"],
+  "references": [{ "path": "../tsconfig.json" }]
+}

@@ -1,0 +1,156 @@
+{
+  "description": "parseConfig(JSON.stringify(input)) followed by saveConfig(): `output` is the exact text written — JSON.stringify(config, null, 2) plus a trailing newline, keys in schema declaration order, defaults filled, unknown keys dropped, record entries (providers, agents.list, mcpServers, channels, extension settings) in the order the input gave them.",
+  "cases": [
+    {
+      "name": "an empty object fills every default",
+      "input": {},
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "unknown keys are dropped at every level",
+      "input": {
+        "bogus": {
+          "x": 1
+        },
+        "server": {
+          "port": 4242,
+          "bogus": true
+        },
+        "tools": {
+          "exec": {
+            "enable": false,
+            "bogus": "x"
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 4242,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": false,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "a tilde workspace is written back verbatim",
+      "input": {
+        "workspace": "~/ghost-work"
+      },
+      "output": "{\n  \"workspace\": \"~/ghost-work\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "key order in the input does not survive; schema order does",
+      "input": {
+        "server": {
+          "port": 1
+        },
+        "workspace": "x",
+        "ui": {
+          "timezone": "Europe/Kyiv"
+        }
+      },
+      "output": "{\n  \"workspace\": \"x\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 1,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"Europe/Kyiv\"\n  }\n}\n"
+    },
+    {
+      "name": "provider instances keep their own key order",
+      "input": {
+        "providers": {
+          "zeta": {
+            "type": "ollama",
+            "apiBase": "http://gpu.lan:11434/v1"
+          },
+          "alpha": {
+            "type": "openai",
+            "extraHeaders": {
+              "X-Two": "2",
+              "X-One": "1"
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {\n    \"zeta\": {\n      \"type\": \"ollama\",\n      \"label\": \"\",\n      \"apiBase\": \"http://gpu.lan:11434/v1\",\n      \"extraHeaders\": {},\n      \"models\": [],\n      \"enabled\": true\n    },\n    \"alpha\": {\n      \"type\": \"openai\",\n      \"label\": \"\",\n      \"extraHeaders\": {\n        \"X-Two\": \"2\",\n        \"X-One\": \"1\"\n      },\n      \"models\": [],\n      \"enabled\": true\n    }\n  },\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "an agent entry with optional fields set and unset",
+      "input": {
+        "agents": {
+          "list": {
+            "default": {
+              "model": "qwen3:8b",
+              "provider": "ollama"
+            },
+            "reviewer": {
+              "label": "Reviewer",
+              "temperature": 0,
+              "reasoningEffort": "high",
+              "tools": {
+                "read_file": "allow",
+                "exec": "deny"
+              }
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"qwen3:8b\",\n        \"provider\": \"ollama\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      },\n      \"reviewer\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"temperature\": 0,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"reasoningEffort\": \"high\",\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"Reviewer\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"exec\": \"deny\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "an MCP server with an OAuth block",
+      "input": {
+        "tools": {
+          "mcpServers": {
+            "github": {
+              "url": "https://mcp.github.test/mcp",
+              "oauth": {
+                "authUrl": "https://auth.test/a",
+                "tokenUrl": "https://auth.test/t",
+                "clientId": "x"
+              }
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {\n      \"github\": {\n        \"command\": \"\",\n        \"args\": [],\n        \"env\": {},\n        \"url\": \"https://mcp.github.test/mcp\",\n        \"headers\": {},\n        \"oauth\": {\n          \"authUrl\": \"https://auth.test/a\",\n          \"tokenUrl\": \"https://auth.test/t\",\n          \"clientId\": \"x\",\n          \"scopes\": [],\n          \"callbackTimeoutMs\": 0\n        },\n        \"toolTimeoutMs\": 0,\n        \"enabledTools\": [\n          \"*\"\n        ],\n        \"enabled\": true\n      }\n    }\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "a channel block the schema does not name is kept as-is",
+      "input": {
+        "channels": {
+          "telegram": {
+            "token": "abc",
+            "nested": {
+              "deep": [
+                1,
+                2
+              ]
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false,\n    \"telegram\": {\n      \"token\": \"abc\",\n      \"nested\": {\n        \"deep\": [\n          1,\n          2\n        ]\n      }\n    }\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "extension settings are kept as-is",
+      "input": {
+        "extensions": {
+          "disabled": [
+            "slack"
+          ],
+          "settings": {
+            "slack": {
+              "channel": "#ops",
+              "quiet": true
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [\n      \"slack\"\n    ],\n    \"allowOverride\": false,\n    \"settings\": {\n      \"slack\": {\n        \"channel\": \"#ops\",\n        \"quiet\": true\n      }\n    }\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    },
+    {
+      "name": "strings with unicode and escapes",
+      "input": {
+        "agents": {
+          "list": {
+            "default": {
+              "systemPrompt": "Ты — призрак.\n\t\"quoted\" \\ 🐕 \u0007"
+            }
+          }
+        }
+      },
+      "output": "{\n  \"workspace\": \"\",\n  \"agents\": {\n    \"list\": {\n      \"default\": {\n        \"model\": \"\",\n        \"provider\": \"auto\",\n        \"maxTokens\": 8192,\n        \"contextWindowTokens\": 65536,\n        \"maxToolIterations\": 40,\n        \"toolTimeoutMs\": 0,\n        \"loopWallTimeoutMs\": 0,\n        \"subagentTimeoutMs\": 0,\n        \"visionEnabled\": true,\n        \"toolsEnabled\": true,\n        \"label\": \"\",\n        \"systemPrompt\": \"Ты — призрак.\\n\\t\\\"quoted\\\" \\\\ 🐕 \\u0007\",\n        \"livePrompt\": \"\",\n        \"wrapUpPrompt\": \"\",\n        \"promptMode\": \"template\",\n        \"platformPrompt\": \"\",\n        \"toolboxPrompt\": \"\",\n        \"toolPolicyPrompt\": \"\",\n        \"memoryPrompt\": \"\",\n        \"skillsPrompt\": \"\",\n        \"toolPrompts\": {},\n        \"enabled\": true,\n        \"tools\": {\n          \"read_file\": \"allow\",\n          \"list_dir\": \"allow\",\n          \"write_file\": \"allow\",\n          \"edit_file\": \"allow\",\n          \"exec\": \"ask\",\n          \"memory\": \"allow\",\n          \"skill\": \"allow\"\n        },\n        \"toolbox\": {\n          \"name\": \"\",\n          \"network\": {\n            \"mode\": \"none\",\n            \"allow\": []\n          },\n          \"tools\": {}\n        },\n        \"subagents\": []\n      }\n    }\n  },\n  \"providers\": {},\n  \"server\": {\n    \"host\": \"127.0.0.1\",\n    \"port\": 3000,\n    \"auth\": {\n      \"enabled\": true,\n      \"sessionTtlMs\": 2592000000,\n      \"rateLimitPerMinute\": 0,\n      \"signedUrlTtlMs\": 600000\n    },\n    \"replayBufferSize\": 512,\n    \"turnLogMaxBytes\": 16777216\n  },\n  \"tools\": {\n    \"exec\": {\n      \"enable\": true,\n      \"timeoutMs\": 0,\n      \"pathAppend\": \"\",\n      \"allowedBinaries\": [],\n      \"deniedBinaries\": [],\n      \"envAllowlist\": [\n        \"PATH\",\n        \"HOME\",\n        \"LANG\",\n        \"TZ\"\n      ],\n      \"maxOutputBytes\": 1048576\n    },\n    \"approvalTimeoutMs\": 300000,\n    \"maxOutputChars\": 8192,\n    \"mcpServers\": {}\n  },\n  \"channels\": {\n    \"sendProgress\": true,\n    \"sendToolHints\": false\n  },\n  \"scheduler\": {\n    \"enabled\": true,\n    \"concurrency\": 2,\n    \"catchUpOnBoot\": true,\n    \"runRetention\": 200\n  },\n  \"extensions\": {\n    \"load\": [],\n    \"disabled\": [],\n    \"allowOverride\": false,\n    \"settings\": {}\n  },\n  \"ui\": {\n    \"locale\": \"en\",\n    \"timezone\": \"UTC\"\n  }\n}\n"
+    }
+  ]
+}

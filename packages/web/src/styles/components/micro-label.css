@@ -1,0 +1,28 @@
+/**
+ * An ambient status word: uppercase, tracked, muted, and small.
+ *
+ * "Unsaved changes", "This agent's own prompt", "Read only" — the class of
+ * thing a reader should be able to notice without being interrupted by. Status
+ * is ambient here: a transient state must not be the loudest thing on screen,
+ * which is why this is a tracked micro-label and not a filled amber pill.
+ *
+ * It exists as one class because it was three. The file editor had
+ * `__state` and `__status` — byte-identical rules in the same file — and the
+ * agent editor was about to add a third. Three copies of a text treatment is
+ * also three rules spending `--text-2xs`, and `stylesheets.test.ts` caps how
+ * many may: the step is reserved for uppercase micro-labels and badge text
+ * precisely so it does not spread to prose, and the cheapest way to stay under
+ * a budget is to stop duplicating the thing being budgeted.
+ *
+ * `--text-2xs` is legible *because* of the other three declarations. Do not
+ * reach for this step without them.
+ */
+
+@layer components {
+  .micro-label {
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+}

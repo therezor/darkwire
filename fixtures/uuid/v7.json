@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "all-zero randomness shows the version and variant masks",
+      "nowMs": 0,
+      "random": "00000000000000000000",
+      "uuid": "00000000-0000-7000-8000-000000000000"
+    },
+    {
+      "name": "all-one randomness is masked, not replaced",
+      "nowMs": 0,
+      "random": "ffffffffffffffffffff",
+      "uuid": "00000000-0000-7fff-bfff-ffffffffffff"
+    },
+    {
+      "name": "an ordinary instant",
+      "nowMs": 1785587696789,
+      "random": "0123456789abcdef0123",
+      "uuid": "019fbd52-0495-7123-8567-89abcdef0123"
+    },
+    {
+      "name": "the epoch plus one millisecond",
+      "nowMs": 1,
+      "random": "a1b2c3d4e5f60718293a",
+      "uuid": "00000000-0001-71b2-83d4-e5f60718293a"
+    },
+    {
+      "name": "a 48-bit timestamp",
+      "nowMs": 281474976710655,
+      "random": "8badf00d8badf00d8bad",
+      "uuid": "ffffffff-ffff-7bad-b00d-8badf00d8bad"
+    },
+    {
+      "name": "a version nibble of 7 already",
+      "nowMs": 1700000000000,
+      "random": "7f00000000bf00000000",
+      "uuid": "018bcfe5-6800-7f00-8000-00bf00000000"
+    }
+  ]
+}

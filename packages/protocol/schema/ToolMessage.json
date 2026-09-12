@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "const": "tool"
+    },
+    "toolCallId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "content": {
+      "type": "string"
+    },
+    "isError": {
+      "default": false,
+      "type": "boolean"
+    },
+    "truncated": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "role",
+    "toolCallId",
+    "name",
+    "content"
+  ]
+}

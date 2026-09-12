@@ -1,0 +1,20 @@
+# Generated or vendored output. Prettier reads `.gitignore` only for files it
+# would otherwise have to be told about individually; this is the explicit list.
+dist/
+coverage/
+node_modules/
+.turbo/
+pnpm-lock.yaml
+
+# Playwright's traces, screenshots and the fidelity captures. Regenerable, and
+# `.last-run.json` is rewritten by every run — a format check over it fails on a
+# clean tree the moment anyone runs the suite.
+packages/e2e/artifacts/
+
+# The Rust workspace. `Cargo.lock` is a lockfile like `pnpm-lock.yaml`; `target/`
+# is build output; the two generated-JSON directories are written by their
+# emitters, not by hand, and their formatting is the emitter's business.
+target/
+Cargo.lock
+fixtures/
+packages/protocol/schema/

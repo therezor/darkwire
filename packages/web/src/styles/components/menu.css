@@ -1,0 +1,143 @@
+/**
+ * Floating surfaces, and the rows inside them.
+ *
+ * `.floating` is shared by the dropdown menu, the popover and the select
+ * listbox, for the reason it always was: a menu and a popover that disagree
+ * about border, radius or elevation read as two different applications. It is a
+ * class here rather than an exported string of utilities, which means the
+ * sharing is now enforced by the stylesheet instead of by everyone remembering
+ * to import the same constant.
+ *
+ * Everything floating is portalled to the end of `<body>`, so stacking is a DOM
+ * order question and one z-index step covers all of it.
+ */
+
+@layer components {
+  .floating {
+    z-index: var(--z-overlay);
+    min-width: 9rem;
+    overflow: hidden;
+    padding: var(--space-2);
+    background-color: var(--surface-3);
+    border: var(--hairline) solid var(--line-strong);
+    border-radius: var(--radius-md);
+  }
+
+  /** A menu of choices rather than of commands: wide enough not to feel pinched
+    * around a trailing tick, and never so wide that three short words float in
+    * it. */
+  .floating--menu {
+    min-width: 11rem;
+  }
+
+  .floating[data-state='open'] {
+    animation: pop-in var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .menu__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--size-control-sm);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--fg-2);
+    cursor: default;
+    user-select: none;
+  }
+
+  .menu__item > svg {
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    flex-shrink: 0;
+  }
+
+  .menu__item[data-highlighted] {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  /* The ring is drawn inside the row rather than around it. `.floating` clips
+   * its content, so the default outward offset would put the ring's outer edge
+   * under the panel's own edge and shave it off on the first and last rows.
+   * Inset, not removed — the highlight is a surface change, and a surface
+   * change alone is not a focus indicator. */
+  .menu__item:focus-visible {
+    outline-offset: calc(-1 * var(--ring-offset));
+  }
+
+  /* No opacity. A row faded to 70% over a hover fill is a row nobody can read,
+   * and the muted tier already says "not available" legibly on every surface. */
+  .menu__item[data-disabled] {
+    pointer-events: none;
+    color: var(--fg-3);
+  }
+
+  /* The one destructive row in a menu, coloured so it is not found by reading.
+   * Text only — a filled danger row would be the loudest thing in a panel whose
+   * other rows are ordinary, and the point is to mark one row, not to shout. */
+  .menu__item--danger {
+    color: var(--danger-fg);
+  }
+
+  .menu__item--danger[data-highlighted] {
+    background-color: var(--danger-soft);
+    color: var(--danger-fg);
+  }
+
+  /**
+   * The chosen row, in the same terms the rest of the app states selection: the
+   * full-strength text tier, where everything unchosen sits one tier down. The
+   * tick after it confirms; it is not the only thing carrying the state, which
+   * is why it can afford to be quiet.
+   */
+  .menu__item[data-state='checked'] {
+    color: var(--fg-1);
+  }
+
+  /**
+   * Trailing, reserved, and muted.
+   *
+   * Reserved is the part worth stating: the indicator's box is present on every
+   * checkable row whether or not it is ticked, so choosing a different row does
+   * not re-flow the ones above it. `margin-inline-start: auto` is what pushes
+   * it to the trailing edge past a label of any length.
+   */
+  .menu__item--checkable > .menu__indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    margin-inline-start: auto;
+    /* Never flush against the label, however long the label is. */
+    padding-inline-start: var(--space-4);
+    box-sizing: content-box;
+    color: var(--fg-3);
+  }
+
+  .menu__indicator > * > svg,
+  .menu__indicator > svg {
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  .menu__label {
+    padding: var(--space-2) var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+
+  .menu__separator {
+    margin-block: var(--space-1);
+    border: none;
+    border-top: var(--hairline) solid var(--line);
+  }
+}

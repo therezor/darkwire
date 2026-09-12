@@ -1,0 +1,13 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "tool.result",
+    "seq": 49,
+    "turnId": "t1",
+    "callId": "c1",
+    "ok": true,
+    "content": "a.txt",
+    "truncated": false,
+    "durationMs": 20
+  }
+}

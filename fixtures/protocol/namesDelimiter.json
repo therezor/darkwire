@@ -1,0 +1,47 @@
+{
+  "function": "namesDelimiter",
+  "cases": [
+    {
+      "name": "tag",
+      "input": {
+        "template": "see {{tag}}"
+      },
+      "output": true
+    },
+    {
+      "name": "nonce",
+      "input": {
+        "template": "see {{nonce}}"
+      },
+      "output": true
+    },
+    {
+      "name": "neither",
+      "input": {
+        "template": "see {{name}}"
+      },
+      "output": false
+    },
+    {
+      "name": "empty",
+      "input": {
+        "template": ""
+      },
+      "output": false
+    },
+    {
+      "name": "CRLF around it",
+      "input": {
+        "template": "\r\n{{tag}}\r\n"
+      },
+      "output": true
+    },
+    {
+      "name": "astral text around it",
+      "input": {
+        "template": "😀{{nonce}}😀"
+      },
+      "output": true
+    }
+  ]
+}

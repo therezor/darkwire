@@ -1,0 +1,4 @@
+# `-D warnings` is applied by CI on the command line, not here, so a local
+# exploratory build is not blocked by a warning the author is about to fix.
+[net]
+retry = 3

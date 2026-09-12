@@ -1,0 +1,6 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "ping"
+  }
+}

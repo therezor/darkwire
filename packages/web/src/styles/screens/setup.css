@@ -1,0 +1,92 @@
+/**
+ * The first-run wizard.
+ *
+ * Deliberately the login overlay's geometry, one step wider: it solves the same
+ * problem — an opaque page-coloured sheet rather than a scrim, because what is
+ * behind it is a UI the user is not entitled to drive yet — and two overlays
+ * that appear in the same situation and look like different applications would
+ * read as one of them being a mistake.
+ *
+ * Wider because its steps carry a select and two fields where the login carries
+ * one input, and a form that scrolls inside a card is a form that hides its own
+ * submit button.
+ */
+
+@layer screens {
+  .setup-overlay {
+    position: fixed;
+    inset: 0;
+    /* Above the login overlay, which shares this token: on an unclaimed install
+     * `/api/auth/me` also 401s, so both mount and this one has to win. Source
+     * order decides it, and the two are siblings rendered in that order. */
+    z-index: var(--z-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    background-color: var(--surface-0);
+    /* The card can outgrow a short viewport once a provider is chosen and three
+     * fields appear. Scrolling the sheet keeps the whole card reachable; letting
+     * the card scroll internally would put the submit button below its own
+     * fold. */
+    overflow-y: auto;
+  }
+
+  .setup-card {
+    --gap: var(--space-4);
+
+    width: min(30rem, 100%);
+    /* Not `align-items: center` on the parent alone: a card taller than the
+     * viewport would be centred with its top cut off and unreachable. */
+    margin-block: auto;
+    padding: var(--space-6);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .setup-card__header {
+    --gap: var(--space-1);
+  }
+
+  /* "Step 2 of 4" — the one piece of ambient state on the card, so it is set
+   * quieter than the note it sits above rather than competing with the title.
+   * `sm`, not the micro-label step: it is a sentence about progress and it is
+   * the first thing read after the title, which is not what `2xs` is for. */
+  .setup-card__progress {
+    color: var(--fg-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  .setup-card__title {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+    font-weight: var(--weight-medium);
+  }
+
+  .setup-card__note {
+    color: var(--fg-2);
+  }
+
+  .setup-card__body {
+    --gap: var(--space-4);
+  }
+
+  /* The code is read off a terminal and typed back in, character by character,
+   * which is exactly what the mono face is for. Wide tracking because the
+   * failure mode here is misreading one glyph, not fitting the line. */
+  .setup-card__code {
+    font-family: var(--font-mono);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+  }
+
+  /* Back on the left, Skip on the right, separated by a `.spacer`. Both are
+   * ghost buttons: the step's own primary action is the loud one, and a Skip
+   * that competed with it would invite skipping. */
+  .setup-card__actions {
+    padding-block-start: var(--space-2);
+    border-block-start: var(--hairline) solid var(--line);
+  }
+}

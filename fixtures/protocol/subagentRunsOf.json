@@ -1,0 +1,201 @@
+{
+  "function": "subagentRunsOf",
+  "cases": [
+    {
+      "name": "an empty bag",
+      "input": {
+        "metadata": {}
+      },
+      "output": {}
+    },
+    {
+      "name": "a well-formed map",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            },
+            "c2": {
+              "sessionKey": "sub-2",
+              "agentId": "researcher",
+              "label": "Second"
+            }
+          }
+        }
+      },
+      "output": {
+        "c1": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        },
+        "c2": {
+          "sessionKey": "sub-2",
+          "agentId": "researcher",
+          "label": "Second"
+        }
+      }
+    },
+    {
+      "name": "ignores a non-object map",
+      "input": {
+        "metadata": {
+          "subagentRuns": "nope"
+        }
+      },
+      "output": {}
+    },
+    {
+      "name": "ignores an array",
+      "input": {
+        "metadata": {
+          "subagentRuns": [
+            {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          ]
+        }
+      },
+      "output": {}
+    },
+    {
+      "name": "skips an entry with no session key",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "agentId": "x"
+            },
+            "c2": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        }
+      },
+      "output": {
+        "c2": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      }
+    },
+    {
+      "name": "skips an entry with an empty session key",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "",
+              "agentId": "researcher",
+              "label": "Researcher"
+            },
+            "c2": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        }
+      },
+      "output": {
+        "c2": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      }
+    },
+    {
+      "name": "skips a non-object entry",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": 5,
+            "c2": null,
+            "c3": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "Researcher"
+            }
+          }
+        }
+      },
+      "output": {
+        "c3": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "Researcher"
+        }
+      }
+    },
+    {
+      "name": "fills a missing agent and label with empty strings",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "sub-1"
+            }
+          }
+        }
+      },
+      "output": {
+        "c1": {
+          "sessionKey": "sub-1",
+          "agentId": "",
+          "label": ""
+        }
+      }
+    },
+    {
+      "name": "coerces a non-string agent and label to empty strings",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c1": {
+              "sessionKey": "sub-1",
+              "agentId": 7,
+              "label": true
+            }
+          }
+        }
+      },
+      "output": {
+        "c1": {
+          "sessionKey": "sub-1",
+          "agentId": "",
+          "label": ""
+        }
+      }
+    },
+    {
+      "name": "keeps astral-plane text",
+      "input": {
+        "metadata": {
+          "subagentRuns": {
+            "c-😀": {
+              "sessionKey": "sub-1",
+              "agentId": "researcher",
+              "label": "𝔏𝔞𝔟𝔢𝔩\r\n"
+            }
+          }
+        }
+      },
+      "output": {
+        "c-😀": {
+          "sessionKey": "sub-1",
+          "agentId": "researcher",
+          "label": "𝔏𝔞𝔟𝔢𝔩\r\n"
+        }
+      }
+    }
+  ]
+}

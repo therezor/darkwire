@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "use": {
+      "type": "string"
+    },
+    "permission": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "ask",
+        "deny"
+      ]
+    }
+  },
+  "required": [
+    "name",
+    "use",
+    "permission"
+  ]
+}

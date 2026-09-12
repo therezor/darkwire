@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "propertyNames": {
+    "type": "string"
+  },
+  "additionalProperties": {
+    "type": "string",
+    "enum": [
+      "allow",
+      "ask",
+      "deny"
+    ]
+  }
+}

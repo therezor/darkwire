@@ -1,0 +1,75 @@
+{
+  "description": "Every string passed to DatabaseSync.exec() while constructing the eight stores on one fresh connection, in execution order, labelled by store: PRAGMAs and the multi-statement SCHEMA blocks verbatim (comments included). `ledger` is the `ALTER TABLE` statements the same constructors run when the database predates a column — captured against tables created in their pre-ledger shape — in the order they run. The fresh run executes no ALTER. Statements the row inserts ran (BEGIN/COMMIT) are left out.",
+  "statements": [
+    {
+      "store": "SessionStore",
+      "sql": "PRAGMA foreign_keys = ON"
+    },
+    {
+      "store": "SessionStore",
+      "sql": "\n-- Nothing below puts a comment inside a column list, and that is a rule rather\n-- than a habit: SQLite stores this text verbatim in sqlite_master, and\n-- ALTER TABLE DROP COLUMN rewrites it by byte offset. On SQLite 3.51 — what\n-- node 22 bundles, which `engines` still supports — a comment in the list can\n-- make that rewrite produce SQL that no longer parses, and the table's schema\n-- is then unreadable. Each column's rationale therefore sits above its table.\n--\n-- `sessions.workspace_id` has no `REFERENCES workspaces(id)`: the two tables\n-- are created by two different stores in an order nothing guarantees. The\n-- relationship is held in code instead, which is also what lets a *detached*\n-- workspace's sessions keep resolving to their own files rather than falling\n-- into another's.\nCREATE TABLE IF NOT EXISTS sessions (\n  key                   TEXT    PRIMARY KEY,\n  title                 TEXT    NOT NULL DEFAULT '',\n  origin                TEXT    NOT NULL DEFAULT 'web',\n  agent_id              TEXT,\n  workspace_id          TEXT    NOT NULL DEFAULT 'default',\n  created_at_ms         INTEGER NOT NULL,\n  updated_at_ms         INTEGER NOT NULL,\n  metadata_json         TEXT    NOT NULL DEFAULT '{}',\n  next_seq              INTEGER NOT NULL DEFAULT 1\n) STRICT;\n\nCREATE INDEX IF NOT EXISTS sessions_workspace ON sessions(workspace_id, updated_at_ms DESC);\n\nCREATE TABLE IF NOT EXISTS messages (\n  id            TEXT    PRIMARY KEY,\n  session_key   TEXT    NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,\n  seq           INTEGER NOT NULL,\n  created_at_ms INTEGER NOT NULL,\n  turn_id       TEXT,\n  role          TEXT    NOT NULL,\n  payload_json  TEXT    NOT NULL\n) STRICT;\n\n-- What a turn cost, keyed by the id that groups its messages.\n--\n-- Here rather than in the migration ledger because the ledger is only for\n-- altering tables that already exist; a new table is created by the store that\n-- owns it. That is also what lets this one carry a real foreign key, which\n-- ADD COLUMN cannot express -- so deleting a session takes its stats with it.\n--\n-- Usage is five integer columns rather than a JSON blob so that a session's\n-- total is one SUM(...) GROUP BY session_key over a page of keys instead of a\n-- query per row. SUM over all-NULL returns NULL, which is exactly what the two\n-- optional usage fields mean.\n--\n-- The agent is recorded per turn rather than read from the session because a\n-- session can be moved to another agent, and a transcript that then reported\n-- every past turn as the new agent's work would be a lie about what ran.\n--\n-- The error column is why the turn stopped, when stop_reason is 'error'. Here\n-- rather than as a message row, because everything in messages is replayed into\n-- every later provider request: an error appended to history would fail its way\n-- into the prompt forever. NULL for every turn that did not fail.\n--\n-- workspace_id is where this turn actually ran, not where the session is now. A\n-- session can be moved between workspaces mid-conversation, so the two\n-- genuinely differ and only this column can say which files a given turn could\n-- reach.\n--\n-- generation_ms is what the model spent generating and first_token_ms is how\n-- long the turn waited to start. NULL on every turn recorded before these were\n-- measured, which is what lets a rate fall back to the wall clock rather than\n-- reporting nothing for old rows. generation_tokens is the tokens produced\n-- inside generation_ms, which is not the same as completion_tokens: a reply\n-- that arrives in one frame is charged for its tokens and measured at zero, so\n-- it contributes to neither.\nCREATE TABLE IF NOT EXISTS turn_stats (\n  turn_id           TEXT    PRIMARY KEY,\n  session_key       TEXT    NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,\n  agent_id          TEXT    NOT NULL DEFAULT '',\n  workspace_id      TEXT    NOT NULL DEFAULT 'default',\n  provider          TEXT    NOT NULL DEFAULT '',\n  model             TEXT    NOT NULL DEFAULT '',\n  started_at_ms     INTEGER NOT NULL,\n  ended_at_ms       INTEGER NOT NULL,\n  iterations        INTEGER NOT NULL DEFAULT 0,\n  stop_reason       TEXT    NOT NULL DEFAULT '',\n  prompt_tokens     INTEGER NOT NULL DEFAULT 0,\n  completion_tokens INTEGER NOT NULL DEFAULT 0,\n  total_tokens      INTEGER NOT NULL DEFAULT 0,\n  cached_tokens     INTEGER,\n  reasoning_tokens  INTEGER,\n  generation_ms     INTEGER,\n  generation_tokens INTEGER,\n  first_token_ms    INTEGER,\n  error             TEXT\n) STRICT;\n\nCREATE UNIQUE INDEX IF NOT EXISTS messages_session_seq ON messages(session_key, seq);\nCREATE INDEX IF NOT EXISTS messages_turn ON messages(session_key, turn_id);\nCREATE INDEX IF NOT EXISTS sessions_updated ON sessions(updated_at_ms DESC);\nCREATE INDEX IF NOT EXISTS turn_stats_session ON turn_stats(session_key, ended_at_ms DESC);\n"
+    },
+    {
+      "store": "WorkspaceStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS workspaces (\n  id            TEXT    PRIMARY KEY,\n  name          TEXT    NOT NULL DEFAULT '',\n  created_at_ms INTEGER NOT NULL,\n  updated_at_ms INTEGER NOT NULL,\n  is_default    INTEGER NOT NULL DEFAULT 0,\n  metadata_json TEXT    NOT NULL DEFAULT '{}'\n) STRICT;\n\nCREATE UNIQUE INDEX IF NOT EXISTS workspaces_default ON workspaces(is_default) WHERE is_default = 1;\n"
+    },
+    {
+      "store": "ToolboxStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS toolbox_approvals (\n  name           TEXT    PRIMARY KEY,\n  manifest_sha256 TEXT   NOT NULL,\n  image          TEXT    NOT NULL,\n  approved_at_ms INTEGER NOT NULL\n) STRICT;\n"
+    },
+    {
+      "store": "ExtensionStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS extension_approvals (\n  id             TEXT    PRIMARY KEY,\n  digest         TEXT    NOT NULL,\n  approved_at_ms INTEGER NOT NULL\n) STRICT;\n"
+    },
+    {
+      "store": "AuthStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS auth_secrets (\n  name          TEXT PRIMARY KEY,\n  value         TEXT NOT NULL,\n  updated_at_ms INTEGER NOT NULL\n) STRICT;\n\nCREATE TABLE IF NOT EXISTS auth_sessions (\n  id              TEXT    PRIMARY KEY,\n  token_sha256    BLOB    NOT NULL,\n  label           TEXT    NOT NULL DEFAULT '',\n  created_at_ms   INTEGER NOT NULL,\n  expires_at_ms   INTEGER NOT NULL,\n  last_seen_at_ms INTEGER NOT NULL\n) STRICT;\n\nCREATE INDEX IF NOT EXISTS auth_sessions_expiry ON auth_sessions(expires_at_ms);\n"
+    },
+    {
+      "store": "LoginThrottle",
+      "sql": "\nCREATE TABLE IF NOT EXISTS auth_throttle (\n  scope           TEXT    PRIMARY KEY,\n  failures        INTEGER NOT NULL,\n  last_failed_ms  INTEGER NOT NULL,\n  locked_until_ms INTEGER NOT NULL\n) STRICT;\n\nCREATE INDEX IF NOT EXISTS auth_throttle_last_failed ON auth_throttle(last_failed_ms);\n"
+    },
+    {
+      "store": "NotificationStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS notifications (\n  id            TEXT    PRIMARY KEY,\n  title         TEXT    NOT NULL,\n  body          TEXT    NOT NULL DEFAULT '',\n  level         TEXT    NOT NULL DEFAULT 'info',\n  created_at_ms INTEGER NOT NULL,\n  read_at_ms    INTEGER,\n  session_key   TEXT,\n  job_id        TEXT\n) STRICT;\n\nCREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at_ms DESC, id ASC);\nCREATE INDEX IF NOT EXISTS notifications_unread ON notifications(created_at_ms DESC) WHERE read_at_ms IS NULL;\n"
+    },
+    {
+      "store": "AutomationStore",
+      "sql": "PRAGMA foreign_keys = ON"
+    },
+    {
+      "store": "AutomationStore",
+      "sql": "\nCREATE TABLE IF NOT EXISTS automation_jobs (\n  id               TEXT    PRIMARY KEY,\n  name             TEXT    NOT NULL,\n  schedule_json    TEXT    NOT NULL,\n  payload_json     TEXT    NOT NULL,\n  enabled          INTEGER NOT NULL DEFAULT 1,\n  delete_after_run INTEGER NOT NULL DEFAULT 0,\n  next_run_at_ms   INTEGER NOT NULL DEFAULT 0,\n  last_run_at_ms   INTEGER NOT NULL DEFAULT 0,\n  last_status      TEXT    NOT NULL DEFAULT 'pending',\n  last_error       TEXT    NOT NULL DEFAULT '',\n  run_count        INTEGER NOT NULL DEFAULT 0,\n  created_at_ms    INTEGER NOT NULL,\n  updated_at_ms    INTEGER NOT NULL,\n  -- Who asked for this, when it was not a person. Empty is the operator, which\n  -- is the common case, so these default rather than being nullable: a job the\n  -- panel made and a job whose agent has been forgotten are the same row shape.\n  created_by_agent   TEXT NOT NULL DEFAULT '',\n  created_by_session TEXT NOT NULL DEFAULT ''\n) STRICT;\n\n-- The only index the timer needs, and partial on purpose: `next_run_at_ms = 0`\n-- means unscheduled, which in a mature table is the majority of rows — every\n-- fired one-shot and every disabled job.\nCREATE INDEX IF NOT EXISTS automation_jobs_due\n  ON automation_jobs(next_run_at_ms ASC, id ASC)\n  WHERE enabled = 1 AND next_run_at_ms > 0;\n\n-- A real foreign key, which `sessions`/`workspaces` could not express: those\n-- are created by two different stores in an order nothing guarantees, and these\n-- two are created together, here. `PRAGMA foreign_keys` is already ON for this\n-- connection -- `SessionStore` sets it and `messages` relies on it.\nCREATE TABLE IF NOT EXISTS automation_runs (\n  id             TEXT    PRIMARY KEY,\n  job_id         TEXT    NOT NULL REFERENCES automation_jobs(id) ON DELETE CASCADE,\n  started_at_ms  INTEGER NOT NULL,\n  finished_at_ms INTEGER,\n  status         TEXT    NOT NULL,\n  skip_reason    TEXT,\n  error          TEXT,\n  output         TEXT,\n  warnings_json  TEXT    NOT NULL DEFAULT '[]',\n  session_key    TEXT\n) STRICT;\n\nCREATE INDEX IF NOT EXISTS automation_runs_job\n  ON automation_runs(job_id, started_at_ms DESC, id ASC);\n"
+    }
+  ],
+  "ledger": [
+    {
+      "store": "SessionStore",
+      "sql": "ALTER TABLE turn_stats ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'"
+    },
+    {
+      "store": "SessionStore",
+      "sql": "ALTER TABLE turn_stats ADD COLUMN error TEXT"
+    },
+    {
+      "store": "SessionStore",
+      "sql": "ALTER TABLE turn_stats ADD COLUMN generation_ms INTEGER"
+    },
+    {
+      "store": "SessionStore",
+      "sql": "ALTER TABLE turn_stats ADD COLUMN generation_tokens INTEGER"
+    },
+    {
+      "store": "SessionStore",
+      "sql": "ALTER TABLE turn_stats ADD COLUMN first_token_ms INTEGER"
+    },
+    {
+      "store": "AutomationStore",
+      "sql": "ALTER TABLE automation_jobs ADD COLUMN created_by_agent TEXT NOT NULL DEFAULT ''"
+    },
+    {
+      "store": "AutomationStore",
+      "sql": "ALTER TABLE automation_jobs ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''"
+    }
+  ]
+}

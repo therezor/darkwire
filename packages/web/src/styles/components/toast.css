@@ -1,0 +1,127 @@
+/**
+ * Toast.
+ *
+ * The role is carried twice — a coloured strip down the leading edge and a
+ * coloured icon — because either alone is colour as the sole channel. The
+ * strip is the reference's treatment and it is the better half of the pair: it
+ * is visible from the corner of the eye, which is where a toast is read.
+ *
+ * The viewport is bottom-right and capped at the viewport height, so a burst of
+ * reconnect notices scrolls its own stack rather than covering the composer.
+ *
+ * It sits *above* `--z-overlay` rather than on it, and that is not a tweak: the
+ * viewport mounts once with the app, so a dialog opened later portals after it
+ * and — at an equal z-index — paints over the top. "Saved" would land behind
+ * the editor that saved and under that dialog's scrim, which is the one moment
+ * it had to be readable.
+ */
+
+@layer components {
+  .toast-viewport {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: min(24rem, 100vw);
+    max-height: 100dvh;
+    padding: var(--space-4);
+    overflow: hidden;
+    /* The viewport spans the corner; only the toasts inside it take clicks. */
+    pointer-events: none;
+  }
+
+  .toast {
+    --tone-fg: var(--info-fg);
+
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background-color: var(--surface-3);
+    border: var(--hairline) solid var(--line-strong);
+    border-left: var(--space-0-5) solid var(--tone-fg);
+    border-radius: var(--radius-md);
+    pointer-events: auto;
+  }
+
+  .toast--success {
+    --tone-fg: var(--success-fg);
+  }
+
+  .toast--warning {
+    --tone-fg: var(--warning-fg);
+  }
+
+  .toast--danger {
+    --tone-fg: var(--danger-fg);
+  }
+
+  .toast[data-state='open'] {
+    animation: slide-in var(--duration-base) var(--ease-out-quint);
+  }
+
+  .toast[data-state='closed'],
+  .toast[data-swipe='end'] {
+    animation: fade-out var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .toast__icon {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    margin-top: var(--space-0-5);
+    color: var(--tone-fg);
+  }
+
+  .toast__body {
+    --gap: var(--space-0-5);
+
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .toast__title {
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .toast__description {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+    overflow-wrap: break-word;
+  }
+
+  .toast__action {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--accent-fg);
+  }
+
+  .toast__action:hover {
+    background-color: var(--hover);
+  }
+
+  .toast__close {
+    flex-shrink: 0;
+    padding: var(--space-1);
+    border-radius: var(--radius-md);
+    color: var(--fg-3);
+  }
+
+  .toast__close:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .toast__close > svg {
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+}

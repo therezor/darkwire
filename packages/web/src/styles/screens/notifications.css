@@ -1,0 +1,97 @@
+/**
+ * The notification centre.
+ *
+ * Unread is raised and read is *transparent* — not a lower surface. Two filled
+ * surfaces invert their emphasis between the themes: in light, the greyer card
+ * is the one that stands out from a white page, so the read row would draw the
+ * eye. A row with no fill recedes into the background in both.
+ */
+
+@layer screens {
+  .notification-list {
+    --gap: var(--space-2);
+  }
+
+  .notification {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    background-color: transparent;
+  }
+
+  .notification--unread {
+    background-color: var(--surface-2);
+    border-color: var(--line-strong);
+  }
+
+  .notification__icon {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    margin-top: var(--space-0-5);
+  }
+
+  .notification__icon--info {
+    color: var(--info-fg);
+  }
+
+  .notification__icon--success {
+    color: var(--success-fg);
+  }
+
+  .notification__icon--warning {
+    color: var(--warning-fg);
+  }
+
+  .notification__icon--error {
+    color: var(--danger-fg);
+  }
+
+  .notification__body {
+    --gap: var(--space-1);
+
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .notification__head {
+    --gap: var(--space-2);
+
+    align-items: baseline;
+  }
+
+  .notification__title {
+    color: var(--fg-2);
+  }
+
+  .notification--unread .notification__title {
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .notification__time {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .notification__text {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+    overflow-wrap: break-word;
+  }
+
+  .notification__actions {
+    --gap: var(--space-2);
+  }
+
+  .notification__link {
+    font-size: var(--text-sm);
+    color: var(--accent-fg);
+    text-decoration: underline;
+    text-underline-offset: 0.125rem;
+  }
+}

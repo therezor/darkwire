@@ -1,0 +1,1026 @@
+/**
+ * The chat surface: transcript, messages, tool cards, approvals, composer.
+ *
+ * The measure is `--layout-chat`, and it is applied the way the product being
+ * replaced applies it — as symmetric padding on the scroll container rather
+ * than as a fixed-width block centred inside it:
+ *
+ *     padding-inline: max(--space-4, (100% - --layout-chat) / 2)
+ *
+ * The difference matters. A centred fixed-width child leaves the scrollbar
+ * hard against the window edge and the content floating in the middle with no
+ * relationship to it; padding makes the *container* the measure, so a code
+ * block that needs to scroll sideways scrolls inside the reading column and the
+ * gutters stay put. It also collapses to a sensible 1rem margin on a phone
+ * without a media query.
+ *
+ * The user's side is a bubble; the agent's side is not. That asymmetry is
+ * deliberate: a user message is short, bounded and belongs to a person, so a
+ * right-aligned bubble reads correctly. An answer is long, contains code blocks
+ * and tables, and is the page's actual content — putting it in a bubble gives
+ * it a container that fights every wide thing inside it.
+ */
+
+@layer screens {
+  .chat {
+    /* The measure, as a gutter. Declared here and read by the three things that
+     * have to share a left edge — the transcript, the empty state and the
+     * composer — because when the expression was written out at each of them,
+     * the empty state was centring itself inside a column the composer was not,
+     * and the two disagreed by about 170 device pixels. One expression, one
+     * edge. `100%` resolves against whichever of them is using it; all three are
+     * full-width children of this. */
+    --gutter: max(var(--space-4), calc((100% - var(--layout-chat)) / 2));
+
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ── Transcript ────────────────────────────────────────────── */
+
+  .transcript {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .transcript__viewport {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .transcript__list {
+    --gap: var(--space-6);
+
+    padding-block: var(--space-6);
+    padding-inline: var(--gutter);
+  }
+
+  .transcript__item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .transcript__jump {
+    position: absolute;
+    bottom: var(--space-3);
+    left: 50%;
+    translate: -50% 0;
+  }
+
+  /* ── Messages ──────────────────────────────────────────────── */
+
+  .message-user {
+    --gap: var(--space-1);
+
+    align-items: flex-end;
+    align-self: flex-end;
+    max-width: 85%;
+  }
+
+  /* The tighter corner on the side the message points from. It is the whole of
+   * what makes a stack of bubbles read as a direction rather than as a list of
+   * boxes, and it costs one line. */
+  .message-user__bubble {
+    padding: var(--space-2) var(--space-3);
+    background-color: var(--surface-3);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    border-bottom-right-radius: var(--radius-sm);
+    font-size: var(--text-md);
+    line-height: var(--leading-md);
+    /* Not markdown: what the user typed is what the model receives, so
+     * rendering their asterisks as emphasis would show them a different message
+     * from the one they sent. */
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .message-user__bubble--pending {
+    color: var(--fg-2);
+  }
+
+  .message-user__attachments {
+    --gap: var(--space-2);
+
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  /* The chip form: an icon, a name, a size and a download. Same surface and
+   * stroke as the composer's staged chip, because they are the same object at
+   * two moments in its life and a reader should recognise it. */
+  .message-attachment {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+  }
+
+  .message-attachment__icon {
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    flex-shrink: 0;
+    color: var(--fg-3);
+  }
+
+  .message-attachment__name {
+    max-width: 12rem;
+  }
+
+  .message-attachment__size {
+    color: var(--fg-3);
+  }
+
+  .message-attachment__download {
+    display: flex;
+    color: var(--fg-3);
+  }
+
+  .message-attachment__download:hover {
+    color: var(--fg-1);
+  }
+
+  .message-attachment__download > svg {
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  /* The image form is the picture and nothing else — no chip around it, which
+   * would be a second border inside the one the thumbnail already draws. The
+   * cap is on the block size rather than the inline size so a panorama and a
+   * portrait screenshot occupy the same band of the transcript instead of one
+   * of them taking half the column. */
+  .message-attachment--image {
+    display: block;
+    padding: 0;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .message-attachment--image img {
+    display: block;
+    max-block-size: 12rem;
+    max-inline-size: 100%;
+    width: auto;
+    object-fit: contain;
+  }
+
+  .message-user__pending {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* `.stack` in the markup supplies the `gap`; this only says how much. A rule
+   * that declared its own `display: flex` here would set `--gap` that nothing
+   * reads — which is exactly how the parts of a turn ended up flush against
+   * each other with no space between them. */
+  .turn {
+    --gap: var(--space-3);
+
+    min-width: 0;
+  }
+
+  .turn__thinking {
+    color: var(--fg-3);
+  }
+
+  .turn__failure {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background-color: var(--danger-soft);
+    border: var(--hairline) solid var(--danger-edge);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+  }
+
+  .turn__failure > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    margin-top: var(--space-0-5);
+    color: var(--danger-fg);
+  }
+
+  /* Warning, not danger. A turn that produced no answer is a disappointing
+   * result rather than a broken one — nothing failed, the model simply did not
+   * write anything — and giving it the same red as a provider error would put
+   * two different severities in one colour. */
+  .turn__unanswered {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background-color: var(--warning-soft);
+    border: var(--hairline) solid var(--warning-edge);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+  }
+
+  .turn__unanswered > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    margin-top: var(--space-0-5);
+    color: var(--warning-fg);
+  }
+
+  .turn__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .turn__stop-reason {
+    color: var(--warning-fg);
+  }
+
+  .turn__usage {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A mid-turn steer is neither side of the conversation — it is a note about
+   * it — so it sits centred and quiet rather than in either column. */
+  .steer {
+    align-self: center;
+    padding: var(--space-1) var(--space-3);
+    background-color: var(--surface-2);
+    border-radius: var(--radius-full);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* Notices moved to `components/notice.css` — four screens use them. */
+
+  /* ── Reasoning ─────────────────────────────────────────────── */
+
+  .reasoning {
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .reasoning__toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+    text-align: left;
+  }
+
+  .reasoning__toggle:hover {
+    background-color: var(--hover);
+    color: var(--fg-2);
+  }
+
+  .reasoning__toggle > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  .reasoning__live {
+    margin-left: auto;
+    animation: pulse 2s var(--ease-out-quint) infinite;
+  }
+
+  .reasoning__body {
+    padding: var(--space-2) var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+    color: var(--fg-3);
+    /* Plain text, not markdown: reasoning frequently opens a fence it never
+     * closes, and a renderer that took it seriously would swallow the rest. */
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  /** The chevron on every disclosure in the chat surface. */
+  .disclosure-chevron {
+    transition: rotate var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .disclosure-chevron--open {
+    rotate: 90deg;
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  /* ── Tool card ─────────────────────────────────────────────── */
+
+  .tool-card {
+    overflow: hidden;
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .tool-card--awaiting {
+    border-color: var(--warning-edge);
+  }
+
+  .tool-card__header {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+  }
+
+  .tool-card__header:hover {
+    background-color: var(--hover);
+  }
+
+  /* The chevron and the status glyph are addressed by name rather than through
+   * `.tool-card__header > svg`. A descendant rule would out-specify the status
+   * modifiers below and quietly repaint every state grey — which is the kind of
+   * bug that only shows up in the one state nobody screenshots. */
+  .tool-card__chevron,
+  .tool-card__status {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--fg-3);
+  }
+
+  .tool-card__status--running {
+    animation: spin 1s linear infinite;
+  }
+
+  .tool-card__status--awaiting {
+    color: var(--warning-fg);
+  }
+
+  .tool-card__status--ok {
+    color: var(--success-fg);
+  }
+
+  .tool-card__status--error {
+    color: var(--danger-fg);
+  }
+
+  .tool-card__name {
+    font-family: var(--font-mono);
+    color: var(--fg-1);
+  }
+
+  .tool-card__summary {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .tool-card__timing {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-3);
+  }
+
+  .tool-card__notices {
+    --gap: var(--space-2);
+
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .tool-card__body {
+    --gap: var(--space-2);
+
+    padding: var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .tool-card__field {
+    --gap: var(--space-1);
+  }
+
+  .tool-card__label {
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+
+  .tool-card__pre {
+    padding: var(--space-2);
+    background-color: var(--surface-1);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+    overflow-x: auto;
+  }
+
+  .tool-card__output {
+    max-height: 20rem;
+    overflow: auto;
+    /* A command that printed a 300-column table should wrap rather than force
+     * the whole card sideways; `break-word` stops one unbroken token doing the
+     * same. */
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  /* `exec` output is a terminal, and a terminal is darker than the card it sits
+   * in. Everything else is a code block on the sunken surface. */
+  .tool-card__output--terminal {
+    background-color: var(--surface-0);
+  }
+
+  .tool-card__empty {
+    color: var(--fg-3);
+  }
+
+  .tool-card__note {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .tool-card__running {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* ── Subagent run ──────────────────────────────────────────── */
+
+  /* Depth is a surface and a stroke, never a shadow and never an indent. The
+   * card is `--surface-2`; a run inside it drops to `--surface-1` — the same
+   * sunken relationship `.tool-card__pre` has — so a nested card, which is
+   * `--surface-2` again, still reads as raised off what contains it. That is
+   * what makes depth 2 work with no rule of its own. */
+  .subagent {
+    --gap: var(--space-2);
+
+    padding: var(--space-2);
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-sm);
+  }
+
+  .subagent__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .subagent__icon {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--fg-3);
+  }
+
+  .subagent__name {
+    font-weight: var(--weight-semibold);
+    color: var(--fg-2);
+  }
+
+  /* The resolved model is an identifier, so it is mono — the same rule the
+   * wordmark and the badges follow. */
+  .subagent__model {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* Ambient, like the connection indicator: a running subagent must not be the
+   * loudest thing on a screen whose point is the answer. */
+  .subagent__status {
+    margin-left: auto;
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* ── Approval ──────────────────────────────────────────────── */
+
+  .approval {
+    --gap: var(--space-2);
+
+    padding: var(--space-3) var(--space-3);
+    background-color: var(--warning-soft);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .approval__line {
+    --gap: var(--space-2);
+
+    font-size: var(--text-sm);
+    color: var(--fg-1);
+  }
+
+  .approval__line > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--warning-fg);
+  }
+
+  .approval__timer {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-3);
+  }
+
+  .approval__actions {
+    --gap: var(--space-2);
+  }
+
+  .approval__resolved {
+    --gap: var(--space-2);
+
+    padding: var(--space-2) var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .approval__resolved > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  .approval__resolved--approved > svg {
+    color: var(--success-fg);
+  }
+
+  .approval__resolved--denied > svg {
+    color: var(--danger-fg);
+  }
+
+  /* ── Composer ──────────────────────────────────────────────── */
+
+  .composer {
+    padding-block: var(--space-3);
+    padding-inline: var(--gutter);
+    background-color: var(--surface-1);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .composer__inner {
+    --gap: var(--space-2);
+  }
+
+  .composer__files {
+    --gap: var(--space-2);
+  }
+
+  .composer__file {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+  }
+
+  .composer__file--failed {
+    border-color: var(--danger-edge);
+    color: var(--danger-fg);
+  }
+
+  .composer__file-name {
+    max-width: 10rem;
+  }
+
+  .composer__file-state {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .composer__file-remove {
+    border-radius: var(--radius-sm);
+    color: var(--fg-3);
+  }
+
+  .composer__file-remove:hover {
+    color: var(--fg-1);
+  }
+
+  .composer__file-remove > svg {
+    width: var(--space-3);
+    height: var(--space-3);
+  }
+
+  /* One quiet border on all four sides. Focus is the ring the base layer draws
+   * on the textarea inside — see `components/field.css` for why the box does
+   * not also light up. */
+  .composer__box {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  /* The grid is the auto-grow: the mirror sizes the cell and the textarea fills
+   * it. No `scrollHeight` measurement, no pixel height written per keystroke,
+   * and it reflows at 200% zoom for free. */
+  .composer__grow {
+    display: grid;
+    flex: 1 1 auto;
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+
+  .composer__mirror,
+  .composer__input {
+    grid-column: 1;
+    grid-row: 1;
+    padding: var(--space-2) var(--space-1);
+    font-size: var(--text-md);
+    line-height: var(--leading-md);
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .composer__mirror {
+    visibility: hidden;
+  }
+
+  .composer__input {
+    background-color: transparent;
+    border: none;
+    color: var(--fg-1);
+    resize: none;
+    overflow: hidden;
+  }
+
+  /* The slash-command list, anchored to the box rather than portalled.
+   *
+   * `.floating` carries the surface — the same border, radius and elevation the
+   * menus and the select use, because a popover that disagreed with them would
+   * read as a second application. What is here is only the placement, which is
+   * the one thing this list does not share: it belongs to a control at the
+   * bottom of the screen, so it opens upwards. */
+  .composer__commands {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    width: 22rem;
+    max-width: 100%;
+    margin-bottom: var(--space-1);
+  }
+
+  .composer__command {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--fg-2);
+    cursor: default;
+  }
+
+  /* Selection said the way the rest of the app says it: a raised surface and
+   * the full-strength text tier, never a tick or an accent fill. */
+  .composer__command--active {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  /* Mono, because this column is what you type character by character. */
+  .composer__command-label {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+
+  .composer__command-hint {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* Pushed to the end of the row, so it lands in the same column whatever the
+   * hint beside it is — a marker that drifts with the text length reads as part
+   * of the sentence rather than as a state. `auto` on the margin rather than
+   * `space-between` on the row, because the label and hint belong together at
+   * the start and only this one belongs at the far end. */
+  .composer__command-current {
+    margin-inline-start: auto;
+    padding-inline-start: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+    white-space: nowrap;
+  }
+
+  /* The hint on the left, whatever the route put beside it on the right.
+   *
+   * One row rather than two: both are ambient state about the box above them,
+   * and stacking them would push the composer up by a line to say nothing more.
+   * `space-between` rather than a spacer element, because with only the hint
+   * present there is nothing to push against. */
+  .composer__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: var(--space-4);
+  }
+
+  /* Two rows on a narrow screen. Side by side, the hint is the thing that
+   * gives — it wraps to two lines while the budget keeps its full width beside
+   * it, which reads as a broken sentence next to an intact number. Stacking
+   * puts each on a line of its own instead, and costs one line of height on the
+   * screens that can afford it least only because the alternative costs two.
+   *
+   * `max-width` rather than a `min-width` on the other side: the row is the
+   * normal case and this is the exception, so the exception is what carries the
+   * query. Matches the breakpoint the header uses to shed its own labels. */
+  @media (max-width: 40rem) {
+    .composer__meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+   * The pickers, at the head of the meta row
+   *
+   * Shared by the agent picker and the workspace picker rather than declared
+   * once per feature. What the rules describe is not agents or workspaces —
+   * it is being a small muted control under the message box — and two
+   * stylesheets agreeing about that is two stylesheets that eventually will
+   * not.
+   * ------------------------------------------------------------------ */
+
+  /* One flex item, so the `space-between` above does not push the two apart.
+     `min-width: 0` so a long workspace name truncates inside the row instead
+     of widening it past the composer. */
+  .composer__pickers {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  /* Muted and small: these name what the turn will run under, which is context
+     rather than an action, and a primary-looking control there would compete
+     with Send. */
+  .composer__picker {
+    gap: var(--space-2);
+    max-width: 14rem;
+    padding-inline: var(--space-2);
+    color: var(--fg-2);
+    font-size: var(--text-sm);
+  }
+
+  /* The binding is not in the listing: an agent deleted or switched off, a
+     workspace detached. Colour rather than a badge, because the trigger is
+     already at the small end of the type scale and a second element beside it
+     would be the loudest thing in the composer for a state the turn survives.
+     `--warning-fg` is the text variant; the fill is the menu's own. */
+  .composer__picker.is-missing {
+    color: var(--warning-fg);
+  }
+
+  .composer__picker-caret {
+    flex-shrink: 0;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+    color: var(--fg-3);
+  }
+
+  /* Wraps, unlike the label above it: this is a sentence explaining a state
+     rather than a heading, and truncating it would hide the half that says what
+     to do about it. */
+  .composer__picker-notice {
+    max-width: 18rem;
+    color: var(--warning-fg);
+    white-space: normal;
+  }
+
+  .composer__picker-hint {
+    margin-inline-start: auto;
+    padding-inline-start: var(--space-3);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .composer__hint {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .composer__hint--offline {
+    color: var(--warning-fg);
+  }
+
+  /* The one thing between the transcript and the composer on a fresh install.
+   *
+   * A line of text on the page rather than a filled banner: nothing is wrong,
+   * setup is merely unfinished, and a loud strip above the composer would be
+   * the noisiest thing on a screen whose subject is the conversation. It reads
+   * as an aside because it is one. */
+  .chat__setup-notice {
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+    text-align: center;
+  }
+
+  /* ── Welcome ───────────────────────────────────────────────── */
+
+  /* Left-aligned, not centred, and that is the density decision on this screen.
+   * Centred text in a 42rem column inside a 57.5rem measure gave every line a
+   * different left edge and left the whole block floating in the middle of a
+   * very large void. Ranged left, the mark, the title, the note and the prompts
+   * share one edge, which is what makes four separate things read as one panel.
+   *
+   * The gaps are 2:1 rather than uniform: `--space-6` between the groups here,
+   * and `--space-2` inside each of them, so the grouping is what the eye sees
+   * first instead of an evenly-spaced list of five items. */
+  .welcome {
+    --gap: var(--space-6);
+
+    padding-block: var(--space-12);
+    padding-inline: var(--gutter);
+  }
+
+  .welcome__mark {
+    width: var(--space-12);
+    height: var(--space-12);
+    color: var(--fg-3);
+  }
+
+  .welcome__heading {
+    --gap: var(--space-2);
+  }
+
+  .welcome__title {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+    font-weight: var(--weight-semibold);
+  }
+
+  .welcome__agent {
+    --gap: var(--space-2);
+
+    color: var(--fg-2);
+  }
+
+  .welcome__model {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  /* `ch` rather than a rem: a measure is a count of characters, and 64 of them
+   * is the middle of the 45–75 band that prose is comfortable at. In rem it
+   * would be right at one font size and wrong at every other. */
+  .welcome__note {
+    max-width: 64ch;
+    color: var(--fg-2);
+  }
+
+  /* The keyboard hint, which used to sit under the composer on every render.
+   *
+   * Mono because it names keys, and separated by a rule rather than by a gap:
+   * it is a different *kind* of sentence from the paragraph above it — that one
+   * is about what the agent may do, this one is about how to work the box — and
+   * a hairline says so more quietly than a heading would. */
+  .welcome__hint {
+    width: 100%;
+    max-width: 44rem;
+    padding-block-start: var(--space-4);
+    border-top: var(--hairline) solid var(--line);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+    text-align: center;
+  }
+
+  /* ── Message actions ───────────────────────────────────────── *
+   *
+   * Revealed on hover, and on `:focus-within` — which is the half that matters.
+   * `display: none` or `visibility: hidden` would take the buttons out of the
+   * tab order, so a keyboard user, who has no pointer to hover with, could
+   * never reach them at all.
+   */
+
+  .message-actions {
+    --gap: var(--space-0-5);
+
+    align-items: center;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .transcript__item:hover .message-actions,
+  .transcript__item:focus-within .message-actions {
+    opacity: 1;
+  }
+
+  /* A touch pointer cannot hover, so there is nothing to reveal with. */
+  @media (hover: none) {
+    .message-actions {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .message-actions {
+      transition: none;
+    }
+  }
+
+  /* Right-aligned, to sit under the bubble it belongs to rather than under the
+   * column the bubble is right-aligned inside. */
+  .message-user__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .message-user__editor {
+    --gap: var(--space-2);
+
+    width: 100%;
+  }
+
+  .message-user__editor-actions {
+    --gap: var(--space-2);
+
+    justify-content: flex-end;
+  }
+
+  .turn__actions {
+    flex-shrink: 0;
+  }
+
+  /* ── Turn details ──────────────────────────────────────────── */
+
+  .popover--turn-info {
+    width: 18rem;
+    padding: var(--space-3);
+  }
+
+  .turn-info__row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+
+  .turn-info__label {
+    flex: 0 0 5rem;
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+
+  .turn-info__value {
+    /* Read character by character — a token count and a rate are identifiers,
+     * not prose. */
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-1);
+  }
+
+  .turn-info__empty {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+}

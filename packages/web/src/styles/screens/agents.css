@@ -1,0 +1,379 @@
+/**
+ * The agent picker, and what the agents screens add to the shared list chrome.
+ *
+ * Most of the index is not here: the container, the header, the toolbar, the
+ * filter and the list all come from `page`, `cluster` and `data-list`, which
+ * Files uses too. What is left is the two-line name cell and the editor's own
+ * layout — the parts that are genuinely about agents rather than about lists.
+ */
+
+@layer screens {
+  /* The picker that sits in the composer is not here. It shares its rules with
+     the workspace picker beside it, under `.composer__picker` in `chat.css` —
+     what they describe is the shape of a small muted control under the message
+     box, which is not a fact about agents. */
+
+  /* ---------------------------------------------------------------------
+   * The index
+   * ------------------------------------------------------------------ */
+
+  /* Two lines in the name cell: what it is called, and what it does. The
+     second line is what stops the list being three columns of near-identical
+     rows that all have to be opened to tell apart. */
+  .agents__name {
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+
+  .agents__name-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    color: var(--fg-1);
+  }
+
+  .agents__summary {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /* The model readout is `.data-list__code` now — mono, like every other
+     identifier in the app, and shared with the endpoint on the providers list
+     rather than declared once per screen. */
+
+  /* ---------------------------------------------------------------------
+   * The editor
+   * ------------------------------------------------------------------ */
+
+  /* The head, the title row and the back link are `.editor__*`/`.page__back`
+     in `shell.css` now: the provider editor is the same shape, and two names
+     for one shape is how the two drift apart. */
+
+  .agent-editor__prompt {
+    gap: var(--space-2);
+  }
+
+  /* The row above the editor: what this prompt currently is, and the way back
+     to the built-in. */
+  .agent-editor__prompt-bar {
+    --gap: var(--space-2);
+  }
+
+  /* The "own prompt / built-in" marker is a `.micro-label`, the same ambient
+     treatment the file editor's unsaved marker uses. */
+
+  .agent-editor__hint {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /* The prompt editor is a form field here, not a file viewer: 60vh of it
+     would push every setting below the fold. Taller than it was, because it now
+     holds the whole prompt rather than an appended paragraph. */
+  .agent-editor__prompt .code-editor {
+    height: 20rem;
+  }
+
+  /* The rest of the prompt, behind a disclosure. Closed it is one line, which
+     is what keeps the section reading as "the system prompt" for the operators
+     who only ever want that — and open it is the whole payload. */
+  .agent-editor__advanced > summary {
+    padding: var(--space-2) 0;
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+
+  .agent-editor__advanced > summary:hover {
+    color: var(--fg-1);
+  }
+
+  .agent-editor__advanced-body {
+    --gap: var(--space-4);
+
+    padding-top: var(--space-3);
+  }
+
+  /* Five templates under the disclosure, none of them a page of text — the
+     system prompt above is the only one that is. A uniform 20rem would make the
+     panel a scroll of mostly-empty boxes. */
+  .agent-editor__advanced-body
+    .agent-editor__template
+    + .agent-editor__template {
+    padding-top: var(--space-4);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .agent-editor__advanced-body .code-editor {
+    height: 10rem;
+  }
+
+  /* Which of the three states this template is in, beside its name. Quieter
+     than the label it follows: the name is what you look for, the state is what
+     you check. */
+  .agent-editor__template-state {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /* ── The tool list ─────────────────────────────────────────── */
+
+  /* A row per tool with one select on it, rather than two comma-separated text
+     boxes. The boxes were the worst control on this screen: they asked an
+     operator to remember tool names exactly, offered no way to discover them,
+     and turned a typo into a permission that silently did nothing. */
+  .agent-editor__tools {
+    --gap: var(--space-1);
+
+    max-height: 24rem;
+    overflow-y: auto;
+    padding: var(--space-2);
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .agent-editor__tool {
+    --gap: var(--space-3);
+
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+  }
+
+  .agent-editor__tool:hover {
+    background-color: var(--hover);
+  }
+
+  /* The list with tool calling switched off for the model.
+
+     Said with the text tiers, never with `opacity`: fading a row and the
+     surface under it by the same factor leaves the ratio exactly where it
+     started, so the measurement that passed the contrast suite stops meaning
+     anything. The name drops to `--fg-3` — the tier the description beside it
+     already uses on this surface, so it is a pairing that has been measured —
+     and the hover goes, because nothing in the row answers a pointer any more. */
+  .agent-editor__tools--off .agent-editor__tool-name {
+    color: var(--fg-3);
+  }
+
+  .agent-editor__tools--off .agent-editor__tool:hover {
+    background-color: transparent;
+  }
+
+  /* A tool's wording is edited in a dialog rather than in the row. The list is
+     a scrolling box of one-line rows, and a form opened inside it moved every
+     row below the one being edited while giving itself the width of a column
+     sized for a permission select. */
+  .agent-editor__wording-dialog {
+    width: min(40rem, calc(100vw - var(--space-6)));
+  }
+
+  /* No `overflow` and no height of its own, deliberately: `.dialog` is already a
+     scrollport, and a second one inside it clipped every focus ring it held.
+
+     An outline is painted *outside* the border box — `--ring-width` plus
+     `--ring-offset` beyond it — and a scroll container clips at its padding
+     edge. The dialog has `--space-6` of padding, which is room to spare; this
+     had none, so a focused textarea lost the left and right thirds of its ring
+     and looked like it had a green underline. It also meant two scrollbars for
+     one dialog. */
+  .agent-editor__wording-body {
+    --gap: var(--space-4);
+  }
+
+  .agent-editor__wording-heading {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--fg-2);
+  }
+
+  /* The name and its description share a column so the badge and the select
+     stay in one vertical line down the list however long a description is. */
+  .agent-editor__tool-text {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  .agent-editor__tool-name {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+  }
+
+  /* `sm`, not the `xs` that used to be written here — that step does not exist,
+     so the line was quietly inheriting the base. This is a tool's description,
+     which is prose, and prose is barred from `2xs`. */
+  .agent-editor__tool-detail {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /* Wide enough for the longest option without the trigger resizing as the
+     value changes — a control that moves when you use it reads as a glitch. */
+  .agent-editor__tool-permission {
+    width: 9rem;
+    flex: none;
+  }
+
+  /* The heading over the second list, when the chosen toolbox exposes its
+     programs as callables. */
+  .agent-editor__tool-group {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--fg-2);
+  }
+
+  /* On a phone the row cannot hold a name, a badge and a 9rem select side by
+     side, and the name is what gets squeezed — which is the one thing on the
+     row that has to be readable. So it becomes a small grid: the tool and its
+     description on the left, the risk badge beside them, and the permission
+     select on a full-width line of its own beneath.
+
+     The gap between rows goes to zero and a rule takes over. Two three-line
+     blocks a quarter of a rem apart read as one six-line block, and at that
+     point an operator cannot see which select belongs to which tool — which is
+     the only question this list exists to answer.
+
+     `max-width` rather than a `min-width` on the other side, matching
+     `.composer__meta`: the single line is the normal case and this is the
+     exception, so the exception is what carries the query. */
+  @media (max-width: 40rem) {
+    .agent-editor__tools {
+      --gap: 0;
+    }
+
+    .agent-editor__tool {
+      --gap: var(--space-2);
+
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-areas:
+        'text badge wording'
+        'permission permission permission';
+      align-items: start;
+      padding-block: var(--space-3);
+      /* Square, because the row now carries a rule: a radius here rounds the
+         ends of that line into a pair of curls. */
+      border-radius: 0;
+      border-top: var(--hairline) solid var(--line);
+    }
+
+    .agent-editor__tool:first-child {
+      border-top: none;
+    }
+
+    .agent-editor__tool-text {
+      grid-area: text;
+    }
+
+    .agent-editor__tool > .badge {
+      grid-area: badge;
+    }
+
+    /* Beside the badge rather than left to fall into an implicit row, which is
+       where an unplaced grid item goes: the pencil landed centred on a line of
+       its own under the select, reading as a control belonging to no tool. */
+    .agent-editor__tool-edit {
+      grid-area: wording;
+    }
+
+    .agent-editor__tool-permission {
+      grid-area: permission;
+      width: 100%;
+    }
+  }
+
+  /* A subagent is two rows rather than one, unlike a tool: the guidance is the
+     field that decides when it fires, and squeezing it onto the same line as
+     three controls would make the important one the narrowest. */
+  .agent-editor__subagents {
+    --gap: var(--space-3);
+  }
+
+  .agent-editor__subagent {
+    --gap: var(--space-2);
+
+    padding: var(--space-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .agent-editor__subagent-head {
+    --gap: var(--space-2);
+
+    align-items: center;
+  }
+
+  /* The derived tool name, shown rather than asked for. Mono because it is an
+     identifier the model types. */
+  .agent-editor__subagent-tool {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* Nothing to say on a wide row — the select sizes itself, as it did before it
+     was wrapped. The wrapper exists for the phone layout at the bottom of this
+     section, which needs a box to place. */
+
+  /* Matched to `.agent-editor__tool-permission`, and for the same reason: the
+     two selects sit in adjacent sections and a different width between them
+     reads as a mistake. That includes the phone layout below — both go full
+     width there. */
+  .agent-editor__subagent-permission {
+    width: 9rem;
+    flex: none;
+  }
+
+  /* The same collapse as the tool row above, and it is needed more here: this
+     row is four controls rather than three, and one of them is a select whose
+     value is an agent name. Who it delegates to keeps the top line with the
+     button that removes it; the derived tool name and the permission drop
+     beneath.
+
+     No rule between subagents — they are already separated by a border of their
+     own (`.agent-editor__subagent`), and a second line inside it would read as
+     a divider between the head and the prompt rather than between two
+     delegations. */
+  @media (max-width: 40rem) {
+    .agent-editor__subagent-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'agent remove'
+        'tool tool'
+        'permission permission';
+      align-items: center;
+    }
+
+    .agent-editor__subagent-agent {
+      grid-area: agent;
+    }
+
+    .agent-editor__subagent-tool {
+      grid-area: tool;
+    }
+
+    .agent-editor__subagent-permission {
+      grid-area: permission;
+      width: 100%;
+    }
+
+    .agent-editor__subagent-head > .btn {
+      grid-area: remove;
+    }
+  }
+}

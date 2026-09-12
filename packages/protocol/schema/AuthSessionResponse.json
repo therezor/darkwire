@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "authenticated": {
+      "type": "boolean"
+    },
+    "authEnabled": {
+      "type": "boolean"
+    },
+    "expiresAtMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "username": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "authenticated",
+    "authEnabled"
+  ]
+}

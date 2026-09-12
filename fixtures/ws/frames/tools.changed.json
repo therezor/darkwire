@@ -1,0 +1,22 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "tools.changed",
+    "seq": 60,
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Reads a file.",
+        "parameters": {
+          "type": "object"
+        },
+        "risk": "safe",
+        "source": "builtin",
+        "annotations": {
+          "title": "Read",
+          "readOnlyHint": true
+        }
+      }
+    ]
+  }
+}

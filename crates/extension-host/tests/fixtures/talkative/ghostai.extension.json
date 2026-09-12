@@ -1,0 +1,19 @@
+{
+  "schema": "ghostai.extension/2",
+  "id": "talkative",
+  "version": "1.0.0",
+  "label": "Talkative",
+  "contributes": ["channels", "providers", "context"],
+  "command": ["node", "index.mjs"],
+  "providers": [
+    {
+      "id": "talkative-gpt",
+      "displayName": "Talkative GPT",
+      "wire": "openai-chat",
+      "keywords": ["talkative"],
+      "defaultApiBase": "https://example.invalid/v1"
+    },
+    { "id": "talkative-future", "wire": "quantum-entangle" },
+    { "id": "not-namespaced", "wire": "openai-chat" }
+  ]
+}

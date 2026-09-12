@@ -1,0 +1,9 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "steer",
+    "seq": 61,
+    "sessionKey": "web:abc",
+    "content": "shorter"
+  }
+}

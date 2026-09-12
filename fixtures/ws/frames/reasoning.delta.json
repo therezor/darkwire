@@ -1,0 +1,9 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "reasoning.delta",
+    "seq": 46,
+    "turnId": "t1",
+    "text": "thinking"
+  }
+}

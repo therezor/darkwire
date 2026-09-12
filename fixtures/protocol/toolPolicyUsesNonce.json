@@ -1,0 +1,45 @@
+{
+  "function": "toolPolicyUsesNonce",
+  "cases": [
+    {
+      "name": "the built-in does not",
+      "input": {},
+      "output": false
+    },
+    {
+      "name": "empty falls back to the built-in",
+      "input": {
+        "template": ""
+      },
+      "output": false
+    },
+    {
+      "name": "a template naming the tag does",
+      "input": {
+        "template": "Delimiter: {{tag}}"
+      },
+      "output": true
+    },
+    {
+      "name": "a template naming the nonce does",
+      "input": {
+        "template": "Nonce: {{nonce}}"
+      },
+      "output": true
+    },
+    {
+      "name": "a template naming neither does not",
+      "input": {
+        "template": "No delimiter here."
+      },
+      "output": false
+    },
+    {
+      "name": "a spaced placeholder is a literal",
+      "input": {
+        "template": "{{ tag }}"
+      },
+      "output": false
+    }
+  ]
+}

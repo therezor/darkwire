@@ -1,0 +1,16 @@
+{
+  "files": [],
+  // Each package appears twice: the build project over `src`, and the checker
+  // over its `test` directory. The pairs are kept adjacent rather than grouped
+  // into two blocks so that a new package is one edit in one place.
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/protocol/test" },
+    { "path": "packages/protocol/scripts" },
+    { "path": "packages/i18n" },
+    { "path": "packages/i18n/test" },
+    { "path": "packages/web" },
+    { "path": "packages/e2e" },
+    { "path": "examples/hello-extension/test" }
+  ]
+}

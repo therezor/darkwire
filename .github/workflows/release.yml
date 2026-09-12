@@ -1,0 +1,197 @@
+name: Release
+
+# A tag, not a branch. `ci.yml` runs on pushes to main and on pull requests, so
+# a tag push currently triggers nothing at all — which is why the gate is
+# repeated here rather than depended on. Tagging is the whole release ceremony:
+# bump the root `version` in both `package.json` and `Cargo.toml`, run
+# `node scripts/gen-packages.mjs` to carry the first into every manifest,
+# commit, tag, push.
+#
+# What ships is one binary per platform, attached to the GitHub release.
+# Nothing is published to npm: the product is `ghostai`, the web bundle is
+# compiled into it, and an install is a download rather than a dependency tree.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  # For the GitHub Release and the binaries attached to it.
+  contents: write
+
+jobs:
+  # The same checks `ci.yml` runs, because a tag can be pushed from a branch
+  # that never saw them, and a release that has been downloaded cannot be
+  # withdrawn from the machines that have it.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Design token gates
+        run: pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Translations are in step
+        run: pnpm i18n:check
+
+      - name: Protocol schemas are in step
+        run: pnpm protocol:check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-deny
+
+      - name: Rust format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Supply chain
+        run: cargo deny check
+
+      - name: Rust tests
+        run: cargo nextest run --workspace --locked
+
+      # The tag has to name the version that would actually ship, and there are
+      # two places the version lives: `Cargo.toml` is what the binary reports
+      # through `CARGO_PKG_VERSION`, and `package.json` is what the web bundle
+      # and the two remaining TypeScript packages carry. A tag that matches one
+      # and not the other ships a binary whose `--version` disagrees with the
+      # release it came from.
+      - name: The tag matches both manifests
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          root=$(node -p "require('./package.json').version")
+          cargo_version=$(cargo metadata --format-version 1 --no-deps \
+            | node -e 'const m=JSON.parse(require("node:fs").readFileSync(0,"utf8"));
+                       const p=m.packages.find((p)=>p.name==="ghostai");
+                       console.log(p.version)')
+          if [ "$tag" != "$root" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match root package.json $root." >&2
+            exit 1
+          fi
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml $cargo_version." >&2
+            exit 1
+          fi
+
+  # One binary per platform, built on its own architecture rather than
+  # cross-compiled: the vault's keychain path and the sandbox's process
+  # handling are platform code, and a cross-linker is one more thing that can
+  # be subtly wrong in a way only a user discovers.
+  #
+  # Windows is deliberately absent. The credential vault shells out to the
+  # platform keychain and the container runner signals process groups, both of
+  # which are POSIX here; the workspace jail is already platform-independent,
+  # so adding Windows later is a port of two modules rather than a rewrite.
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-13
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The binary embeds `packages/web/dist`, so the bundle is a build input
+      # rather than a separate artifact. Without this the build fails at
+      # compile time, which is the intended failure and one step earlier than
+      # the old runtime path resolution gave.
+      - name: Build the web bundle
+        run: pnpm --filter @ghostwire/web build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --bin ghostai
+
+      # The tarball is named by platform alone, with no version in it, so that
+      # `releases/latest/download/ghostai-<target>.tar.gz` resolves — an install
+      # line a reader can copy without first looking up what the current version
+      # is. The directory *inside* carries the version, so an extracted copy is
+      # still self-describing once it has left the download folder.
+      - name: Name the artifact
+        id: package
+        run: |
+          asset="ghostai-${{ matrix.target }}"
+          dir="ghostai-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$dir"
+          cp target/release/ghostai "dist/$dir/"
+          cp README.md LICENSE "dist/$dir/"
+          tar -czf "dist/$asset.tar.gz" -C dist "$dir"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: dist/${{ steps.package.outputs.asset }}.tar.gz
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      # One checksum file for the whole release. A reader who downloaded one
+      # tarball can verify it without knowing what else shipped.
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true

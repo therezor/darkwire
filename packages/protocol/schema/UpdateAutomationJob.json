@@ -1,0 +1,178 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "at"
+            },
+            "atMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "atMs"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "every"
+            },
+            "everyMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "everyMs"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cron"
+            },
+            "expr": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "expr"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "deliver": {
+              "default": false,
+              "type": "boolean"
+            },
+            "channel": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "sessionKey": {
+              "type": "string"
+            },
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "targets": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "scheduled"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "deliver": {
+              "default": false,
+              "type": "boolean"
+            },
+            "channel": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "sessionKey": {
+              "type": "string"
+            },
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "targets": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "heartbeat"
+            },
+            "file": {
+              "default": "TASK.md",
+              "type": "string",
+              "minLength": 1
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "deleteAfterRun": {
+      "type": "boolean"
+    }
+  }
+}

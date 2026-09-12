@@ -1,0 +1,241 @@
+/**
+ * Settings.
+ *
+ * A settings screen is where a design system either holds or visibly stops
+ * holding: it is dozens of label/control/hint triples, and written one at a
+ * time they drift in spacing, in where the hint sits, and in whether the label
+ * is attached to the control at all. So the shapes are named here once —
+ * section, field grid, hint, switch row, save bar — and a new setting is a line
+ * of markup rather than a layout decision.
+ */
+
+@layer screens {
+  .settings-section {
+    padding: var(--space-4);
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .settings-section__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .settings-section__description {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .settings-section__body {
+    --gap: var(--space-4);
+
+    margin-top: var(--space-4);
+  }
+
+  /** Two columns above the breakpoint, one below — a settings form is the last
+   * place to force a horizontal scroll. */
+  .settings-grid {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  @media (min-width: 40rem) {
+    .settings-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .settings-field {
+    --gap: var(--space-2);
+  }
+
+  .settings-field__hint {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .settings-field__error {
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--danger-fg);
+  }
+
+  /* The whole row is the label, so the hit target is the sentence rather than
+   * the 2.25rem control at the end of it. */
+  .settings-switch-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .settings-switch-row__text {
+    --gap: var(--space-0-5);
+
+    min-width: 0;
+  }
+
+  .settings-save-bar {
+    --gap: var(--space-2);
+  }
+
+  .settings-save-bar__state {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* Scrolls rather than wraps: a tab strip that reflows to two rows moves every
+   * tab under the pointer as the window is resized. */
+  .settings-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* The settings file failed to parse and the process is on defaults — the one
+   * state where this screen looks fine and describes something that is not what
+   * will load next time. */
+  .settings-load-error {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background-color: var(--warning-soft);
+    border: var(--hairline) solid var(--warning-fg);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--warning-fg);
+  }
+
+  .settings-load-error > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    margin-top: var(--space-0-5);
+  }
+
+  /* ── Panels ────────────────────────────────────────────────── */
+
+  .settings-panel {
+    --gap: var(--space-4);
+  }
+
+  /** A list whose rows are separated by a rule rather than by a gap. */
+  .settings-divided-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-divided-list > li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding-block: var(--space-3);
+    border-top: var(--hairline) solid var(--line);
+  }
+
+  .settings-divided-list > li:first-child {
+    border-top: none;
+  }
+
+  .settings-divided-list__text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+
+  .settings-divided-list__name {
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+  }
+
+  .settings-divided-list__detail {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  /* A detail line that goes somewhere.
+   *
+   * Its own modifier rather than a global `a` rule: the dimmest text tier is
+   * right for a caption and wrong for the one thing on the row a reader is meant
+   * to click, so this lifts it a tier and underlines on hover. `--accent-fg`
+   * because it is text, not a fill. */
+  .settings-divided-list__detail--link {
+    display: inline-block;
+    color: var(--accent-fg);
+  }
+
+  .settings-divided-list__detail--link:hover {
+    text-decoration: underline;
+  }
+
+  /* ── The approval matrix ───────────────────────────────────── */
+
+  /* ── Providers ─────────────────────────────────────────────── */
+
+  /*
+   * The disclosure row this section used to dress is gone. A provider is a row
+   * in a `data-list` that links to an editor of its own, the same way an agent
+   * is — so there is no expanded body, no chevron, and no key input pinned
+   * beside a button of its own.
+   */
+
+  /* The endpoint readout is `.data-list__code`, shared with the agents list's
+     model column: both are identifiers, and proportional type makes two similar
+     URLs hard to tell apart. */
+
+  /**
+   * What the endpoint answered with.
+   *
+   * Wraps rather than scrolls, and stays out of the way: it is evidence that
+   * the fetch worked, not a picker. Choosing a model happens on the agent that
+   * will use it, which is the screen that knows which agent that is.
+   */
+  .provider-catalogue {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  /**
+   * The connection check's verdict.
+   *
+   * A line of text with an icon, not a filled banner. An endpoint that is not
+   * answering is the ordinary state of this screen — it is what the operator
+   * came here to fix — and a status that will be stale in a minute must not be
+   * the loudest thing in the panel. The colour is a second signal on top of the
+   * sentence, never the only one.
+   */
+  .provider-row__probe {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .provider-row__probe > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+  }
+
+  .provider-row__probe--ok {
+    color: var(--success-fg);
+  }
+
+  .provider-row__probe--bad {
+    color: var(--warning-fg);
+  }
+}

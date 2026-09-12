@@ -1,0 +1,292 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ping"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "user.message"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "attachments": {
+          "default": [],
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mimeType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "mimeType",
+              "path"
+            ]
+          }
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "clientMessageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey",
+        "content"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "turn.regenerate"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seq": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "clientMessageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "user.edit"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seq": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "content": {
+          "type": "string"
+        },
+        "attachments": {
+          "default": [],
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mimeType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "mimeType",
+              "path"
+            ]
+          }
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "clientMessageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey",
+        "seq",
+        "content"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "turn.stop"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "session.new"
+        },
+        "sessionKey": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "session.switch"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "session.resume"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey",
+        "lastSeq"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "tool.approve"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "scope": {
+          "default": "once",
+          "type": "string",
+          "enum": [
+            "once",
+            "session",
+            "always"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "callId",
+        "approved"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "turn.steer"
+        },
+        "sessionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "sessionKey",
+        "content"
+      ]
+    }
+  ]
+}

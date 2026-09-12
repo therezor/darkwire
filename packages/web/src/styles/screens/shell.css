@@ -1,0 +1,298 @@
+/**
+ * The app shell: a header across the top, a fixed left column, and everything
+ * else.
+ *
+ * The three dimensions here — `--layout-sidebar`, `--layout-header` and, in
+ * `chat.css`, `--layout-chat` — are the numbers the fidelity gate measures.
+ * They are read from tokens rather than written here so that there is exactly
+ * one place a sidebar width can be changed, which is what stopped 17rem
+ * drifting to 16rem in one file while five others still said 17.
+ *
+ * `100dvh` rather than `100vh`: on a phone the visual viewport shrinks when the
+ * URL bar appears, and a `vh`-tall shell puts the composer under it.
+ */
+
+@layer screens {
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    background-color: var(--surface-0);
+    color: var(--fg-1);
+  }
+
+  .shell__body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* Below the breakpoint the left column is not narrowed, it is removed — and
+   * reached through a drawer instead. A sidebar squeezed to 4rem is a sidebar
+   * whose labels are gone and whose targets are too small, which is worse on a
+   * phone than a button that opens the real thing. */
+  .shell__sidebar {
+    display: none;
+    flex-shrink: 0;
+    width: var(--layout-sidebar);
+    overflow-y: auto;
+    background-color: var(--surface-1);
+    border-right: var(--hairline) solid var(--line);
+  }
+
+  .shell__main {
+    flex: 1 1 auto;
+    /* Or a long unbroken token in a code block makes the whole column scroll
+     * sideways instead of the block itself. */
+    min-width: 0;
+    overflow-y: auto;
+  }
+
+  @media (min-width: 48rem) {
+    .shell__sidebar {
+      display: block;
+    }
+
+    .shell__menu-button {
+      display: none;
+    }
+  }
+
+  /* ── Header ────────────────────────────────────────────────── */
+
+  .app-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--layout-header);
+    padding-inline: var(--space-3);
+    background-color: var(--surface-1);
+    border-bottom: var(--hairline) solid var(--line);
+  }
+
+  /* The lockup's own class supplies the mark, its colour, the gap and the
+   * tracking; this supplies the weight and the *name's* colour, which is the
+   * split that lets the login card set the same component as an uppercase
+   * micro-label.
+   *
+   * The name is the full-strength text tier, not the accent. The accent is on
+   * the mark beside it — one green thing in the header rather than a green
+   * header — and a near-white name at semibold is what makes the wordmark read
+   * as the most important thing in the bar without being the loudest. */
+  .app-header__brand {
+    flex-shrink: 0;
+    font-weight: var(--weight-semibold);
+    color: var(--fg-1);
+  }
+
+  /* ── Connection status ─────────────────────────────────────── *
+   *
+   * A dot and a word, inside the button that opens the header menu. The dot is
+   * the only coloured thing, and it borrows the semantic tokens rather than
+   * introducing its own — four states, three colours, no new variables.
+   *
+   * The wrapper carries the state and the button carries the press, because the
+   * wrapper is the live region: `role="status"` and `role="button"` cannot be
+   * the same element, and the announcement is the part that must not move.
+   */
+
+  .conn {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  /* Tighter than `btn--sm`'s own inline padding: the dot is a third of the
+   * width of a glyph, so the default gutter reads as a gap on the leading edge
+   * rather than as symmetry. */
+  .conn__trigger {
+    padding-inline: var(--space-2);
+  }
+
+  .conn__dot {
+    flex-shrink: 0;
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-full);
+    background-color: var(--fg-3);
+  }
+
+  .conn[data-connection='open'] .conn__dot {
+    background-color: var(--success);
+  }
+
+  .conn[data-connection='connecting'] .conn__dot,
+  .conn[data-connection='reconnecting'] .conn__dot {
+    background-color: var(--warning);
+  }
+
+  .conn__label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--fg-3);
+  }
+
+  /* Below the breakpoint the dot says it on its own — a four-state indicator
+   * whose states are also announced by the live region does not need its word
+   * taking a third of a phone's header. The menu spells it out for anyone who
+   * opens it.
+   *
+   * Hidden the `.sr-only` way rather than with `display: none`, which is the
+   * difference between a word that is not drawn and a word that is not there:
+   * this one is the trigger's accessible name, and a `display: none` label
+   * leaves a button announced as nothing but its dot. */
+  @media (max-width: 40rem) {
+    .conn__label {
+      position: absolute;
+      width: var(--hairline);
+      height: var(--hairline);
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    /* Square, and the same square as the bell and the theme control beside it:
+     * with the word gone this is an icon button in everything but the prop
+     * that says so, and a phone is where the smaller target is felt. */
+    .conn__trigger {
+      width: var(--size-control-md);
+      height: var(--size-control-md);
+      padding-inline: 0;
+    }
+  }
+
+  /* ── The page frame ────────────────────────────────────────── *
+   *
+   * Files, Notifications, Settings and the style guide are all the same shape:
+   * a centred column with a heading row on top. It is one rule rather than four
+   * near-identical ones, which is the difference between changing the page
+   * gutter once and changing it four times and missing one.
+   */
+
+  .page {
+    --gap: var(--space-6);
+
+    width: 100%;
+    margin-inline: auto;
+    padding: var(--space-6);
+  }
+
+  @media (min-width: 40rem) {
+    .page {
+      padding: var(--space-8);
+    }
+  }
+
+  .page--wide {
+    max-width: 64rem;
+  }
+
+  .page--reading {
+    max-width: var(--layout-chat);
+  }
+
+  .page__header {
+    --gap: var(--space-3);
+  }
+
+  /** A title with its one-line summary under it, set as a pair. */
+  .page__heading {
+    --gap: var(--space-1);
+  }
+
+  /**
+   * The chrome an editor page opens with: the way back, the name, the note.
+   *
+   * Shared rather than per screen. These were `.agents__back`,
+   * `.agent-editor__head` and `.agent-editor__title` while the agent editor was
+   * the only page of this shape; a second one — the provider editor — made the
+   * choice either "copy three rules under a second prefix" or "say it once".
+   * Two names for one shape is how the two drift, and the drift shows up as an
+   * editor whose back link sits a different distance from its title.
+   */
+  .editor__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .editor__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .page__back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--fg-3);
+    font-size: var(--text-sm);
+    text-decoration: none;
+  }
+
+  .page__back:hover {
+    color: var(--fg-1);
+  }
+
+  .page__back > svg {
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  .page__title {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* A measure, not a width. A line of body text past about 75 characters is one
+   * the eye loses its place returning from, and the page frame is 64rem wide —
+   * so without this the summary under every page title ran to roughly 150. `ch`
+   * rather than a rem token because the limit is a character count, and `ch`
+   * tracks the font it is actually set in.
+   *
+   * One step down from body, everywhere this class appears. A note is the
+   * caption under a heading or beside a control — the sentence that explains
+   * the screen, never the screen's content — and at `--text-base` in the muted
+   * tier it was the same size as the rows it was describing, which is a lot of
+   * grey competing for one glance. The size is on the class rather than on each
+   * page so that "what a note looks like" has one answer. */
+  .page__note {
+    max-width: 72ch;
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-3);
+  }
+
+  .page__error {
+    color: var(--danger-fg);
+  }
+
+  .page__empty {
+    --gap: var(--space-2);
+
+    align-items: center;
+    padding: var(--space-8);
+    background-color: var(--surface-1);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    text-align: center;
+  }
+
+  .page__empty > svg {
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+    color: var(--fg-3);
+  }
+
+  .page__empty-title {
+    color: var(--fg-2);
+  }
+
+  .page__empty-note {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+}

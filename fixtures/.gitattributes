@@ -1,0 +1,2 @@
+# Goldens are byte-compared by both test suites; a CRLF checkout would fail every one.
+* -text

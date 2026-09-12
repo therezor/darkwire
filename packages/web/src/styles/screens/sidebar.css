@@ -1,0 +1,247 @@
+/**
+ * The sidebar: navigation and the session list.
+ *
+ * Two things come straight from the product being replaced, because both are
+ * right and neither is obvious.
+ *
+ * The **section label** is 0.6875rem, semibold, uppercase, tracked out, in the
+ * muted tier. Uppercase at that size is unreadable without the tracking, which
+ * is why `--tracking-caps` exists as a token rather than being typed in at each
+ * of the four places that need it.
+ *
+ * The **row treatment** is a surface change, not a colour change. An active nav
+ * row is a lighter surface with brighter text; an inactive one is transparent
+ * with muted text and lifts on hover. Colouring the active row gold instead
+ * would put five gold rows in a column and leave the accent meaning nothing.
+ *
+ * The one place the accent does appear is the unread badge, which is the only
+ * thing in the column that is asking to be looked at.
+ */
+
+@layer screens {
+  .sidebar {
+    --gap: var(--space-4);
+
+    height: 100%;
+    padding: var(--space-3);
+  }
+
+  /* Room for the dialog's close button, which the drawer would otherwise put on
+   * top of the first control in this column.
+   *
+   * The drawer is a `Dialog` with `padding: 0` — the sidebar supplies its own —
+   * and `.dialog__close` is absolutely positioned at `--space-4` from the top
+   * and right, so it lands squarely on the workspace picker. The X's bottom
+   * edge sits at `--space-4 + --size-control-sm`, and `--space-12` clears it.
+   *
+   * The rule lives here rather than beside the drawer because it has to win:
+   * `dialog.css` is in the `components` layer and this is `screens`, so a rule
+   * over there would lose to `.sidebar` no matter how specific it was. */
+  .dialog--drawer .sidebar {
+    padding-top: var(--space-12);
+  }
+
+  .sidebar__nav {
+    --gap: var(--space-0-5);
+  }
+
+  .sidebar__link {
+    display: flex;
+    /* `width` and `text-align` because one of these rows is a `<button>`, which
+     * shrink-wraps and centres its content where an `<a>` does neither. */
+    width: 100%;
+    text-align: left;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--size-control-md);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--fg-2);
+    transition:
+      background-color var(--duration-fast) var(--ease-out-quint),
+      color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .sidebar__link:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .sidebar__link--active {
+    background-color: var(--surface-3);
+    color: var(--fg-1);
+  }
+
+  .sidebar__link > svg {
+    flex-shrink: 0;
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+  }
+
+  .sidebar__link-label {
+    flex: 1 1 auto;
+  }
+
+  .sidebar__section {
+    --gap: var(--space-1);
+
+    min-height: 0;
+  }
+
+  .sidebar__section-title {
+    padding-inline: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+
+  /* Sessions are what this column is *for*, so the list takes the room the nav
+   * above it does not, rather than the fixed height it had when it was the
+   * fourth thing down. */
+  .sidebar__sessions {
+    flex: 1 1 auto;
+    min-height: 8rem;
+  }
+
+  /* `--space-1` between rows rather than `--space-0-5`, and the extra sixteenth
+   * of a rem is for the focus ring. An outline is painted *outside* the border
+   * box — `--ring-width` plus `--ring-offset` beyond it — so at the old gap a
+   * focused row's ring ended up under the background of the row after it, which
+   * paints later. A step of the scale, not a number chosen to clear a ring by
+   * exactly enough. */
+  .sidebar__session-list {
+    --gap: var(--space-1);
+
+    padding-right: var(--space-1);
+  }
+
+  /* The row is the link plus its actions menu, overlaid rather than laid out
+   * beside it: a flex sibling would shorten every title by the width of a
+   * button that is invisible until the pointer arrives. */
+  .sidebar__session-row {
+    position: relative;
+  }
+
+  /* One line, and the message count is gone with the second.
+   *
+   * A count is not what anyone scans this list for — the title is — and giving
+   * every row a second line halved how many conversations fit in the column to
+   * carry a number nobody was reading. It is still on `SessionSummary` for
+   * anything that wants it. */
+  .sidebar__session {
+    display: flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    min-height: var(--size-control-sm);
+    /* Room for the actions trigger, so a long title runs under it rather than
+     * behind it. */
+    padding-right: var(--space-8);
+    border-radius: var(--radius-md);
+    color: var(--fg-2);
+    transition:
+      background-color var(--duration-fast) var(--ease-out-quint),
+      color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .sidebar__session:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  /* The same statement the nav rows make: a raised surface and the full-strength
+   * text tier. Selection is said one way in this UI, and this is it. */
+  .sidebar__session--active {
+    background-color: var(--surface-3);
+    color: var(--fg-1);
+  }
+
+  /* Hidden until the row is hovered or something inside it has focus.
+   * `opacity` rather than `display: none`, so the trigger keeps its place in
+   * the tab order and a keyboard user can still reach it.
+   *
+   * **Sized to the row it sits in.** `.btn--icon` is `--size-control-md`, which
+   * is taller than this row's `--size-control-sm` — so the hover fill spilled
+   * past the row on both edges and read as a control belonging to the list
+   * rather than to the conversation. `sm` is that token's stated purpose: a
+   * control that sits inside a row of text.
+   *
+   * The geometry is overridden here rather than by adding a small icon variant
+   * to `button.css`, because it would have exactly one caller — which is what
+   * this design system means by a special case wearing a scale's clothes. The
+   * `screens` layer wins over `components`, so no specificity is needed to do
+   * it. `--icon` is the same custom property `.btn > svg` already reads, so the
+   * glyph follows the box instead of being set twice and drifting from it. */
+  .sidebar__session-actions {
+    --icon: var(--size-icon-sm);
+
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    right: var(--space-1);
+    width: var(--size-control-sm);
+    height: var(--size-control-sm);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out-quint);
+  }
+
+  /* The third selector is not redundant with `:focus-within`, and leaving it out
+   * is why the trigger appeared to have no focus ring when you pressed it.
+   * `DropdownMenuContent` is portalled to the end of `<body>`, so the moment the
+   * menu opens the focused element is outside this row: `:focus-within` goes
+   * false, and the trigger — along with its ring — fades to nothing while its
+   * own menu is standing open beside it.
+   *
+   * `[data-state='open']` is the idiom this codebase already uses for exactly
+   * this, on `.select-trigger`. */
+  .sidebar__session-row:hover .sidebar__session-actions,
+  .sidebar__session-row:focus-within .sidebar__session-actions,
+  .sidebar__session-actions[data-state='open'] {
+    opacity: 1;
+  }
+
+  /* The open trigger also takes the surface its menu belongs to, so the row
+   * being acted on is identifiable while the menu covers part of the column.
+   * The same statement selection makes everywhere else here. */
+  .sidebar__session-actions[data-state='open'] {
+    background-color: var(--surface-3);
+    color: var(--fg-1);
+  }
+
+  /* A pointer that cannot hover has no way to reveal anything. */
+  @media (hover: none) {
+    .sidebar__session-actions {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar__session-actions {
+      transition: none;
+    }
+  }
+
+  .sidebar__rename {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+  }
+
+  .sidebar__rename input {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .sidebar__note {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
+  .sidebar__note--error {
+    color: var(--danger-fg);
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "function": "subagentToolName",
+  "cases": [
+    {
+      "name": "a plain id",
+      "input": {
+        "agentId": "researcher"
+      },
+      "output": "ask_researcher"
+    },
+    {
+      "name": "hyphens become underscores",
+      "input": {
+        "agentId": "code-review-bot"
+      },
+      "output": "ask_code_review_bot"
+    },
+    {
+      "name": "a single character",
+      "input": {
+        "agentId": "a"
+      },
+      "output": "ask_a"
+    }
+  ]
+}

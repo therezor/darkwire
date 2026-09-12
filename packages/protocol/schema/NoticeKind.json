@@ -1,0 +1,12 @@
+{
+  "type": "string",
+  "enum": [
+    "prompt_injection",
+    "degraded",
+    "truncated_history",
+    "provider_fallback",
+    "approval_denied",
+    "agent_fallback",
+    "tools_disabled"
+  ]
+}

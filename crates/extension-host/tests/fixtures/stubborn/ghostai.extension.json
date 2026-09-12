@@ -1,0 +1,6 @@
+{
+  "schema": "ghostai.extension/2",
+  "id": "stubborn",
+  "command": ["node", "index.mjs"],
+  "contributes": []
+}

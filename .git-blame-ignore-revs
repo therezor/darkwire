@@ -1,0 +1,16 @@
+# Commits that changed formatting and nothing else. `git blame` skips them, so
+# a line's blame points at whoever wrote it rather than at the reformat.
+#
+# Enable it once per clone:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub reads this file by name and needs no configuration.
+#
+# Only ever add a commit that a reviewer has confirmed is purely mechanical —
+# a commit listed here is invisible in blame, so a behaviour change hidden in
+# one is a behaviour change nobody can find.
+
+# Reformat the repository to the Google TypeScript Style Guide's 80-column
+# limit (prettier printWidth 100 -> 80).
+# TODO: append this commit's SHA once the reformat is committed.

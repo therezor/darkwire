@@ -1,0 +1,123 @@
+/**
+ * Dialog.
+ *
+ * Radix owns the behaviour — focus trap, restoration, `Escape`, `aria-modal`,
+ * inerting the rest of the page. Everything here is appearance.
+ *
+ * The centring is a `translate` on the element rather than a flex parent,
+ * because the overlay and the content are siblings in the portal and a flex
+ * wrapper around the content would swallow outside-clicks that Radix expects to
+ * reach the overlay.
+ */
+
+@layer components {
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    background-color: var(--scrim);
+    backdrop-filter: blur(0.25rem);
+  }
+
+  .dialog-overlay[data-state='open'] {
+    animation: fade-in var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .dialog-overlay[data-state='closed'] {
+    animation: fade-out var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: var(--z-overlay);
+    translate: -50% -50%;
+    width: min(32rem, calc(100vw - var(--space-8)));
+    max-height: calc(100dvh - var(--space-8));
+    overflow-y: auto;
+    padding: var(--space-6);
+    background-color: var(--surface-2);
+    border: var(--hairline) solid var(--line-strong);
+    border-radius: var(--radius-md);
+  }
+
+  .dialog[data-state='open'] {
+    animation: pop-in var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .dialog[data-state='closed'] {
+    animation: fade-out var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .dialog__close {
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--size-control-sm);
+    height: var(--size-control-sm);
+    border-radius: var(--radius-md);
+    color: var(--fg-3);
+    transition: color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .dialog__close:hover {
+    background-color: var(--hover);
+    color: var(--fg-1);
+  }
+
+  .dialog__close > svg {
+    width: var(--size-icon-md);
+    height: var(--size-icon-md);
+  }
+
+  .dialog__header {
+    --gap: var(--space-1);
+
+    /* Room for the close button, which is positioned over this corner. */
+    padding-right: var(--space-8);
+    margin-bottom: var(--space-4);
+  }
+
+  .dialog__footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-6);
+  }
+
+  .dialog__title {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+    font-weight: var(--weight-medium);
+  }
+
+  .dialog__description {
+    color: var(--fg-2);
+  }
+
+  /**
+   * The drawer: the same dialog pinned to the left edge and full height, for
+   * the sidebar on a narrow screen. It overrides the centring above rather
+   * than being a second component, because it *is* the same component — the
+   * focus trap and the restore are the reason it is a dialog at all.
+   */
+  .dialog--drawer {
+    top: 0;
+    left: 0;
+    translate: none;
+    width: min(var(--layout-drawer), 85vw);
+    height: 100dvh;
+    max-height: none;
+    padding: 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  .dialog--drawer[data-state='open'] {
+    animation: slide-in var(--duration-base) var(--ease-out-quint);
+  }
+}

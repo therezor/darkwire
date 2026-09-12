@@ -1,0 +1,25 @@
+/**
+ * Tooltip.
+ *
+ * The one floating surface that is not `.floating`: a tooltip is a label, so it
+ * is the size of its text rather than a minimum-width panel with padding for
+ * rows. It sits above everything else because it can be summoned from inside a
+ * dialog.
+ */
+
+@layer components {
+  .tooltip {
+    z-index: var(--z-tooltip);
+    padding: var(--space-1) var(--space-2);
+    background-color: var(--surface-3);
+    border: var(--hairline) solid var(--line-strong);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-1);
+  }
+
+  .tooltip[data-state='delayed-open'] {
+    animation: pop-in var(--duration-fast) var(--ease-out-quint);
+  }
+}

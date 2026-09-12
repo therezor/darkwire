@@ -1,0 +1,75 @@
+{
+  "function": "deriveWorkspaceId",
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "name": "Client Acme"
+      },
+      "output": "client-acme"
+    },
+    {
+      "name": "spaced",
+      "input": {
+        "name": "  Spaced  out  "
+      },
+      "output": "spaced-out"
+    },
+    {
+      "name": "accented",
+      "input": {
+        "name": "Ünïcödé"
+      },
+      "output": "n-c-d"
+    },
+    {
+      "name": "slashes",
+      "input": {
+        "name": "///"
+      },
+      "output": "workspace"
+    },
+    {
+      "name": "empty",
+      "input": {
+        "name": ""
+      },
+      "output": "workspace"
+    },
+    {
+      "name": "the default id",
+      "input": {
+        "name": "default"
+      },
+      "output": "workspace"
+    },
+    {
+      "name": "a device name",
+      "input": {
+        "name": "CON"
+      },
+      "output": "workspace"
+    },
+    {
+      "name": "capitalised",
+      "input": {
+        "name": "Work"
+      },
+      "output": "work"
+    },
+    {
+      "name": "astral",
+      "input": {
+        "name": "😀 Work 😀"
+      },
+      "output": "work"
+    },
+    {
+      "name": "CRLF",
+      "input": {
+        "name": "a\r\nb"
+      },
+      "output": "a-b"
+    }
+  ]
+}

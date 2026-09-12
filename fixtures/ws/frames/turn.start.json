@@ -1,0 +1,13 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "turn.start",
+    "seq": 44,
+    "sessionKey": "web:abc",
+    "turnId": "t1",
+    "firstSeq": 7,
+    "agentId": "coder",
+    "model": "qwen3",
+    "provider": "ollama"
+  }
+}

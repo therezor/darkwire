@@ -1,0 +1,8 @@
+# rustfmt owns formatting the way Prettier owns it for TypeScript: `cargo fmt
+# --check` is the style guide as far as a change is concerned. Defaults except
+# the two below. 100 columns is rustfmt's own default; the 80-column rule in
+# `.prettierrc.json` is Google's TypeScript guide and does not carry over.
+edition = "2024"
+max_width = 100
+use_field_init_shorthand = true
+newline_style = "Unix"

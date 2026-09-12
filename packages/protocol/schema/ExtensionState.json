@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "enum": [
+    "ready",
+    "unapproved",
+    "drifted",
+    "disabled",
+    "failed"
+  ]
+}

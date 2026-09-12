@@ -1,0 +1,14 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "context.usage",
+    "seq": 54,
+    "sessionKey": "web:abc",
+    "estimatedTokens": 1200,
+    "contextWindowTokens": 65536,
+    "breakdown": {
+      "systemPrompt": 400,
+      "messages": 800
+    }
+  }
+}

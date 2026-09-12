@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "load": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disabled": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowOverride": {
+      "default": false,
+      "type": "boolean"
+    },
+    "settings": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  }
+}

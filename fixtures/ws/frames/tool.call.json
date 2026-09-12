@@ -1,0 +1,16 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "tool.call",
+    "seq": 47,
+    "turnId": "t1",
+    "callId": "c1",
+    "name": "exec",
+    "args": {
+      "argv": [
+        "ls"
+      ]
+    },
+    "risk": "exec"
+  }
+}

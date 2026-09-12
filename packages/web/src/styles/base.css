@@ -1,0 +1,146 @@
+/**
+ * Base layer: the element defaults the token layer implies.
+ *
+ * Everything here is a token reference. No colour, no `px`, no font stack —
+ * those live in `tokens.css` and nowhere else.
+ */
+
+@layer base {
+  html {
+    background-color: var(--surface-0);
+  }
+
+  body {
+    background-color: var(--surface-0);
+    color: var(--fg-1);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--leading-base);
+    font-feature-settings: 'cv05' 1; /* the single-storey l — Inter's is ambiguous next to 1 */
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-feature-settings: normal; /* no ligatures in code: `!=` must read as two glyphs */
+    font-variant-ligatures: none;
+  }
+
+  strong,
+  b {
+    font-weight: var(--weight-semibold);
+  }
+
+  /* A real focus-visible layer, applied once to everything rather than
+   * per-component. `:focus-visible` and not `:focus`: a ring on every mouse
+   * click is what leads to `outline: none` and a keyboard-unusable app. The
+   * stroke is `--accent-fg`, not `--accent` — a ring is a stroke, and the fill
+   * value is a 2:1 pairing against a white card. */
+  :focus-visible {
+    outline: var(--ring-width) solid var(--accent-fg);
+    outline-offset: var(--ring-offset);
+    border-radius: var(--radius-sm);
+  }
+
+  /* Only for elements that manage their own ring; the ring above is the default. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: var(--accent-soft);
+    color: var(--fg-1);
+  }
+
+  ::placeholder {
+    color: var(--fg-3);
+    opacity: 1; /* Firefox fades placeholders by default, below the measured tier */
+  }
+
+  /* Grabbable rather than hairline, and themed rather than the platform's.
+   * `scrollbar-color` covers Firefox; the `::-webkit-` rules cover the rest. */
+  * {
+    scrollbar-color: var(--line-strong) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+    border-radius: var(--radius-full);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--fg-3);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* The keyframes the floating surfaces animate with. Radix waits for
+   * `animationend` before unmounting, which is the only reason a dialog or a
+   * toast can animate *out* at all — a CSS transition never gets to run on an
+   * element React has already removed.
+   *
+   * They live here rather than beside the tokens because `tokens.css` is parsed
+   * by the contrast assertion, and nested rules are exactly what that parser
+   * refuses.
+   *
+   * Opacity only for the dialog pair, deliberately: the dialog is centred with
+   * a `translate`, and a keyframe touching `transform` would fight the rule
+   * that positions it. */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      translate: 0.75rem 0;
+    }
+  }
+
+  @keyframes spin {
+    to {
+      rotate: 360deg;
+    }
+  }
+
+  /* Honour the OS setting rather than shipping motion nobody asked for. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

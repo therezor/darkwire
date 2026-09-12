@@ -1,0 +1,109 @@
+{
+  "type": "object",
+  "properties": {
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "wire": {
+            "type": "string"
+          },
+          "isLocal": {
+            "type": "boolean"
+          },
+          "isGateway": {
+            "type": "boolean"
+          },
+          "isOAuth": {
+            "type": "boolean"
+          },
+          "defaultApiBase": {
+            "type": "string"
+          },
+          "envKey": {
+            "type": "string"
+          },
+          "supportsModelListing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "wire",
+          "isLocal",
+          "isGateway",
+          "isOAuth",
+          "supportsModelListing"
+        ]
+      }
+    },
+    "instances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "apiBase": {
+            "type": "string"
+          },
+          "isLocal": {
+            "type": "boolean"
+          },
+          "isGateway": {
+            "type": "boolean"
+          },
+          "isOAuth": {
+            "type": "boolean"
+          },
+          "envKey": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "supportsModelListing": {
+            "type": "boolean"
+          },
+          "credentialsPresent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "displayName",
+          "apiBase",
+          "isLocal",
+          "isGateway",
+          "isOAuth",
+          "enabled",
+          "supportsModelListing",
+          "credentialsPresent"
+        ]
+      }
+    }
+  },
+  "required": [
+    "types",
+    "instances"
+  ]
+}

@@ -1,0 +1,1945 @@
+{
+  "description": "guardExec(argv, {jail, config, env, sandboxed}). `input.config` is a patch over ExecToolConfigSchema's defaults ({} means the defaults), `input.env` is the whole process environment the guard sees. `output` is {plan: {file, args, cwd, env, timeoutMs, maxOutputBytes, paths}} or {error: {kind, message}}. The workspace root is a temp directory holding `layout`; it is spelled `<root>` and its parent `<base>` wherever either appears in a plan or a message. `escape` is a symlink to `<base>` and `notes.txt` a symlink to `<base>/outside.txt`; `<base>/outside.txt` exists.",
+  "layout": {
+    "files": [
+      "script.js",
+      "build.sh",
+      "src/a.ts"
+    ],
+    "directories": [
+      "src"
+    ],
+    "symlinks": {
+      "escape": "<base>",
+      "notes.txt": "<base>/outside.txt"
+    },
+    "outside": [
+      "<base>/outside.txt"
+    ]
+  },
+  "cases": [
+    {
+      "name": "argv unchanged, rooted at the workspace",
+      "input": {
+        "argv": [
+          "node",
+          "script.js",
+          "--flag"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "node",
+          "args": [
+            "script.js",
+            "--flag"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a path argument is not rewritten",
+      "input": {
+        "argv": [
+          "git",
+          "log",
+          "src/a.ts"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "log",
+            "src/a.ts"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/src/a.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a workspace-relative program is resolved",
+      "input": {
+        "argv": [
+          "./build.sh"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "<root>/build.sh",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/build.sh"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an absolute system binary is left alone",
+      "input": {
+        "argv": [
+          "/usr/bin/git",
+          "status"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "/usr/bin/git",
+          "args": [
+            "status"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a drive-letter program is a system binary too",
+      "input": {
+        "argv": [
+          "C:\\Program Files\\Git\\git.exe"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "C:\\Program Files\\Git\\git.exe",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "the configured caps reach the plan",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "timeoutMs": 5000,
+          "maxOutputBytes": 4096
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 5000,
+          "maxOutputBytes": 4096,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "only allow-listed variables pass",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "an unset allow-listed variable is omitted",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a narrowed allow-list",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "envAllowlist": [
+            "LANG"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin",
+          "LANG": "C"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "LANG": "C"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "pathAppend is appended",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "pathAppend": "/opt/tools/bin"
+        },
+        "env": {
+          "PATH": "/usr/bin"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/opt/tools/bin"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "pathAppend stands alone when PATH is unset",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "pathAppend": "/opt/tools/bin"
+        },
+        "env": {},
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/opt/tools/bin"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "exec disabled",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "enable": false
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "The exec tool is disabled by configuration"
+        }
+      }
+    },
+    {
+      "name": "empty argv",
+      "input": {
+        "argv": [],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "invalid_input",
+          "message": "argv must start with a program to run"
+        }
+      }
+    },
+    {
+      "name": "empty program",
+      "input": {
+        "argv": [
+          ""
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "invalid_input",
+          "message": "argv must start with a program to run"
+        }
+      }
+    },
+    {
+      "name": "a NUL byte in an argument",
+      "input": {
+        "argv": [
+          "git",
+          "log\u0000--all"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Arguments must not contain NUL bytes"
+        }
+      }
+    },
+    {
+      "name": "a NUL byte in the program",
+      "input": {
+        "argv": [
+          "git\u0000",
+          "log"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Arguments must not contain NUL bytes"
+        }
+      }
+    },
+    {
+      "name": "a denied binary",
+      "input": {
+        "argv": [
+          "curl",
+          "https://x"
+        ],
+        "config": {
+          "deniedBinaries": [
+            "curl"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is denied by configuration: curl"
+        }
+      }
+    },
+    {
+      "name": "a denied binary by absolute path",
+      "input": {
+        "argv": [
+          "/usr/bin/curl"
+        ],
+        "config": {
+          "deniedBinaries": [
+            "curl"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is denied by configuration: curl"
+        }
+      }
+    },
+    {
+      "name": "a denied binary by .exe",
+      "input": {
+        "argv": [
+          "curl.exe"
+        ],
+        "config": {
+          "deniedBinaries": [
+            "curl"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is denied by configuration: curl"
+        }
+      }
+    },
+    {
+      "name": "a binary outside the allow-list",
+      "input": {
+        "argv": [
+          "rm",
+          "-rf",
+          "src"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "git",
+            "node"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is not in the allow-list: rm"
+        }
+      }
+    },
+    {
+      "name": "a binary inside the allow-list",
+      "input": {
+        "argv": [
+          "git",
+          "status"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "git",
+            "node"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "status"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "the deny-list wins over the allow-list",
+      "input": {
+        "argv": [
+          "git"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "git"
+          ],
+          "deniedBinaries": [
+            "git"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is denied by configuration: git"
+        }
+      }
+    },
+    {
+      "name": "a shell by default",
+      "input": {
+        "argv": [
+          "bash",
+          "script.js"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash is a shell. Pass the program and its arguments as argv instead, or add \"bash\" to allowedBinaries."
+        }
+      }
+    },
+    {
+      "name": "a shell by .exe on another platform",
+      "input": {
+        "argv": [
+          "cmd.exe",
+          "/k",
+          "dir"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "cmd is a shell. Pass the program and its arguments as argv instead, or add \"cmd\" to allowedBinaries."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell",
+      "input": {
+        "argv": [
+          "bash",
+          "script.js"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "bash"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "bash",
+          "args": [
+            "script.js"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with -c",
+      "input": {
+        "argv": [
+          "bash",
+          "-c",
+          "rm -rf / | sh"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "bash"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash -c re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with -lc",
+      "input": {
+        "argv": [
+          "bash",
+          "-lc",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "bash"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash -lc re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with --command",
+      "input": {
+        "argv": [
+          "bash",
+          "--command",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "bash"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash --command re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with /C",
+      "input": {
+        "argv": [
+          "bash",
+          "/C",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "bash"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash /C re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with -Command",
+      "input": {
+        "argv": [
+          "powershell",
+          "-Command",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "powershell"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "powershell -Command re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "an allow-listed shell with -EncodedCommand",
+      "input": {
+        "argv": [
+          "powershell",
+          "-EncodedCommand",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "powershell"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "powershell -EncodedCommand re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "no metacharacter scanning",
+      "input": {
+        "argv": [
+          "git",
+          "commit",
+          "-m",
+          "fix $(HOME) && `date` | sh"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "commit",
+            "-m",
+            "fix $(HOME) && `date` | sh"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a traversal argument",
+      "input": {
+        "argv": [
+          "cat",
+          "../outside.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (traversal): ../outside.txt"
+        }
+      }
+    },
+    {
+      "name": "a deep traversal argument",
+      "input": {
+        "argv": [
+          "cat",
+          "src/../../outside.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (traversal): src/../../outside.txt"
+        }
+      }
+    },
+    {
+      "name": "an absolute argument",
+      "input": {
+        "argv": [
+          "cat",
+          "/etc/passwd"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (absolute): /etc/passwd"
+        }
+      }
+    },
+    {
+      "name": "a home argument",
+      "input": {
+        "argv": [
+          "cat",
+          "~/.ssh/id_ed25519"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (home_prefix): ~/.ssh/id_ed25519"
+        }
+      }
+    },
+    {
+      "name": "a UNC argument",
+      "input": {
+        "argv": [
+          "cat",
+          "\\\\server\\share"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (unc): \\\\server\\share"
+        }
+      }
+    },
+    {
+      "name": "a drive-letter argument",
+      "input": {
+        "argv": [
+          "cat",
+          "C:\\Windows\\System32"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (drive): C:\\Windows\\System32"
+        }
+      }
+    },
+    {
+      "name": "a flag value that escapes",
+      "input": {
+        "argv": [
+          "cat",
+          "--output=../outside.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (traversal): ../outside.txt"
+        }
+      }
+    },
+    {
+      "name": "a flag value that is absolute",
+      "input": {
+        "argv": [
+          "cat",
+          "--output=/etc/passwd"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument points outside the workspace (absolute): /etc/passwd"
+        }
+      }
+    },
+    {
+      "name": "a symlink argument pointing out",
+      "input": {
+        "argv": [
+          "cat",
+          "escape/outside.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument is not inside the workspace: Path resolves outside the workspace: escape/outside.txt"
+        }
+      }
+    },
+    {
+      "name": "a bare filename that is a symlink out",
+      "input": {
+        "argv": [
+          "cat",
+          "notes.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument is not inside the workspace: Path resolves outside the workspace: notes.txt"
+        }
+      }
+    },
+    {
+      "name": "a traversal program path",
+      "input": {
+        "argv": [
+          "../evil.sh"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Program path points outside the workspace (traversal): ../evil.sh"
+        }
+      }
+    },
+    {
+      "name": "a home program path",
+      "input": {
+        "argv": [
+          "~/bin/evil"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Program path points outside the workspace (home_prefix): ~/bin/evil"
+        }
+      }
+    },
+    {
+      "name": "a program path that does not exist",
+      "input": {
+        "argv": [
+          "./missing/tool"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "<root>/missing/tool",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/missing/tool"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an empty argument is ignored",
+      "input": {
+        "argv": [
+          "git",
+          "log",
+          "",
+          "--oneline"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "log",
+            "",
+            "--oneline"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a bare flag",
+      "input": {
+        "argv": [
+          "git",
+          "--all"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "--all"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a short flag",
+      "input": {
+        "argv": [
+          "git",
+          "-m"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "-m"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a message with no separator",
+      "input": {
+        "argv": [
+          "git",
+          "fix the thing"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "fix the thing"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a flag with a non-path value",
+      "input": {
+        "argv": [
+          "git",
+          "--format=json"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "--format=json"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "an empty flag value",
+      "input": {
+        "argv": [
+          "git",
+          "--output="
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "--output="
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a contained relative path",
+      "input": {
+        "argv": [
+          "git",
+          "src/index.ts"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "src/index.ts"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/src/index.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a dot-slash path",
+      "input": {
+        "argv": [
+          "git",
+          "./script.js"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "./script.js"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/script.js"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a numeric argument",
+      "input": {
+        "argv": [
+          "git",
+          "42"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "42"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "path-shaped arguments are collected",
+      "input": {
+        "argv": [
+          "node",
+          "script.js",
+          "src/a.ts",
+          "--out=src/b.ts"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "node",
+          "args": [
+            "script.js",
+            "src/a.ts",
+            "--out=src/b.ts"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": [
+            "<root>/src/a.ts",
+            "<root>/src/b.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a URL is not reported as a path",
+      "input": {
+        "argv": [
+          "curl",
+          "https://example.com/a/b"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "curl",
+          "args": [
+            "https://example.com/a/b"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a message too long to verify",
+      "input": {
+        "argv": [
+          "git",
+          "commit",
+          "-m",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "plan": {
+          "file": "git",
+          "args": [
+            "commit",
+            "-m",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "a path-shaped argument too long to verify",
+      "input": {
+        "argv": [
+          "cat",
+          "src/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "jail_escape",
+          "message": "Argument is not inside the workspace: Path cannot be verified: src/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (ENAMETOOLONG)"
+        }
+      }
+    },
+    {
+      "name": "sandboxed: a shell with -lc",
+      "input": {
+        "argv": [
+          "bash",
+          "-lc",
+          "nmap -sV 10.0.0.5 | tee scan.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "plan": {
+          "file": "bash",
+          "args": [
+            "-lc",
+            "nmap -sV 10.0.0.5 | tee scan.txt"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "sandboxed: an absolute path",
+      "input": {
+        "argv": [
+          "cat",
+          "/etc/os-release"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "plan": {
+          "file": "cat",
+          "args": [
+            "/etc/os-release"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "sandboxed: a redirect inside a script string",
+      "input": {
+        "argv": [
+          "sh",
+          "-c",
+          "nuclei -u http://t > /workspace/out.txt"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "plan": {
+          "file": "sh",
+          "args": [
+            "-c",
+            "nuclei -u http://t > /workspace/out.txt"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "sandboxed: a relative program path is not resolved",
+      "input": {
+        "argv": [
+          "./build.sh"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "plan": {
+          "file": "./build.sh",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576,
+          "paths": []
+        }
+      }
+    },
+    {
+      "name": "sandboxed: the deny-list still applies",
+      "input": {
+        "argv": [
+          "curl",
+          "http://x"
+        ],
+        "config": {
+          "deniedBinaries": [
+            "curl"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is denied by configuration: curl"
+        }
+      }
+    },
+    {
+      "name": "sandboxed: the allow-list still applies",
+      "input": {
+        "argv": [
+          "bash",
+          "-lc",
+          "x"
+        ],
+        "config": {
+          "allowedBinaries": [
+            "nmap"
+          ]
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Binary is not in the allow-list: bash"
+        }
+      }
+    },
+    {
+      "name": "sandboxed: a NUL byte is still refused",
+      "input": {
+        "argv": [
+          "nmap",
+          "a\u0000b"
+        ],
+        "config": {},
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "Arguments must not contain NUL bytes"
+        }
+      }
+    },
+    {
+      "name": "sandboxed: disabled is still disabled",
+      "input": {
+        "argv": [
+          "nmap"
+        ],
+        "config": {
+          "enable": false
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "The exec tool is disabled by configuration"
+        }
+      }
+    }
+  ]
+}

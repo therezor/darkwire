@@ -1,0 +1,82 @@
+{
+  "function": "deriveAgentId",
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "label": "Code Reviewer"
+      },
+      "output": "code-reviewer"
+    },
+    {
+      "name": "spaced",
+      "input": {
+        "label": "  Spaced  out  "
+      },
+      "output": "spaced-out"
+    },
+    {
+      "name": "accented",
+      "input": {
+        "label": "Ünïcödé"
+      },
+      "output": "n-c-d"
+    },
+    {
+      "name": "slashes",
+      "input": {
+        "label": "///"
+      },
+      "output": "agent"
+    },
+    {
+      "name": "empty",
+      "input": {
+        "label": ""
+      },
+      "output": "agent"
+    },
+    {
+      "name": "the default id",
+      "input": {
+        "label": "default"
+      },
+      "output": "agent"
+    },
+    {
+      "name": "a device name",
+      "input": {
+        "label": "CON"
+      },
+      "output": "agent"
+    },
+    {
+      "name": "the default id, capitalised",
+      "input": {
+        "label": "Default"
+      },
+      "output": "agent"
+    },
+    {
+      "name": "capitalised",
+      "input": {
+        "label": "Reviewer"
+      },
+      "output": "reviewer"
+    },
+    {
+      "name": "astral",
+      "input": {
+        "label": "😀 Reviewer 😀"
+      },
+      "output": "reviewer"
+    },
+    {
+      "name": "CRLF",
+      "input": {
+        "label": "line\r\nbreak"
+      },
+      "output": "line-break"
+    }
+  ]
+}

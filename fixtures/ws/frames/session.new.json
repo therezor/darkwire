@@ -1,0 +1,9 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "session.new",
+    "sessionKey": "web:new",
+    "workspaceId": "acme",
+    "agentId": "coder"
+  }
+}

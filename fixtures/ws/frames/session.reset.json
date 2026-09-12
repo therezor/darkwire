@@ -1,0 +1,8 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "session.reset",
+    "seq": 56,
+    "sessionKey": "web:abc"
+  }
+}

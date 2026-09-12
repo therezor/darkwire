@@ -1,0 +1,13 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "tool.approvalRequest",
+    "seq": 50,
+    "turnId": "t1",
+    "callId": "c2",
+    "name": "exec",
+    "args": "not json",
+    "risk": "exec",
+    "expiresAtMs": 1700000300000
+  }
+}

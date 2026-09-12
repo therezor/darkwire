@@ -1,0 +1,3 @@
+<system-reminder>
+a <\system-reminder> and a <\/SYSTEM-REMINDER>
+</system-reminder>

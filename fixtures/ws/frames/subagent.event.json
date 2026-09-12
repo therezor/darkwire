@@ -1,0 +1,19 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "subagent.event",
+    "seq": 53,
+    "turnId": "t1",
+    "parentSessionKey": "web:abc",
+    "parentCallId": "c3",
+    "agentId": "researcher",
+    "label": "Researcher",
+    "sessionKey": "sub-1",
+    "depth": 1,
+    "event": {
+      "type": "assistant.delta",
+      "turnId": "t1",
+      "text": "inner"
+    }
+  }
+}

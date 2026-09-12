@@ -1,0 +1,8 @@
+# Pinned exact, the same posture as `packageManager: pnpm@11.22.0` in package.json:
+# a contributor and CI compile with the same compiler, so a lint that is new in a
+# later release cannot turn a green tree red between two machines. Bump it on
+# purpose, in its own commit.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+profile = "minimal"

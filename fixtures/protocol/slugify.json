@@ -1,0 +1,97 @@
+{
+  "function": "slugify",
+  "cases": [
+    {
+      "name": "lowercases and hyphenates",
+      "input": {
+        "name": "Code Reviewer",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "code-reviewer"
+    },
+    {
+      "name": "collapses runs and trims the ends",
+      "input": {
+        "name": "  Spaced  out  ",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "spaced-out"
+    },
+    {
+      "name": "drops non-ASCII letters",
+      "input": {
+        "name": "Ünïcödé",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "n-c-d"
+    },
+    {
+      "name": "falls back when nothing usable is left",
+      "input": {
+        "name": "///",
+        "reserved": [],
+        "fallback": "thing"
+      },
+      "output": "thing"
+    },
+    {
+      "name": "falls back on empty",
+      "input": {
+        "name": "",
+        "reserved": [],
+        "fallback": "thing"
+      },
+      "output": "thing"
+    },
+    {
+      "name": "falls back on a reserved result",
+      "input": {
+        "name": "Nul",
+        "reserved": [
+          "nul"
+        ],
+        "fallback": "thing"
+      },
+      "output": "thing"
+    },
+    {
+      "name": "truncates to forty characters and trims a trailing hyphen",
+      "input": {
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-b",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "truncates a long name",
+      "input": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "astral-plane characters are separators",
+      "input": {
+        "name": "😀 Agent 😀 One 𝔗𝔴𝔬",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "agent-one"
+    },
+    {
+      "name": "CRLF is a separator",
+      "input": {
+        "name": "one\r\ntwo",
+        "reserved": [],
+        "fallback": "x"
+      },
+      "output": "one-two"
+    }
+  ]
+}

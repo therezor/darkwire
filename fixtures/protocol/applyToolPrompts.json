@@ -1,0 +1,842 @@
+{
+  "function": "applyToolPrompts",
+  "cases": [
+    {
+      "name": "no overrides",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {}
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "replaces a description",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "Read a file. Prefer this over `cat`.",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Read a file. Prefer this over `cat`.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "empty inherits the built-in description",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "a single space deletes the description",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": " ",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "trims a description",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "  Padded. \r\n",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Padded.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "replaces a field description",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "",
+            "fields": {
+              "path": "Relative to the workspace root."
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative to the workspace root."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "adds a description to a field that had none",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "",
+            "fields": {
+              "limit": "Maximum lines to return."
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number",
+                  "description": "Maximum lines to return."
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "reports an unknown tool",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "exec": {
+            "description": "Run a program.",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [
+          "exec"
+        ],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "reports an unknown field",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "",
+            "fields": {
+              "pat": "A typo."
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": [
+          "read_file.pat"
+        ]
+      }
+    },
+    {
+      "name": "reports every field of a tool with no properties",
+      "input": {
+        "definitions": [
+          {
+            "name": "ping",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          }
+        ],
+        "overrides": {
+          "ping": {
+            "description": "",
+            "fields": {
+              "host": "Where to ping.",
+              "port": "Which port."
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "ping",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": [
+          "ping.host",
+          "ping.port"
+        ]
+      }
+    },
+    {
+      "name": "reports a field whose property is not an object",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": "string"
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "",
+            "fields": {
+              "path": "x"
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": "string"
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": [
+          "read_file.path"
+        ]
+      }
+    },
+    {
+      "name": "leaves other definitions untouched",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          {
+            "name": "exec",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "Changed.",
+            "fields": {}
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Changed.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          {
+            "name": "exec",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    },
+    {
+      "name": "astral-plane prose",
+      "input": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "Reads a file in the workspace.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative path."
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "overrides": {
+          "read_file": {
+            "description": "😀 Read 𝔞 file.",
+            "fields": {
+              "path": "🚀"
+            }
+          }
+        }
+      },
+      "output": {
+        "definitions": [
+          {
+            "name": "read_file",
+            "description": "😀 Read 𝔞 file.",
+            "risk": "safe",
+            "source": "builtin",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "🚀"
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "unknownTools": [],
+        "unknownFields": []
+      }
+    }
+  ]
+}

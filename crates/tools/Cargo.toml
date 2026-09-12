@@ -1,0 +1,49 @@
+[package]
+name = "ghostai-tools"
+description = "The Tool trait, the registry, the built-in tools and the local and container runners"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `TestWorkspace` and the tool conformance suite, which `ghostai-mcp`'s tests
+# run over bridged tools too; excluded from coverage. Free of any
+# test-framework dependency.
+testkit = ["dep:tempfile"]
+
+[dependencies]
+ghostai-core.workspace = true
+ghostai-protocol.workspace = true
+ghostai-security.workspace = true
+chrono.workspace = true
+futures.workspace = true
+indexmap.workspace = true
+jsonschema.workspace = true
+nix.workspace = true
+parking_lot.workspace = true
+regex.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The crate's own test doubles, and the clock and random doubles of the crates
+# below, reach the tests through the feature the gate does not otherwise turn on.
+ghostai-tools = { workspace = true, features = ["testkit"] }
+ghostai-core = { workspace = true, features = ["testkit"] }
+ghostai-security = { workspace = true, features = ["testkit"] }
+proptest.workspace = true
+tempfile.workspace = true
+# Paused time for the registry timeout tests.
+tokio = { workspace = true, features = ["test-util"] }

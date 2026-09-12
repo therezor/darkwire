@@ -1,0 +1,12 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "user.edit",
+    "sessionKey": "web:abc",
+    "seq": 4,
+    "content": "again",
+    "attachments": [],
+    "agentId": "coder",
+    "clientMessageId": "cm-3"
+  }
+}

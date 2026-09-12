@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "string",
+      "minLength": 1
+    },
+    "to": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "from",
+    "to"
+  ]
+}

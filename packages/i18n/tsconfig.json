@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+
+    // The resources are JSON, and the `CustomTypeOptions` augmentation in
+    // `src/types.ts` is what turns them into a key union `t()` is checked
+    // against. That inference is the whole point of the file, and it is exactly
+    // what the declaration emitter cannot write a signature for: TS9010. The
+    // same trade `protocol` makes for its Zod schemas, for the same reason.
+    "isolatedDeclarations": false
+  },
+  "include": ["src/**/*"],
+  "references": []
+}

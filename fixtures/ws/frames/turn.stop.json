@@ -1,0 +1,7 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "turn.stop",
+    "sessionKey": "web:abc"
+  }
+}

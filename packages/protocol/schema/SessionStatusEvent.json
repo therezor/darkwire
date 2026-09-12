@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "session.status"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "sessionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "busy": {
+      "type": "boolean"
+    },
+    "queueDepth": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "workspaceId": {
+      "default": "default",
+      "type": "string",
+      "minLength": 1
+    },
+    "turnId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "seq",
+    "sessionKey",
+    "busy"
+  ]
+}

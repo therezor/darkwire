@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "wire": {
+      "type": "string"
+    },
+    "isLocal": {
+      "type": "boolean"
+    },
+    "isGateway": {
+      "type": "boolean"
+    },
+    "isOAuth": {
+      "type": "boolean"
+    },
+    "defaultApiBase": {
+      "type": "string"
+    },
+    "envKey": {
+      "type": "string"
+    },
+    "supportsModelListing": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "displayName",
+    "wire",
+    "isLocal",
+    "isGateway",
+    "isOAuth",
+    "supportsModelListing"
+  ]
+}

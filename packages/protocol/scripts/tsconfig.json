@@ -1,0 +1,18 @@
+/**
+ * The emitter's own project, for the same reason `test/` has one: ESLint's
+ * type-aware rules find a file's project by walking up from it, and the
+ * package's own `tsconfig.json` deliberately covers `src/` alone so that what
+ * ships is exactly what `rootDir` says. Nothing here is emitted.
+ */
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "isolatedDeclarations": false,
+    "tsBuildInfoFile": "../scripts.tsbuildinfo"
+  },
+  "include": ["**/*"],
+  "references": [{ "path": "../tsconfig.json" }]
+}

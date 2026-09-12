@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "error"
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "unauthorized",
+        "bad_request",
+        "not_found",
+        "rate_limited",
+        "provider_error",
+        "tool_error",
+        "config_invalid",
+        "not_configured",
+        "session_busy",
+        "internal"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "retryable": {
+      "default": false,
+      "type": "boolean"
+    },
+    "turnId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "code",
+    "message"
+  ]
+}

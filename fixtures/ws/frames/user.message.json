@@ -1,0 +1,18 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "user.message",
+    "sessionKey": "web:abc",
+    "content": "hello 😀",
+    "attachments": [
+      {
+        "mimeType": "image/png",
+        "path": "uploads/a.png",
+        "name": "a.png",
+        "sizeBytes": 12
+      }
+    ],
+    "agentId": "coder",
+    "clientMessageId": "cm-1"
+  }
+}

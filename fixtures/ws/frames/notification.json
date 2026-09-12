@@ -1,0 +1,14 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "notification",
+    "seq": 59,
+    "id": "n1",
+    "title": "Done",
+    "body": "The job ran.",
+    "level": "success",
+    "createdAtMs": 1700000000000,
+    "sessionKey": "automation:j1:r1",
+    "jobId": "j1"
+  }
+}

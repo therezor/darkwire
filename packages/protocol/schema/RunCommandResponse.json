@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "default": "",
+      "type": "string"
+    },
+    "ok": {
+      "default": true,
+      "type": "boolean"
+    }
+  }
+}

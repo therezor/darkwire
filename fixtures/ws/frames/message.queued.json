@@ -1,0 +1,9 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "message.queued",
+    "seq": 43,
+    "sessionKey": "web:abc",
+    "queueDepth": 1
+  }
+}

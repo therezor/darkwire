@@ -1,0 +1,8 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "turn.steer",
+    "sessionKey": "web:abc",
+    "content": "shorter"
+  }
+}

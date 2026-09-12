@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "noNewPrivileges": {
+      "default": true,
+      "type": "boolean"
+    },
+    "seccomp": {
+      "default": "default",
+      "type": "string",
+      "enum": [
+        "default",
+        "unconfined"
+      ]
+    },
+    "readOnlyRoot": {
+      "default": true,
+      "type": "boolean"
+    },
+    "tmpfs": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "devices": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

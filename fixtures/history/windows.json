@@ -1,0 +1,1571 @@
+{
+  "description": "historyForLLM(messages, options). `options` is a patch over the defaults {maxMessages: 500, maxToolResultChars: 8000}; a value <= 0 means unlimited. Steps, in order: keep the last maxMessages; drop everything before the first user message unless there is none; cut to the first index from which every tool message has a preceding assistant declaring its toolCallId (findLegalStart); truncate each tool result longer than maxToolResultChars to ceil(n/2) head characters + \"\\n\\n… [<omitted> characters truncated] …\\n\\n\" + the remaining tail characters, setting truncated: true. Lengths are UTF-16 code units. Messages are the canonical ChatMessage shapes.",
+  "cases": [
+    {
+      "name": "an empty history",
+      "input": {
+        "messages": [],
+        "options": {}
+      },
+      "output": []
+    },
+    {
+      "name": "a plain exchange is untouched",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ],
+            "toolCalls": []
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello"
+            }
+          ],
+          "toolCalls": []
+        }
+      ]
+    },
+    {
+      "name": "step 1: keeps the most recent maxMessages",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "c"
+              }
+            ]
+          }
+        ],
+        "options": {
+          "maxMessages": 2
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "b"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "step 1: maxMessages of zero is unlimited",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "c"
+              }
+            ]
+          }
+        ],
+        "options": {
+          "maxMessages": 0
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "a"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "b"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "step 1: a negative maxMessages is unlimited",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ],
+        "options": {
+          "maxMessages": -1
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "a"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "step 2: starts at the first user message",
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "stale prompt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "mid-turn"
+              }
+            ],
+            "toolCalls": []
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "step 2: a window with no user message is kept",
+      "input": {
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "x",
+          "isError": false,
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "name": "step 2: a system message that follows the first user message survives",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "system",
+            "content": "injected"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "toolCalls": []
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "system",
+          "content": "injected"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "ok"
+            }
+          ],
+          "toolCalls": []
+        }
+      ]
+    },
+    {
+      "name": "step 3: a leading orphan is cut",
+      "input": {
+        "messages": [
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "contents",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ],
+            "toolCalls": []
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "toolCalls": []
+        }
+      ]
+    },
+    {
+      "name": "step 3: a later paired exchange survives the cut",
+      "input": {
+        "messages": [
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "b",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "b",
+            "name": "read_file",
+            "content": "y",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "b",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "b",
+          "name": "read_file",
+          "content": "y",
+          "isError": false,
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "name": "step 3: parallel tool calls all pair",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              },
+              {
+                "id": "b",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              },
+              {
+                "id": "c",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "tool",
+            "toolCallId": "b",
+            "name": "read_file",
+            "content": "y",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c",
+            "name": "read_file",
+            "content": "z",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            },
+            {
+              "id": "b",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            },
+            {
+              "id": "c",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "x",
+          "isError": false,
+          "truncated": false
+        },
+        {
+          "role": "tool",
+          "toolCallId": "b",
+          "name": "read_file",
+          "content": "y",
+          "isError": false,
+          "truncated": false
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c",
+          "name": "read_file",
+          "content": "z",
+          "isError": false,
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "name": "step 3: an orphan at the end discards everything",
+      "input": {
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "tool",
+            "toolCallId": "b",
+            "name": "read_file",
+            "content": "y",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {}
+      },
+      "output": []
+    },
+    {
+      "name": "step 3: a result whose declaring assistant is cut away is re-orphaned",
+      "input": {
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "b",
+            "name": "read_file",
+            "content": "orphan",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "now also orphaned",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {}
+      },
+      "output": []
+    },
+    {
+      "name": "step 3: the assistant has to come first, not merely exist",
+      "input": {
+        "messages": [
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "steps 2 then 3: trimming to the user strands a result, which is then cut",
+      "input": {
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "interrupting"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "stranded",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "next"
+              }
+            ]
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "next"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "steps 1 then 2: the window cuts a tool exchange, then opens on the user",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "read it"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ],
+            "toolCalls": []
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "next"
+              }
+            ]
+          }
+        ],
+        "options": {
+          "maxMessages": 3
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "next"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "steps 1 then 3: the window strands a result and no user message follows",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "read it"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "x",
+            "isError": false,
+            "truncated": false
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ],
+            "toolCalls": []
+          }
+        ],
+        "options": {
+          "maxMessages": 2
+        }
+      },
+      "output": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "toolCalls": []
+        }
+      ]
+    },
+    {
+      "name": "step 4: a long tool result is truncated head and tail and flagged",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "abcdefghijklmnopqrstuvwxyz",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 10
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "abcde\n\n… [16 characters truncated] …\n\nvwxyz",
+          "isError": false,
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "name": "step 4: an odd budget biases the extra character to the head",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "abcdefghijklmnopqrstuvwxyz",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 5
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "abc\n\n… [21 characters truncated] …\n\nyz",
+          "isError": false,
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "name": "step 4: a budget of one keeps no tail",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "abcdef",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 1
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "a\n\n… [5 characters truncated] …\n\n",
+          "isError": false,
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "name": "step 4: a result exactly at the cap is untouched",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "abcde",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 5
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "abcde",
+          "isError": false,
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "name": "step 4: a cap of zero disables truncation",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 0
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "isError": false,
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "name": "step 4: the length is counted in UTF-16 code units",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "🐕🐕🐕🐕🐕🐕",
+            "isError": false,
+            "truncated": false
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 6
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "🐕\ud83d\n\n… [6 characters truncated] …\n\n\udc15🐕",
+          "isError": false,
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "name": "step 4: an already-truncated flag and isError are carried through",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ],
+            "toolCalls": [
+              {
+                "id": "a",
+                "name": "read_file",
+                "argumentsJson": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "a",
+            "name": "read_file",
+            "content": "abcdefghijklmnop",
+            "isError": true,
+            "truncated": true
+          }
+        ],
+        "options": {
+          "maxToolResultChars": 4
+        }
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "go"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "a",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "a",
+          "name": "read_file",
+          "content": "ab\n\n… [12 characters truncated] …\n\nop",
+          "isError": true,
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "name": "a multimodal user message and reasoning are carried as-is",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "what is this?"
+              },
+              {
+                "type": "image",
+                "mimeType": "image/png",
+                "data": "AAA"
+              },
+              {
+                "type": "file",
+                "path": "uploads/a.csv",
+                "mimeType": "text/csv",
+                "name": "a.csv",
+                "sizeBytes": 12
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "a picture"
+              }
+            ],
+            "toolCalls": [],
+            "reasoning": "thinking about it"
+          }
+        ],
+        "options": {}
+      },
+      "output": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "what is this?"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "data": "AAA"
+            },
+            {
+              "type": "file",
+              "path": "uploads/a.csv",
+              "mimeType": "text/csv",
+              "name": "a.csv",
+              "sizeBytes": 12
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "a picture"
+            }
+          ],
+          "toolCalls": [],
+          "reasoning": "thinking about it"
+        }
+      ]
+    }
+  ]
+}

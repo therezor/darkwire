@@ -1,0 +1,11 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "notice",
+    "seq": 51,
+    "kind": "prompt_injection",
+    "message": "suspicious content in tool output",
+    "turnId": "t1",
+    "callId": "c1"
+  }
+}

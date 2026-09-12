@@ -1,0 +1,138 @@
+{
+  "function": "isSlugId",
+  "cases": [
+    {
+      "name": "legal: a",
+      "input": {
+        "value": "a"
+      },
+      "output": true
+    },
+    {
+      "name": "legal: 2024",
+      "input": {
+        "value": "2024"
+      },
+      "output": true
+    },
+    {
+      "name": "legal: code-reviewer",
+      "input": {
+        "value": "code-reviewer"
+      },
+      "output": true
+    },
+    {
+      "name": "legal: default",
+      "input": {
+        "value": "default"
+      },
+      "output": true
+    },
+    {
+      "name": "legal: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input": {
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output": true
+    },
+    {
+      "name": "illegal: \"\"",
+      "input": {
+        "value": ""
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"..\"",
+      "input": {
+        "value": ".."
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"a/b\"",
+      "input": {
+        "value": "a/b"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"a\\\\b\"",
+      "input": {
+        "value": "a\\b"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"c:\"",
+      "input": {
+        "value": "c:"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"a\\u0000b\"",
+      "input": {
+        "value": "a\u0000b"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"~agent\"",
+      "input": {
+        "value": "~agent"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"-agent\"",
+      "input": {
+        "value": "-agent"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"agent-\"",
+      "input": {
+        "value": "agent-"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"Reviewer\"",
+      "input": {
+        "value": "Reviewer"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"my agent\"",
+      "input": {
+        "value": "my agent"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+      "input": {
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"😀\"",
+      "input": {
+        "value": "😀"
+      },
+      "output": false
+    },
+    {
+      "name": "illegal: \"a\\r\\nb\"",
+      "input": {
+        "value": "a\r\nb"
+      },
+      "output": false
+    }
+  ]
+}

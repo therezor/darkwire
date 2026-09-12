@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "session.new"
+    },
+    "sessionKey": {
+      "type": "string"
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agentId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ]
+}

@@ -1,0 +1,24 @@
+[package]
+name = "ghostai-protocol"
+description = "Mirror of @ghostwire/protocol: the wire and manifest types, serde and JSON Schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+serde_with.workspace = true
+garde.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

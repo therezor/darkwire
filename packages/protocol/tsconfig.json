@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+
+    // The one package that cannot honour `isolatedDeclarations`. Every export
+    // here is a Zod schema whose type is the *result* of inference
+    // (`z.object({...})` → a deep `ZodObject<...>`), so the declaration emitter
+    // cannot write a signature without type-checking the expression: TS9010.
+    //
+    // The alternative is to hand-write a TS type beside every schema and
+    // annotate it as `z.ZodType<T>`, which reintroduces exactly the
+    // schema/type drift this package exists to remove. Inference is the more
+    // valuable half of the pair, so it wins here and only here; every other
+    // package keeps the flag on.
+    "isolatedDeclarations": false
+  },
+  "include": ["src/**/*"],
+  "references": []
+}

@@ -1,0 +1,391 @@
+{
+  "description": "parseSse over the byte chunks in `input.chunks` — a string is UTF-8 encoded, {hex} is raw bytes — with `input.maxFrameChars` as the unterminated-frame cap. `output.events` are the frames yielded in order, {event, data}; `event` is \"message\" when the stream named none. `output.error` {reason, message} is present when parsing threw, with the events yielded before it. Line terminators are \\r\\n, \\n and \\r; one leading space after the field colon is syntax; a line starting with `:` is a comment; only `data` and `event` fields matter; a trailing frame without its blank line is still yielded.",
+  "cases": [
+    {
+      "name": "a simple frame",
+      "input": {
+        "chunks": [
+          "data: hello\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "hello"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multiple data lines join with a newline",
+      "input": {
+        "chunks": [
+          "data: one\ndata: two\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "one\ntwo"
+          }
+        ]
+      }
+    },
+    {
+      "name": "exactly one space after the colon is stripped",
+      "input": {
+        "chunks": [
+          "data:  indented\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": " indented"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no space after the colon",
+      "input": {
+        "chunks": [
+          "data:none\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "none"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CRLF terminators",
+      "input": {
+        "chunks": [
+          "data: a\r\n\r\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bare CR terminators",
+      "input": {
+        "chunks": [
+          "data: b\r\r"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed terminators",
+      "input": {
+        "chunks": [
+          "data: a\r\ndata: b\n\r\r\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "a\nb"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the event name is carried and reset per frame",
+      "input": {
+        "chunks": [
+          "event: ping\ndata: 1\n\ndata: 2\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "ping",
+            "data": "1"
+          },
+          {
+            "event": "message",
+            "data": "2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an event name with no data yields nothing and does not leak",
+      "input": {
+        "chunks": [
+          "event: ping\n\ndata: 2\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "comments and reconnection fields are ignored",
+      "input": {
+        "chunks": [
+          ": keep-alive\n\nid: 7\nretry: 100\ndata: x\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a field with no colon has an empty value",
+      "input": {
+        "chunks": [
+          "data\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown field is ignored",
+      "input": {
+        "chunks": [
+          "foo: bar\ndata: x\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "blank frames with no data yield nothing",
+      "input": {
+        "chunks": [
+          "\n\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": []
+      }
+    },
+    {
+      "name": "an empty data line is a frame with empty data",
+      "input": {
+        "chunks": [
+          "data:\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "a frame split across chunks",
+      "input": {
+        "chunks": [
+          "da",
+          "ta: hel",
+          "lo\n",
+          "\ndata: more\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "hello"
+          },
+          {
+            "event": "message",
+            "data": "more"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a multi-byte character split across chunks",
+      "input": {
+        "chunks": [
+          {
+            "hex": "646174613a20636166c3"
+          },
+          {
+            "hex": "a90a0a"
+          }
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "café"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a final frame without its blank line",
+      "input": {
+        "chunks": [
+          "data: [DONE]"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "[DONE]"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a final frame ending in one newline",
+      "input": {
+        "chunks": [
+          "data: last\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "last"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a JSON payload with a colon and leading spaces",
+      "input": {
+        "chunks": [
+          "data: {\"a\": \": x\"}\n\n"
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "{\"a\": \": x\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid UTF-8 becomes U+FFFD",
+      "input": {
+        "chunks": [
+          {
+            "hex": "646174613a20ff0a0a"
+          }
+        ],
+        "maxFrameChars": 1048576
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "�"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a frame past a lowered cap",
+      "input": {
+        "chunks": [
+          "data: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "maxFrameChars": 64
+      },
+      "output": {
+        "events": [],
+        "error": {
+          "reason": "stream_parse",
+          "message": "Event stream frame exceeded 64 characters"
+        }
+      }
+    },
+    {
+      "name": "a frame exactly at a lowered cap is fine",
+      "input": {
+        "chunks": [
+          "data: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n"
+        ],
+        "maxFrameChars": 64
+      },
+      "output": {
+        "events": [
+          {
+            "event": "message",
+            "data": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@ghostwire/i18n",
+  "version": "0.8.1",
+  "description": "The translation layer: i18next instance, locale negotiation and locale-aware formatting primitives.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./web": {
+      "development": "./src/web.ts",
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
+    },
+    "./locales/*": "./locales/*",
+    "./package.json": "./package.json"
+  },
+  "imports": {
+    "#src/*": "./src/*"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup && tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "i18next": "^26.3.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/therezor/GhostAI.git",
+    "directory": "packages/i18n"
+  },
+  "homepage": "https://github.com/therezor/GhostAI",
+  "bugs": "https://github.com/therezor/GhostAI/issues",
+  "private": true
+}

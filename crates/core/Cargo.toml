@@ -1,0 +1,43 @@
+[package]
+name = "ghostai-core"
+description = "The shared spine: errors, clock, paths, SQLite stores, config, history windowing, logger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Test doubles other crates' tests reach through `features = ["testkit"]`;
+# excluded from coverage.
+testkit = []
+
+[dependencies]
+ghostai-protocol.workspace = true
+ghostai-i18n.workspace = true
+garde.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+indexmap.workspace = true
+parking_lot.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+gethostname.workspace = true
+serde_path_to_error.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+# The crate's own tests reach `ManualClock` the way other crates do.
+ghostai-core = { path = ".", features = ["testkit"] }

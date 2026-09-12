@@ -1,0 +1,7 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "pong",
+    "serverTimeMs": 1700000000000
+  }
+}

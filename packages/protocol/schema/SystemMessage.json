@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "const": "system"
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "content"
+  ]
+}

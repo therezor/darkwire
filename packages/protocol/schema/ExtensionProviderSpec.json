@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": {
+      "default": "",
+      "type": "string"
+    },
+    "wire": {
+      "default": "openai-chat",
+      "type": "string"
+    },
+    "keywords": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "envKey": {
+      "default": "",
+      "type": "string"
+    },
+    "defaultApiBase": {
+      "default": "",
+      "type": "string"
+    },
+    "isLocal": {
+      "default": false,
+      "type": "boolean"
+    },
+    "isGateway": {
+      "default": false,
+      "type": "boolean"
+    },
+    "isOAuth": {
+      "default": false,
+      "type": "boolean"
+    },
+    "detectByKeyPrefix": {
+      "default": "",
+      "type": "string"
+    },
+    "detectByBaseKeyword": {
+      "default": "",
+      "type": "string"
+    },
+    "stripModelPrefix": {
+      "default": false,
+      "type": "boolean"
+    },
+    "preserveModelPrefix": {
+      "default": false,
+      "type": "boolean"
+    },
+    "maxTokensParam": {
+      "default": "max_tokens",
+      "type": "string",
+      "enum": [
+        "max_tokens",
+        "max_completion_tokens"
+      ]
+    },
+    "defaultHeaders": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "supportsPromptCaching": {
+      "default": false,
+      "type": "boolean"
+    },
+    "supportsModelListing": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}

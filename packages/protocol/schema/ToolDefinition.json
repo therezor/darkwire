@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "parameters": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "risk": {
+      "default": "safe",
+      "type": "string",
+      "enum": [
+        "safe",
+        "write",
+        "exec",
+        "network"
+      ]
+    },
+    "source": {
+      "default": "builtin",
+      "type": "string",
+      "enum": [
+        "builtin",
+        "mcp",
+        "extension"
+      ]
+    },
+    "annotations": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "readOnlyHint": {
+          "type": "boolean"
+        },
+        "destructiveHint": {
+          "type": "boolean"
+        },
+        "idempotentHint": {
+          "type": "boolean"
+        },
+        "openWorldHint": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "parameters"
+  ]
+}

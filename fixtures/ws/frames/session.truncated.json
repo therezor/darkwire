@@ -1,0 +1,34 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "session.truncated",
+    "seq": 58,
+    "sessionKey": "web:abc",
+    "upToSeq": 3,
+    "messages": [
+      {
+        "id": "m1",
+        "sessionKey": "web:abc",
+        "seq": 1,
+        "createdAtMs": 1700000000000,
+        "turnId": "t1",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "calling"
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read_file",
+              "argumentsJson": "{\"path\":\"a.txt\"}"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

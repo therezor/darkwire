@@ -1,0 +1,37 @@
+# Companion to `[workspace.lints.clippy]` in Cargo.toml. Tests may unwrap: a
+# fixture that cannot load is a failing test either way, and `?` in a test
+# hides which line gave up.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+too-many-arguments-threshold = 8
+
+# Randomness and time are injected (`RandomSource`, `Clock`), never reached for
+# directly, so tests are deterministic and a fixed source in production is a
+# reviewable decision rather than an accident. The TS repo lint-bans
+# `Math.random()` for the same reason.
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "inject a `Clock`; see ghostai_core::clock" },
+]
+# The thread-local generator is the one every `rand` shortcut reaches; naming the
+# type rather than the functions keeps the rule stable across rand versions.
+#
+# Clippy prints "does not refer to a reachable type" in the crates that do not
+# depend on `rand` — which is most of them. That is noise, not a failure: the
+# exit status stays 0, and the rule still fires in the two crates where reaching
+# for ambient randomness would actually be possible. Do not delete the entry to
+# silence the line.
+disallowed-types = [
+  { path = "rand::rngs::ThreadRng", reason = "inject a `RandomSource`; see ghostai_security::random" },
+]
+
+# `doc_markdown` asks for backticks around anything CamelCase in a doc comment.
+# These are product names that appear in prose, not identifiers. The `..` keeps
+# clippy's own default list.
+doc-valid-idents = [
+  "..",
+  "GhostAI", "SQLite", "OpenAPI", "WebSocket", "WebSockets", "OAuth", "JSON-RPC",
+  "LLM", "MCP", "SSE", "UUIDv7", "OpenAI", "GitHub", "TypeScript", "JavaScript",
+  "PKCE", "Telegram", "macOS", "TurnLog", "PuTTY",
+  "OpenRouter", "DeepSeek", "vLLM", "xAI", "LM", "IPv4", "IPv6",
+  "MarkdownV2",
+]

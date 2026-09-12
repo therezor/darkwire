@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "maxMode": {
+      "default": "none",
+      "type": "string",
+      "enum": [
+        "none",
+        "allowlist",
+        "open"
+      ]
+    },
+    "dns": {
+      "default": [
+        "127.0.0.11"
+      ],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "proxyAllowHosts": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

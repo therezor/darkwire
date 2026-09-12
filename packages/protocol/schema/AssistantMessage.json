@@ -1,0 +1,117 @@
+{
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "const": "assistant"
+    },
+    "content": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "text"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "image"
+              },
+              "mimeType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "data": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "mimeType"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file"
+              },
+              "mimeType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "type",
+              "mimeType",
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    "toolCalls": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "argumentsJson": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "argumentsJson"
+        ]
+      }
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "content"
+  ]
+}

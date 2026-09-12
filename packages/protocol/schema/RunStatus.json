@@ -1,0 +1,9 @@
+{
+  "type": "string",
+  "enum": [
+    "pending",
+    "ok",
+    "error",
+    "skipped"
+  ]
+}

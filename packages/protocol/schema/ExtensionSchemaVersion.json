@@ -1,0 +1,7 @@
+{
+  "type": "string",
+  "enum": [
+    "ghostai.extension/1",
+    "ghostai.extension/2"
+  ]
+}

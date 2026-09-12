@@ -1,0 +1,89 @@
+/**
+ * Switch.
+ *
+ * On is `--accent` as a fill — a fill is exactly what the accent token is for —
+ * and off is the strong line colour rather than a surface, so the track stays
+ * visible against all four surfaces.
+ *
+ * Disabled drops the track to the plain line colour instead of fading the
+ * control. A 60%-opacity switch on a card is a switch whose state you cannot
+ * read, which for a control whose entire content *is* its state is the whole
+ * of the information gone.
+ *
+ * **The geometry is derived, not typed.** Three numbers are chosen — the track's
+ * width and height, and the inset around the thumb — and the thumb's size and
+ * its travel are `calc`ed from them. The previous version typed all five
+ * independently and two of them were wrong: a 1rem thumb in a track whose
+ * interior was 0.875rem, travelling 1rem inside 1.875rem of room, so the thumb
+ * was squeezed against the track's edges and overshot it by an eighth of a rem
+ * when checked. Nothing catches that but the eye, and only at the right zoom —
+ * so the fix is to make the relationship inexpressible rather than to correct
+ * the five numbers and hope.
+ *
+ * The track keeps no border. A `transparent` one still occupies layout, which
+ * is what made the interior 0.875rem rather than the 1rem it looked like; the
+ * disabled state draws its outline as an inset shadow instead, so no state
+ * changes the geometry.
+ */
+
+@layer components {
+  .switch {
+    /* The three chosen numbers. Everything else below is derived. */
+    --track-w: 2.75rem;
+    --track-h: 1.5rem;
+    --inset: var(--space-0-5);
+    --thumb: calc(var(--track-h) - 2 * var(--inset));
+    --travel: calc(var(--track-w) - var(--thumb) - 2 * var(--inset));
+
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    width: var(--track-w);
+    height: var(--track-h);
+    padding: var(--inset);
+    border-radius: var(--radius-full);
+    transition: background-color var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .switch[data-state='checked'] {
+    background-color: var(--accent);
+  }
+
+  .switch[data-state='unchecked'] {
+    background-color: var(--line-strong);
+  }
+
+  /* An inset ring rather than a border: a border would take its width out of
+   * the interior, which is the bug this file exists to have fixed. */
+  .switch:disabled {
+    pointer-events: none;
+    background-color: var(--line);
+    box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+  }
+
+  /* The thumb inverts with the track rather than staying one colour: a single
+   * thumb colour is legible on one of the two tracks and washed out on the
+   * other, in whichever theme you did not check. */
+  .switch__thumb {
+    display: block;
+    width: var(--thumb);
+    height: var(--thumb);
+    border-radius: var(--radius-full);
+    pointer-events: none;
+    transition: translate var(--duration-fast) var(--ease-out-quint);
+  }
+
+  .switch__thumb[data-state='checked'] {
+    background-color: var(--on-fill);
+    translate: var(--travel) 0;
+  }
+
+  .switch__thumb[data-state='unchecked'] {
+    background-color: var(--fg-2);
+    translate: 0 0;
+  }
+
+  .switch:disabled .switch__thumb {
+    background-color: var(--fg-3);
+  }
+}

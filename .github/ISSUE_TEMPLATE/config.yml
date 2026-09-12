@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/therezor/GhostAI/security/advisories/new
+    about: Report privately. Please do not open a public issue for anything exploitable.
+  - name: Getting started
+    url: https://github.com/therezor/GhostAI/blob/main/docs/getting-started.md
+    about: Install, first run, first conversation.

@@ -1,0 +1,897 @@
+{
+  "description": "The JSON body POSTed to chat/completions for a ChatRequest, by the provider spec named in `input.spec` (its table entry decides the token-cap field name, prompt caching and model-prefix stripping). Text-only content collapses to a single string (parts joined with \\n); any image part keeps the array-of-parts form; a file part renders as text `[attachment: <path> · <mimeType>]`. Tool-call arguments cross verbatim, an assistant turn with tool calls and no text sends content null, `tool_calls` is omitted when empty, and `reasoning` is never sent. tools/tool_choice only when tools is non-empty; reasoningEffort \"off\" becomes reasoning_effort \"none\". `input.stream` true records the streaming body.",
+  "cases": [
+    {
+      "name": "text-only content collapses to a string",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "system",
+              "content": "sys"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "system",
+            "content": "sys"
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "several text parts join with a newline",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "one"
+                },
+                {
+                  "type": "text",
+                  "text": "two"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "one\ntwo"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an inline image becomes a data URI and keeps the array form",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "what is this?"
+                },
+                {
+                  "type": "image",
+                  "mimeType": "image/png",
+                  "data": "AAA"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "what is this?"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,AAA"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an image URL passes through",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "mimeType": "image/jpeg",
+                  "url": "https://img.test/a.jpg"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "https://img.test/a.jpg"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a file part is rendered as text, so the content collapses",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "open this"
+                },
+                {
+                  "type": "file",
+                  "path": "uploads/ab12-notes.csv",
+                  "mimeType": "text/csv",
+                  "name": "notes.csv"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "open this\n[attachment: uploads/ab12-notes.csv · text/csv]"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tool_calls: arguments verbatim, content null, reasoning dropped",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "read it"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": ""
+                }
+              ],
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read_file",
+                  "argumentsJson": "{\"path\":\"a.txt\"}"
+                },
+                {
+                  "id": "call_2",
+                  "name": "read_file",
+                  "argumentsJson": "{not json"
+                }
+              ],
+              "reasoning": "never sent"
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_1",
+              "name": "read_file",
+              "content": "contents of a",
+              "isError": false,
+              "truncated": false
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_2",
+              "name": "read_file",
+              "content": "malformed arguments",
+              "isError": true,
+              "truncated": false
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "done"
+                }
+              ],
+              "toolCalls": []
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "read it"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "arguments": "{\"path\":\"a.txt\"}"
+                }
+              },
+              {
+                "id": "call_2",
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "arguments": "{not json"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "contents of a",
+            "tool_call_id": "call_1"
+          },
+          {
+            "role": "tool",
+            "content": "malformed arguments",
+            "tool_call_id": "call_2"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an assistant with text and tool calls keeps its text",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "let me look"
+                }
+              ],
+              "toolCalls": [
+                {
+                  "id": "c",
+                  "name": "t",
+                  "argumentsJson": "{}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": "let me look",
+            "tool_calls": [
+              {
+                "id": "c",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an assistant with an image part keeps the array form",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "here"
+                },
+                {
+                  "type": "image",
+                  "mimeType": "image/png",
+                  "data": "BBB"
+                }
+              ],
+              "toolCalls": []
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "here"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,BBB"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "tools and tool_choice",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Reads a file",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              },
+              "risk": "safe",
+              "source": "builtin"
+            }
+          ],
+          "toolChoice": "required"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "description": "Reads a file",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        ],
+        "tool_choice": "required"
+      }
+    },
+    {
+      "name": "tool_choice without tools is dropped",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "toolChoice": "required"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty tools array sends neither",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "toolChoice": "auto"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "max_tokens and temperature",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "maxTokens": 256,
+          "temperature": 0.2
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "max_tokens": 256,
+        "temperature": 0.2
+      }
+    },
+    {
+      "name": "a non-positive maxTokens is clamped to 1",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "maxTokens": 0
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "max_tokens": 1
+      }
+    },
+    {
+      "name": "openai renames the token cap",
+      "input": {
+        "spec": "openai",
+        "stream": false,
+        "request": {
+          "model": "gpt-4o",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "maxTokens": 256
+        }
+      },
+      "output": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "max_completion_tokens": 256
+      }
+    },
+    {
+      "name": "a reasoning effort goes straight through",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "reasoningEffort": "high"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    {
+      "name": "reasoning off is translated",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "reasoningEffort": "off"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "reasoning_effort": "none"
+      }
+    },
+    {
+      "name": "a cache key is sent where the table says the provider caches",
+      "input": {
+        "spec": "openai",
+        "stream": false,
+        "request": {
+          "model": "gpt-4o",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "cacheKey": "session-1"
+        }
+      },
+      "output": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "prompt_cache_key": "session-1"
+      }
+    },
+    {
+      "name": "a cache key is dropped where the table says nothing",
+      "input": {
+        "spec": "ollama",
+        "stream": false,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "cacheKey": "session-1"
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a provider prefix the endpoint did not issue is stripped",
+      "input": {
+        "spec": "openai",
+        "stream": false,
+        "request": {
+          "model": "openai/gpt-4o",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a gateway routing prefix is kept",
+      "input": {
+        "spec": "openrouter",
+        "stream": false,
+        "request": {
+          "model": "anthropic/claude-sonnet-4",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "anthropic/claude-sonnet-4",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "name": "streaming adds stream and stream_options",
+      "input": {
+        "spec": "ollama",
+        "stream": true,
+        "request": {
+          "model": "test-model",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Reads a file",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              },
+              "risk": "safe",
+              "source": "builtin"
+            }
+          ]
+        }
+      },
+      "output": {
+        "model": "test-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "description": "Reads a file",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        }
+      }
+    }
+  ]
+}
