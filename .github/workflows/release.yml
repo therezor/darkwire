@@ -41,6 +41,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Before `pnpm test`, not after it. The hello-extension conformance spec
+      # is a TypeScript test that shells out to `cargo run` — the suite it runs
+      # is the host's, because only a host can spawn a child and complete a
+      # handshake — so without the cache restored first, `pnpm test` pays a cold
+      # workspace build inside a vitest worker.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-deny
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -67,12 +78,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest,cargo-deny
 
       - name: Rust format
         run: cargo fmt --all --check

@@ -24,6 +24,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # This job runs Rust, despite its name: the hello-extension conformance
+      # spec is a TypeScript test that shells out to `cargo run`, because the
+      # suite it runs is the host's and only a host can spawn a child and
+      # complete a handshake. Without the cache it is a cold workspace build in
+      # the middle of `pnpm test`.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
       - name: Typecheck
         run: pnpm typecheck
 

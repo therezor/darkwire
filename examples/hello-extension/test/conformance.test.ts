@@ -15,13 +15,16 @@
  * to have a Rust toolchain, and CI has one.
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const EXTENSION_DIR = fileURLToPath(new URL('../', import.meta.url));
+
+const run = promisify(execFile);
 
 /** Whether a Rust toolchain is on this machine at all. */
 function hasCargo(): boolean {
@@ -32,10 +35,17 @@ function hasCargo(): boolean {
 describe('the hello extension', () => {
   it.skipIf(!hasCargo())(
     'passes the host conformance suite',
-    () => {
+    async () => {
       // Every declared kind has to answer its list method, every id has to be
       // namespaced, and the counts have to match what the manifest discloses.
-      const output = execFileSync(
+      //
+      // Awaited rather than `execFileSync`, and the difference is not style. On
+      // a cold Cargo cache this call is the workspace build — a minute and a
+      // half on a two-core runner — and a synchronous one holds the worker's
+      // event loop for all of it. Vitest's worker talks to the main process
+      // over an RPC with its own timeout, so the blocked loop failed the run
+      // with `Timeout calling "onTaskUpdate"` while every test in it passed.
+      const { stdout: output } = await run(
         'cargo',
         [
           'run',
@@ -55,7 +65,7 @@ describe('the hello extension', () => {
           '--context',
           '1',
         ],
-        { cwd: REPO_ROOT, encoding: 'utf8' },
+        { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
       );
 
       expect(output).toContain('hello: ready');
