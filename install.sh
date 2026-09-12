@@ -73,19 +73,25 @@ arch=$(uname -m)
 # So ask the package manager what the userland is, and where there is no package
 # manager take the width of a long, which is the userland's own.
 if [ "$os" = Linux ]; then
+	# `dpkg --print-architecture` answers for the userland, which is the fact
+	# `uname -m` was standing in for, so where there is an answer it settles this.
+	userland=''
 	if command -v dpkg >/dev/null 2>&1; then
 		case "$(dpkg --print-architecture 2>/dev/null)" in
-			amd64) arch='x86_64' ;;
-			arm64) arch='aarch64' ;;
-			armhf | armel) arch='armhf' ;;
-			i386) arch='i386' ;;
+			amd64) userland='x86_64' ;;
+			arm64) userland='aarch64' ;;
+			armhf | armel) userland='armhf' ;;
+			i386) userland='i386' ;;
 		esac
 	fi
-	# A backstop, and not an else: it covers the Linux that has no dpkg, and also
-	# the dpkg that answered something the list above does not know — in both
-	# cases what is left in `arch` is still the kernel's word. A 64-bit name over
-	# a userland whose long is 32 bits is the same lie whoever told it.
-	if [ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 32 ]; then
+	if [ -n "$userland" ]; then
+		arch="$userland"
+	elif [ "$(getconf LONG_BIT 2>/dev/null)" = 32 ]; then
+		# Only where dpkg said nothing, or said something this does not know: the
+		# width of a long is the userland's own, so a 64-bit name over it is the
+		# same lie. This never overrules dpkg — a 64-bit Pi OS answers arm64 here,
+		# and demoting that on a second opinion is how a supported machine gets
+		# turned away.
 		case "$arch" in
 			aarch64 | arm64) arch='armhf' ;;
 			x86_64 | amd64) arch='i386' ;;
