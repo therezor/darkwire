@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-agent"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-channels"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "futures",
  "ghostai-channels",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-core"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-extension-host"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "futures",
  "ghostai-agent",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-i18n"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-mcp"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-protocol"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "garde",
  "indexmap 2.14.2",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-providers"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "futures",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-runtime"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "futures",
  "gethostname",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-security"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-server"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "argon2",
  "axum",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-tools"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "futures",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "ghostai-tui"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "crossterm",
  "proptest",

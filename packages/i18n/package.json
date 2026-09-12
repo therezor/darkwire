@@ -1,6 +1,6 @@
 {
   "name": "@ghostwire/i18n",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "The translation layer: i18next instance, locale negotiation and locale-aware formatting primitives.",
   "type": "module",
   "license": "MIT",

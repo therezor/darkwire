@@ -6,7 +6,7 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `ghostai`.
 
-## [Unreleased]
+## [0.9.0]
 
 **GhostAI is a Rust program now, shipped as one binary.** Twelve TypeScript
 packages — the core, the security guards, the providers, the tools, the MCP
