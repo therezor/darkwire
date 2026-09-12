@@ -62,11 +62,51 @@ done
 # saying so is more use than a 404 from the download.
 os=$(uname -s)
 arch=$(uname -m)
+
+# `uname -m` names the kernel, and on Linux the userland need not agree with it.
+# Raspberry Pi OS is the case that matters: the 32-bit image boots a 64-bit
+# kernel on any Pi that can run one, so `uname -m` answers aarch64 on a machine
+# whose every library is armhf. Trusting it there installs the aarch64 build,
+# checksum and all, onto a system that cannot start it — the interpreter the
+# binary names, /lib/ld-linux-aarch64.so.1, is not present, and the kernel's
+# ENOENT reaches the shell as `not found` about a file that is plainly there.
+# So ask the package manager what the userland is, and where there is no package
+# manager take the width of a long, which is the userland's own.
+if [ "$os" = Linux ]; then
+	if command -v dpkg >/dev/null 2>&1; then
+		case "$(dpkg --print-architecture 2>/dev/null)" in
+			amd64) arch='x86_64' ;;
+			arm64) arch='aarch64' ;;
+			armhf | armel) arch='armhf' ;;
+			i386) arch='i386' ;;
+		esac
+	fi
+	# A backstop, and not an else: it covers the Linux that has no dpkg, and also
+	# the dpkg that answered something the list above does not know — in both
+	# cases what is left in `arch` is still the kernel's word. A 64-bit name over
+	# a userland whose long is 32 bits is the same lie whoever told it.
+	if [ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 32 ]; then
+		case "$arch" in
+			aarch64 | arm64) arch='armhf' ;;
+			x86_64 | amd64) arch='i386' ;;
+		esac
+	fi
+fi
+
 case "$os/$arch" in
 	Darwin/arm64) target='aarch64-apple-darwin' ;;
 	Darwin/x86_64) target='x86_64-apple-darwin' ;;
 	Linux/x86_64 | Linux/amd64) target='x86_64-unknown-linux-gnu' ;;
 	Linux/aarch64 | Linux/arm64) target='aarch64-unknown-linux-gnu' ;;
+	Linux/armhf | Linux/armv6l | Linux/armv7l | Linux/arm)
+		die "no build for 32-bit ARM — every Linux build in the release is 64-bit.
+On a Raspberry Pi this is worth reading twice: the 32-bit image boots a 64-bit kernel
+on any Pi that can, so 'uname -m' here may well say aarch64 already. It is the
+userland that cannot run the binary, and 'dpkg --print-architecture' is what says so.
+Reflashing with the 64-bit Raspberry Pi OS image runs the aarch64 build; otherwise
+build from source — see
+https://github.com/$REPO/blob/main/docs/getting-started.md"
+		;;
 	*)
 		die "no build for $os $arch. The release carries macOS and Linux on x86_64 and
 arm64; everything else builds from source — see

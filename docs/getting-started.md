@@ -18,7 +18,17 @@ That is the whole list. GhostAI is a single binary with the browser UI compiled 
 it: no runtime to install, no database, no compiler, no second service.
 
 On Linux the builds are against glibc 2.35, which is Ubuntu 22.04, Debian 12, RHEL 9 and
-anything newer. An older distribution is the one case that needs a build from source.
+anything newer, and every one of them is 64-bit: x86_64 or arm64. An older distribution,
+or a 32-bit userland, is the case that needs a build from source.
+
+Raspberry Pi earns its own paragraph, because `uname -m` misleads there. The 32-bit
+Raspberry Pi OS image boots a 64-bit kernel on any Pi able to run one, so the machine
+reports `aarch64` while every library on it is `armhf`. An aarch64 binary installed there
+cannot start — the interpreter it names, `/lib/ld-linux-aarch64.so.1`, is not present, and
+the kernel's `ENOENT` reaches the shell as `not found` about a file that is plainly there.
+`dpkg --print-architecture` is the answer that decides: `arm64` runs the release, `armhf`
+needs the 64-bit Raspberry Pi OS image or a build from source. The installer asks it for
+you and refuses before it downloads anything.
 
 For the local route, before you start:
 
