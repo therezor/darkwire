@@ -17,3 +17,14 @@ target/
 **/*.profraw
 lcov.info
 coverage.json
+
+# Two directories called `dist` are test inputs rather than build output, and
+# the bare `dist/` above swallowed both — silently, which is the only way this
+# kind of thing ever happens. One is a v1 extension fixture whose manifest names
+# `dist/index.js` as its entry; the other is the digest parity tree, which
+# contains a `dist` directory precisely to prove that the hash treats it like
+# any other name. A negation has to name the directory, not the files in it:
+# git does not descend into an excluded directory, so re-including a path under
+# one has no effect.
+!crates/extension-host/tests/fixtures/*/dist/
+!fixtures/extension/digest/tree/dist/
