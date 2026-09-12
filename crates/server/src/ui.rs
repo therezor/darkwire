@@ -25,10 +25,11 @@ pub const INDEX_FILE: &str = "index.html";
 /// The bundle compiled into this build, when there is one.
 ///
 /// `rust-embed` reads the folder at compile time, so a checkout that has never
-/// run `pnpm build` would fail to compile the crate rather than the request.
-/// `build.rs` sets `headless_ui` when the directory is absent or
-/// `GHOSTAI_HEADLESS_BUILD=1` is set, which is how the workspace CI builds
-/// without the bundle.
+/// run `pnpm build` fails to compile the crate rather than the request.
+/// `build.rs` sets `headless_ui` only when a headless build was asked for —
+/// `GHOSTAI_HEADLESS_BUILD=1`, which is how the workspace CI builds without the
+/// bundle, or `embed-ui` switched off. A bundle that is merely missing is an
+/// error there, not a quiet fallback.
 #[cfg(all(feature = "embed-ui", not(headless_ui)))]
 #[derive(rust_embed::Embed)]
 #[folder = "../../packages/web/dist"]

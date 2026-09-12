@@ -164,3 +164,20 @@ fn a_file_with_no_extension_still_serves() {
     let file = ui.asset("/LICENSE").expect("served");
     assert_eq!(text(&file), "MIT");
 }
+
+/// A build that claims an embedded bundle must be able to answer with it.
+///
+/// `build.rs` refuses a build whose `packages/web/dist` is missing, so the only
+/// way to reach `has_embedded_bundle()` returning true is with a real bundle
+/// compiled in — and the one file the fallback cannot do without is the shell.
+/// This is the assertion that turns "the embed was configured" into "the embed
+/// has something in it", which an empty or half-written `dist` would not.
+#[test]
+fn an_embedded_build_can_serve_its_shell() {
+    if !ghostai_server::ui::has_embedded_bundle() {
+        return;
+    }
+    let shell = UiRoot::Embedded.shell().expect("a shell to fall back to");
+    assert!(!shell.body.is_empty());
+    assert_eq!(shell.content_type, "text/html; charset=utf-8");
+}

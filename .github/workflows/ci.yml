@@ -69,6 +69,15 @@ jobs:
   # so a local exploratory build is not blocked by a warning about to be fixed.
   rust:
     runs-on: ubuntu-latest
+    # This job never builds the web bundle, so it asks for a headless build and
+    # every cargo step below inherits it. `crates/server/build.rs` refuses a
+    # build whose `packages/web/dist` is missing — a released binary with no UI
+    # is worse than a build that stops — and this is the escape that refusal is
+    # written around. It belongs on the job rather than on the steps that
+    # happen to compile today, because the next step someone adds will compile
+    # too.
+    env:
+      GHOSTAI_HEADLESS_BUILD: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -98,13 +107,13 @@ jobs:
         run: cargo deny check
 
       - name: Test
-        run: GHOSTAI_HEADLESS_BUILD=1 cargo nextest run --workspace --locked
+        run: cargo nextest run --workspace --locked
 
       # One report, then per-crate bars: llvm-cov's own threshold is global and
       # the bars are not. The table lives in scripts/coverage-gate.mjs.
       - name: Coverage gates
         run: |
-          GHOSTAI_HEADLESS_BUILD=1 cargo llvm-cov nextest --workspace --locked --json --output-path coverage.json
+          cargo llvm-cov nextest --workspace --locked --json --output-path coverage.json
           node scripts/coverage-gate.mjs coverage.json
 
   coverage:

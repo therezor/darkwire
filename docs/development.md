@@ -40,6 +40,16 @@ test-hooks` is what the e2e harness looks for by default (`target/debug/ghostai`
 `GHOSTAI_BIN` names another), and CI hands it a release build through that variable
 because the suite is slow enough already.
 
+**`pnpm build` comes before the first `cargo` command, including `cargo check` and
+whatever rust-analyzer runs on open.** `rust-embed` compiles `packages/web/dist` into the
+binary, so on a fresh clone — where `dist/` is gitignored and therefore absent —
+`crates/server`'s build script stops with a sentence naming the command that fixes it.
+That is deliberate: the alternative, which this repository shipped for exactly one commit,
+is a build that quietly drops the UI and a binary whose `GET /` is a JSON 404. To work on
+the Rust side without building the bundle at all, set `GHOSTAI_HEADLESS_BUILD=1` — it is
+what the CI `rust` job does, and it is an editor environment variable as easily as a shell
+one.
+
 ## The gate
 
 **`pnpm check` is not the CI gate.** It runs `typecheck`, `lint` and `test`; CI runs five
@@ -198,6 +208,24 @@ credential vault shells out to the platform keychain and the container runner si
 process groups; both are platform code, and a cross-linker is one more thing that can be
 subtly wrong in a way only a user discovers. The matrix is `aarch64`/`x86_64` on macOS
 and on Linux.
+
+**The runners are pinned, and the Linux pin is a promise to users rather than to us.** A
+binary links the glibc it was built against and refuses to start on anything older, so
+the runner chooses who can run the release: `ubuntu-latest` is 24.04, whose glibc 2.39
+rules out Debian 12, Ubuntu 22.04 and RHEL 9. The matrix builds on 22.04, which puts the
+floor at 2.35. On the macOS side `macos-13` was the last free Intel image and was retired
+in December 2025; `macos-15-intel` is what keeps `x86_64-apple-darwin` a native build.
+
+**Rehearse before tagging.** `release.yml` also answers `workflow_dispatch`, and a manual
+run has no tag, so it builds all four targets, proves each binary serves its UI, uploads
+the tarballs to the workflow run and stops — the release job is gated on a tag. This is
+the only way to compile three of the four targets at all: `ci.yml` is x86_64 Linux from
+top to bottom, so without a rehearsal a macOS-only compile error is something the release
+discovers.
+
+**The release notes are the changelog's, not the commit log's.** The release job takes the
+`## [x.y.z]` section matching the tag and fails when there is not one, which makes an
+unwritten changelog entry a red workflow rather than a published release nobody described.
 
 **Windows is deliberately absent.** The two modules above are POSIX here. The workspace
 jail was written platform-independent on purpose — it treats `\` as a separator and

@@ -17,6 +17,9 @@ Budget about ten minutes, most of which is a model download.
 That is the whole list. GhostAI is a single binary with the browser UI compiled into
 it: no runtime to install, no database, no compiler, no second service.
 
+On Linux the builds are against glibc 2.35, which is Ubuntu 22.04, Debian 12, RHEL 9 and
+anything newer. An older distribution is the one case that needs a build from source.
+
 For the local route, before you start:
 
 ```bash

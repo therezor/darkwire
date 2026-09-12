@@ -15,7 +15,8 @@ workspace = true
 default = ["embed-ui"]
 # The built SPA compiled into the binary. Off in a headless build; see
 # `GHOSTAI_HEADLESS_BUILD` in build.rs, which is the escape CI uses when
-# `packages/web/dist` has not been built.
+# `packages/web/dist` has not been built. Without one of the two escapes a
+# missing bundle fails the build.
 embed-ui = ["dep:rust-embed"]
 # Test doubles the e2e harness and `ghostai-runtime` reach through
 # `features = ["testkit"]`; excluded from coverage. It stands a whole server up
