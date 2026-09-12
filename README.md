@@ -27,10 +27,7 @@ Cloud providers are opt-in, not assumed.
 </div>
 
 ```bash
-# One of four targets: {aarch64,x86_64}-{apple-darwin,unknown-linux-gnu}
-curl -fsSLO https://github.com/therezor/GhostAI/releases/latest/download/ghostai-aarch64-apple-darwin.tar.gz
-tar xzf ghostai-aarch64-apple-darwin.tar.gz
-sudo install ghostai-*/ghostai /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/therezor/GhostAI/main/install.sh | sh
 ghostai serve
 ```
 

@@ -29,6 +29,19 @@ ollama pull qwen3     # a few gigabytes; this is the slow part
 
 ## 2. Install
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/therezor/GhostAI/main/install.sh | sh
+```
+
+It picks the build for your machine, verifies it against the release's `SHA256SUMS`
+before extracting anything, and puts the binary in `/usr/local/bin` — asking for `sudo`
+only if that directory is not yours, and saying so first. `--dir ~/.local/bin` puts it
+somewhere else, and `--version v1.2.3` installs a particular release rather than the
+latest.
+
+<details>
+<summary>Or download it yourself</summary>
+
 Every [release](https://github.com/therezor/GhostAI/releases/latest) carries four
 tarballs and a `SHA256SUMS` file. Take the one for your machine — `aarch64` or
 `x86_64`, `apple-darwin` or `unknown-linux-gnu` — and put the binary on your PATH:
@@ -43,7 +56,17 @@ tar xzf ghostai-<target>.tar.gz
 sudo install ghostai-*/ghostai /usr/local/bin/
 ```
 
-The asset names carry no version, so the line above keeps working after the next
+Do run the checksum line. It is the one step that distinguishes "the release" from
+"whatever arrived", and it is the reason the script above exists — there, it is not a
+step that can be skipped.
+
+If you downloaded the tarball in a browser rather than with `curl`, macOS attaches a
+quarantine flag and Gatekeeper will refuse the binary. `xattr -d com.apple.quarantine
+ghostai` removes it.
+
+</details>
+
+The asset names carry no version, so the lines above keep working after the next
 release. The directory _inside_ the tarball does carry one, which is what tells you
 later which build you extracted.
 

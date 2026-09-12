@@ -21,7 +21,7 @@ browser has to read them. `protocol` is the zod schemas the web app validates
 against, so it remains the source of truth and Rust mirrors it; `i18n` is the
 translation layer the UI loads; `web` is the UI; `e2e` is the Playwright suite,
 which now drives the real binary as a subprocess instead of a server it had built
-in-process. The port is covered by 3,955 Rust tests, 1,887 vitest tests and 314
+in-process. The port is covered by 3,956 Rust tests, 1,887 vitest tests and 314
 Playwright specs across two colour schemes.
 
 **If you have an extension written against `ghostai.extension/1`, it will not
@@ -77,6 +77,17 @@ load.** That is the one hard break in this release; see below.
   brings its own interpreter as a child process.
 
 ### Added
+
+- **`install.sh`, and a verification step nobody has to remember.** The install
+  was four lines to copy, one of which — `shasum -c` against the release's
+  `SHA256SUMS` — is the one that distinguishes "the release" from "whatever
+  arrived", and is therefore the one most likely to be skipped. The script picks
+  the build for the machine it is running on, refuses to extract anything until
+  the hash matches, and reaches for `sudo` only when the install directory is not
+  the caller's, after saying so. `--dir` and `--version` are there for a
+  different directory and an older release. The manual four lines are still
+  documented, under a fold, because piping a script from the internet into a
+  shell is a thing to be able to decline.
 
 - **A Rust workspace and a fourth CI job.** `rust-toolchain.toml` pins the
   compiler, the root `Cargo.toml` pins every dependency exact and carries the lint

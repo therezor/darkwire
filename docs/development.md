@@ -65,6 +65,7 @@ pnpm typecheck
 pnpm lint
 pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts   # design token gates
 pnpm format:check                                             # ← the usual failure
+shellcheck -s sh install.sh                                   # the line the README pipes into a shell
 pnpm i18n:check
 pnpm protocol:check                                           # emit the zod JSON Schemas, then diff them
 pnpm test
@@ -94,7 +95,8 @@ Notes that save a cycle:
 - **e2e needs both builds first.** The suite spawns `ghostai serve` as a subprocess and
   the binary embeds the SPA, so `pnpm build` comes before `cargo build`;
   a missing binary fails with a sentence naming `cargo build`, and a missing bundle
-  fails the Rust build at compile time.
+  fails the Rust build at compile time, naming `pnpm build`. The `rust` job is the one
+  place that is not true, and it says so with `GHOSTAI_HEADLESS_BUILD=1`.
 - **The fidelity spec skips without a baseline.** `2 skipped` is the healthy result.
 - **A green local e2e run is evidence, not proof.** CI runs 2 workers on a shared runner;
   a laptop runs 5 with nothing competing. When CI reports a failure the local suite will

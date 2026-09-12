@@ -32,6 +32,7 @@ pnpm typecheck
 pnpm lint
 pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts   # design token gates
 pnpm format:check                                             # ← the usual failure
+shellcheck -s sh install.sh                                   # the line the README pipes into a shell
 pnpm i18n:check                                               # extract, then diff the bundles
 pnpm protocol:check                                           # emit the zod JSON Schemas, then diff them
 pnpm test

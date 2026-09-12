@@ -53,6 +53,9 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Install script
+        run: shellcheck -s sh install.sh
+
       - name: Translations are in step
         run: pnpm i18n:check
 
