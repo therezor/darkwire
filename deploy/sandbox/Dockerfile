@@ -8,7 +8,7 @@ FROM rust:1.97-bookworm AS build
 WORKDIR /src
 COPY . .
 COPY --from=web /src/packages/web/dist packages/web/dist
-RUN cargo build --locked --release -p ghostai -p ghostai-sandbox
+RUN cargo build --locked --release -p ghostai -p ghostai-environment
 
 FROM debian:bookworm-slim AS app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -18,8 +18,8 @@ CMD ["serve", "--host", "0.0.0.0", "--port", "3000", "--workspace", "/workspaces
 
 FROM debian:bookworm-slim AS service
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates docker.io && rm -rf /var/lib/apt/lists/*
-COPY --from=build /src/target/release/ghostai-sandbox /usr/local/bin/ghostai-sandbox
-ENTRYPOINT ["ghostai-sandbox"]
+COPY --from=build /src/target/release/ghostai-environment /usr/local/bin/ghostai-environment
+ENTRYPOINT ["ghostai-environment"]
 CMD ["serve-env"]
 
 # The image `containers/dev.yaml` points at. Built separately and referenced by

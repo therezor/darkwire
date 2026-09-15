@@ -161,8 +161,8 @@ async fn dispatch(
             socket,
             force,
         } => {
+            use ghostai_environment::service::{SandboxClient, socket_path};
             use ghostai_protocol::SandboxRequest;
-            use ghostai_sandbox::service::{SandboxClient, socket_path};
             let required = |value: Option<String>, field: &str| {
                 value.ok_or_else(|| {
                     GhostError::new(

@@ -384,20 +384,20 @@ container; `--force` cancels its work. See [Sandbox service](sandbox-service.md)
 
 ## Environment
 
-| Variable                     | Does                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------- |
-| `GHOSTAI_HOME`               | The root. Beaten by `--home`, beats `~/.ghostai`.                      |
-| `GHOSTAI_PASSWORD`           | Fallback for `serve --password`.                                       |
-| `GHOSTAI_USERNAME`           | Fallback for `serve --username`.                                       |
-| `GHOSTAI_LANG`               | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.      |
-| `GHOSTAI_LOG_LEVEL`          | Then `LOG_LEVEL`, then `info`.                                         |
-| `GHOSTAI_DEBUG`              | Any non-empty value prints stack traces instead of the sentence.       |
-| `GHOSTAI_SANDBOX_SOCKET`     | The sandbox service socket. Naming one stops `serve` starting its own. |
-| `GHOSTAI_DATA_DIR`           | `ghostai-sandbox serve-env`: the absolute host path the daemon sees.   |
-| `GHOSTAI_CONTAINER_ENGINE`   | `docker` or `podman`. Defaults to `docker`.                            |
-| `GHOSTAI_GATEWAY_IMAGE`      | The egress gateway image, needed for `allowlist` egress.               |
-| `GHOSTAI_SANDBOX_TOOLBOXES`  | `serve-env`: toolboxes to register. Defaults to `coding,review`.       |
-| `GHOSTAI_SANDBOX_CONTAINERS` | `serve-env`: containers to register. Defaults to `dev`.                |
+| Variable                     | Does                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `GHOSTAI_HOME`               | The root. Beaten by `--home`, beats `~/.ghostai`.                        |
+| `GHOSTAI_PASSWORD`           | Fallback for `serve --password`.                                         |
+| `GHOSTAI_USERNAME`           | Fallback for `serve --username`.                                         |
+| `GHOSTAI_LANG`               | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.        |
+| `GHOSTAI_LOG_LEVEL`          | Then `LOG_LEVEL`, then `info`.                                           |
+| `GHOSTAI_DEBUG`              | Any non-empty value prints stack traces instead of the sentence.         |
+| `GHOSTAI_SANDBOX_SOCKET`     | The sandbox service socket. Naming one stops `serve` starting its own.   |
+| `GHOSTAI_DATA_DIR`           | `ghostai-environment serve-env`: the absolute host path the daemon sees. |
+| `GHOSTAI_CONTAINER_ENGINE`   | `docker` or `podman`. Defaults to `docker`.                              |
+| `GHOSTAI_GATEWAY_IMAGE`      | The egress gateway image, needed for `allowlist` egress.                 |
+| `GHOSTAI_SANDBOX_TOOLBOXES`  | `serve-env`: toolboxes to register. Defaults to `coding,review`.         |
+| `GHOSTAI_SANDBOX_CONTAINERS` | `serve-env`: containers to register. Defaults to `dev`.                  |
 
 Provider API keys are read from the environment **only when the vault has no entry** for
 that instance — the vault wins. [Configuration](configuration.md#environment-variables)

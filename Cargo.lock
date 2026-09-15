@@ -1223,12 +1223,12 @@ dependencies = [
  "ghostai-agent",
  "ghostai-channels",
  "ghostai-core",
+ "ghostai-environment",
  "ghostai-extension-host",
  "ghostai-i18n",
  "ghostai-protocol",
  "ghostai-providers",
  "ghostai-runtime",
- "ghostai-sandbox",
  "ghostai-security",
  "ghostai-server",
  "ghostai-tools",
@@ -1323,6 +1323,28 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ghostai-environment"
+version = "0.9.0"
+dependencies = [
+ "gethostname",
+ "ghostai-core",
+ "ghostai-protocol",
+ "ghostai-security",
+ "ghostai-tools",
+ "indexmap 2.14.2",
+ "nix",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1433,11 +1455,11 @@ dependencies = [
  "ghostai-agent",
  "ghostai-channels",
  "ghostai-core",
+ "ghostai-environment",
  "ghostai-extension-host",
  "ghostai-mcp",
  "ghostai-protocol",
  "ghostai-providers",
- "ghostai-sandbox",
  "ghostai-security",
  "ghostai-tools",
  "indexmap 2.14.2",
@@ -1452,28 +1474,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "ghostai-sandbox"
-version = "0.9.0"
-dependencies = [
- "gethostname",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-security",
- "ghostai-tools",
- "indexmap 2.14.2",
- "nix",
- "parking_lot",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
 ]
 
 [[package]]

@@ -7,8 +7,8 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
+use ghostai_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration};
 use ghostai_protocol::{ContainerNetwork, SandboxRequest};
-use ghostai_sandbox::service::{SandboxClient, ServiceConfig, WorkspaceRegistration};
 use ghostai_security::PolicyStore;
 use serde_json::json;
 use std::{
@@ -244,7 +244,7 @@ async fn start_service(
     let config_path = root.join("service.yaml");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let service = ServiceProcess(
-        Command::new(env!("CARGO_BIN_EXE_ghostai-sandbox"))
+        Command::new(env!("CARGO_BIN_EXE_ghostai-environment"))
             .arg(&config_path)
             .spawn()
             .unwrap(),

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::ErrorKind;
-use ghostai_sandbox::container_pool::{
+use ghostai_environment::container_pool::{
     CONTROL_TIMEOUT, ContainerEngine, DockerEngineOptions, OWNER_LABEL, START_TIMEOUT,
     docker_engine, owner_tag,
 };

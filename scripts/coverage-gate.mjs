@@ -38,7 +38,7 @@ const THRESHOLDS = {
   // container daemon behind it, and the test that supplies one is `#[ignore]`d
   // because CI has none. Raising this bar would mean either deleting that
   // third or asserting it against a mock of the daemon, which tests the mock.
-  sandbox: { lines: 70, branches: 65 },
+  environment: { lines: 70, branches: 65 },
   // Wire adapters and process runners: much of the surface is I/O plumbing.
   providers: { lines: 80, branches: 75 },
   tools: { lines: 80, branches: 75 },

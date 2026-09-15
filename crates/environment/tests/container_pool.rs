@@ -20,11 +20,11 @@ use std::time::Duration;
 
 use ghostai_core::testkit::ManualClock;
 use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
-use ghostai_sandbox::container_pool::{
+use ghostai_environment::container_pool::{
     CONTAINER_IDLE_MS, ContainerEngine, ContainerPool, ContainerPoolOptions, IdFactory,
     MAX_LIVE_CONTAINERS, OWNER_LABEL, RunnerFactory, owner_process_looks_alive, owner_tag,
 };
+use ghostai_protocol::{ContainerNetwork, NetworkMode};
 use ghostai_security::PolicyStore;
 use ghostai_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunRequest};
 use parking_lot::Mutex;

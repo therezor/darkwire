@@ -26,11 +26,11 @@ use ghostai_core::{
     ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, ensure_dir, load_config,
     save_config,
 };
+use ghostai_environment::container_pool::{DockerEngineOptions, docker_engine};
 use ghostai_i18n::{args, keys};
 use ghostai_protocol::{
     AgentEntry, AgentPreset, Config, DEFAULT_WORKSPACE_ID, TOOLBOX_DEFAULT_KEY, ToolPermission,
 };
-use ghostai_sandbox::container_pool::{DockerEngineOptions, docker_engine};
 use ghostai_security::{PolicyStore, parse_toolbox};
 
 use crate::Streams;

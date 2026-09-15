@@ -24,9 +24,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use ghostai_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
 use ghostai_protocol::rest::SandboxRequest;
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
-use ghostai_sandbox::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
 use ghostai_security::PolicyStore;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;

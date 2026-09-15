@@ -33,7 +33,7 @@ use std::sync::Arc;
 use ghostai_core::paths::workspace_dir_for;
 use ghostai_core::workspace_store::WorkspaceStore;
 use ghostai_core::{GhostPaths, Result};
-use ghostai_sandbox::service::{ServiceConfig, WorkspaceRegistration, socket_path};
+use ghostai_environment::service::{ServiceConfig, WorkspaceRegistration, socket_path};
 use ghostai_security::PolicyStore;
 
 use crate::i18n::Env;
@@ -114,7 +114,7 @@ pub async fn start_embedded(
         // A failure here is not a boot failure. Everything that does not need a
         // container keeps working, and the first command that does gets a
         // sentence naming the socket that was not there.
-        if let Err(error) = ghostai_sandbox::service::serve(config).await {
+        if let Err(error) = ghostai_environment::service::serve(config).await {
             tracing::warn!(error = %error.message, "the embedded sandbox service stopped");
             return Err(error);
         }

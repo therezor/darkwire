@@ -38,7 +38,7 @@ ghostai-agent = { path = "crates/agent" }
 ghostai-channels = { path = "crates/channels" }
 ghostai-extension-host = { path = "crates/extension-host" }
 ghostai-runtime = { path = "crates/runtime" }
-ghostai-sandbox = { path = "crates/sandbox" }
+ghostai-environment = { path = "crates/environment" }
 ghostai-server = { path = "crates/server" }
 
 # async

@@ -10,23 +10,23 @@ reconnect-and-fall-back-to-HTTP client that would need.
 Fourteen, plus the four TypeScript packages that stayed. Each crate has its own
 tests and its own coverage bar.
 
-| Crate                    | Does                                                                                                                   |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `ghostai-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                 |
-| `ghostai-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                   |
-| `ghostai-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing  |
-| `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, toolbox and extension approvals |
-| `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                 |
-| `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the local and container runners                                     |
-| `ghostai-sandbox`        | The isolated container service/client, shared lifecycle pool, and egress gateway                                       |
-| `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                     |
-| `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                               |
-| `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                    |
-| `ghostai-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                         |
-| `ghostai-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                     |
-| `ghostai-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                          |
-| `ghostai-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                         |
-| `ghostai`                | **The binary.** Every command and flag, and the UI compiled into it.                                                   |
+| Crate                    | Does                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `ghostai-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                        |
+| `ghostai-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                          |
+| `ghostai-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing         |
+| `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, toolbox policy and extension approvals |
+| `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                        |
+| `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the local and container runners                                            |
+| `ghostai-environment`    | The isolated container service/client, shared lifecycle pool, and egress gateway                                              |
+| `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                            |
+| `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                      |
+| `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                           |
+| `ghostai-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                |
+| `ghostai-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                            |
+| `ghostai-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                 |
+| `ghostai-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                |
+| `ghostai`                | **The binary.** Every command and flag, and the UI compiled into it.                                                          |
 
 | Still TypeScript      | Does                                                 |
 | --------------------- | ---------------------------------------------------- |
@@ -46,7 +46,7 @@ claim rather than an intention.
 ### Layering
 
 ```
-{ protocol, i18n } → core → security → { providers, tools } → { mcp, agent, sandbox } ─┬→ runtime ──┐
+{ protocol, i18n } → core → security → { providers, tools } → { mcp, agent, environment } ─┬→ runtime ──┐
                                                                               │            │
                      core → channels ──────→ extension-host ──────────────────┘            ├→ ghostai
                                                                                            │  (binary)

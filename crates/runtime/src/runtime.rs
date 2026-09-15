@@ -183,7 +183,7 @@ pub struct RuntimeOptions {
     /// supply this: a bind path is resolved by the daemon, so asking for its own
     /// `/data/workspace` would mount the host's path of that name — silently,
     /// and usually as an empty directory.
-    pub host_workspace_path: Option<ghostai_sandbox::container_pool::HostPathFn>,
+    pub host_workspace_path: Option<ghostai_environment::container_pool::HostPathFn>,
     /// The credential vault. See [`VaultChoice`].
     pub vault: VaultChoice,
     /// The MCP client.
@@ -562,7 +562,7 @@ impl GhostRuntime {
 
     /// Where the sandbox service listens for this install.
     fn sandbox_socket(&self) -> std::path::PathBuf {
-        ghostai_sandbox::service::socket_path(
+        ghostai_environment::service::socket_path(
             self.env.get("GHOSTAI_SANDBOX_SOCKET").map(String::as_str),
             &self.paths(),
         )
@@ -583,7 +583,7 @@ impl GhostRuntime {
                 "Tool execution is not a management operation",
             ));
         }
-        ghostai_sandbox::service::SandboxClient::new(self.sandbox_socket())
+        ghostai_environment::service::SandboxClient::new(self.sandbox_socket())
             .request(request, &tokio_util::sync::CancellationToken::new())
             .await
     }
@@ -1459,7 +1459,7 @@ impl GhostRuntime {
                 None
             } else {
                 store.require_container(&agent.container.name)?;
-                Some(Arc::new(ghostai_sandbox::service::SandboxClient::new(
+                Some(Arc::new(ghostai_environment::service::SandboxClient::new(
                     self.sandbox_socket(),
                 ))
                     as Arc<dyn ghostai_tools::operations::OperationExecutor>)

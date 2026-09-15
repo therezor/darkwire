@@ -41,7 +41,7 @@ it before exposing it beyond the machine.
 
 ## The three entry modes
 
-`ghostai-sandbox` reads its first argument:
+`ghostai-environment` reads its first argument:
 
 - **`proxy`** — runs the egress proxy inside the gateway container, on loopback port 3128
   as uid 65532. Started by the service when an agent scopes egress by host name; not run
@@ -56,7 +56,7 @@ it before exposing it beyond the machine.
 
 ## Direct service configuration
 
-Run `ghostai-sandbox /absolute/path/service.json` with:
+Run `ghostai-environment /absolute/path/service.json` with:
 
 ```json
 {
