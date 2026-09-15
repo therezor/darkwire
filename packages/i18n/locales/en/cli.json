@@ -44,6 +44,18 @@
     },
     "queued": "queued — it runs when this turn finishes"
   },
+  "container": {
+    "approve": {
+      "description": "Approve a container definition's current contents so agents may run in it."
+    },
+    "description": "List, approve and revoke container definitions.",
+    "list": {
+      "description": "Show every installed container definition and whether it is approved."
+    },
+    "revoke": {
+      "description": "Withdraw approval. The definition stays installed but stops running."
+    }
+  },
   "extension": {
     "approve": {
       "description": "Approve an extension's current files so the server may load it."
@@ -162,6 +174,27 @@
     "subagent": {
       "done": "{{agent}} finished",
       "start": "asking {{agent}}"
+    }
+  },
+  "sandbox": {
+    "action": {
+      "description": "What to do: list, health, start, stop or restart."
+    },
+    "container": {
+      "description": "Container definition to warm an instance from."
+    },
+    "description": "Inspect and manage the containers the sandbox service is holding open.",
+    "force": {
+      "description": "Cancel active and queued work instead of refusing a busy instance."
+    },
+    "id": {
+      "description": "The instance to stop or restart."
+    },
+    "socket": {
+      "description": "Service socket path, overriding GHOSTAI_SANDBOX_SOCKET."
+    },
+    "workspace": {
+      "description": "Registered workspace the instance belongs to."
     }
   },
   "serve": {

@@ -417,6 +417,10 @@ function Editor({
     queryKey: queryKeys.toolboxes,
     queryFn: ({ signal }) => api.toolboxes(signal),
   });
+  const containers = useQuery({
+    queryKey: queryKeys.containers,
+    queryFn: ({ signal }) => api.containers(signal),
+  });
 
   const resolved = agents.data?.agents.find((agent) => agent.id === agentId);
 
@@ -436,36 +440,33 @@ function Editor({
     // one-way door: the option that would take it back did not exist, and an
     // agent could not be moved off a container without hand-editing the config.
     { value: NO_TOOLBOX, label: t('agents.toolboxHost') },
-    ...(toolboxes.data?.toolboxes ?? []).map(
-      (box: { name: string; label: string }) => ({
-        value: box.name,
-        label: box.label === '' ? box.name : `${box.label} (${box.name})`,
-      }),
-    ),
+    ...(toolboxes.data?.toolboxes ?? []).map((box) => ({
+      value: box.name,
+      label: box.label === '' ? box.name : `${box.label} (${box.name})`,
+    })),
+  ];
+  const containerOptions = [
+    { value: NO_TOOLBOX, label: t('agents.containerSystem') },
+    ...(containers.data?.containers ?? []).map((container) => ({
+      value: container.name,
+      label: container.shared
+        ? t('agents.containerOptionShared', { name: container.name })
+        : t('agents.containerOptionPrivate', { name: container.name }),
+    })),
   ];
   const chosen = toolboxes.data?.toolboxes.find(
     (box: { name: string }) => box.name === form.toolboxName,
   );
+  const chosenContainer = containers.data?.containers.find(
+    (container) => container.name === form.containerName,
+  );
   const boxed = form.toolboxName !== '';
 
-  /**
-   * The network modes this toolbox actually permits.
-   *
-   * Filtered by the toolbox's own ceiling rather than offering all three and
-   * failing the save: a picker that lets you choose something the manifest
-   * forbids is a picker that teaches the wrong thing about who is in charge.
-   */
-  const networkOptions = (
-    [
-      { value: 'none', label: t('agents.toolboxNetworkNone') },
-      { value: 'allowlist', label: t('agents.toolboxNetworkAllowlist') },
-      { value: 'open', label: t('agents.toolboxNetworkOpen') },
-    ] as const
-  ).filter((option) => {
-    const order = ['none', 'allowlist', 'open'];
-    const ceiling = chosen?.maxNetwork ?? 'none';
-    return order.indexOf(option.value) <= order.indexOf(ceiling);
-  });
+  const networkOptions = [
+    { value: 'none', label: t('agents.containerNetworkNone') },
+    { value: 'allowlist', label: t('agents.containerNetworkAllowlist') },
+    { value: 'open', label: t('agents.containerNetworkOpen') },
+  ] as const;
 
   const update = <K extends keyof AgentEntryForm>(
     key: K,
@@ -556,7 +557,7 @@ function Editor({
   // happens when it runs are the same act — `deny` is the off position — so
   // there is no switch beside the select and no mode toggle above the list.
 
-  /** The programs the chosen toolbox contributes, which get a list of their own. */
+  /** The operations the chosen toolbox grants, which get a list of their own. */
   const toolboxToolNames = useMemo(
     () => new Set((chosen?.tools ?? []).map((tool) => tool.name)),
     [chosen],
@@ -570,12 +571,13 @@ function Editor({
    * agent has an opinion about but whose MCP server happens to be down, and
    * that opinion would be gone the next time anything on this screen was saved.
    *
-   * The toolbox's own programs are subtracted, because they are in one map with
-   * everything else but not in the shared registry — so overriding one put it
-   * here as a spurious "not installed" row *and* in the group below, one tool
-   * wearing two rows that disagreed about whether it existed.
+   * **Empty for an agent with a toolbox**, which is the whole point of having
+   * one: its grants are the complete callable surface, so there is no `exec`
+   * and no ambient MCP tool for a row here to be about. The grants themselves
+   * are edited in the list below.
    */
   const toolNames = useMemo(() => {
+    if (boxed) return [];
     const names = new Set<string>(
       (tools.data?.tools ?? []).map((tool) => tool.name),
     );
@@ -591,7 +593,7 @@ function Editor({
       if (b === EXEC_TOOL) return 1;
       return a.localeCompare(b);
     });
-  }, [tools.data, form.tools, toolboxToolNames]);
+  }, [tools.data, form.tools, toolboxToolNames, boxed]);
 
   const registered = useMemo(
     () => new Map((tools.data?.tools ?? []).map((tool) => [tool.name, tool])),
@@ -676,6 +678,21 @@ function Editor({
     permission: ToolPermission,
   ): void => {
     update('tools', { ...form.tools, [name]: permission });
+  };
+
+  /**
+   * A grant's permission, which lives in a different map from a built-in's.
+   *
+   * `toolboxTools` is per-toolbox and is intersected with the manifest's own
+   * ceiling when the turn is built; `tools` is the built-in scope of an agent
+   * that has no toolbox. Writing a grant into `tools` would put it in a map
+   * nothing reads for an agent that has one.
+   */
+  const setGrantPermission = (
+    name: string,
+    permission: ToolPermission,
+  ): void => {
+    update('toolboxTools', { ...form.toolboxTools, [name]: permission });
   };
 
   const setToolPrompt = (name: string, override: ToolPromptOverride): void => {
@@ -1194,10 +1211,10 @@ function Editor({
           </>
         )}
 
-        {/* Only when the box exposes callables. A `prompt` toolbox's programs
-            are reached through `exec`, so `exec`'s permission is already
-            theirs and a second set of rows would be a lie. */}
-        {chosen?.exposesTools === true && chosen.tools.length > 0 && (
+        {/* The toolbox's grants. For an agent that has one these are the whole
+            callable surface, so the list above is empty and this is the only
+            place a permission is set. */}
+        {chosen !== undefined && chosen.tools.length > 0 && (
           <>
             <h3 className="agent-editor__tool-group">
               {t('agents.toolboxToolsGroup', {
@@ -1214,33 +1231,32 @@ function Editor({
                 <ToolRow
                   key={tool.name}
                   name={tool.name}
-                  detail={tool.use}
+                  detail={tool.description}
                   risk="exec"
                   disabled={toolsOff}
-                  // Three layers, most specific first: this agent's own
-                  // override, the per-box default a preset gave it (`*` being
-                  // the one for programs it did not name), then the manifest.
-                  // The row has to read the same one the turn will, or an agent
-                  // installed with four of twenty-four programs would show all
-                  // twenty-four as available here.
-                  //
-                  // None of them is a ceiling — the programs are reachable
-                  // through `exec` either way. `network.maxMode` is the
-                  // boundary, and it is intersected rather than overridden.
+                  // Two layers, most specific first: the per-toolbox override a
+                  // preset gave this agent (`*` being the one for grants it did
+                  // not name), then the manifest's own. The row has to read the
+                  // same one the turn will, or an agent installed with four of
+                  // twenty-four operations would show all twenty-four here.
                   permission={
-                    form.tools[tool.name] ??
                     form.toolboxTools[tool.name] ??
                     form.toolboxTools[TOOLBOX_DEFAULT_KEY] ??
                     tool.permission
                   }
-                  // A toolbox program's schema is synthesised from the manifest
+                  // The manifest's permission is a ceiling rather than a
+                  // default: an operator approved this toolbox at these
+                  // permissions, and a screen that could widen one would make
+                  // that approval mean nothing.
+                  ceiling={tool.permission}
+                  // An operation's schema comes from its approved definition
                   // and is not in `GET /api/tools`, so there are no argument
                   // boxes to offer — only the description, which is the part the
-                  // manifest author wrote and this agent may disagree with.
+                  // definition's author wrote and this agent may disagree with.
                   fields={[]}
                   override={form.toolPrompts[tool.name]}
                   onChange={(next) => {
-                    setToolPermission(tool.name, next);
+                    setGrantPermission(tool.name, next);
                   }}
                   onOverrideChange={(next) => {
                     setToolPrompt(tool.name, next);
@@ -1312,8 +1328,8 @@ function Editor({
         )}
       </Section>
 
-      {/* After the tools, because a profile decides *where* the tools it just
-          listed actually run — and before the budget, which is a smaller
+      {/* After the tools, because a container decides *where* the operations
+          just listed actually run — and before the budget, which is a smaller
           decision. */}
       <Section
         title={t('agents.toolboxSection')}
@@ -1337,39 +1353,95 @@ function Editor({
             }}
             options={toolboxOptions}
           />
-          {boxed && (
+          <SelectField
+            label={t('agents.containerProfile')}
+            value={form.containerName === '' ? NO_TOOLBOX : form.containerName}
+            onValueChange={(value) => {
+              update('containerName', value === NO_TOOLBOX ? '' : value);
+            }}
+            options={containerOptions}
+          />
+          {/* Only with a container. Egress is enforced by the container's
+              gateway, so offering the control without one would be offering a
+              setting the save refuses. */}
+          {chosenContainer !== undefined && (
             <SelectField
-              label={t('agents.toolboxNetwork')}
-              value={form.toolboxNetworkMode}
+              label={t('agents.containerNetwork')}
+              value={form.containerNetworkMode}
               onValueChange={(value) => {
-                update('toolboxNetworkMode', value);
+                update('containerNetworkMode', value);
               }}
               options={networkOptions}
             />
           )}
         </FieldGrid>
 
-        {/* Only the two states an operator has to act on. A profile that is
-            approved and unweakened needs no line of its own. */}
+        {/* Only the states an operator has to act on. A toolbox that is
+            approved needs no line of its own. */}
         {chosen?.approved === false && (
           <p className="page__note">{t('agents.toolboxNotApproved')}</p>
         )}
-        {chosen !== undefined && chosen.weakened.length > 0 && (
+
+        {chosenContainer !== undefined && (
           <p className="page__note">
-            {t('agents.toolboxWeakened', { what: chosen.weakened.join(', ') })}
+            {chosenContainer.shared
+              ? t('agents.containerShared', { container: chosenContainer.name })
+              : t('agents.containerPrivate', {
+                  container: chosenContainer.name,
+                })}
           </p>
         )}
-
-        {boxed && form.toolboxNetworkMode === 'allowlist' && (
-          <TextField
-            label={t('agents.toolboxAllow')}
-            value={form.toolboxAllow}
-            onValueChange={(value) => {
-              update('toolboxAllow', value);
-            }}
-            hint={t('agents.toolboxAllowHint')}
-          />
+        {chosenContainer?.approved === false && (
+          <p className="page__note">{t('agents.containerNotApproved')}</p>
         )}
+        {chosenContainer !== undefined &&
+          chosenContainer.weakened.length > 0 && (
+            <p className="page__note">
+              {t('agents.containerWeakened', {
+                what: chosenContainer.weakened.join(', '),
+              })}
+            </p>
+          )}
+        {/* Resolved by the server from the definition's own uid, privileges and
+            capabilities, so an operator learns a restricted allow-list is
+            impossible here while they are still choosing rather than on save. */}
+        {chosenContainer?.gatewayProblem !== undefined &&
+          form.containerNetworkMode === 'allowlist' && (
+            <p className="page__note">
+              {t('agents.containerGatewayProblem', {
+                why: chosenContainer.gatewayProblem,
+              })}
+            </p>
+          )}
+        {chosenContainer !== undefined &&
+          form.containerNetworkMode === 'allowlist' && (
+            <>
+              <TextField
+                label={t('agents.containerAllow')}
+                value={form.containerAllow}
+                onValueChange={(value) => {
+                  update('containerAllow', value);
+                }}
+                hint={t('agents.containerAllowHint')}
+              />
+              <TextField
+                label={t('agents.containerHosts')}
+                value={form.containerHosts}
+                onValueChange={(value) => {
+                  update('containerHosts', value);
+                }}
+                hint={t('agents.containerHostsHint')}
+              />
+              <TextField
+                label={t('agents.containerDns')}
+                value={form.containerDns}
+                onValueChange={(value) => {
+                  update('containerDns', value);
+                }}
+                hint={t('agents.containerDnsHint')}
+              />
+            </>
+          )}
       </Section>
 
       {/* Below the tools and above the prompt, in plain sight. It sat behind a

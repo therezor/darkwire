@@ -27,12 +27,12 @@ use ghostai_agent::SubagentBinding;
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::rest::ConfigWarning;
 use ghostai_protocol::{
-    AgentEntry, AgentSettings, AgentToolbox, Config, DEFAULT_AGENT_ID, DEFAULT_LIVE_STATE_TEMPLATE,
-    PromptMode, RESERVED_AGENT_IDS, ToolPermission, ToolPermissions, ToolPromptOverrides,
-    ToolboxNetworkMode, ToolsConfig, default_agent_tools, is_agent_id, names_delimiter,
-    subagent_tool_name,
+    AgentContainer, AgentEntry, AgentSettings, AgentToolbox, Config, DEFAULT_AGENT_ID,
+    DEFAULT_LIVE_STATE_TEMPLATE, NetworkMode, PromptMode, RESERVED_AGENT_IDS, ToolPermission,
+    ToolPermissions, ToolPromptOverrides, ToolsConfig, default_agent_tools, is_agent_id,
+    names_delimiter, subagent_tool_name,
 };
-use ghostai_security::parse_cidr;
+use ghostai_security::assert_container_network;
 use indexmap::IndexMap;
 
 /// One agent, resolved.
@@ -73,6 +73,8 @@ pub struct EffectiveAgent {
     pub tools_config: ToolsConfig,
     /// Where this agent's commands run.
     pub toolbox: AgentToolbox,
+    /// Where command operations run.
+    pub container: AgentContainer,
     /// The agents this one may delegate to, in the operator's order.
     ///
     /// Resolved to the shape the loop is constructed with rather than left as
@@ -331,21 +333,21 @@ fn live_template(agent: &EffectiveAgent) -> &str {
 }
 
 /// The wire spelling of a network mode, for the message and the detail.
-fn mode_name(mode: ToolboxNetworkMode) -> &'static str {
+fn mode_name(mode: NetworkMode) -> &'static str {
     match mode {
-        ToolboxNetworkMode::None => "none",
-        ToolboxNetworkMode::Allowlist => "allowlist",
-        ToolboxNetworkMode::Open => "open",
+        NetworkMode::None => "none",
+        NetworkMode::Allowlist => "allowlist",
+        NetworkMode::Open => "open",
     }
 }
 
 /// What can be decided from the config alone.
 ///
-/// Whether the named toolbox *exists and is approved* is not here, deliberately:
-/// that needs the toolbox store, which is disk, and this is the pure inheritance
-/// rule. It is checked in the runtime's build, which is equally all-or-nothing,
-/// so a settings save naming an unapproved toolbox is still a refusal that
-/// changes nothing rather than a turn that dies later.
+/// Whether the named toolbox and container *exist and are approved* is not here,
+/// deliberately: that needs the policy store, which is disk, and this is the
+/// pure inheritance rule. It is checked in the runtime's build, which is equally
+/// all-or-nothing, so a settings save naming an unapproved toolbox is still a
+/// refusal that changes nothing rather than a turn that dies later.
 fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarning>) -> Result<()> {
     // A warning rather than a refusal, and the distinction is the whole design
     // of this feature: the envelopes around tool results are emitted whatever
@@ -385,13 +387,26 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
         });
     }
 
-    let network = &agent.toolbox.network;
-    if agent.toolbox.name.is_empty() && network.mode != ToolboxNetworkMode::None {
+    let network = &agent.container.network;
+    if !agent.container.name.is_empty() && agent.toolbox.name.is_empty() {
         return Err(GhostError::new(
             ErrorKind::Config,
             format!(
-                "Agent \"{}\" asks for toolbox network \"{}\" but names no toolbox.\n  Egress \
-                 scoping is enforced by the container, so it means nothing on the host.",
+                "Agent \"{}\" selects container \"{}\" but no toolbox.\n  A container only \
+                 hosts a toolbox's approved operations, so one on its own would run\n  nothing. \
+                 Select a toolbox, or clear the container.",
+                agent.id, agent.container.name
+            ),
+        )
+        .with_detail("agentId", agent.id.clone())
+        .with_detail("container", agent.container.name.clone()));
+    }
+    if agent.container.name.is_empty() && network.mode != NetworkMode::None {
+        return Err(GhostError::new(
+            ErrorKind::Config,
+            format!(
+                "Agent \"{}\" asks for network \"{}\" but names no container.\n  Egress scoping \
+                 is enforced by the container's gateway, so it means nothing\n  on the host.",
                 agent.id,
                 mode_name(network.mode)
             ),
@@ -399,21 +414,7 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
         .with_detail("agentId", agent.id.clone())
         .with_detail("mode", mode_name(network.mode)));
     }
-
-    for entry in &network.allow {
-        if parse_cidr(entry).is_none() {
-            return Err(GhostError::new(
-                ErrorKind::Config,
-                format!(
-                    "Agent \"{}\" has an egress entry that is not a CIDR block: {entry}\n  \
-                     Hostnames are refused because DNS rebinding defeats them. Use 10.0.0.0/8.",
-                    agent.id
-                ),
-            )
-            .with_detail("agentId", agent.id.clone())
-            .with_detail("entry", entry.clone()));
-        }
-    }
+    assert_container_network(network, &agent.id)?;
     Ok(())
 }
 
@@ -454,6 +455,7 @@ fn build(
         },
         tools_config: merge_tools_config(&config.tools, entry),
         toolbox: source.toolbox.clone(),
+        container: source.container.clone(),
         subagents: resolve_subagents(config, id, entry, warnings)?,
     };
     assert_buildable(&agent, warnings)?;

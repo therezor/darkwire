@@ -19,17 +19,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, ErrorKind, GhostError, Result};
-use ghostai_protocol::{AgentToolboxNetwork, ToolboxNetworkMode};
-use ghostai_runtime::toolbox_pool::{IdFactory, RunnerFactory};
-use ghostai_runtime::{
-    ContainerEngine, MAX_LIVE_TOOLBOXES, OWNER_LABEL, TOOLBOX_IDLE_MS, ToolboxPool,
-    ToolboxPoolOptions, owner_process_looks_alive, owner_tag,
+use ghostai_core::{Clock, ErrorKind, GhostError, Result};
+use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_sandbox::container_pool::{
+    CONTAINER_IDLE_MS, ContainerEngine, ContainerPool, ContainerPoolOptions, IdFactory,
+    MAX_LIVE_CONTAINERS, OWNER_LABEL, RunnerFactory, owner_process_looks_alive, owner_tag,
 };
-use ghostai_security::ToolboxStore;
-use ghostai_tools::{
-    BoxFuture, CommandRunner, RunOutcome, RunRequest, RunnerResolver, ToolboxRequest,
-};
+use ghostai_security::PolicyStore;
+use ghostai_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunRequest};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -126,7 +123,8 @@ impl ContainerEngine for FakeEngine {
     }
 }
 
-/// A runner that records what it was asked to run and answers a script.
+/// A runner that records which container each command ran in, and answers a
+/// script.
 ///
 /// The script is shared across every container the pool starts, so a test can
 /// say "the next two commands report the container gone" without knowing which
@@ -178,22 +176,23 @@ struct Harness {
     _temp: TempDir,
     root: PathBuf,
     runs_dir: PathBuf,
-    store: Arc<ToolboxStore>,
+    store: Arc<PolicyStore>,
     engine: Arc<FakeEngine>,
     clock: Arc<ManualClock>,
     /// Which container each command ran in, in order.
     ran_in: Arc<Mutex<Vec<String>>>,
-    /// What the next command in each container answers, newest first.
+    /// What the next commands answer, in order, whichever container serves
+    /// them. Empty means every command succeeds.
     scripted: Arc<Mutex<Vec<RunOutcome>>>,
     counter: Arc<Mutex<u64>>,
 }
 
-fn manifest(name: &str, overrides: &Value) -> Value {
+/// A container definition with the fields a test cares about patched in.
+fn definition(name: &str, overrides: &Value) -> Value {
     let mut value = json!({
-        "schema": "ghostai.toolbox/1",
+        "schema": "ghostai.container/1",
         "name": name,
         "image": DIGEST,
-        "tools": [{"name": "nmap", "use": "Scan a host"}],
     });
     for (key, patch) in overrides.as_object().unwrap() {
         value[key] = patch.clone();
@@ -205,35 +204,58 @@ impl Harness {
     fn new() -> Harness {
         let temp = TempDir::new().unwrap();
         let root = temp.path().to_path_buf();
-        let clock = Arc::new(ManualClock::at(common::NOW));
-        let store = Arc::new(
-            ToolboxStore::new(
-                Database::in_memory().unwrap(),
-                root.join("toolboxes"),
-                Arc::clone(&clock) as Arc<dyn Clock>,
-            )
-            .unwrap(),
-        );
         Harness {
             _temp: temp,
             runs_dir: root.join("runs"),
+            store: Arc::new(PolicyStore::new(root.clone())),
             root,
-            store,
             engine: FakeEngine::new(),
-            clock,
+            clock: Arc::new(ManualClock::at(common::NOW)),
             ran_in: Arc::new(Mutex::new(Vec::new())),
             scripted: Arc::new(Mutex::new(Vec::new())),
             counter: Arc::new(Mutex::new(0)),
         }
     }
 
-    /// Installs a toolbox and approves it.
+    /// Installs a container definition and approves it.
     fn install(&self, name: &str, overrides: &Value) {
         common::write(
-            &self.root.join("toolboxes").join(name).join("toolbox.json"),
-            serde_json::to_string(&manifest(name, overrides)).unwrap(),
+            &self.root.join("containers").join(format!("{name}.json")),
+            serde_json::to_string(&definition(name, overrides)).unwrap(),
         );
-        self.store.approve(name).unwrap();
+        self.store.approve_container(name).unwrap();
+    }
+
+    /// Installs a one-operation toolbox and approves it.
+    ///
+    /// Nothing the pool does reads one — placement and grants are two
+    /// approvals — so this exists only for the suites that prove the two
+    /// lifecycles are independent.
+    fn install_toolbox(&self, name: &str) {
+        common::write(
+            &self.root.join("tool-definitions/status.json"),
+            json!({
+                "schema": "ghostai.tool/1",
+                "description": "Repository status",
+                "implementation": {
+                    "kind": "command",
+                    "executable": "/usr/bin/git",
+                    "argv": ["status"],
+                },
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
+            })
+            .to_string(),
+        );
+        common::write(
+            &self.root.join("toolboxes").join(format!("{name}.json")),
+            json!({
+                "schema": "ghostai.toolbox/1",
+                "name": name,
+                "tools": [{"name": "status", "definition": "status", "permission": "allow"}],
+            })
+            .to_string(),
+        );
+        self.store.approve_toolbox(name).unwrap();
     }
 
     /// Deterministic container names, so a test can assert on one.
@@ -250,7 +272,7 @@ impl Harness {
     fn runners(&self) -> RunnerFactory {
         let runs = Arc::clone(&self.ran_in);
         let scripted = Arc::clone(&self.scripted);
-        Arc::new(move |name: &str, _toolbox| {
+        Arc::new(move |name: &str, _container| {
             Arc::new(FakeRunner {
                 runs: Arc::clone(&runs),
                 outcomes: Arc::clone(&scripted),
@@ -259,8 +281,8 @@ impl Harness {
         })
     }
 
-    fn options(&self) -> ToolboxPoolOptions {
-        let mut options = ToolboxPoolOptions::new(
+    fn options(&self) -> ContainerPoolOptions {
+        let mut options = ContainerPoolOptions::new(
             Arc::clone(&self.store),
             Arc::clone(&self.engine) as Arc<dyn ContainerEngine>,
             self.runs_dir.clone(),
@@ -272,19 +294,31 @@ impl Harness {
         options
     }
 
-    fn pool(&self) -> Arc<ToolboxPool> {
-        ToolboxPool::new(self.options())
+    fn pool(&self) -> Arc<ContainerPool> {
+        ContainerPool::new(self.options())
     }
 }
 
-fn request(agent: &str, workspace: &str, session: &str, toolbox: &str) -> ToolboxRequest {
-    ToolboxRequest {
+fn request(agent: &str, workspace: &str, session: &str, container: &str) -> PlacementRequest {
+    PlacementRequest {
         agent_id: agent.to_owned(),
         workspace_id: workspace.to_owned(),
         session_key: session.to_owned(),
-        toolbox: toolbox.to_owned(),
-        network: AgentToolboxNetwork::default(),
+        toolbox: String::new(),
+        container: container.to_owned(),
+        network: ContainerNetwork::default(),
         workspace_root: "/ghost/workspace".to_owned(),
+    }
+}
+
+/// The same request, asking for a different reach.
+fn reaching(mode: NetworkMode, request: PlacementRequest) -> PlacementRequest {
+    PlacementRequest {
+        network: ContainerNetwork {
+            mode,
+            ..ContainerNetwork::default()
+        },
+        ..request
     }
 }
 
@@ -322,14 +356,122 @@ fn refusal(result: Result<Option<Arc<dyn CommandRunner>>>) -> GhostError {
 }
 
 #[tokio::test]
+async fn shares_one_container_across_agents_and_conversations() {
+    let h = Harness::new();
+    h.install("shared", &json!({"shared": true}));
+    h.install_toolbox("writer");
+    h.install_toolbox("reader");
+    let pool = h.pool();
+    let mut alice = request("alice", "work", "one", "shared");
+    alice.toolbox = "writer".to_owned();
+    let mut bob = request("bob", "work", "two", "shared");
+    bob.toolbox = "reader".to_owned();
+
+    let first = pool.resolve_turn(&alice).unwrap().unwrap();
+    run(&first).await.unwrap();
+    let second = pool.resolve_turn(&bob).unwrap().unwrap();
+    run(&second).await.unwrap();
+    assert_eq!(pool.live().len(), 1);
+    pool.release_session("one");
+    assert_eq!(pool.live().len(), 1);
+
+    // Placement and grants are two approvals. The operation layer rejects the
+    // revoked writer before reaching this runner; the shared instance both
+    // agents were placed in is untouched.
+    h.store.revoke_toolbox("writer").unwrap();
+    run(&first).await.unwrap();
+    run(&second).await.unwrap();
+    assert_eq!(pool.live().len(), 1);
+
+    let separate = pool
+        .resolve_turn(&request("bob", "another", "two", "shared"))
+        .unwrap()
+        .unwrap();
+    run(&separate).await.unwrap();
+    assert_eq!(pool.live().len(), 2);
+}
+
+#[tokio::test]
+async fn gives_two_agents_asking_for_different_egress_two_shared_instances() {
+    let h = Harness::new();
+    h.install("shared", &json!({"shared": true}));
+    let pool = h.pool();
+    // An instance that served the wider of the two requests would quietly hand
+    // the narrower one a reach nobody granted it, so the network is part of a
+    // shared instance's identity.
+    let walled = reaching(NetworkMode::None, request("alice", "work", "one", "shared"));
+    let open = reaching(NetworkMode::Open, request("bob", "work", "two", "shared"));
+    for spec in [&walled, &open] {
+        let runner = pool.resolve_turn(spec).unwrap().unwrap();
+        run(&runner).await.unwrap();
+    }
+    assert_eq!(pool.live().len(), 2);
+
+    // A third agent asking for the reach the first one asked for joins it
+    // rather than starting a third.
+    let same = reaching(
+        NetworkMode::None,
+        request("carol", "work", "three", "shared"),
+    );
+    let runner = pool.resolve_turn(&same).unwrap().unwrap();
+    run(&runner).await.unwrap();
+    assert_eq!(pool.live().len(), 2);
+}
+
+#[tokio::test]
+async fn scopes_the_transcript_directory_to_the_instance_a_request_lands_in() {
+    let h = Harness::new();
+    h.install("shared", &json!({"shared": true}));
+    let pool = h.pool();
+    let walled = reaching(NetworkMode::None, request("alice", "work", "one", "shared"));
+    let open = reaching(NetworkMode::Open, request("bob", "work", "two", "shared"));
+    for spec in [&walled, &open] {
+        let runner = pool.resolve_turn(spec).unwrap().unwrap();
+        run(&runner).await.unwrap();
+    }
+
+    // Matching on workspace and digest alone would let two shared instances of
+    // one container — separate because they asked for different egress — read
+    // each other's transcripts.
+    let first = pool.transcript_directory(&walled).unwrap();
+    let second = pool.transcript_directory(&open).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(first, h.runs_dir.join("ghost-sbx-1"));
+    assert_eq!(second, h.runs_dir.join("ghost-sbx-2"));
+
+    // An instance that is gone has no transcripts to read, which is a refusal
+    // rather than somebody else's directory.
+    pool.close();
+    assert_eq!(
+        common::err(pool.transcript_directory(&walled)).kind,
+        ErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn explicit_stop_invalidates_queued_handles_without_replaying_commands() {
+    let h = Harness::new();
+    h.install("shared", &json!({"shared": true}));
+    let pool = h.pool();
+    let spec = request("alice", "work", "one", "shared");
+    let runner = pool.resolve_turn(&spec).unwrap().unwrap();
+    run(&runner).await.unwrap();
+    pool.stop_instance(&pool.live()[0], false).unwrap();
+    assert!(run(&runner).await.is_err());
+    let fresh = pool.resolve_turn(&spec).unwrap().unwrap();
+    run(&fresh).await.unwrap();
+    assert_eq!(pool.live().len(), 1);
+}
+
+#[tokio::test]
 async fn does_not_touch_the_container_runtime_until_a_turn_needs_one() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     // Building the pool probes nothing: an install with a sandboxed agent must
     // still boot with the daemon closed.
     assert!(h.engine.calls().is_empty());
-    let runner = pool.resolve_turn(&request("a", "w", "s", "recon")).unwrap();
+    let runner = pool.resolve_turn(&request("a", "w", "s", "dev")).unwrap();
     // And opening the turn still probes nothing — only a command does.
     assert!(runner.is_some());
     assert!(h.engine.calls().is_empty());
@@ -338,10 +480,10 @@ async fn does_not_touch_the_container_runtime_until_a_turn_needs_one() {
 #[tokio::test]
 async fn sweeps_containers_a_previous_process_left_behind_on_first_use() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -366,10 +508,10 @@ async fn still_runs_the_turn_when_the_sweep_fails() {
         engine,
         ..Harness::new()
     };
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     // An orphan nobody could remove is untidy; refusing the turn over it would
@@ -378,42 +520,44 @@ async fn still_runs_the_turn_when_the_sweep_fails() {
 }
 
 #[tokio::test]
-async fn returns_no_runner_for_an_agent_that_names_no_toolbox() {
+async fn returns_no_runner_for_an_agent_that_names_no_container() {
     let h = Harness::new();
     let pool = h.pool();
+    // Not a refusal: a request that selects no container is the host.
     assert!(
         pool.resolve_turn(&request("a", "w", "s", ""))
             .unwrap()
             .is_none()
     );
-    assert!(pool.for_turn(&request("a", "w", "s", "")).is_none());
 }
 
 #[tokio::test]
-async fn refuses_a_toolbox_that_was_never_approved() {
+async fn refuses_a_container_that_was_never_approved() {
     let h = Harness::new();
     common::write(
-        &h.root.join("toolboxes/recon/toolbox.json"),
-        serde_json::to_string(&manifest("recon", &json!({}))).unwrap(),
+        &h.root.join("containers/dev.json"),
+        serde_json::to_string(&definition("dev", &json!({}))).unwrap(),
     );
     let pool = h.pool();
-    let error = refusal(pool.resolve_turn(&request("a", "w", "s", "recon")));
+    // **Never a downgrade to the host.** `Ok(None)` would mean "run it here",
+    // so a container that cannot be honoured is an error rather than an absent
+    // runner.
+    let error = refusal(pool.resolve_turn(&request("a", "w", "s", "dev")));
     assert_eq!(error.kind, ErrorKind::Config);
-
-    // **Never a downgrade to the host.** The trait cannot report the refusal, so
-    // it answers with a runner that fails every command rather than `None`,
-    // which would mean "run it here".
-    let runner = pool.for_turn(&request("a", "w", "s", "recon")).unwrap();
-    assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Config);
+    assert!(
+        error.message.contains("never been approved"),
+        "{}",
+        error.message
+    );
 }
 
 #[tokio::test]
 async fn allows_a_sandbox_without_starting_one_then_starts_it_on_the_first_command() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     assert!(pool.live().is_empty());
@@ -425,14 +569,14 @@ async fn allows_a_sandbox_without_starting_one_then_starts_it_on_the_first_comma
 #[tokio::test]
 async fn opens_a_turn_without_a_daemon_and_fails_only_the_command() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     *h.engine.probe_fails.lock() = Some("cannot connect to the daemon".to_owned());
     let pool = h.pool();
 
     // The turn opens: a daemon that is down surfaces as a failed tool card
     // inside a live turn rather than a refusal with no turn to belong to.
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     let error = common::err(run(&runner).await);
@@ -449,11 +593,11 @@ async fn opens_a_turn_without_a_daemon_and_fails_only_the_command() {
 #[tokio::test]
 async fn starts_the_container_once_the_daemon_comes_back() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     *h.engine.probe_fails.lock() = Some("down".to_owned());
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     assert!(run(&runner).await.is_err());
@@ -467,11 +611,11 @@ async fn starts_the_container_once_the_daemon_comes_back() {
 #[tokio::test]
 async fn refuses_rather_than_falling_back_to_the_host_when_the_engine_fails() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     *h.engine.start_fails.lock() = Some("no such image: sha256:dddd".to_owned());
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     let error = common::err(run(&runner).await);
@@ -479,52 +623,53 @@ async fn refuses_rather_than_falling_back_to_the_host_when_the_engine_fails() {
     // The daemon's own words, rather than a bare "could not be started" that
     // sends the reader to the logs for the one fact that would have helped.
     assert!(error.message.contains("no such image"), "{}", error.message);
-    assert_eq!(error.details["toolbox"], "recon");
+    assert_eq!(error.details["container"], "dev");
     assert!(h.ran_in.lock().is_empty(), "nothing ran on the host");
 }
 
 #[tokio::test]
-async fn refuses_a_network_request_above_the_toolbox_ceiling() {
+async fn refuses_an_allow_list_with_nothing_in_it() {
     let h = Harness::new();
-    h.install("recon", &json!({"network": {"maxMode": "none"}}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
-    let mut asking = request("a", "w", "s", "recon");
-    asking.network = AgentToolboxNetwork {
-        mode: ToolboxNetworkMode::Open,
-        allow: Vec::new(),
-    };
+    // An allow-list that reaches nothing is a mode chosen by mistake, and the
+    // pool says so on the turn rather than starting a container around it.
+    let asking = reaching(NetworkMode::Allowlist, request("a", "w", "s", "dev"));
     assert_eq!(refusal(pool.resolve_turn(&asking)).kind, ErrorKind::Config);
 }
 
 #[tokio::test]
 async fn reuses_the_container_for_a_second_turn_in_the_same_session() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let first = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&first).await.unwrap();
     let second = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
+    // One start, and both turns ran in the container it made.
     assert_eq!(h.engine.starts().len(), 1);
-    // The same facade, which is what tells a reader nothing restarted.
-    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(
+        *h.ran_in.lock(),
+        vec!["ghost-sbx-1".to_owned(), "ghost-sbx-1".to_owned()]
+    );
 }
 
 #[tokio::test]
 async fn gives_two_sessions_two_containers() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     for session in ["s1", "s2"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "recon"))
+            .resolve_turn(&request("a", "w", session, "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -536,11 +681,11 @@ async fn gives_two_sessions_two_containers() {
 #[tokio::test]
 async fn gives_two_workspaces_two_containers_because_the_mount_differs() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     for workspace in ["w1", "w2"] {
         let runner = pool
-            .resolve_turn(&request("a", workspace, "s", "recon"))
+            .resolve_turn(&request("a", workspace, "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -549,13 +694,13 @@ async fn gives_two_workspaces_two_containers_because_the_mount_differs() {
 }
 
 #[tokio::test]
-async fn gives_two_agents_two_containers_because_the_policy_differs() {
+async fn gives_two_agents_two_containers_because_a_private_one_is_theirs_alone() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     for agent in ["a1", "a2"] {
         let runner = pool
-            .resolve_turn(&request(agent, "w", "s", "recon"))
+            .resolve_turn(&request(agent, "w", "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -566,21 +711,20 @@ async fn gives_two_agents_two_containers_because_the_policy_differs() {
 #[tokio::test]
 async fn stops_a_container_that_has_gone_idle() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 1);
 
     h.clock.advance(Duration::from_millis(
-        u64::try_from(TOOLBOX_IDLE_MS).unwrap() + 1,
+        u64::try_from(CONTAINER_IDLE_MS).unwrap() + 1,
     ));
     // The sweep runs on the next turn to ask for a runner.
-    pool.resolve_turn(&request("b", "w", "s2", "recon"))
-        .unwrap();
+    pool.resolve_turn(&request("b", "w", "s2", "dev")).unwrap();
     assert!(pool.live().is_empty());
     assert_eq!(h.engine.stops(), vec!["ghost-sbx-1".to_owned()]);
 }
@@ -588,29 +732,29 @@ async fn stops_a_container_that_has_gone_idle() {
 #[tokio::test]
 async fn a_zero_idle_window_disables_the_sweep_rather_than_reaping_everything() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let mut options = h.options();
     options.idle_ms = 0;
-    let pool = ToolboxPool::new(options);
+    let pool = ContainerPool::new(options);
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
-    pool.resolve_turn(&request("a", "w", "s", "recon")).unwrap();
+    pool.resolve_turn(&request("a", "w", "s", "dev")).unwrap();
     assert_eq!(pool.live().len(), 1);
 }
 
 #[tokio::test]
 async fn evicts_the_least_recently_used_beyond_the_cap() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let mut options = h.options();
     options.max_live = 2;
-    let pool = ToolboxPool::new(options);
+    let pool = ContainerPool::new(options);
     for session in ["s1", "s2", "s3"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "recon"))
+            .resolve_turn(&request("a", "w", session, "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -620,36 +764,58 @@ async fn evicts_the_least_recently_used_beyond_the_cap() {
 }
 
 #[tokio::test]
-async fn never_evicts_the_container_it_is_about_to_hand_back() {
+async fn a_cap_of_one_still_hands_back_the_container_it_started() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let mut options = h.options();
-    // With a cap of zero the newest entry is also the only entry: an unguarded
-    // loop would stop the container it is in the middle of starting.
-    options.max_live = 0;
-    let pool = ToolboxPool::new(options);
+    // The smallest cap that permits a container at all, and the boundary the
+    // cap check is written against: at one, the first turn is already at it.
+    options.max_live = 1;
+    let pool = ContainerPool::new(options);
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 1);
+    assert_eq!(*h.ran_in.lock(), vec!["ghost-sbx-1".to_owned()]);
+}
+
+#[tokio::test]
+async fn a_zero_cap_means_no_cap_rather_than_no_containers() {
+    let h = Harness::new();
+    h.install("dev", &json!({}));
+    let mut options = h.options();
+    // The same reading `idle_ms` gets. An operator who writes zero means "do
+    // not bound this"; taking it literally would refuse every container and
+    // leave nothing to say why.
+    options.max_live = 0;
+    let pool = ContainerPool::new(options);
+    for session in 0..=MAX_LIVE_CONTAINERS {
+        let runner = pool
+            .resolve_turn(&request("a", "w", &session.to_string(), "dev"))
+            .unwrap()
+            .unwrap();
+        run(&runner).await.unwrap();
+    }
+    assert_eq!(pool.live().len(), MAX_LIVE_CONTAINERS + 1);
+    assert!(h.engine.stops().is_empty());
 }
 
 #[tokio::test]
 async fn stops_every_container_a_session_owns_when_it_ends() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     for agent in ["a1", "a2"] {
         let runner = pool
-            .resolve_turn(&request(agent, "w", "chat", "recon"))
+            .resolve_turn(&request(agent, "w", "chat", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
     }
     let other = pool
-        .resolve_turn(&request("a1", "w", "other", "recon"))
+        .resolve_turn(&request("a1", "w", "other", "dev"))
         .unwrap()
         .unwrap();
     run(&other).await.unwrap();
@@ -661,13 +827,13 @@ async fn stops_every_container_a_session_owns_when_it_ends() {
 #[tokio::test]
 async fn releases_only_the_session_it_was_asked_about() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     // A key that *ends with* another's text must not be swept with it, which is
     // why the session is matched on the whole trailing field.
     for session in ["chat", "not chat"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "recon"))
+            .resolve_turn(&request("a", "w", session, "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -679,11 +845,11 @@ async fn releases_only_the_session_it_was_asked_about() {
 #[tokio::test]
 async fn stops_everything_on_close() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     for session in ["s1", "s2"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "recon"))
+            .resolve_turn(&request("a", "w", session, "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -701,10 +867,10 @@ async fn survives_an_engine_that_cannot_stop_a_container() {
         engine,
         ..Harness::new()
     };
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -715,18 +881,18 @@ async fn survives_an_engine_that_cannot_stop_a_container() {
 }
 
 #[tokio::test]
-async fn labels_the_container_with_its_session_toolbox_and_owning_process() {
+async fn labels_the_container_with_its_session_definition_and_owning_process() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
     let runner = pool
-        .resolve_turn(&request("a", "w", "chat", "recon"))
+        .resolve_turn(&request("a", "w", "chat", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
     let argv = h.engine.starts().remove(0).join(" ");
     assert!(argv.contains("ghostai.session=chat"), "{argv}");
-    assert!(argv.contains("ghostai.toolbox=recon"), "{argv}");
+    assert!(argv.contains("ghostai.container=dev"), "{argv}");
     assert!(
         argv.contains(&format!("{OWNER_LABEL}=test-host:1")),
         "{argv}"
@@ -734,28 +900,51 @@ async fn labels_the_container_with_its_session_toolbox_and_owning_process() {
 }
 
 #[tokio::test]
-async fn translates_the_mount_and_the_manifest_for_a_containerised_ghostai() {
+async fn translates_every_mount_for_a_containerised_ghostai() {
     let h = Harness::new();
-    h.install("recon", &json!({}));
+    h.install("dev", &json!({}));
     let mut options = h.options();
     // A bind path is resolved by the *daemon*, so asking for GhostAI's own
     // `/ghost/...` would mount the host's path of that name — silently, and
     // usually as an empty directory.
     options.host_path = Some(Arc::new(|path: &str| format!("/host{path}")));
-    let pool = ToolboxPool::new(options);
+    let pool = ContainerPool::new(options);
     let runner = pool
-        .resolve_turn(&request("a", "w", "s", "recon"))
+        .resolve_turn(&request("a", "w", "s", "dev"))
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
 
     let argv = h.engine.starts().remove(0).join(" ");
     assert!(argv.contains("/host/ghost/workspace"), "{argv}");
-    // Every path, not just the workspace: the manifest lives under the home
-    // directory, and a container that starts carrying the wrong policy file is
-    // worse than one that refuses.
-    assert!(argv.contains("/host"), "{argv}");
+    // Every path, not just the workspace: the transcripts are mounted too, and
+    // a container that starts reading the wrong directory is worse than one
+    // that refuses.
+    assert!(
+        argv.contains(&format!("/host{}", h.runs_dir.display())),
+        "{argv}"
+    );
     assert!(!argv.contains(" /ghost/workspace"), "{argv}");
+}
+
+#[tokio::test]
+async fn masks_the_host_identifying_corners_of_sysfs_only_where_that_works() {
+    let h = Harness::new();
+    h.install("dev", &json!({}));
+    for (bin, masked) in [("docker", true), ("podman", false)] {
+        let mut options = h.options();
+        options.bin = Some(bin.to_owned());
+        let pool = ContainerPool::new(options);
+        let runner = pool
+            .resolve_turn(&request("a", "w", bin, "dev"))
+            .unwrap()
+            .unwrap();
+        run(&runner).await.unwrap();
+        // Podman copies the underlying sysfs directory up into the tmpfs laid
+        // over it, which needs a capability this container does not hold.
+        let argv = h.engine.starts().pop().unwrap().join(" ");
+        assert_eq!(argv.contains("--tmpfs=/sys/"), masked, "{bin}: {argv}");
+    }
 }
 
 mod a_container_with_a_command_in_it {
@@ -775,26 +964,29 @@ mod a_container_with_a_command_in_it {
         }
     }
 
-    fn blocking_pool(h: &Harness, max_live: usize) -> (Arc<ToolboxPool>, Arc<tokio::sync::Notify>) {
+    fn blocking_pool(
+        h: &Harness,
+        max_live: usize,
+    ) -> (Arc<ContainerPool>, Arc<tokio::sync::Notify>) {
         let release = Arc::new(tokio::sync::Notify::new());
         let started = Arc::new(Mutex::new(false));
         let gate = Arc::clone(&release);
         let flag = Arc::clone(&started);
         let mut options = h.options();
         options.max_live = max_live;
-        options.new_runner = Some(Arc::new(move |_name: &str, _toolbox| {
+        options.new_runner = Some(Arc::new(move |_name: &str, _container| {
             Arc::new(Blocking(Arc::clone(&gate), Arc::clone(&flag))) as Arc<dyn CommandRunner>
         }));
-        (ToolboxPool::new(options), release)
+        (ContainerPool::new(options), release)
     }
 
     #[tokio::test]
     async fn is_not_stopped_by_the_idle_sweep() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
-        let (pool, release) = blocking_pool(&h, MAX_LIVE_TOOLBOXES);
+        h.install("dev", &json!({}));
+        let (pool, release) = blocking_pool(&h, MAX_LIVE_CONTAINERS);
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
 
@@ -810,10 +1002,9 @@ mod a_container_with_a_command_in_it {
         // `last_used_ms` is stamped once per turn, so a scan that runs for twenty
         // minutes looks idle for nineteen of them.
         h.clock.advance(Duration::from_millis(
-            u64::try_from(TOOLBOX_IDLE_MS).unwrap() + 1,
+            u64::try_from(CONTAINER_IDLE_MS).unwrap() + 1,
         ));
-        pool.resolve_turn(&request("b", "w", "s2", "recon"))
-            .unwrap();
+        pool.resolve_turn(&request("b", "w", "s2", "dev")).unwrap();
         assert_eq!(
             pool.live().len(),
             1,
@@ -825,12 +1016,12 @@ mod a_container_with_a_command_in_it {
     }
 
     #[tokio::test]
-    async fn is_not_evicted_to_get_under_the_cap() {
+    async fn is_not_evicted_to_make_room_for_another_session() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         let (pool, release) = blocking_pool(&h, 1);
         let busy = pool
-            .resolve_turn(&request("a", "w", "s1", "recon"))
+            .resolve_turn(&request("a", "w", "s1", "dev"))
             .unwrap()
             .unwrap();
         let running = tokio::spawn({
@@ -839,24 +1030,24 @@ mod a_container_with_a_command_in_it {
         });
         assert!(common::eventually(Duration::from_secs(5), || !pool.live().is_empty()).await);
 
+        // The second session is told to come back rather than served by
+        // stopping the container the first one is scanning in: a command killed
+        // to make room fails with the daemon's words and no stated reason.
         let second = pool
-            .resolve_turn(&request("a", "w", "s2", "recon"))
+            .resolve_turn(&request("a", "w", "s2", "dev"))
             .unwrap()
             .unwrap();
-        let other = tokio::spawn({
-            let second = Arc::clone(&second);
-            async move { run(&second).await }
-        });
-        assert!(common::eventually(Duration::from_secs(5), || pool.live().len() == 2).await);
-        // Enough concurrent long commands leave the pool *over* its cap rather
-        // than killing work to get under it: the cap exists to stop containers
-        // accumulating unused, and one with a command in it is not that.
-        assert_eq!(pool.live().len(), 2);
+        let error = common::err(run(&second).await);
+        assert_eq!(error.kind, ErrorKind::Tool);
+        assert!(
+            error.message.contains("All sandbox capacity is busy"),
+            "{}",
+            error.message
+        );
+        assert_eq!(pool.live().len(), 1);
 
         release.notify_waiters();
-        release.notify_waiters();
-        let _ = running.await.unwrap();
-        let _ = other.await.unwrap();
+        running.await.unwrap().unwrap();
     }
 }
 
@@ -866,13 +1057,13 @@ mod a_container_that_disappeared {
     #[tokio::test]
     async fn is_rebuilt_and_the_command_runs_rather_than_failing() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         // The first command in the first container reports the container gone;
         // the rebuild's runner answers normally.
         *h.scripted.lock() = vec![gone_outcome()];
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
 
@@ -887,29 +1078,38 @@ mod a_container_that_disappeared {
     #[tokio::test]
     async fn keeps_the_turn_on_the_same_runner_across_the_rebuild() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         *h.scripted.lock() = vec![gone_outcome()];
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
         // A container rebuilt mid-turn is invisible to the caller, which is what
-        // the indirection buys.
+        // the indirection buys: the same handle keeps working afterwards.
         assert!(run(&runner).await.is_ok());
+        assert_eq!(h.engine.starts().len(), 2);
+        assert_eq!(
+            *h.ran_in.lock(),
+            vec![
+                "ghost-sbx-1".to_owned(),
+                "ghost-sbx-2".to_owned(),
+                "ghost-sbx-2".to_owned(),
+            ]
+        );
     }
 
     #[tokio::test]
     async fn gives_up_after_one_rebuild() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         // Both runners report it gone: a second disappearance is something other
         // than a stale handle, and a loop that kept rebuilding would hide it.
         *h.scripted.lock() = vec![gone_outcome(), gone_outcome()];
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
         let outcome = run(&runner).await.unwrap();
@@ -918,19 +1118,23 @@ mod a_container_that_disappeared {
     }
 
     #[tokio::test]
-    async fn refuses_instead_of_rebuilding_a_toolbox_revoked_in_the_meantime() {
+    async fn is_not_rebuilt_when_an_operator_stopped_it_on_purpose() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
-        *h.scripted.lock() = vec![gone_outcome()];
+        h.install("dev", &json!({}));
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
-        h.store.revoke("recon").unwrap();
-        // A turn can sit between its opening and its first tool call for a long
-        // time, and a toolbox revoked in that window must not get a container.
-        assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Config);
+        run(&runner).await.unwrap();
+
+        // The two causes are told apart by the epoch, which a stop bumps and a
+        // daemon restart does not. Rebuilding here would make the stop look
+        // like it did nothing.
+        pool.stop_instance(&pool.live()[0], false).unwrap();
+        assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Aborted);
+        assert_eq!(h.engine.starts().len(), 1);
+        assert!(pool.live().is_empty());
     }
 }
 
@@ -938,42 +1142,57 @@ mod approval_is_re_checked_every_turn {
     use super::*;
 
     #[tokio::test]
-    async fn stops_reusing_a_container_once_the_toolbox_is_revoked() {
+    async fn stops_reusing_a_container_once_it_is_revoked() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
 
-        // A revoke is a different process writing the shared database, so
-        // nothing notifies this pool; asking every turn is what makes revocation
-        // mean something.
-        h.store.revoke("recon").unwrap();
+        // A revoke is another process writing a file, so nothing notifies this
+        // pool; asking every turn is what makes revocation mean something.
+        h.store.revoke_container("dev").unwrap();
         assert_eq!(
-            refusal(pool.resolve_turn(&request("a", "w", "s", "recon"))).kind,
+            refusal(pool.resolve_turn(&request("a", "w", "s", "dev"))).kind,
             ErrorKind::Config
         );
     }
 
     #[tokio::test]
-    async fn replaces_a_container_whose_manifest_changed_under_it() {
+    async fn refuses_a_command_whose_container_was_revoked_since_the_turn_opened() {
         let h = Harness::new();
-        h.install("recon", &json!({}));
+        h.install("dev", &json!({}));
         let pool = h.pool();
         let runner = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
+            .unwrap()
+            .unwrap();
+        h.store.revoke_container("dev").unwrap();
+        // A turn can sit between its opening and its first tool call for a long
+        // time, and a container revoked in that window must not be started.
+        assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Config);
+        assert!(pool.live().is_empty());
+    }
+
+    #[tokio::test]
+    async fn replaces_a_container_whose_definition_changed_under_it() {
+        let h = Harness::new();
+        h.install("dev", &json!({}));
+        let pool = h.pool();
+        let runner = pool
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
 
         // Edited and re-approved: the live container was built with the old
-        // policy's flags, so it is stopped rather than reused.
-        h.install("recon", &json!({"notes": "now with more scanning"}));
+        // definition's flags, so it is stopped rather than reused.
+        h.install("dev", &json!({"user": "1001:1001"}));
         let next = pool
-            .resolve_turn(&request("a", "w", "s", "recon"))
+            .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
         assert!(pool.live().is_empty());
@@ -1027,6 +1246,6 @@ async fn describes_itself_without_naming_a_session() {
     let h = Harness::new();
     let pool = h.pool();
     let shown = format!("{pool:?}");
-    assert!(shown.contains("ToolboxPool"), "{shown}");
-    assert!(format!("{:?}", h.options()).contains("ToolboxPoolOptions"));
+    assert!(shown.contains("ContainerPool"), "{shown}");
+    assert!(format!("{:?}", h.options()).contains("ContainerPoolOptions"));
 }

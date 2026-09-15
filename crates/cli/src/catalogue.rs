@@ -185,9 +185,19 @@ pub fn catalogue_agents_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "agents")
 }
 
-/// One directory per toolbox, each with a `Dockerfile` and a manifest.
+/// One `<name>.json` per toolbox, naming the operations it grants.
 pub fn catalogue_toolboxes_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "toolboxes")
+}
+
+/// One directory per container, each with a `Dockerfile` and a definition.
+pub fn catalogue_containers_dir(dir: &Path) -> Option<PathBuf> {
+    subdir(dir, "containers")
+}
+
+/// One `<name>.json` per reusable operation definition.
+pub fn catalogue_definitions_dir(dir: &Path) -> Option<PathBuf> {
+    subdir(dir, "tool-definitions")
 }
 
 /// One directory per skill sheet, each with a `SKILL.md`.
@@ -204,17 +214,32 @@ fn subdir(dir: &Path, name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// The build context for one toolbox, or `None` when the catalogue does not
-/// carry it.
+/// One toolbox manifest, or `None` when the catalogue does not carry it.
 ///
 /// A preset can name a toolbox this catalogue has never heard of — an
 /// operator's own preset, or one written against a newer catalogue — and that
-/// is a sentence to print, not a crash. The `toolbox.json` has to be there as
-/// well as the directory: a name with no manifest is a half-checkout, and a
-/// container build would be the wrong error to report it with.
+/// is a sentence to print, not a crash.
 pub fn catalogue_toolbox(dir: &Path, name: &str) -> Option<PathBuf> {
-    let context = catalogue_toolboxes_dir(dir)?.join(name);
-    context.join("toolbox.json").exists().then_some(context)
+    let file = catalogue_toolboxes_dir(dir)?.join(format!("{name}.json"));
+    file.exists().then_some(file)
+}
+
+/// One operation definition, or `None` when the catalogue does not carry it.
+pub fn catalogue_definition(dir: &Path, name: &str) -> Option<PathBuf> {
+    let file = catalogue_definitions_dir(dir)?.join(format!("{name}.json"));
+    file.exists().then_some(file)
+}
+
+/// The build context for one container, or `None` when the catalogue does not
+/// carry it.
+///
+/// The same shape and the same argument as [`catalogue_toolbox`]. The
+/// `container.json` has to be there as well as the directory: a name with no
+/// definition is a half-checkout, and an image build would be the wrong error
+/// to report it with.
+pub fn catalogue_container(dir: &Path, name: &str) -> Option<PathBuf> {
+    let context = catalogue_containers_dir(dir)?.join(name);
+    context.join("container.json").exists().then_some(context)
 }
 
 /// One skill sheet's directory, or `None` when the catalogue lacks it.

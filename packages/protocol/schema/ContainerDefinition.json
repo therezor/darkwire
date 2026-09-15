@@ -1,0 +1,138 @@
+{
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ghostai.container/1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shared": {
+      "default": false,
+      "type": "boolean"
+    },
+    "runtime": {
+      "default": "runc",
+      "type": "string",
+      "enum": [
+        "runc",
+        "runsc",
+        "kata"
+      ]
+    },
+    "workdir": {
+      "default": "/workspace",
+      "type": "string"
+    },
+    "user": {
+      "default": "1000:1000",
+      "type": "string"
+    },
+    "caps": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "drop": {
+          "default": [
+            "ALL"
+          ],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "add": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "security": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "noNewPrivileges": {
+          "default": true,
+          "type": "boolean"
+        },
+        "seccomp": {
+          "default": "default",
+          "type": "string",
+          "enum": [
+            "default",
+            "unconfined"
+          ]
+        },
+        "readOnlyRoot": {
+          "default": true,
+          "type": "boolean"
+        },
+        "tmpfs": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "devices": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "limits": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "memoryMb": {
+          "default": 2048,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cpus": {
+          "default": 2,
+          "type": "number",
+          "minimum": 0
+        },
+        "pidsMax": {
+          "default": 512,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "shmSizeMb": {
+          "default": 256,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "env": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "image"
+  ],
+  "additionalProperties": false
+}

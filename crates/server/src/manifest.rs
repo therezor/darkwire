@@ -167,6 +167,12 @@ pub enum RouteId {
     ToolsList,
     /// `GET /api/toolboxes`
     ToolboxesList,
+    /// `GET /api/containers`
+    ContainersList,
+    /// `GET /api/sandboxes`.
+    SandboxesList,
+    /// `POST /api/sandboxes`.
+    SandboxesManage,
     /// `GET /api/mcp`
     McpList,
     /// `GET /api/extensions`
@@ -290,6 +296,9 @@ impl RouteId {
             RouteId::AgentsList => "agents.list",
             RouteId::ToolsList => "tools.list",
             RouteId::ToolboxesList => "toolboxes.list",
+            RouteId::ContainersList => "containers.list",
+            RouteId::SandboxesList => "sandboxes.list",
+            RouteId::SandboxesManage => "sandboxes.manage",
             RouteId::McpList => "mcp.list",
             RouteId::ExtensionsList => "extensions.list",
             RouteId::ExtensionsApprove => "extensions.approve",
@@ -337,7 +346,7 @@ impl RouteId {
 }
 
 /// The routes every build serves.
-const BASE: [Route; 63] = [
+const BASE: [Route; 66] = [
     // Status and health
     Route {
         id: RouteId::SystemHealth,
@@ -552,6 +561,24 @@ const BASE: [Route; 63] = [
         id: RouteId::ToolboxesList,
         method: RouteMethod::GET,
         path: "/api/toolboxes",
+        auth: RouteAuth::Required,
+    },
+    Route {
+        id: RouteId::ContainersList,
+        method: RouteMethod::GET,
+        path: "/api/containers",
+        auth: RouteAuth::Required,
+    },
+    Route {
+        id: RouteId::SandboxesList,
+        method: RouteMethod::GET,
+        path: "/api/sandboxes",
+        auth: RouteAuth::Required,
+    },
+    Route {
+        id: RouteId::SandboxesManage,
+        method: RouteMethod::POST,
+        path: "/api/sandboxes",
         auth: RouteAuth::Required,
     },
     // Live connection state, which `GET /api/settings` cannot carry: that
@@ -810,23 +837,23 @@ const HOOKS: [Route; 5] = [
 
 /// `BASE` followed by `HOOKS`, in const so the manifest stays a `&[Route]`.
 #[cfg(feature = "test-hooks")]
-const fn with_hooks(base: &[Route; 63], hooks: &[Route; 5]) -> [Route; 68] {
-    let mut all = [base[0]; 68];
+const fn with_hooks(base: &[Route; 66], hooks: &[Route; 5]) -> [Route; 71] {
+    let mut all = [base[0]; 71];
     let mut i = 0;
-    while i < 63 {
+    while i < base.len() {
         all[i] = base[i];
         i += 1;
     }
     let mut j = 0;
     while j < 5 {
-        all[63 + j] = hooks[j];
+        all[base.len() + j] = hooks[j];
         j += 1;
     }
     all
 }
 
 #[cfg(feature = "test-hooks")]
-const ALL: [Route; 68] = with_hooks(&BASE, &HOOKS);
+const ALL: [Route; 71] = with_hooks(&BASE, &HOOKS);
 
 /// Every route this build serves, and the only path to one.
 #[cfg(not(feature = "test-hooks"))]

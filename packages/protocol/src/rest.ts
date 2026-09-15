@@ -18,9 +18,11 @@ import { z } from 'zod';
 import {
   ConfigPatchSchema,
   ConfigSchema,
+  ContainerNetworkSchema,
   McpTransportSchema,
   ReasoningEffortSchema,
 } from './config.js';
+import { ContainerLimitsSchema, ContainerRuntimeSchema } from './toolbox.js';
 import {
   StopReasonSchema,
   StoredMessageSchema,
@@ -645,60 +647,160 @@ export const ToolListResponseSchema = z.object({
 export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
 
 /**
- * One installed toolbox, as a settings screen needs to see it.
+ * One granted operation, as the agent editor's permission row needs it.
  *
- * Carries the fields an operator weighs before approving — the image, the
- * network ceiling, the capabilities added back, whether hardening was switched
- * off — rather than only a name. A picker that shows names alone makes approving
- * a rubber stamp, and the whole model rests on that approval meaning something.
- *
- * `approved` is the only field that decides whether an agent can use it. A
- * toolbox whose manifest changed after approval reports `approved: false` with a
- * `problem`, because from the runtime's point of view those are the same state.
- */
-/**
- * One program in an installed toolbox.
- *
- * Three fields rather than a bare name, because the agent editor renders a
- * permission row per program: it needs something to label the row with (`use`)
- * and the manifest's own answer to show until the agent overrides it. Fetching
- * that separately would mean a second request per toolbox to render one list.
+ * Three fields rather than a bare name, because the editor renders a permission
+ * row per grant: it needs something to label the row with and the manifest's own
+ * ceiling to show beside what the agent chose. Fetching that separately would
+ * mean a second request per toolbox to render one list.
  */
 export const ToolboxToolSummarySchema = z.object({
   name: z.string(),
-  use: z.string(),
-  /** The manifest's default. An agent's `tools` map wins over it. */
+  /** What the operation does, as the model is told. */
+  description: z.string(),
+  /** The grant's ceiling. An agent's `tools` map may only tighten it. */
   permission: ToolPermissionSchema,
 });
+export type ToolboxToolSummary = z.infer<typeof ToolboxToolSummarySchema>;
 
+/**
+ * One installed toolbox, as a settings screen needs to see it.
+ *
+ * A toolbox is a set of grants and nothing else, so there is no image, network
+ * or hardening to report here — those belong to a container, which is chosen
+ * separately and summarised by `ContainerSummary`.
+ *
+ * `approved` is the only field that decides whether an agent can use it. A
+ * toolbox whose manifest, or any definition it names, changed after approval
+ * reports `approved: false` with a `problem`, because from the runtime's point
+ * of view those are the same state.
+ */
 export const ToolboxSummarySchema = z.object({
   name: z.string(),
   label: z.string(),
   version: z.string(),
-  image: z.string(),
-  /** What is in the box, for the picker to show without a second request. */
+  /** Caveats about the set as a whole. */
+  notes: z.string(),
+  /** What it grants, for the picker to show without a second request. */
   tools: z.array(ToolboxToolSummarySchema),
-  /**
-   * Whether those programs are callables the model sees by name, or only a
-   * prompt section. The editor renders permission rows for them only when they
-   * are real tools — a `prompt` toolbox is reached through `exec`, and its
-   * permission is `exec`'s.
-   */
-  exposesTools: z.boolean(),
-  /** The most this toolbox ever permits; an agent may ask for less. */
-  maxNetwork: z.enum(['none', 'allowlist', 'open']),
-  capsAdded: z.array(z.string()),
-  /** Non-default hardening, named so it can be shown as a warning. */
-  weakened: z.array(z.string()),
   approved: z.boolean(),
   problem: z.string().optional(),
 });
 export type ToolboxSummary = z.infer<typeof ToolboxSummarySchema>;
 
+/**
+ * One installed container definition.
+ *
+ * Carries everything an operator weighs before selecting one for an agent: the
+ * image, who it runs as, what it is allowed to spend, and whether any hardening
+ * was switched off. A picker that shows names alone makes selection a rubber
+ * stamp, and the whole model rests on that approval meaning something.
+ *
+ * `gatewayProblem` is the sentence a restricted egress request would fail with,
+ * resolved once here so the editor can warn while the network is still being
+ * chosen rather than on save.
+ */
+export const ContainerSummarySchema = z.object({
+  name: z.string(),
+  image: z.string(),
+  shared: z.boolean(),
+  runtime: ContainerRuntimeSchema,
+  workdir: z.string(),
+  user: z.string(),
+  limits: ContainerLimitsSchema,
+  capsAdded: z.array(z.string()),
+  /** Non-default hardening, named so it can be shown as a warning. */
+  weakened: z.array(z.string()),
+  gatewayProblem: z.string().optional(),
+  approved: z.boolean(),
+  problem: z.string().optional(),
+});
+export type ContainerSummary = z.infer<typeof ContainerSummarySchema>;
+
 export const ToolboxListResponseSchema = z.object({
   toolboxes: z.array(ToolboxSummarySchema),
 });
 export type ToolboxListResponse = z.infer<typeof ToolboxListResponseSchema>;
+
+export const ContainerListResponseSchema = z.object({
+  containers: z.array(ContainerSummarySchema),
+});
+export type ContainerListResponse = z.infer<typeof ContainerListResponseSchema>;
+
+/** One container the sandbox service is holding open. */
+export const SandboxInstanceSummarySchema = z
+  .object({
+    id: z.string(),
+    workspace: z.string(),
+    container: z.string(),
+    shared: z.boolean(),
+    busy: z.number().int().nonnegative(),
+    lastUsedMs: z.number().int().nonnegative(),
+    agents: z.array(z.string()).default([]),
+  })
+  .strict();
+export type SandboxInstanceSummary = z.infer<
+  typeof SandboxInstanceSummarySchema
+>;
+
+export const SandboxListResponseSchema = z
+  .object({
+    instances: z.array(SandboxInstanceSummarySchema),
+  })
+  .strict();
+export type SandboxListResponse = z.infer<typeof SandboxListResponseSchema>;
+
+/**
+ * Everything the app may ask the sandbox service for.
+ *
+ * One type for the whole boundary rather than one for the socket and another
+ * for `POST /api/sandboxes`: the HTTP route parses this, refuses the variants an
+ * operator may not send, and forwards the same value. Two enums meant a field
+ * could be added to one and silently dropped re-serialising through the other.
+ */
+export const SandboxRequestSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('health') }).strict(),
+  z.object({ op: z.literal('list') }).strict(),
+  z
+    .object({
+      op: z.literal('execute'),
+      toolbox: z.string(),
+      approval: z.string(),
+      container: z.string(),
+      operation: z.string(),
+      workspace: z.string(),
+      agent: z.string(),
+      session: z.string(),
+      network: ContainerNetworkSchema.prefault({}),
+      args: z.unknown(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('start'),
+      container: z.string(),
+      workspace: z.string(),
+      agent: z.string(),
+      session: z.string(),
+      network: ContainerNetworkSchema.prefault({}),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('stop'),
+      instance: z.string(),
+      force: z.boolean().default(false),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('restart'),
+      instance: z.string(),
+      force: z.boolean().default(false),
+    })
+    .strict(),
+]);
+export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
 
 // MCP servers
 

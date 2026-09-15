@@ -16,13 +16,14 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::ErrorKind;
-use ghostai_runtime::{
-    ContainerEngine, DockerEngineOptions, OWNER_LABEL, docker_engine, owner_tag,
+use ghostai_sandbox::container_pool::{
+    CONTROL_TIMEOUT, ContainerEngine, DockerEngineOptions, OWNER_LABEL, START_TIMEOUT,
+    docker_engine, owner_tag,
 };
 use tempfile::TempDir;
 
@@ -207,6 +208,7 @@ mod reaping {
         let alive: Vec<&'static str> = alive.to_vec();
         fake.engine_with(DockerEngineOptions {
             bin: String::new(),
+            gateway_image: None,
             owner: Some("me:1".to_owned()),
             is_owner_alive: Some(Arc::new(move |owner: &str| alive.contains(&owner))),
             control_timeout: Some(Duration::from_millis(400)),
@@ -289,13 +291,6 @@ fn defaults_to_the_docker_cli_owned_by_this_process() {
 
 #[test]
 fn the_shipped_deadlines_are_the_ones_measured_against_a_dead_socket() {
-    assert_eq!(
-        ghostai_runtime::toolbox_pool::CONTROL_TIMEOUT,
-        Duration::from_secs(5)
-    );
-    assert_eq!(
-        ghostai_runtime::toolbox_pool::START_TIMEOUT,
-        Duration::from_mins(1)
-    );
-    let _ = Path::new("/");
+    assert_eq!(CONTROL_TIMEOUT, Duration::from_secs(5));
+    assert_eq!(START_TIMEOUT, Duration::from_mins(1));
 }

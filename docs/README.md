@@ -18,7 +18,8 @@ and everything else on this page is reference you can reach for afterwards.
 | [Tools & permissions](tools.md)       | The eight built-in tools, and the `allow \| ask \| deny` model that gates them.       |
 | [Skills](skills.md)                   | Instruction sheets in `<workspace>/skills/`, indexed or named on a message.           |
 | [Memory](memory.md)                   | What an agent remembers between sessions, one file per fact in `<workspace>/memory/`. |
-| [Toolboxes](toolboxes.md)             | Running `exec` inside a pinned, hash-approved container instead of on the host.       |
+| [Toolboxes](toolboxes.md)             | Approved tool surfaces and independently selected execution containers.               |
+| [Sandbox service](sandbox-service.md) | Isolated container service, Compose deployment, lifecycle management.                 |
 | [Extensions](extensions.md)           | Third-party code an operator installs and approves, and the five things it may add.   |
 | [Web UI](web-ui.md)                   | The screens, and what each one lets you do.                                           |
 

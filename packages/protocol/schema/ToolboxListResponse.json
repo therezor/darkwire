@@ -15,7 +15,7 @@
           "version": {
             "type": "string"
           },
-          "image": {
+          "notes": {
             "type": "string"
           },
           "tools": {
@@ -26,7 +26,7 @@
                 "name": {
                   "type": "string"
                 },
-                "use": {
+                "description": {
                   "type": "string"
                 },
                 "permission": {
@@ -40,32 +40,9 @@
               },
               "required": [
                 "name",
-                "use",
+                "description",
                 "permission"
               ]
-            }
-          },
-          "exposesTools": {
-            "type": "boolean"
-          },
-          "maxNetwork": {
-            "type": "string",
-            "enum": [
-              "none",
-              "allowlist",
-              "open"
-            ]
-          },
-          "capsAdded": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "weakened": {
-            "type": "array",
-            "items": {
-              "type": "string"
             }
           },
           "approved": {
@@ -79,12 +56,8 @@
           "name",
           "label",
           "version",
-          "image",
+          "notes",
           "tools",
-          "exposesTools",
-          "maxNetwork",
-          "capsAdded",
-          "weakened",
           "approved"
         ]
       }

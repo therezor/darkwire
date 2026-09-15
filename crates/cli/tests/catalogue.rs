@@ -27,19 +27,23 @@ use std::path::{Path, PathBuf};
 
 use ghostai::catalogue::{
     CATALOGUE_ENV_VAR, CATALOGUE_PACKAGE, CATALOGUE_RANGE, CatalogueOptions, FetchCatalogueOptions,
-    PRESETS_DIR_ENV_VAR, assert_catalogue_layout, catalogue_agents_dir, catalogue_dir,
-    catalogue_skill, catalogue_skills_dir, catalogue_toolbox, catalogue_toolboxes_dir,
-    fetch_catalogue, fetched_catalogue_dir, sibling_search_roots,
+    PRESETS_DIR_ENV_VAR, assert_catalogue_layout, catalogue_agents_dir, catalogue_container,
+    catalogue_dir, catalogue_skill, catalogue_skills_dir, catalogue_toolbox,
+    catalogue_toolboxes_dir, fetch_catalogue, fetched_catalogue_dir, sibling_search_roots,
 };
 use ghostai::i18n::Env;
 use tempfile::TempDir;
 
-/// A catalogue in the current layout: `agents/` and `toolboxes/`.
+/// A catalogue in the current layout: `agents/`, one file per toolbox, and one
+/// build-context directory per container.
 fn write_catalogue(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(dir.join("agents")).unwrap();
-    let toolbox = dir.join("toolboxes").join("coding");
-    std::fs::create_dir_all(&toolbox).unwrap();
-    std::fs::write(toolbox.join("toolbox.json"), "{}").unwrap();
+    std::fs::create_dir_all(dir.join("toolboxes")).unwrap();
+    std::fs::write(dir.join("toolboxes").join("coding.json"), "{}").unwrap();
+    let context = dir.join("containers").join("dev");
+    std::fs::create_dir_all(&context).unwrap();
+    std::fs::write(context.join("Dockerfile"), "FROM scratch\n").unwrap();
+    std::fs::write(context.join("container.json"), "{}").unwrap();
     dir.to_path_buf()
 }
 
@@ -212,18 +216,32 @@ fn refuses_a_catalogue_with_no_agents_naming_the_version_it_wants() {
 }
 
 #[test]
-fn answers_with_a_build_context_only_when_the_manifest_is_there_too() {
-    // A name with no manifest is a half-checkout, and a container build would
-    // be the wrong error to report it with.
+fn answers_with_a_build_context_only_when_the_definition_is_there_too() {
+    // A build context with no `container.json` is a half-checkout, and an image
+    // build would be the wrong error to report it with.
     let root = TempDir::new().unwrap();
     let dir = write_catalogue(&root.path().join("c"));
-    std::fs::create_dir_all(dir.join("toolboxes").join("halfway")).unwrap();
+    std::fs::create_dir_all(dir.join("containers").join("halfway")).unwrap();
+
+    assert_eq!(
+        catalogue_container(&dir, "dev"),
+        Some(dir.join("containers").join("dev"))
+    );
+    assert_eq!(catalogue_container(&dir, "halfway"), None);
+    assert_eq!(catalogue_container(&dir, "nowhere"), None);
+}
+
+#[test]
+fn answers_with_a_toolbox_manifest_as_a_file_of_its_own() {
+    // A toolbox is one file, copied verbatim — there is no directory to walk
+    // and nothing beside it to build.
+    let root = TempDir::new().unwrap();
+    let dir = write_catalogue(&root.path().join("c"));
 
     assert_eq!(
         catalogue_toolbox(&dir, "coding"),
-        Some(dir.join("toolboxes").join("coding"))
+        Some(dir.join("toolboxes").join("coding.json"))
     );
-    assert_eq!(catalogue_toolbox(&dir, "halfway"), None);
     assert_eq!(catalogue_toolbox(&dir, "nowhere"), None);
 }
 
@@ -243,7 +261,7 @@ fn treats_skills_as_optional_the_way_toolboxes_is() {
 
 #[test]
 fn answers_with_a_sheet_only_when_the_skill_file_is_there_too() {
-    // The same argument `catalogue_toolbox` makes: a directory with no sheet
+    // The same argument `catalogue_container` makes: a directory with no sheet
     // would be copied, reported as installed, and then silently skipped when
     // the sheets are read — with nothing anywhere saying why.
     let root = TempDir::new().unwrap();

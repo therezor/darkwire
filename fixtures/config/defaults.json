@@ -36,11 +36,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }

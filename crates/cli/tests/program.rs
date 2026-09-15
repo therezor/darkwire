@@ -91,17 +91,41 @@ fn prints_the_bare_version() {
 }
 
 #[test]
-fn offers_extension_beside_toolbox() {
+fn offers_extension_and_container_beside_toolbox() {
     // Approving code the agent will run is the one operator action that cannot
     // be delegated to the agent, and an install driven from a terminal needs a
     // way to do it without opening a browser.
     let (root, _) = printed(&["--help"]);
     assert!(root.contains("extension"));
+    assert!(root.contains("container"));
 
     let (help, code) = printed(&["extension", "--help"]);
     assert_eq!(code, 0);
     for verb in ["list", "approve", "revoke"] {
         assert!(help.contains(verb), "{verb} missing from {help}");
+    }
+}
+
+#[test]
+fn container_commands_carry_their_verb_and_id() {
+    for (argv, expected) in [
+        (vec!["container", "list"], (StoreAction::List, None)),
+        (
+            vec!["container", "approve", "dev"],
+            (StoreAction::Approve, Some("dev")),
+        ),
+        (
+            vec!["container", "revoke", "dev"],
+            (StoreAction::Revoke, Some("dev")),
+        ),
+    ] {
+        match invocation(&argv).command {
+            Subcommand::Container(action, id) => {
+                assert_eq!(action, expected.0);
+                assert_eq!(id.as_deref(), expected.1);
+            }
+            other => panic!("expected container command, got {other:?}"),
+        }
     }
 }
 

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use ghostai_protocol::{AutomationJob, CreateAutomationJob};
 
-use crate::runner::ToolboxRequest;
+use crate::runner::PlacementRequest;
 
 /// Why a job could not be created, listed or removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,10 +60,10 @@ pub trait AutomationPort: Send + Sync {
 ///
 /// `None` means this build has no scheduler — a headless install, or a route
 /// test — and the tool says so rather than pretending. Keyed by
-/// [`ToolboxRequest`] because that is already the per-turn identity the loop
+/// [`PlacementRequest`] because that is already the per-turn identity the loop
 /// computes for `exec`, and it carries exactly what is needed: the agent, the
 /// workspace and the session.
 pub trait AutomationResolver: Send + Sync {
     /// The port for one turn, or `None` when nothing can be scheduled.
-    fn for_turn(&self, request: &ToolboxRequest) -> Option<Arc<dyn AutomationPort>>;
+    fn for_turn(&self, request: &PlacementRequest) -> Option<Arc<dyn AutomationPort>>;
 }

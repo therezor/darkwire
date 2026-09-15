@@ -1,7 +1,7 @@
 //! Which installed extensions an operator has approved, and what is on disk now.
 //!
 //! The same two halves that deliberately do not trust each other as
-//! [`crate::ToolboxStore`]: the install directory is a set of files, editable by
+//! [`crate::PolicyStore`]: the install directory is a set of files, editable by
 //! anything with write access, and the approval is a row recording the digest of
 //! the exact bytes that were reviewed. Neither is authority alone. Resolution
 //! asks whether *these* bytes are approved, so editing an installed extension
@@ -9,7 +9,7 @@
 //! naming the drift. Nobody has to remember to re-approve, because they cannot
 //! avoid it.
 //!
-//! Unlike [`crate::ToolboxStore::require`], nothing here errors to describe an
+//! Unlike [`crate::PolicyStore::require_toolbox`], nothing here errors to describe an
 //! extension that is not loadable. The host reconciles a whole directory at boot
 //! and after every settings save, and one unapproved extension must not take the
 //! other four down with it — so a refusal is a state on a row, and the sentence
@@ -23,7 +23,6 @@ use ghostai_protocol::{ExtensionManifest, is_extension_id};
 use rusqlite::params;
 
 use crate::extension::{assert_extension_policy, extension_digest, read_extension_manifest};
-use crate::toolbox_store::directory_names;
 
 /// No comment may appear inside the column list: SQLite stores the text
 /// verbatim and rewrites it by byte offset on `DROP COLUMN`.
@@ -280,4 +279,20 @@ impl ExtensionStore {
         };
         self.resolve_in(&id, dir).map(Some)
     }
+}
+
+/// The directory entries under `dir` that are directories, sorted by UTF-16
+/// code unit. Empty when the directory cannot be read, which is the state of an
+/// install that has never had an extension.
+fn directory_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    names
 }

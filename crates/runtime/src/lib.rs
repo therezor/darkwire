@@ -15,7 +15,6 @@ pub mod merge;
 pub mod provider_cache;
 pub mod runtime;
 pub mod tool_sink;
-pub mod toolbox_pool;
 
 pub use agents::{
     AgentConfigWarning, AgentMissReason, AgentResolution, AgentWarningCode, EffectiveAgent,
@@ -32,8 +31,3 @@ pub use provider_cache::{
 };
 pub use runtime::{ExtensionChoice, GhostRuntime, McpChoice, RuntimeOptions, create_runtime};
 pub use tool_sink::{RegistrySink, registry_tool_sink};
-pub use toolbox_pool::{
-    ContainerEngine, DockerEngine, DockerEngineOptions, HostPathFn, IdFactory, LivenessFn,
-    MAX_LIVE_TOOLBOXES, OWNER_LABEL, RunnerFactory, TOOLBOX_IDLE_MS, ToolboxPool,
-    ToolboxPoolOptions, docker_engine, owner_process_looks_alive, owner_tag,
-};

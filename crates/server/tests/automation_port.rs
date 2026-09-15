@@ -18,11 +18,11 @@ use ghostai_protocol::automation::{
     CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, ScheduledKind,
     ScheduledPayload,
 };
-use ghostai_protocol::config::AgentToolboxNetwork;
+use ghostai_protocol::config::ContainerNetwork;
 use ghostai_server::automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
 use ghostai_server::automation_store::AutomationStore;
 use ghostai_tools::automation::{AutomationRefusal, AutomationResolver};
-use ghostai_tools::runner::ToolboxRequest;
+use ghostai_tools::runner::PlacementRequest;
 use indexmap::IndexMap;
 
 const NOW: i64 = 1_700_000_000_000;
@@ -66,13 +66,14 @@ fn harness() -> Harness {
     }
 }
 
-fn request(agent_id: &str, session_key: &str, workspace_id: &str) -> ToolboxRequest {
-    ToolboxRequest {
+fn request(agent_id: &str, session_key: &str, workspace_id: &str) -> PlacementRequest {
+    PlacementRequest {
         agent_id: agent_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         session_key: session_key.to_owned(),
         toolbox: String::new(),
-        network: AgentToolboxNetwork::default(),
+        container: String::new(),
+        network: ContainerNetwork::default(),
         workspace_root: "/tmp".to_owned(),
     }
 }

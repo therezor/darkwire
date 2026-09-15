@@ -961,7 +961,8 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           preset: {
             ...PRESET,
-            toolbox: { name: 'web-research', network: { mode: 'open' } },
+            toolbox: { name: 'web-research' },
+            container: { network: { mode: 'open' } },
             subagents: [{ id: 'writer' }],
             tools: { exec: 'deny' },
             promptMode: 'raw',

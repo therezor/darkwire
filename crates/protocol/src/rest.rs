@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::automation::{AutomationJob, AutomationRun};
+use crate::config::ContainerNetwork;
 use crate::config::{
     AgentsConfigPatch, ChannelsConfigPatch, ExtensionsConfigPatch, ProviderConfigPatch,
     SchedulerConfigPatch, ServerConfigPatch, ToolsConfigPatch, UiConfigPatch,
@@ -27,7 +28,7 @@ use crate::extension::ExtensionContribution;
 use crate::json::{MAX_SAFE_INTEGER, Nullable, True, positive, yes};
 use crate::messages::{StopReason, StoredMessage, Usage};
 use crate::subagent::SubagentRunRef;
-use crate::toolbox::ToolboxNetworkMode;
+use crate::toolbox::{ContainerLimits, ContainerRuntime};
 use crate::tools::{ToolDefinition, ToolPermission};
 use crate::ws::NotificationLevel;
 
@@ -904,27 +905,27 @@ pub struct ToolListResponse {
     pub tools: Vec<ToolDefinition>,
 }
 
-/// One program in an installed toolbox, as the agent editor's permission row
-/// needs it.
+/// One granted operation, as the agent editor's permission row needs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ToolboxToolSummary {
-    /// The program.
+    /// The callable name.
     pub name: String,
-    /// What the box wants it for.
-    pub r#use: String,
-    /// The manifest's default. An agent's `tools` map wins over it.
+    /// What the operation does, as the model is told.
+    pub description: String,
+    /// The grant's ceiling. An agent's `tools` map may only tighten it.
     pub permission: ToolPermission,
 }
 
 /// One installed toolbox, as a settings screen needs to see it.
 ///
-/// Carries the fields an operator weighs before approving — the image, the
-/// network ceiling, the capabilities added back, whether hardening was
-/// switched off — rather than only a name. `approved` is the only field that
-/// decides whether an agent can use it; a toolbox whose manifest changed after
-/// approval reports `approved: false` with a `problem`.
+/// A toolbox is a set of grants and nothing else, so there is no image,
+/// network or hardening to report here — those belong to a container, which is
+/// chosen separately and summarised by [`ContainerSummary`]. `approved` is the
+/// only field that decides whether an agent can use it; a toolbox whose
+/// manifest or any definition it names changed after approval reports
+/// `approved: false` with a `problem`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -935,20 +936,11 @@ pub struct ToolboxSummary {
     pub label: String,
     /// The manifest's version.
     pub version: String,
-    /// The image reference.
-    pub image: String,
-    /// What is in the box, for the picker to show without a second request.
+    /// Caveats about the set as a whole.
+    pub notes: String,
+    /// What it grants, for the picker to show without a second request.
     #[garde(dive)]
     pub tools: Vec<ToolboxToolSummary>,
-    /// Whether those programs are callables the model sees by name, or only a
-    /// prompt section.
-    pub exposes_tools: bool,
-    /// The most this toolbox ever permits; an agent may ask for less.
-    pub max_network: ToolboxNetworkMode,
-    /// Capabilities added back.
-    pub caps_added: Vec<String>,
-    /// Non-default hardening, named so it can be shown as a warning.
-    pub weakened: Vec<String>,
     /// Whether an agent may use it.
     pub approved: bool,
     /// Why not, when `approved` is false.
@@ -964,6 +956,161 @@ pub struct ToolboxListResponse {
     /// Every installed toolbox.
     #[garde(dive)]
     pub toolboxes: Vec<ToolboxSummary>,
+}
+
+/// `GET /api/containers`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct ContainerListResponse {
+    /// Independently selectable execution environments.
+    #[garde(dive)]
+    pub containers: Vec<ContainerSummary>,
+}
+
+/// One installed container definition.
+///
+/// Carries everything an operator weighs before selecting one for an agent:
+/// the image, who it runs as, what it is allowed to spend, and whether any
+/// hardening was switched off. `gatewayProblem` is the sentence a restricted
+/// egress request would fail with, resolved once here so the editor can warn
+/// while the network is still being chosen rather than on save.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct ContainerSummary {
+    /// Operator-installed identifier.
+    pub name: String,
+    /// Immutable image reference.
+    pub image: String,
+    /// Reused across agents and conversations in one workspace.
+    pub shared: bool,
+    /// The OCI runtime.
+    pub runtime: ContainerRuntime,
+    /// Where the workspace is mounted.
+    pub workdir: String,
+    /// `uid:gid` inside.
+    pub user: String,
+    /// The resource budget.
+    #[garde(dive)]
+    pub limits: ContainerLimits,
+    /// Capabilities added to the otherwise dropped set.
+    pub caps_added: Vec<String>,
+    /// Non-default hardening choices, named so they can be shown as warnings.
+    pub weakened: Vec<String>,
+    /// Why a restricted egress request could not be honoured here, when it
+    /// could not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_problem: Option<String>,
+    /// Whether these exact definition bytes were approved.
+    pub approved: bool,
+    /// Why selection is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+}
+
+/// One container managed by the isolated sandbox service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SandboxInstanceSummary {
+    /// Opaque lifecycle identifier.
+    pub id: String,
+    /// Registered workspace identifier.
+    pub workspace: String,
+    /// Approved container definition backing the instance.
+    pub container: String,
+    /// Shared across authorized agents and conversations in this workspace.
+    pub shared: bool,
+    /// Active operations.
+    #[schemars(range(max = MAX_SAFE_INTEGER))]
+    pub busy: u64,
+    /// Last activity on the service clock.
+    #[schemars(range(max = MAX_SAFE_INTEGER))]
+    pub last_used_ms: u64,
+    /// Agents that have resolved this instance.
+    #[serde(default)]
+    pub agents: Vec<String>,
+}
+
+/// `GET /api/sandboxes`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SandboxListResponse {
+    /// Live instances only.
+    pub instances: Vec<SandboxInstanceSummary>,
+}
+
+/// Everything the app may ask the sandbox service for.
+///
+/// One type for the whole boundary rather than one for the socket and another
+/// for `POST /api/sandboxes`: the HTTP route deserialises this, refuses the
+/// variants an operator may not send, and forwards the same value. Two enums
+/// meant a field could be added to one and silently dropped re-serialising
+/// through the other.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub enum SandboxRequest {
+    /// Probe the service and container engine.
+    Health,
+    /// Live instances.
+    List,
+    /// Run one approved operation. Refused over HTTP: a model's tool call
+    /// reaches the service through the agent loop, never through the API.
+    Execute {
+        /// Approved toolbox naming the operation.
+        toolbox: String,
+        /// The approval hash the caller resolved the toolbox at.
+        approval: String,
+        /// Approved container to run it in.
+        container: String,
+        /// The granted operation name.
+        operation: String,
+        /// Registered workspace ID.
+        workspace: String,
+        /// The calling agent.
+        agent: String,
+        /// The conversation.
+        session: String,
+        /// What the agent's container may reach.
+        #[serde(default)]
+        #[schemars(transform = crate::json::prefault)]
+        network: ContainerNetwork,
+        /// Validated against the operation's own schema, service-side.
+        args: serde_json::Value,
+    },
+    /// Warm an approved container.
+    Start {
+        /// Approved container name.
+        container: String,
+        /// Registered workspace ID.
+        workspace: String,
+        /// Audit identity.
+        agent: String,
+        /// Audit/session identity.
+        session: String,
+        /// What the instance may reach. Part of its identity: two agents
+        /// asking for different egress never share one container.
+        #[serde(default)]
+        #[schemars(transform = crate::json::prefault)]
+        network: ContainerNetwork,
+    },
+    /// Stop an instance.
+    Stop {
+        /// Opaque instance ID.
+        instance: String,
+        /// Cancel active or queued work.
+        #[serde(default)]
+        force: bool,
+    },
+    /// Restart an instance.
+    Restart {
+        /// Opaque instance ID.
+        instance: String,
+        /// Cancel active or queued work.
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 // MCP servers

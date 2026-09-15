@@ -6,9 +6,9 @@
 //!
 //! The catalogue is a directory this file writes rather than a package it
 //! resolves. That is what `--from` is for, and it is also the only way to test
-//! the layout: a fixture with three agents and two boxes says more about the
-//! ordering rules than eight real ones would, and it does not change when the
-//! presets repository does.
+//! the layout: a fixture with three agents, two toolboxes and two containers
+//! says more about the ordering rules than eight real ones would, and it does
+//! not change when the presets repository does.
 //!
 //! The prompts are driven by a scripted line reader rather than by a fake
 //! `Ask`, so the parsing every answer goes through — a number, a name, `all`,
@@ -70,8 +70,9 @@ struct Harness {
 }
 
 impl Harness {
-    /// Three agents and two boxes: one agent needing no container, one needing
-    /// a box of its own, and one delegating to both.
+    /// Three agents, two toolboxes and two containers: one agent needing
+    /// neither, one needing both, and one delegating to the pair. The `spare`
+    /// halves are what nobody named, and so what must never be installed.
     fn new() -> Harness {
         let harness = Harness {
             home: TempDir::new().expect("a temporary home"),
@@ -85,7 +86,8 @@ impl Harness {
             "coder",
             &json!({
                 "label": "Coder",
-                "toolbox": {"name": "coding", "network": {"mode": "none", "allow": []}},
+                "toolbox": {"name": "coding"},
+                "container": {"name": "dev", "network": {"mode": "none", "allow": []}},
             }),
         );
         harness.agent(
@@ -94,6 +96,8 @@ impl Harness {
         );
         harness.toolbox("coding");
         harness.toolbox("spare");
+        harness.container("dev");
+        harness.container("spare");
         harness.skill("code-review", None, &[("checklist.md", "- Read it.\n")]);
         harness.skill("triage", Some("lead"), &[]);
         harness
@@ -143,23 +147,57 @@ impl Harness {
         std::fs::write(dir.join(format!("{id}.json")), preset.to_string()).expect("a preset");
     }
 
+    /// A toolbox manifest and the definition it grants, copied verbatim by an
+    /// install. Nothing here is built.
     fn toolbox(&self, name: &str) {
-        let dir = self.catalogue().join("toolboxes").join(name);
-        std::fs::create_dir_all(&dir).expect("a toolbox directory");
-        std::fs::write(dir.join("Dockerfile"), "FROM scratch\n").expect("a Dockerfile");
+        let root = self.catalogue();
+        std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
+        std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
         std::fs::write(
-            dir.join("toolbox.json"),
+            root.join("toolboxes").join(format!("{name}.json")),
             json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
-                // The placeholder the build replaces. A manifest that shipped a
-                // real image id would be one nobody could have built.
-                "image": "__IMAGE_ID__",
-                "tools": [{"name": "rg", "use": "Search."}],
+                "tools": [{"name": "rg", "definition": "rg", "permission": "ask"}],
             })
             .to_string(),
         )
         .expect("a manifest");
+        std::fs::write(
+            root.join("tool-definitions").join("rg.json"),
+            json!({
+                "schema": "ghostai.tool/1",
+                "description": "Search the workspace.",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
+                "implementation": {
+                    "kind": "command",
+                    "executable": "/usr/bin/rg",
+                    "argv": ["--files"],
+                },
+            })
+            .to_string(),
+        )
+        .expect("a definition");
+    }
+
+    /// One container's build context: a `Dockerfile` and the definition whose
+    /// image id the build fills in.
+    fn container(&self, name: &str) {
+        let dir = self.catalogue().join("containers").join(name);
+        std::fs::create_dir_all(&dir).expect("a container directory");
+        std::fs::write(dir.join("Dockerfile"), "FROM scratch\n").expect("a Dockerfile");
+        std::fs::write(
+            dir.join("container.json"),
+            json!({
+                "schema": "ghostai.container/1",
+                "name": name,
+                // The placeholder the build replaces. A definition that shipped
+                // a real image id would be one nobody could have built.
+                "image": "__IMAGE_ID__",
+            })
+            .to_string(),
+        )
+        .expect("a definition");
     }
 
     /// A sheet in the catalogue's `skills/`, optionally scoped and with extras.
@@ -207,6 +245,11 @@ impl Harness {
             .unwrap_or_else(|| json!({}))
     }
 
+    /// Where an install lands what it copied and built.
+    fn policy(&self) -> PathBuf {
+        self.home().join("policy")
+    }
+
     fn approve(&self, name: &str) {
         let err = Sink::default();
         let mut streams = Streams {
@@ -214,6 +257,24 @@ impl Harness {
             err: Box::new(err.clone()),
         };
         let code = ghostai::toolbox::run(
+            &self.globals(),
+            StoreAction::Approve,
+            Some(name),
+            &self.env(),
+            &mut streams,
+        )
+        .expect("the approval answers with an exit code");
+        assert_eq!(code, 0, "{}", err.text());
+    }
+
+    /// The other half of the decision, approved on its own.
+    fn approve_container(&self, name: &str) {
+        let err = Sink::default();
+        let mut streams = Streams {
+            out: Box::new(Sink::default()),
+            err: Box::new(err.clone()),
+        };
+        let code = ghostai::container::run(
             &self.globals(),
             StoreAction::Approve,
             Some(name),
@@ -408,8 +469,9 @@ fn run(harness: &Harness, spec: Spec<'_>) -> Run {
     }
 }
 
-/// The one question the approval prompt asks about a single box.
-const APPROVE_ONE: &str = "Approve it, so agents may work in it?";
+/// The question the approval prompt asks about the toolbox and the container
+/// an agent needs — two decisions, so two pending approvals.
+const APPROVE_BOTH: &str = "Approve all 2, so agents may use them?";
 
 // list
 
@@ -458,11 +520,7 @@ fn shows_how_much_of_a_box_a_preset_asked_for() {
     harness.agent(
         "scout",
         &json!({
-            "toolbox": {
-                "name": "coding",
-                "network": {"mode": "none", "allow": []},
-                "tools": {"*": "deny", "rg": "allow"},
-            },
+            "toolbox": {"name": "coding", "tools": {"*": "deny", "rg": "allow"}},
         }),
     );
 
@@ -487,7 +545,7 @@ fn shows_how_much_of_a_box_a_preset_asked_for() {
 #[test]
 fn builds_only_the_boxes_the_chosen_agents_asked_for() {
     // The whole reason the picker exists. `spare` is in the catalogue and
-    // nobody named it, so it is never built.
+    // nobody named it, so neither half of it is built or installed.
     let harness = Harness::new();
 
     let installed = run(
@@ -501,17 +559,38 @@ fn builds_only_the_boxes_the_chosen_agents_asked_for() {
     assert_eq!(installed.code, 0, "{}", installed.errors);
     assert_eq!(
         installed.built,
-        vec![harness.catalogue().join("toolboxes").join("coding")]
+        vec![harness.catalogue().join("containers").join("dev")]
     );
     assert!(
         harness
-            .home()
+            .policy()
             .join("toolboxes")
-            .join("coding")
-            .join("toolbox.json")
+            .join("coding.json")
             .exists()
     );
-    assert!(!harness.home().join("toolboxes").join("spare").exists());
+    // The definition the manifest grants travels with it: the approval hash
+    // covers both, so a toolbox installed without one could never be reviewed.
+    assert!(
+        harness
+            .policy()
+            .join("tool-definitions")
+            .join("rg.json")
+            .exists()
+    );
+    assert!(
+        !harness
+            .policy()
+            .join("toolboxes")
+            .join("spare.json")
+            .exists()
+    );
+    assert!(
+        !harness
+            .policy()
+            .join("containers")
+            .join("spare.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -532,7 +611,7 @@ fn runs_no_builder_at_all_when_nothing_chosen_needs_a_box() {
 }
 
 #[test]
-fn pins_the_built_image_id_into_the_installed_manifest() {
+fn pins_the_built_image_id_into_the_installed_definition() {
     let harness = Harness::new();
     run(
         &harness,
@@ -542,16 +621,10 @@ fn pins_the_built_image_id_into_the_installed_manifest() {
         },
     );
 
-    let manifest = std::fs::read_to_string(
-        harness
-            .home()
-            .join("toolboxes")
-            .join("coding")
-            .join("toolbox.json"),
-    )
-    .expect("a manifest was installed");
-    assert!(manifest.contains(DIGEST), "{manifest}");
-    assert!(!manifest.contains("__IMAGE_ID__"), "{manifest}");
+    let definition = std::fs::read_to_string(harness.policy().join("containers").join("dev.json"))
+        .expect("a definition was installed");
+    assert!(definition.contains(DIGEST), "{definition}");
+    assert!(!definition.contains("__IMAGE_ID__"), "{definition}");
 }
 
 #[test]
@@ -592,16 +665,22 @@ fn prints_each_policy_before_asking_so_a_yes_is_an_informed_one() {
     );
 
     let shown = &installed.output;
-    let question = shown.find(APPROVE_ONE).expect("the question was asked");
-    // What the operator has seen by the time the question arrives.
-    for expected in ["network", "image      sha256:", "coding"] {
+    let question = shown.find(APPROVE_BOTH).expect("the question was asked");
+    // What the operator has seen by the time the question arrives: both halves
+    // named, and the container's policy spelled out rather than summarised.
+    for expected in [
+        "toolbox coding",
+        "container dev",
+        "image      sha256:",
+        "limits     ",
+    ] {
         let seen = shown.find(expected).unwrap_or(usize::MAX);
         assert!(
             seen < question,
             "{expected} was not shown before the question"
         );
     }
-    assert_eq!(shown.matches(APPROVE_ONE).count(), 1, "{shown}");
+    assert_eq!(shown.matches(APPROVE_BOTH).count(), 1, "{shown}");
 }
 
 #[test]
@@ -626,6 +705,11 @@ fn approves_and_installs_in_one_run_when_the_answer_is_yes() {
         "{}",
         installed.output
     );
+    assert!(
+        installed.output.contains("Approved dev"),
+        "{}",
+        installed.output
+    );
 }
 
 #[test]
@@ -643,7 +727,7 @@ fn approve_does_it_without_asking() {
 
     assert_eq!(installed.code, 0, "{}", installed.errors);
     assert!(
-        !installed.output.contains(APPROVE_ONE),
+        !installed.output.contains(APPROVE_BOTH),
         "{}",
         installed.output
     );
@@ -665,7 +749,7 @@ fn no_approve_neither_asks_nor_prints_the_policies() {
 
     assert_eq!(installed.code, 0, "{}", installed.errors);
     assert!(
-        !installed.output.contains(APPROVE_ONE),
+        !installed.output.contains(APPROVE_BOTH),
         "{}",
         installed.output
     );
@@ -718,6 +802,7 @@ fn installs_a_held_back_agent_once_its_box_is_approved() {
         },
     );
     harness.approve("coding");
+    harness.approve_container("dev");
 
     let second = run(
         &harness,
@@ -744,6 +829,7 @@ fn does_not_rebuild_a_box_that_is_already_approved() {
         },
     );
     harness.approve("coding");
+    harness.approve_container("dev");
 
     let second = run(
         &harness,
@@ -927,10 +1013,9 @@ fn reports_a_failed_build_without_writing_a_half_pinned_manifest() {
     );
     assert!(
         !harness
-            .home()
-            .join("toolboxes")
-            .join("coding")
-            .join("toolbox.json")
+            .policy()
+            .join("containers")
+            .join("dev.json")
             .exists()
     );
 }
@@ -938,10 +1023,7 @@ fn reports_a_failed_build_without_writing_a_half_pinned_manifest() {
 #[test]
 fn refuses_a_preset_naming_a_box_the_catalogue_does_not_carry() {
     let harness = Harness::new();
-    harness.agent(
-        "orphan",
-        &json!({"toolbox": {"name": "nowhere", "network": {"mode": "none", "allow": []}}}),
-    );
+    harness.agent("orphan", &json!({"toolbox": {"name": "nowhere"}}));
 
     let installed = run(
         &harness,
@@ -953,7 +1035,9 @@ fn refuses_a_preset_naming_a_box_the_catalogue_does_not_carry() {
 
     assert_eq!(installed.code, 1);
     assert!(
-        installed.errors.contains("no toolbox named \"nowhere\""),
+        installed
+            .errors
+            .contains("carries nothing named \"nowhere\""),
         "{}",
         installed.errors
     );

@@ -18,7 +18,9 @@ use std::sync::Mutex;
 use ghostai::i18n::Translations;
 use ghostai::pickers::agents::{agent_items, agent_listing, pick_agent};
 use ghostai::pickers::{MenuRequest, NoMenu, PickerMenu};
-use ghostai_protocol::config::{AgentSettings, AgentToolbox, PromptMode, ToolsConfig};
+use ghostai_protocol::config::{
+    AgentContainer, AgentSettings, AgentToolbox, PromptMode, ToolsConfig,
+};
 use ghostai_runtime::EffectiveAgent;
 use indexmap::IndexMap;
 
@@ -48,6 +50,7 @@ fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
         tools: IndexMap::default(),
         tools_config: ToolsConfig::default(),
         toolbox: AgentToolbox::default(),
+        container: AgentContainer::default(),
         subagents: Vec::new(),
     }
 }

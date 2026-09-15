@@ -19,6 +19,8 @@ ghostai serve                    serve the web UI and the API on one port
 ghostai preset    list | install [ids...] | update
 ghostai agent     install <name-or-path> [--force] | list
 ghostai toolbox   list | approve <id> | revoke <id>
+ghostai container list | approve <id> | revoke <id>
+ghostai sandbox   health | list | start | stop | restart
 ghostai extension list | approve <id> | revoke <id>
 ghostai help [command]
 ```
@@ -276,15 +278,14 @@ wrote, what it left alone because you may have edited it, and anything a preset 
 this catalogue does not carry. Nothing there refuses: a missing sheet costs one index line
 in that agent's prompt. See [Skills](skills.md#sheets-a-preset-brings).
 
-**A toolbox is built because an agent asked for it, never on its own.** You tick agents;
-the containers fall out of `toolbox.name` on the ones you ticked. Picking only agents
-that need no container is how you install without Docker — there is no flag for it,
-because the checkbox already is one.
+Toolbox capability and container placement are separate selections. A preset may select
+both, either, or neither; several agents and toolboxes may select the same shared
+container definition.
 
 **Approving is a separate decision, and the policy is printed before the question.**
-Building an image and installing its manifest are reversible; approving one is a
-statement that you read what that container may do — its network ceiling, the
-capabilities it adds back, the hardening it switches off. So the run prints all of that
+Building an image and installing a definition are reversible; approving one is a statement
+that you read what it may do — the grants a toolbox carries, and for a container the
+capabilities it adds back and the hardening it switches off. So the run prints all of that
 and then asks, and a run with nobody to ask — a pipe, a CI job — approves nothing and
 prints the commands instead. Passing `--approve` is how a script says yes.
 
@@ -306,8 +307,9 @@ built on, and what a script wants when it knows the name. It never touches Docke
 never fetches: use `ghostai preset install` when the agent needs a container that is not
 built yet.
 
-A preset is a JSON file holding a system prompt, tool permissions, a toolbox reference
-and a delegation roster, and installing it writes one entry in `agents.list`:
+A preset is a JSON file holding a system prompt, tool permissions, independent toolbox
+and container references, and a delegation roster. Installing it writes one entry in
+`agents.list`:
 
 ```bash
 ghostai agent list                      # configured agents, and presets not yet installed
@@ -322,8 +324,8 @@ never fetches one, so on a box that has not run `ghostai preset update` every sh
 preset names is reported as missing and the agent installs regardless.
 
 **There is one kind of preset.** A preset is `<id>.json` — the filename is the agent id
-— whether or not the agent works in a container; one that does simply sets
-`toolbox.name`. So there is one lookup, and the argument is either a path or an id
+— whether or not the agent works in a container; one that does sets `container.name`
+independently of `toolbox.name`. So there is one lookup, and the argument is either a path or an id
 searched in two directories:
 
 | Searched                       | Holds                                              |
@@ -350,34 +352,61 @@ A preset deliberately cannot name a model, a provider, or anything from the tool
 manifest's side of the security boundary. See
 [Toolboxes](toolboxes.md#agent-presets).
 
-## `ghostai toolbox` and `ghostai extension`
+## `ghostai toolbox`, `ghostai container`, and `ghostai extension`
 
-Both are the same three verbs over a digest-based approval:
+All three are the same verbs over a digest-based approval:
 
 ```bash
 ghostai toolbox list            # every installed toolbox, and whether it is approved
 ghostai toolbox approve <id>    # approve its current contents
 ghostai toolbox revoke <id>     # stays installed, stops running
+ghostai container list          # installed container definitions and approval state
+ghostai container approve <id>  # approve the exact current definition
+ghostai container revoke <id>   # leave it installed but unusable
 ```
 
 Approval records the sha256 of the exact bytes you reviewed, so **editing an installed
-toolbox or extension revokes its own approval** — the next turn refuses and names the
-drift rather than running code nobody looked at. `extension` differs in one way that
+definition revokes its own approval** — the next turn refuses and names the drift rather
+than running something nobody looked at. There is no `--force`: re-approving is reviewing
+the new bytes.
+
+A toolbox's hash covers the manifest **and every tool definition it names**, so editing a
+definition three toolboxes share revokes all three. A container's hash covers its own
+bytes alone, so the two approvals are independent. `extension` differs in one way that
 matters: its digest covers every byte of the install directory rather than the manifest,
-because an extension manifest names a path where a toolbox manifest pins an image.
+because an extension manifest names a path where a container definition pins an image.
 
 See [Toolboxes](toolboxes.md) and [Extensions](extensions.md).
 
+Container instances are managed through the isolated service:
+
+```bash
+ghostai sandbox health
+ghostai sandbox list
+ghostai sandbox start --container <id> --workspace <id>
+ghostai sandbox stop <instance> [--force]
+ghostai sandbox restart <instance> [--force]
+```
+
+`--socket` overrides the service socket. Normal stop/restart refuses an active or queued
+container; `--force` cancels its work. See [Sandbox service](sandbox-service.md).
+
 ## Environment
 
-| Variable            | Does                                                              |
-| ------------------- | ----------------------------------------------------------------- |
-| `GHOSTAI_HOME`      | The root. Beaten by `--home`, beats `~/.ghostai`.                 |
-| `GHOSTAI_PASSWORD`  | Fallback for `serve --password`.                                  |
-| `GHOSTAI_USERNAME`  | Fallback for `serve --username`.                                  |
-| `GHOSTAI_LANG`      | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`. |
-| `GHOSTAI_LOG_LEVEL` | Then `LOG_LEVEL`, then `info`.                                    |
-| `GHOSTAI_DEBUG`     | Any non-empty value prints stack traces instead of the sentence.  |
+| Variable                     | Does                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `GHOSTAI_HOME`               | The root. Beaten by `--home`, beats `~/.ghostai`.                      |
+| `GHOSTAI_PASSWORD`           | Fallback for `serve --password`.                                       |
+| `GHOSTAI_USERNAME`           | Fallback for `serve --username`.                                       |
+| `GHOSTAI_LANG`               | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.      |
+| `GHOSTAI_LOG_LEVEL`          | Then `LOG_LEVEL`, then `info`.                                         |
+| `GHOSTAI_DEBUG`              | Any non-empty value prints stack traces instead of the sentence.       |
+| `GHOSTAI_SANDBOX_SOCKET`     | The sandbox service socket. Naming one stops `serve` starting its own. |
+| `GHOSTAI_DATA_DIR`           | `ghostai-sandbox serve-env`: the absolute host path the daemon sees.   |
+| `GHOSTAI_CONTAINER_ENGINE`   | `docker` or `podman`. Defaults to `docker`.                            |
+| `GHOSTAI_GATEWAY_IMAGE`      | The egress gateway image, needed for `allowlist` egress.               |
+| `GHOSTAI_SANDBOX_TOOLBOXES`  | `serve-env`: toolboxes to register. Defaults to `coding,review`.       |
+| `GHOSTAI_SANDBOX_CONTAINERS` | `serve-env`: containers to register. Defaults to `dev`.                |
 
 Provider API keys are read from the environment **only when the vault has no entry** for
 that instance — the vault wins. [Configuration](configuration.md#environment-variables)

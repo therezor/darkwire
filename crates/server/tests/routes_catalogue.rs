@@ -25,9 +25,9 @@ use std::path::PathBuf;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use ghostai_protocol::config::Config;
-use ghostai_protocol::toolbox::Toolbox;
+use ghostai_protocol::toolbox::{ContainerDefinition, Toolbox};
 use ghostai_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
-use ghostai_security::toolbox_store::ToolboxListing;
+use ghostai_security::{ContainerListing, ResolvedToolbox, ToolboxListing};
 use ghostai_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
@@ -217,6 +217,18 @@ async fn a_machine_with_no_toolboxes_answers_with_an_empty_list() {
     assert_eq!(body["toolboxes"], json!([]));
 }
 
+#[tokio::test]
+async fn sandbox_management_rejects_tool_execution_and_unknown_fields_at_http_boundary() {
+    let test = server(TestServerOptions::default());
+    for body in [
+        json!({"op":"execute","toolbox":"coding"}),
+        json!({"op":"stop","instance":"one","force":false,"image":"untrusted"}),
+    ] {
+        let (status, _) = send(&test, Method::POST, "/api/sandboxes", Some(body)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}
+
 // GET /api/mcp
 
 #[tokio::test]
@@ -337,20 +349,19 @@ async fn a_command_body_that_is_not_json_is_a_400() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
-// Toolboxes, as an operator reviews them
+// Toolboxes and containers, as an operator reviews them
 
-/// A manifest built from JSON rather than by hand.
+/// A grant list built from JSON rather than by hand.
 ///
-/// The struct has no `Default` and fifteen fields, most of which have a serde
-/// default; deserialising is how a test says "this one field is the subject"
-/// without restating the other fourteen.
+/// A toolbox has no image, no network and no hardening — those belong to a
+/// container — so what a test overrides here is a grant or a label.
 fn manifest(overrides: &Value) -> Toolbox {
     let mut value = json!({
         "schema": "ghostai.toolbox/1",
         "name": "rust",
         "version": "1.0.0",
         "label": "Rust toolchain",
-        "image": "ghcr.io/example/rust@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "tools": [],
     });
     if let (Some(base), Some(extra)) = (value.as_object_mut(), overrides.as_object()) {
         for (key, item) in extra {
@@ -358,6 +369,35 @@ fn manifest(overrides: &Value) -> Toolbox {
         }
     }
     serde_json::from_value(value).expect("a manifest the schema accepts")
+}
+
+/// A resolved toolbox with one operation behind each of its grants.
+fn resolved(toolbox: Toolbox) -> ResolvedToolbox {
+    let operations = toolbox
+        .tools
+        .iter()
+        .map(|grant| {
+            let operation = serde_json::from_value(json!({
+                "schema": "ghostai.tool/1",
+                "description": format!("The {} operation", grant.name),
+                "implementation": {
+                    "kind": "command",
+                    "executable": "/usr/bin/cargo",
+                    "argv": [],
+                },
+                "parameters": {
+                    "type": "object", "properties": {}, "additionalProperties": false,
+                },
+            }))
+            .expect("an operation the schema accepts");
+            (grant.name.clone(), operation)
+        })
+        .collect();
+    ResolvedToolbox {
+        toolbox,
+        operations,
+        sha256: "0".repeat(64),
+    }
 }
 
 fn listing(
@@ -368,8 +408,8 @@ fn listing(
 ) -> ToolboxListing {
     ToolboxListing {
         name: name.to_owned(),
-        manifest_path: PathBuf::from(format!("/toolboxes/{name}/toolbox.json")),
-        toolbox,
+        path: PathBuf::from(format!("/toolboxes/{name}.json")),
+        value: toolbox.map(resolved),
         approved,
         problem: problem.map(str::to_owned),
     }
@@ -385,11 +425,51 @@ fn with_toolboxes(toolboxes: Vec<ToolboxListing>) -> TestServer {
     })
 }
 
+/// A container definition, likewise built from JSON.
+fn definition(overrides: &Value) -> ContainerDefinition {
+    let mut value = json!({
+        "schema": "ghostai.container/1",
+        "name": "dev",
+        "image": format!("sha256:{}", "0".repeat(64)),
+    });
+    if let (Some(base), Some(extra)) = (value.as_object_mut(), overrides.as_object()) {
+        for (key, item) in extra {
+            base.insert(key.clone(), item.clone());
+        }
+    }
+    serde_json::from_value(value).expect("a definition the schema accepts")
+}
+
+fn with_containers(definitions: Vec<ContainerDefinition>) -> TestServer {
+    server(TestServerOptions {
+        runtime: FakeRuntimeOptions {
+            containers: definitions
+                .into_iter()
+                .map(|definition| ContainerListing {
+                    name: definition.name.clone(),
+                    path: PathBuf::from(format!("/containers/{}.json", definition.name)),
+                    value: Some(definition),
+                    approved: true,
+                    problem: None,
+                })
+                .collect(),
+            ..FakeRuntimeOptions::default()
+        },
+        ..TestServerOptions::default()
+    })
+}
+
 #[tokio::test]
-async fn an_approved_manifest_reports_its_label_version_and_image() {
+async fn an_approved_toolbox_reports_its_label_version_and_grants() {
     let test = with_toolboxes(vec![listing(
         "rust",
-        Some(manifest(&json!({}))),
+        Some(manifest(&json!({
+            "notes": "Builds are slow; be patient.",
+            "tools": [
+                {"name": "cargo_test", "definition": "cargo-test", "permission": "ask"},
+                {"name": "cargo_fmt", "definition": "cargo-fmt", "permission": "allow"},
+            ],
+        }))),
         true,
         None,
     )]);
@@ -400,13 +480,19 @@ async fn an_approved_manifest_reports_its_label_version_and_image() {
     assert_eq!(entry["name"], "rust");
     assert_eq!(entry["label"], "Rust toolchain");
     assert_eq!(entry["version"], "1.0.0");
-    assert!(
-        entry["image"]
-            .as_str()
-            .expect("an image")
-            .contains("sha256:")
-    );
+    assert_eq!(entry["notes"], "Builds are slow; be patient.");
     assert_eq!(entry["approved"], true);
+    // The ceiling each grant carries, which an agent's own map may only
+    // tighten. The picker shows it without a second request.
+    assert_eq!(entry["tools"][0]["name"], "cargo_test");
+    assert_eq!(entry["tools"][0]["description"], "The cargo_test operation");
+    assert_eq!(entry["tools"][0]["permission"], "ask");
+    assert_eq!(entry["tools"][1]["name"], "cargo_fmt");
+    assert_eq!(entry["tools"][1]["permission"], "allow");
+    // Nothing that decides where or how a command runs is reported here,
+    // because a toolbox holds none of it.
+    assert!(entry.get("image").is_none());
+    assert!(entry.get("weakened").is_none());
 }
 
 #[tokio::test]
@@ -418,147 +504,90 @@ async fn a_manifest_that_could_not_be_read_is_still_listed_with_its_problem() {
         "broken",
         None,
         false,
-        Some("toolbox.json is not valid JSON"),
+        Some("Toolbox manifest is not valid JSON"),
     )]);
 
     let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
     let entry = &body["toolboxes"][0];
     assert_eq!(entry["name"], "broken");
-    assert_eq!(entry["problem"], "toolbox.json is not valid JSON");
+    assert_eq!(entry["problem"], "Toolbox manifest is not valid JSON");
     assert_eq!(entry["approved"], false);
     // Nothing parsed, so every field that comes off the manifest is empty
     // rather than invented.
     assert_eq!(entry["label"], "");
     assert_eq!(entry["version"], "");
-    assert_eq!(entry["image"], "");
+    assert_eq!(entry["notes"], "");
     assert_eq!(entry["tools"], json!([]));
-    assert_eq!(entry["exposesTools"], false);
 }
 
 #[tokio::test]
-async fn the_tools_a_toolbox_contributes_reach_the_listing() {
-    let test = with_toolboxes(vec![listing(
-        "rust",
-        Some(manifest(&json!({
-            "expose": "tools",
-            "tools": [
-                {"name": "cargo_test", "use": "Run the test suite", "permission": "ask"},
-                {"name": "cargo_fmt", "use": "Format the tree", "permission": "allow"},
-            ],
-        }))),
-        true,
-        None,
-    )]);
-
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    let entry = &body["toolboxes"][0];
-    // Whether those names are callables the agent editor can permission one by
-    // one, or a prompt section reached through `exec`.
-    assert_eq!(entry["exposesTools"], true);
-    assert_eq!(entry["tools"][0]["name"], "cargo_test");
-    assert_eq!(entry["tools"][0]["use"], "Run the test suite");
-    assert_eq!(entry["tools"][0]["permission"], "ask");
-    assert_eq!(entry["tools"][1]["name"], "cargo_fmt");
+async fn container_definitions_are_listed_independently_from_toolboxes() {
+    let test = with_containers(vec![definition(&json!({"shared": true}))]);
+    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let entry = &body["containers"][0];
+    assert_eq!(entry["name"], "dev");
+    assert_eq!(entry["shared"], true);
+    assert_eq!(entry["approved"], true);
+    // A container reports where and how, which is exactly what a toolbox does
+    // not.
+    assert_eq!(entry["runtime"], "runc");
+    assert_eq!(entry["workdir"], "/workspace");
+    assert_eq!(entry["user"], "1000:1000");
+    assert!(entry["limits"]["memoryMb"].is_number());
+    // Nothing is loosened by default, and no egress request could be refused
+    // by a container that weakens nothing.
+    assert_eq!(entry["weakened"], json!([]));
+    assert_eq!(entry["capsAdded"], json!([]));
+    assert!(entry.get("gatewayProblem").is_none());
 }
 
 #[tokio::test]
-async fn a_prompt_only_toolbox_still_names_its_tools_and_does_not_expose_them() {
-    let test = with_toolboxes(vec![listing(
-        "rust",
-        Some(manifest(&json!({
-            "tools": [{"name": "cargo_test", "use": "Run the test suite"}],
-        }))),
-        true,
-        None,
-    )]);
+async fn a_definition_that_weakens_the_container_says_which_defences_it_drops() {
+    let test = with_containers(vec![definition(&json!({
+        "security": {
+            "noNewPrivileges": false,
+            "seccomp": "unconfined",
+            "readOnlyRoot": false,
+        },
+        "caps": {"add": ["SYS_PTRACE"]},
+    }))]);
 
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    let entry = &body["toolboxes"][0];
-    assert_eq!(entry["exposesTools"], false);
-    assert_eq!(entry["tools"][0]["name"], "cargo_test");
-}
-
-#[tokio::test]
-async fn the_network_ceiling_and_the_capabilities_a_manifest_asks_for_are_reported() {
-    let test = with_toolboxes(vec![listing(
-        "net",
-        Some(manifest(&json!({
-            "network": {"maxMode": "allowlist", "proxyAllowHosts": ["crates.io"]},
-            "caps": {"add": ["SYS_PTRACE"]},
-        }))),
-        false,
-        None,
-    )]);
-
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    let entry = &body["toolboxes"][0];
-    assert_eq!(entry["maxNetwork"], "allowlist");
-    assert_eq!(entry["capsAdded"], json!(["SYS_PTRACE"]));
-    // Not yet approved: the listing is what an operator reviews *before*
-    // approving, so an unapproved entry has to be fully described.
-    assert_eq!(entry["approved"], false);
-}
-
-#[tokio::test]
-async fn a_manifest_that_weakens_the_sandbox_says_which_defences_it_drops() {
-    let test = with_toolboxes(vec![listing(
-        "loose",
-        Some(manifest(&json!({
-            "security": {
-                "noNewPrivileges": false,
-                "seccomp": "unconfined",
-                "readOnlyRoot": false,
-            },
-        }))),
-        true,
-        None,
-    )]);
-
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    let weakened = body["toolboxes"][0]["weakened"]
-        .as_array()
-        .expect("a weakened list")
-        .clone();
-    // The same list the terminal's review prints, so a browser and a terminal
-    // cannot disagree about what a toolbox is asking for.
-    assert!(!weakened.is_empty(), "{weakened:?}");
-}
-
-#[tokio::test]
-async fn a_manifest_that_names_no_user_is_itself_a_weakening() {
-    // Naming no user leaves the image's default, which is commonly root. That
-    // is worth saying out loud on the review screen even though the manifest
-    // asked for nothing: an operator approving it is approving that too.
-    let test = with_toolboxes(vec![listing(
-        "tight",
-        Some(manifest(&json!({}))),
-        true,
-        None,
-    )]);
-
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    let entry = &body["toolboxes"][0];
+    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let entry = &body["containers"][0];
     let weakened = entry["weakened"].as_array().expect("a weakened list");
+    // The same list the terminal's review prints, so a browser and a terminal
+    // cannot disagree about what a container is asking for.
+    assert!(!weakened.is_empty(), "{weakened:?}");
+    assert_eq!(entry["capsAdded"], json!(["SYS_PTRACE"]));
+}
+
+#[tokio::test]
+async fn a_definition_that_names_no_user_is_itself_a_weakening() {
+    // Naming no user leaves the image's default, which is commonly root. That
+    // is worth saying out loud on the review screen even though the definition
+    // asked for nothing: an operator approving it is approving that too.
+    let test = with_containers(vec![definition(&json!({"user": ""}))]);
+
+    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let weakened = body["containers"][0]["weakened"]
+        .as_array()
+        .expect("a weakened list");
     assert_eq!(weakened.len(), 1, "{weakened:?}");
     assert!(
         weakened[0].as_str().expect("a sentence").contains("root"),
         "{weakened:?}"
     );
-    // Nothing else is loosened by default: no network at all, no extra
-    // capabilities.
-    assert_eq!(entry["maxNetwork"], "none");
-    assert_eq!(entry["capsAdded"], json!([]));
 }
 
 #[tokio::test]
-async fn a_manifest_that_pins_a_user_weakens_nothing() {
-    let test = with_toolboxes(vec![listing(
-        "tight",
-        Some(manifest(&json!({"user": "1000:1000"}))),
-        true,
-        None,
-    )]);
+async fn a_container_that_could_not_host_a_restricted_allow_list_says_so_in_advance() {
+    // Shown before a save fails: an operator picking a container for an agent
+    // that scopes its egress needs to know which ones cannot carry it.
+    let test = with_containers(vec![definition(&json!({"user": "0:0"}))]);
 
-    let (_, body) = send(&test, Method::GET, "/api/toolboxes", None).await;
-    assert_eq!(body["toolboxes"][0]["weakened"], json!([]));
+    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let problem = body["containers"][0]["gatewayProblem"]
+        .as_str()
+        .expect("a gateway problem");
+    assert!(problem.contains("restricted allow-list"), "{problem}");
 }

@@ -18,6 +18,7 @@ tests and its own coverage bar.
 | `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, toolbox and extension approvals |
 | `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                 |
 | `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the local and container runners                                     |
+| `ghostai-sandbox`        | The isolated container service/client, shared lifecycle pool, and egress gateway                                       |
 | `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                     |
 | `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                               |
 | `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                    |
@@ -45,7 +46,7 @@ claim rather than an intention.
 ### Layering
 
 ```
-{ protocol, i18n } → core → security → { providers, tools } → { mcp, agent } ─┬→ runtime ──┐
+{ protocol, i18n } → core → security → { providers, tools } → { mcp, agent, sandbox } ─┬→ runtime ──┐
                                                                               │            │
                      core → channels ──────→ extension-host ──────────────────┘            ├→ ghostai
                                                                                            │  (binary)
@@ -195,18 +196,20 @@ the part that decides when the model reaches for it.
 
 Everything under `~/.ghostai`, or `$GHOSTAI_HOME`. Directories are created `0700`.
 
-| Path                      | Contents                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `config.json`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                         |
-| `ghost.db`                | One SQLite file, one connection, one WAL.                                                                          |
-| `vault.json`, `vault.key` | The encrypted credential vault.                                                                                    |
-| `workspace/`              | The jail root. Named workspaces are subdirectories of it.                                                          |
-| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told. |
-| `toolboxes/<name>/`       | Installed manifests. Outside the workspace, so injection cannot edit the policy the agent runs under.              |
-| `runs/<containerId>/`     | Sandbox command transcripts. Outside the workspace — a symlink-planting escape was demonstrated before this moved. |
-| `extensions/<id>/`        | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                         |
-| `extension-data/<id>/`    | What an extension writes at runtime — a sibling of its install directory, never a child.                           |
-| `logs/`                   | —                                                                                                                  |
+| Path                       | Contents                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `config.json`              | The settings tree. Written atomically via a `0600` temp file and a rename.                                                                 |
+| `ghost.db`                 | One SQLite file, one connection, one WAL.                                                                                                  |
+| `vault.json`, `vault.key`  | The encrypted credential vault.                                                                                                            |
+| `workspace/`               | The jail root. Named workspaces are subdirectories of it.                                                                                  |
+| `shared/<workspaceId>/`    | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told.                         |
+| `policy/toolboxes/`        | Installed grant lists and their `<name>.approval.sha256`. Outside the workspace, so injection cannot edit the policy the agent runs under. |
+| `policy/tool-definitions/` | Reusable operation definitions. No approval of their own: each is covered by every toolbox that names it.                                  |
+| `policy/containers/`       | Container definitions and their `<name>.approval.sha256`, approved independently of any toolbox.                                           |
+| `runs/<containerId>/`      | Sandbox command transcripts. Outside the workspace — a symlink-planting escape was demonstrated before this moved.                         |
+| `extensions/<id>/`         | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                                                 |
+| `extension-data/<id>/`     | What an extension writes at runtime — a sibling of its install directory, never a child.                                                   |
+| `logs/`                    | —                                                                                                                                          |
 
 ### The database
 
@@ -228,7 +231,6 @@ cannot deadlock on itself. Every table is `STRICT`.
 | `workspaces`                                     | Id, label, root                                                   |
 | `auth_secrets`, `auth_sessions`, `auth_throttle` | Password, username, setup code, sessions, throttle counters       |
 | `notifications`                                  | The bell and the archive                                          |
-| `toolbox_approvals`                              | The sha256 of each approved manifest's exact bytes                |
 | `extension_approvals`                            | The sha256 over every byte of each approved extension directory   |
 | `automation_jobs`                                | Schedule and payload as JSON, plus the indexed `next_run_at_ms`   |
 | `automation_runs`                                | One row per execution: status, output, warnings, session key      |

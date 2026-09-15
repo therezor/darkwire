@@ -288,10 +288,13 @@ describe('AgentEntrySchema', () => {
     expect(agent.tools).toEqual(DEFAULT_AGENT_TOOLS);
     expect(agent.toolbox).toEqual({
       name: '',
-      network: { mode: 'none', allow: [] },
       // Empty means "take the manifest's own permission for every program",
       // which is the only thing an agent that named no toolbox could mean.
       tools: {},
+    });
+    expect(agent.container).toEqual({
+      name: '',
+      network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
   });
 
@@ -529,10 +532,10 @@ describe('ConfigPatchSchema: the toolbox', () => {
     // would demand `allow` back — and a panel that never rendered the allow-list
     // would clear it on every save of the mode.
     const patch = ConfigPatchSchema.parse({
-      agents: { list: { boxed: { toolbox: { network: { mode: 'open' } } } } },
+      agents: { list: { boxed: { container: { network: { mode: 'open' } } } } },
     });
 
-    expect(patch.agents?.list?.boxed?.toolbox?.network).toEqual({
+    expect(patch.agents?.list?.boxed?.container?.network).toEqual({
       mode: 'open',
     });
   });
@@ -543,7 +546,7 @@ describe('ConfigPatchSchema: the toolbox', () => {
     });
 
     expect(patch.agents?.list?.boxed?.toolbox?.name).toBe('kali-pentest');
-    expect(patch.agents?.list?.boxed?.toolbox?.network).toBeUndefined();
+    expect(patch.agents?.list?.boxed?.container).toBeUndefined();
   });
 });
 

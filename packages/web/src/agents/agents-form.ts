@@ -173,11 +173,17 @@ export interface AgentEntryForm {
    * `ownFields` drops those rather than sending an id nothing resolves.
    */
   readonly subagents: readonly SubagentRef[];
-  /** A toolbox name, or empty to run commands on this machine. */
+  /** A toolbox name, or empty when no toolbox is selected. */
   readonly toolboxName: string;
-  readonly toolboxNetworkMode: string;
+  /** An approved container name, or empty to run on the host. */
+  readonly containerName: string;
+  readonly containerNetworkMode: string;
   /** Comma-separated CIDR blocks. Only read when the mode is `allowlist`. */
-  readonly toolboxAllow: string;
+  readonly containerAllow: string;
+  /** Comma-separated DNS names. Only read when the mode is `allowlist`. */
+  readonly containerHosts: string;
+  /** Comma-separated resolver addresses. Only read when the mode is `allowlist`. */
+  readonly containerDns: string;
   /**
    * The agent's per-box defaults, carried through this screen rather than
    * edited on it.
@@ -255,8 +261,11 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     tools: { ...entry.tools },
     subagents: entry.subagents.map((ref) => ({ ...ref })),
     toolboxName: entry.toolbox.name,
-    toolboxNetworkMode: entry.toolbox.network.mode,
-    toolboxAllow: entry.toolbox.network.allow.join(', '),
+    containerName: entry.container.name,
+    containerNetworkMode: entry.container.network.mode,
+    containerAllow: entry.container.network.allow.join(', '),
+    containerHosts: entry.container.network.hosts.join(', '),
+    containerDns: entry.container.network.dns.join(', '),
     toolboxTools: { ...entry.toolbox.tools },
   };
 }
@@ -407,6 +416,7 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
       .filter((ref) => ref.id !== '')
       .map((ref) => ({ ...ref, prompt: ref.prompt.trim() })),
     toolbox: toToolbox(form),
+    container: toContainer(form),
   };
 }
 
@@ -414,25 +424,14 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
  * The toolbox the form describes.
  *
  * Note what is *not* here: an image, a runtime, a capability set. Those live in
- * the profile manifest an operator installed, so this screen can only ever point
- * an agent at one and narrow its network — it cannot widen what the profile
- * permits, and there is no field through which a saved setting could try.
- *
- * The allow-list is dropped unless the mode actually uses it, so switching to
- * `none` and saving does not leave a stale set of CIDRs in the file waiting to
- * take effect the next time somebody switches back.
+ * the container definition an operator installed and approved, so this screen
+ * can point an agent at a toolbox and independently at a container, and cannot
+ * alter either.
  */
 function toToolbox(form: AgentEntryForm): AgentEntry['toolbox'] {
   const name = form.toolboxName.trim();
-  // An agent on the host cannot scope egress — there is no sandbox to enforce it
-  // — and `assertBuildable` refuses the combination, so it is not offered.
-  const mode = name === '' ? 'none' : networkMode(form.toolboxNetworkMode);
   return {
     name,
-    network: {
-      mode,
-      allow: mode === 'allowlist' ? parseList(form.toolboxAllow) : [],
-    },
     // Carried, not edited — see `toolboxTools` on the form. Dropped along with
     // the box when there is no box: a per-program default for a toolbox the
     // agent no longer works in would take effect again the moment somebody
@@ -441,13 +440,37 @@ function toToolbox(form: AgentEntryForm): AgentEntry['toolbox'] {
   };
 }
 
-const NETWORK_MODES: ReadonlyArray<AgentEntry['toolbox']['network']['mode']> = [
-  'none',
-  'allowlist',
-  'open',
-];
+/**
+ * The container the form describes, and what it may reach.
+ *
+ * Every list is dropped unless the mode actually uses it, so switching to
+ * `none` and saving does not leave a stale set of CIDRs in the file waiting to
+ * take effect the next time somebody switches back. The network goes with the
+ * container for the same reason: egress is enforced by the container's gateway,
+ * so a request left behind by an agent that no longer has one would mean
+ * nothing until somebody picked one again.
+ */
+function toContainer(form: AgentEntryForm): AgentEntry['container'] {
+  const name = form.containerName.trim();
+  const mode = name === '' ? 'none' : networkMode(form.containerNetworkMode);
+  const scoped = mode === 'allowlist';
+  return {
+    name,
+    network: {
+      mode,
+      allow: scoped ? parseList(form.containerAllow) : [],
+      hosts: scoped ? parseList(form.containerHosts) : [],
+      dns: scoped ? parseList(form.containerDns) : [],
+    },
+  };
+}
 
-function networkMode(value: string): AgentEntry['toolbox']['network']['mode'] {
+const NETWORK_MODES: ReadonlyArray<AgentEntry['container']['network']['mode']> =
+  ['none', 'allowlist', 'open'];
+
+function networkMode(
+  value: string,
+): AgentEntry['container']['network']['mode'] {
   return NETWORK_MODES.find((mode) => mode === value) ?? 'none';
 }
 
@@ -628,6 +651,7 @@ export function toNewAgentPatch(
           // model will use it.
           subagents: [],
           toolbox: { ...template.toolbox },
+          container: { ...template.container },
           provider: template.provider,
           model: template.model,
           maxTokens: template.maxTokens,

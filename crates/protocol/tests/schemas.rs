@@ -49,12 +49,15 @@ const UNREGISTERED: &[&str] = &[
     "Steer",
     // Inline enums the browser spells as a literal list inside a field.
     "SeccompProfile",
-    "ToolboxExposure",
     "NotificationLevel",
     "HealthCheckStatus",
     "HealthStatus",
     "CredentialNamespace",
     // Nested objects the browser declares inline.
+    "ToolGrant",
+    "OperationImplementation",
+    "OperationArgument",
+    "OperationInput",
     "ExtensionEngines",
     "AutomationJobCreator",
     "ErrorBody",
@@ -62,8 +65,9 @@ const UNREGISTERED: &[&str] = &[
     // exports by name.
     "AgentSettingsPatch",
     "ExecToolConfigPatch",
-    "AgentToolboxNetworkPatch",
+    "ContainerNetworkPatch",
     "AgentToolboxPatch",
+    "AgentContainerPatch",
     "AgentEntryPatch",
     "AgentsConfigPatch",
     "ProviderConfigPatch",

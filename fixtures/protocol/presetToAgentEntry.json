@@ -43,11 +43,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }
@@ -96,11 +101,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }
@@ -148,11 +158,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }
@@ -202,11 +217,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }
@@ -218,7 +238,9 @@
           "schema": "ghostai.agent-preset/1",
           "id": "researcher",
           "toolbox": {
-            "name": "web-research",
+            "name": "web-research"
+          },
+          "container": {
             "network": {
               "mode": "open"
             }
@@ -262,11 +284,16 @@
         },
         "toolbox": {
           "name": "web-research",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "open",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": [
           {
@@ -326,11 +353,16 @@
         },
         "toolbox": {
           "name": "",
+          "tools": {}
+        },
+        "container": {
+          "name": "",
           "network": {
             "mode": "none",
-            "allow": []
-          },
-          "tools": {}
+            "allow": [],
+            "hosts": [],
+            "dns": []
+          }
         },
         "subagents": []
       }

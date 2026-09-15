@@ -1,334 +1,383 @@
-//! Toolboxes: parsing, policy, and the ceiling.
+//! Toolboxes: resolving a grant list, and the constraints on an operation.
 //!
-//! A toolbox is authorised by **content hash**, not by a signature. The question
-//! asked at resolution is only ever "are these exact bytes approved?", and an
-//! operator answers it once by installing the toolbox. That choice is worth
-//! stating because the alternative looks stronger and is not: an Ed25519
-//! signature answers *who authored this policy*, which matters when a manifest
-//! arrives from somewhere else and proves nothing when the key sits on the same
-//! disk as the file it signs. The approval check is a single predicate over
-//! bytes so a signature path can be added later as a second way to satisfy the
-//! same question, without disturbing anything that calls it.
+//! A toolbox names reusable operation definitions rather than carrying them, so
+//! one reviewed `git-status` is shared by every toolbox that grants it. That
+//! makes the approval question wider than one file: [`resolve_bundle`] reads
+//! the toolbox and each definition it names **once**, hashes those same bytes
+//! together, and returns the values it parsed from them. Hashing the bundle is
+//! what makes editing a shared definition revoke every toolbox that reaches it;
+//! hashing the bytes it actually parsed is what stops a definition being read
+//! twice and changing in between.
 //!
-//! Two refusals here are absolute, and the difference between them is the design:
+//! The constraints on an operation are all about the same thing: an operation
+//! is a fixed program and a reviewed argument mapping, never a shell string.
+//! `/usr/bin/git` with `["diff", {input: "path", workspacePath: true}]` is an
+//! operation; `git diff $PATH` is not expressible, because there is nowhere to
+//! put it. So the checks below are not a filter over dangerous commands — there
+//! is no command to filter — they are what keeps the argv shape honest:
 //!
-//!  - **An image must be digest-pinned.** A tag is a mutable pointer, so a
-//!    toolbox approved once and then repointed is the approval gate defeated
-//!    while every hash still matches. Nothing in the review would show it.
-//!  - **`NET_ADMIN` is never grantable.** The egress gateway's rules live in a
-//!    network namespace the sandbox *shares*; a sandbox holding `NET_ADMIN` can
-//!    flush them. This is refused rather than surfaced because it breaks an
-//!    invariant the rest of the system relies on, and no operator reviewing a
-//!    manifest could be expected to reconstruct that.
-//!
-//! `seccomp: unconfined` is deliberately *not* in that list. It is genuinely
-//! risky and genuinely required for rootless builds inside a container, so it is
-//! surfaced in the install review and left to the operator. The rule of thumb:
-//! refuse what silently breaks the machinery, surface what is merely dangerous.
+//!  - **The schema must be self-contained.** A `$ref` would make validation
+//!    fetch something, at approval time and again at call time, and the two
+//!    could differ.
+//!  - **The executable is absolute and outside the workspace.** A relative path
+//!    resolves against a working directory nobody stated, and one inside the
+//!    workspace is a file `write_file` can replace between approval and call.
+//!  - **Every argv input is a required scalar.** Optional means the argv has a
+//!    hole at a position the operator counted on being filled; a non-scalar
+//!    means one input becomes several arguments, which is the shell-injection
+//!    shape wearing a JSON hat.
 
-use std::sync::LazyLock;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
-use garde::Validate;
 use ghostai_core::{ErrorKind, GhostError, Result};
-pub use ghostai_protocol::BUILTIN_TOOL_NAMES;
-use ghostai_protocol::{
-    AgentToolboxNetwork, SeccompProfile, Toolbox, ToolboxNetworkMode, ToolboxRuntime,
+use ghostai_protocol::toolbox::{
+    OperationArgument, OperationImplementation, ToolOperation, Toolbox,
 };
-use regex::Regex;
-use serde::de::DeserializeOwned;
-use sha2::{Digest, Sha256};
+use ghostai_protocol::{ContainerNetwork, NetworkMode, ToolPermission};
+use serde_json::Value;
 
+use crate::container::{manifest_hash, parse_manifest};
 use crate::ip::parse_cidr;
-use crate::random::hex_lower;
+use crate::{WorkspaceJail, parse_ip_literal};
 
-/// The two immutable ways to name an image.
+/// Construct an operator-actionable policy error.
+pub fn invalid(message: impl Into<String>) -> GhostError {
+    GhostError::new(ErrorKind::Config, message)
+}
+
+/// Ensure a reference names a file within the operator policy directory.
 ///
-/// `name@sha256:<64 hex>` is a registry digest. A bare `sha256:<64 hex>` is a
-/// local image **ID**, which is what `docker build` produces and what a toolbox
-/// built on this machine has to reference — there is no registry digest until
-/// something is pushed. Both are content addresses, so both are as unrepointable
-/// as the other; a tag is neither.
-///
-/// **Anchored at both ends deliberately.** A pattern anchored only at the end
-/// accepts `-v/:/hostfs@sha256:<64 hex>`, and the image is pushed to `docker run`
-/// as a bare argv token — so a manifest could smuggle a flag past the check and
-/// bind host root into the sandbox. That is not currently exploitable, because the
-/// token after the image happens to be one docker rejects, but it survives by
-/// accident of argument order rather than by design.
-static IMAGE_DIGEST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[a-z0-9][a-z0-9._\-/:]*@sha256:[0-9a-f]{64}$|^sha256:[0-9a-f]{64}$")
-        .unwrap_or_else(|_| unreachable!("the pattern is a literal"))
-});
-
-/// Capabilities a toolbox may never request. See the module header.
-const FORBIDDEN_CAPABILITIES: &[&str] = &["NET_ADMIN", "SYS_ADMIN", "SYS_MODULE"];
-
-/// Ordered weakest to strongest, which is what makes the ceiling a `min`.
-fn rank(mode: ToolboxNetworkMode) -> u8 {
-    match mode {
-        ToolboxNetworkMode::None => 0,
-        ToolboxNetworkMode::Allowlist => 1,
-        ToolboxNetworkMode::Open => 2,
+/// The character class is the whole check: no separator, no dot, so no
+/// reference can leave the directory it is resolved in. A name that fails this
+/// never reaches the filesystem at all.
+pub fn assert_slug(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        || name.starts_with('-')
+    {
+        return Err(invalid(format!("Invalid policy reference: {name}")));
     }
+    Ok(())
 }
 
-fn mode_name(mode: ToolboxNetworkMode) -> &'static str {
-    match mode {
-        ToolboxNetworkMode::None => "none",
-        ToolboxNetworkMode::Allowlist => "allowlist",
-        ToolboxNetworkMode::Open => "open",
+/// Parses toolbox bytes, with the schema's own errors turned into a sentence.
+pub fn parse_toolbox(bytes: &[u8]) -> Result<Toolbox> {
+    parse_manifest(bytes, "Toolbox manifest")
+}
+
+/// A toolbox and every operation it grants, resolved together.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedToolbox {
+    /// The manifest.
+    pub toolbox: Toolbox,
+    /// Each grant's name mapped to the definition it resolved to.
+    pub operations: BTreeMap<String, ToolOperation>,
+    /// The hash over the toolbox and every definition it names.
+    pub sha256: String,
+}
+
+fn read_dependency(root: &Path, folder: &str, name: &str, bundle: &mut Vec<u8>) -> Result<Vec<u8>> {
+    assert_slug(name)?;
+    let path = root.join(folder).join(format!("{name}.json"));
+    let bytes = std::fs::read(&path)
+        .map_err(|e| invalid(format!("Cannot read {}: {e}", path.display())))?;
+    // Length framing prevents ambiguous concatenations across dependencies: two
+    // definitions whose bytes could be split differently must not hash alike.
+    bundle.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+    bundle.extend_from_slice(&bytes);
+    Ok(bytes)
+}
+
+/// Read every dependency once, then hash and return those same bytes.
+pub fn resolve_bundle(root: &Path, bytes: &[u8]) -> Result<ResolvedToolbox> {
+    let toolbox = parse_toolbox(bytes)?;
+    assert_slug(&toolbox.name)?;
+    let mut bundle = (bytes.len() as u64).to_be_bytes().to_vec();
+    bundle.extend_from_slice(bytes);
+    let mut operations = BTreeMap::new();
+    for grant in &toolbox.tools {
+        let bytes = read_dependency(root, "tool-definitions", &grant.definition, &mut bundle)?;
+        let operation: ToolOperation = serde_json::from_slice(&bytes)
+            .map_err(|e| invalid(format!("{}: {e}", grant.definition)))?;
+        validate_operation(&operation)?;
+        if operations.insert(grant.name.clone(), operation).is_some() {
+            return Err(invalid(format!("Duplicate tool grant: {}", grant.name)));
+        }
     }
+    Ok(ResolvedToolbox {
+        toolbox,
+        operations,
+        sha256: manifest_hash(&bundle),
+    })
 }
 
-/// The sha256 of a manifest's exact bytes.
-///
-/// Over the bytes, never over a re-serialisation of the parsed object: a toolbox
-/// that round-trips through a formatter gains and loses whitespace and key
-/// order, and an approval keyed on that would break on a formatter rather than on
-/// a change of meaning.
-pub fn manifest_hash(bytes: &[u8]) -> String {
-    sha256_hex(bytes)
+/// Remote references are forbidden: validation must never fetch schemas.
+fn reject_references(value: &Value) -> Result<()> {
+    match value {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                if matches!(key.as_str(), "$ref" | "$dynamicRef" | "$recursiveRef") {
+                    return Err(invalid(
+                        "Operation schemas must be self-contained (no references)",
+                    ));
+                }
+                reject_references(value)?;
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                reject_references(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
-/// Lowercase hex of the sha256 of `bytes`.
-pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
-    hex_lower(&Sha256::digest(bytes))
-}
-
-/// Parses manifest bytes into `T`, with the schema's own errors turned into a
-/// sentence that names the field. Shared with the extension manifest.
-pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
-    bytes: &[u8],
-    what: &str,
-) -> Result<T> {
-    let json: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
-        GhostError::new(ErrorKind::Config, format!("{what} is not valid JSON")).with_source(error)
-    })?;
-    let parsed: T = serde_path_to_error::deserialize(json).map_err(|error| {
-        let path = error.path().to_string();
-        let field = if path == "." { "(root)" } else { path.as_str() };
-        GhostError::new(
-            ErrorKind::Config,
-            format!("{what} is not valid: {field}: {}", error.inner()),
-        )
-    })?;
-    if let Err(report) = parsed.validate() {
-        let detail = report
-            .iter()
-            .map(|(path, error)| {
-                let path = path.to_string();
-                let field = if path.is_empty() {
-                    "(root)"
-                } else {
-                    path.as_str()
-                };
-                format!("{field}: {error}")
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Err(GhostError::new(
-            ErrorKind::Config,
-            format!("{what} is not valid: {detail}"),
+/// Validate an operation's schema and argument mapping before approval.
+pub fn validate_operation(operation: &ToolOperation) -> Result<()> {
+    reject_references(&operation.parameters)?;
+    if operation.parameters.get("type") != Some(&Value::from("object"))
+        || operation.parameters.get("additionalProperties") != Some(&Value::from(false))
+    {
+        return Err(invalid(
+            "Operation parameters must be an object with additionalProperties:false",
         ));
     }
-    Ok(parsed)
-}
-
-/// Parses manifest bytes, with the schema's own errors turned into a sentence.
-pub fn parse_toolbox(bytes: &[u8]) -> Result<Toolbox> {
-    parse_manifest(bytes, "Profile manifest")
-}
-
-fn policy_error(toolbox: &Toolbox, message: String) -> GhostError {
-    GhostError::new(ErrorKind::Config, message).with_detail("toolbox", toolbox.name.as_str())
-}
-
-/// Refuses a toolbox the machinery cannot honour.
-///
-/// Separate from parsing because a manifest can be perfectly well-formed and
-/// still ask for something that would quietly disable a guarantee elsewhere.
-pub fn assert_toolbox_policy(toolbox: &Toolbox) -> Result<()> {
-    if !IMAGE_DIGEST_PATTERN.is_match(&toolbox.image) {
-        return Err(policy_error(
-            toolbox,
-            format!(
-                "Toolbox \"{}\" must pin its image by digest, not by tag: {}\n  A tag can be repointed after approval, which would leave the recorded hash\n  matching an image nobody reviewed. Use name@sha256:<digest>.",
-                toolbox.name, toolbox.image
-            ),
-        )
-        .with_detail("image", toolbox.image.as_str()));
+    jsonschema::validator_for(&operation.parameters).map_err(|e| invalid(e.to_string()))?;
+    let OperationImplementation::Command {
+        executable,
+        argv,
+        argv_input,
+    } = &operation.implementation
+    else {
+        return Ok(());
+    };
+    if !executable.starts_with('/')
+        || executable.contains('\0')
+        || executable.split('/').any(|p| p == "..")
+    {
+        return Err(invalid(
+            "Operation executables must be absolute operator-controlled paths",
+        ));
     }
-
-    for capability in &toolbox.caps.add {
-        let upper = capability.to_uppercase();
-        let name = upper.strip_prefix("CAP_").unwrap_or(&upper);
-        if FORBIDDEN_CAPABILITIES.contains(&name) {
-            return Err(policy_error(
-                toolbox,
-                format!(
-                    "Toolbox \"{}\" asks for {capability}, which is never granted.\n  The egress gateway's rules live in a namespace the sandbox shares, and a\n  sandbox holding NET_ADMIN could flush them.",
-                    toolbox.name
-                ),
-            )
-            .with_detail("capability", capability.as_str()));
+    if executable == "/workspace" || executable.starts_with("/workspace/") {
+        return Err(invalid(
+            "Operation executables cannot come from the writable workspace",
+        ));
+    }
+    let properties = operation
+        .parameters
+        .get("properties")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Operation needs properties"))?;
+    let required: BTreeSet<&str> = operation
+        .parameters
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    for argument in argv {
+        match argument {
+            OperationArgument::Literal(value) if value.contains('\0') => {
+                return Err(invalid("NUL in fixed argument"));
+            }
+            OperationArgument::Input(input) => {
+                let property = properties
+                    .get(&input.input)
+                    .ok_or_else(|| invalid("Unknown argv input"))?;
+                if !required.contains(input.input.as_str())
+                    || !matches!(
+                        property.get("type").and_then(Value::as_str),
+                        Some("string" | "integer" | "number" | "boolean")
+                    )
+                {
+                    return Err(invalid("argv inputs must be required scalar properties"));
+                }
+                if input.workspace_path && property.get("type") != Some(&Value::from("string")) {
+                    return Err(invalid("Workspace paths must be strings"));
+                }
+            }
+            OperationArgument::Literal(_) => {}
         }
     }
-
-    // A declared entry becomes a callable under `expose: tools`, and one named
-    // `read_file` would shadow the jailed built-in with an unjailed shell command.
-    // Refused rather than surfaced: no operator reading a manifest would spot that
-    // a program name is also a tool name.
-    for entry in &toolbox.tools {
-        if BUILTIN_TOOL_NAMES.contains(&entry.name.as_str()) {
-            return Err(policy_error(
-                toolbox,
-                format!(
-                    "Toolbox \"{}\" declares a program called \"{}\", which is the\n  name of a built-in tool. Exposed as a callable it would shadow that tool.",
-                    toolbox.name, entry.name
-                ),
-            )
-            .with_detail("entry", entry.name.as_str()));
-        }
-    }
-
-    for host in &toolbox.network.proxy_allow_hosts {
-        if host.trim().is_empty() {
-            return Err(policy_error(
-                toolbox,
-                format!("Toolbox \"{}\" has an empty proxy host entry", toolbox.name),
-            ));
+    if let Some(input) = argv_input {
+        let property = properties
+            .get(input)
+            .ok_or_else(|| invalid("Unknown argvInput"))?;
+        if !required.contains(input.as_str())
+            || property.get("type") != Some(&Value::from("array"))
+            || property.pointer("/items/type") != Some(&Value::from("string"))
+        {
+            return Err(invalid("argvInput must be a required array of strings"));
         }
     }
     Ok(())
 }
 
-/// Refuses an agent asking for more network than its toolbox permits.
-///
-/// Raised at agent resolution rather than clamped at turn time. Silently
-/// narrowing would leave the config saying one thing while the sandbox did
-/// another, and the operator who wrote `open` would have no way to discover it.
-pub fn assert_network_within_ceiling(
-    toolbox: &Toolbox,
-    requested: &AgentToolboxNetwork,
-    agent_id: &str,
-) -> Result<()> {
-    let maximum = toolbox.network.max_mode;
-    if rank(requested.mode) > rank(maximum) {
-        return Err(GhostError::new(
-            ErrorKind::Config,
-            format!(
-                "Agent \"{agent_id}\" asks for network \"{}\", but toolbox \"{}\" permits at most \"{}\".",
-                mode_name(requested.mode),
-                toolbox.name,
-                mode_name(maximum)
-            ),
-        )
-        .with_detail("agentId", agent_id)
-        .with_detail("toolbox", toolbox.name.as_str())
-        .with_detail("requested", mode_name(requested.mode))
-        .with_detail("maximum", mode_name(maximum)));
+/// Validate one call against the exact approved input schema.
+pub fn validate_input(operation: &ToolOperation, input: &Value) -> Result<()> {
+    let validator =
+        jsonschema::validator_for(&operation.parameters).map_err(|e| invalid(e.to_string()))?;
+    validator
+        .validate(input)
+        .map_err(|e| GhostError::new(ErrorKind::InvalidInput, e.to_string()))
+}
+
+/// Build argv using constants and scalar values; no shell string is built.
+pub fn command_argv(
+    operation: &ToolOperation,
+    input: &Value,
+    jail: &WorkspaceJail,
+) -> Result<Vec<String>> {
+    validate_input(operation, input)?;
+    let OperationImplementation::Command {
+        executable,
+        argv,
+        argv_input,
+    } = &operation.implementation
+    else {
+        return Err(invalid("Not a command operation"));
+    };
+    if jail.contains(Path::new(executable)) {
+        return Err(invalid("Executable is inside the writable workspace"));
     }
-    if requested.mode == ToolboxNetworkMode::Allowlist && requested.allow.is_empty() {
+    let mut command = vec![executable.clone()];
+    for argument in argv {
+        command.push(match argument {
+            OperationArgument::Literal(value) => value.clone(),
+            OperationArgument::Input(field) => {
+                let value = &input[&field.input];
+                if field.workspace_path {
+                    jail.resolve(value.as_str().ok_or_else(|| invalid("Invalid path"))?)?
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), str::to_owned)
+                }
+            }
+        });
+    }
+    if let Some(field) = argv_input {
+        command.extend(
+            input[field]
+                .as_array()
+                .ok_or_else(|| invalid("Invalid argv"))?
+                .iter()
+                .map(|v| v.as_str().unwrap_or_default().to_owned()),
+        );
+    }
+    if command.iter().any(|v| v.contains('\0')) {
+        return Err(invalid("NUL in command argument"));
+    }
+    Ok(command)
+}
+
+/// Intersect a requested permission with an immutable grant ceiling.
+pub fn narrow_permission(ceiling: ToolPermission, requested: ToolPermission) -> ToolPermission {
+    match (ceiling, requested) {
+        (ToolPermission::Deny, _) | (_, ToolPermission::Deny) => ToolPermission::Deny,
+        (ToolPermission::Ask, _) | (_, ToolPermission::Ask) => ToolPermission::Ask,
+        _ => ToolPermission::Allow,
+    }
+}
+
+/// Refuses an egress request nothing could enforce.
+///
+/// Raised where the agent is resolved rather than clamped when a container
+/// starts. Silently narrowing would leave the config saying one thing while the
+/// container did another, and the operator who wrote it would have no way to
+/// discover it.
+pub fn assert_container_network(network: &ContainerNetwork, agent_id: &str) -> Result<()> {
+    if network.mode != NetworkMode::Allowlist {
+        if !network.allow.is_empty() || !network.hosts.is_empty() || !network.dns.is_empty() {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!(
+                    "Agent \"{agent_id}\" lists egress entries but its network mode is not \"allowlist\".\n  They would have no effect. Set the mode, or clear the entries."
+                ),
+            )
+            .with_detail("agentId", agent_id));
+        }
+        return Ok(());
+    }
+    if network.allow.is_empty() && network.hosts.is_empty() {
         return Err(GhostError::new(
             ErrorKind::Config,
             format!(
                 "Agent \"{agent_id}\" asks for an allow-list with no entries, which reaches nothing.\n  Use mode \"none\" if that is the intent."
             ),
         )
-        .with_detail("agentId", agent_id)
-        .with_detail("toolbox", toolbox.name.as_str()));
+        .with_detail("agentId", agent_id));
     }
-    for entry in &requested.allow {
+    if !network.allow.is_empty() && !network.hosts.is_empty() {
+        return Err(GhostError::new(
+            ErrorKind::Config,
+            format!(
+                "Agent \"{agent_id}\" lists both CIDRs and hosts. Choose one.\n  CIDRs are enforced by the gateway's packet filter and hosts by the egress\n  proxy, and a request enforced in two places is enforced in neither."
+            ),
+        )
+        .with_detail("agentId", agent_id));
+    }
+    for entry in &network.allow {
         if parse_cidr(entry).is_none() {
             return Err(GhostError::new(
                 ErrorKind::Config,
                 format!(
-                    "Agent \"{agent_id}\" has an egress entry that is not a CIDR block: {entry}\n  Hostnames are refused here because DNS rebinding defeats them. Use 10.0.0.0/8."
+                    "Agent \"{agent_id}\" has an egress entry that is not a CIDR block: {entry}\n  Hostnames go in `hosts`, where the proxy sees the name rather than an address\n  DNS rebinding chose. Use 10.0.0.0/8 here."
                 ),
             )
             .with_detail("agentId", agent_id)
             .with_detail("entry", entry.as_str()));
         }
     }
+    for host in &network.hosts {
+        if host.is_empty()
+            || host.len() > 253
+            || host.starts_with('.')
+            || host.ends_with('.')
+            || !host
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
+        {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!(
+                    "Agent \"{agent_id}\" has an egress host that is not an exact DNS name: {host}\n  Wildcards are not accepted: the proxy matches the name it was given."
+                ),
+            )
+            .with_detail("agentId", agent_id)
+            .with_detail("host", host.as_str()));
+        }
+    }
+    for resolver in &network.dns {
+        if parse_ip_literal(resolver).is_none() {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!(
+                    "Agent \"{agent_id}\" has a DNS resolver that is not an IP literal: {resolver}\n  A name cannot be resolved by something that has to be resolved first."
+                ),
+            )
+            .with_detail("agentId", agent_id)
+            .with_detail("resolver", resolver.as_str()));
+        }
+    }
+    if !network.allow.is_empty() && network.dns.is_empty() {
+        return Err(GhostError::new(
+            ErrorKind::Config,
+            format!(
+                "Agent \"{agent_id}\" scopes egress by CIDR but names no DNS resolver.\n  Nothing in the container could resolve a hostname, so every name would fail.\n  Add a resolver reachable inside the allow-list, or scope by `hosts` instead."
+            ),
+        )
+        .with_detail("agentId", agent_id));
+    }
     Ok(())
-}
-
-/// What a toolbox and an agent's request resolve to together.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EffectiveNetwork {
-    /// The resolved mode, never above the toolbox ceiling.
-    pub mode: ToolboxNetworkMode,
-    /// The agent's CIDRs, only when the mode is `allowlist`.
-    pub allow: Vec<String>,
-    /// The toolbox's resolvers.
-    pub dns: Vec<String>,
-    /// The toolbox's proxy hosts.
-    pub proxy_allow_hosts: Vec<String>,
-}
-
-/// The intersection of a toolbox's ceiling and an agent's request.
-///
-/// Defensive even though [`assert_network_within_ceiling`] has usually already
-/// run: this is the value the runner turns into flags, and a `min` here means no
-/// ordering of calls can produce a container with more reach than its toolbox
-/// allows. The property worth testing is that it never widens.
-pub fn effective_network(toolbox: &Toolbox, requested: &AgentToolboxNetwork) -> EffectiveNetwork {
-    let maximum = toolbox.network.max_mode;
-    let mode = if rank(requested.mode) < rank(maximum) {
-        requested.mode
-    } else {
-        maximum
-    };
-    EffectiveNetwork {
-        mode,
-        allow: if mode == ToolboxNetworkMode::Allowlist {
-            requested.allow.clone()
-        } else {
-            Vec::new()
-        },
-        dns: toolbox.network.dns.clone(),
-        proxy_allow_hosts: toolbox.network.proxy_allow_hosts.clone(),
-    }
-}
-
-/// Everything about a toolbox that grants more than the defaults do.
-///
-/// The two fields that actually reach the host are the ones worth naming:
-/// `security.devices` becomes `--device=…`, so `/dev/sda:/dev/sda:rwm` is raw
-/// disk access, and `user: "0:0"` runs as root inside. A manifest asking for
-/// both passes [`assert_toolbox_policy`], so a summary of image, network and
-/// limits alone would present a total escape as a clean toolbox. Neither is
-/// *refused*, because a device is legitimate for a rootless builder; both are
-/// named loudly.
-pub fn weakened_in(toolbox: &Toolbox) -> Vec<String> {
-    let mut weakened = Vec::new();
-    if !toolbox.security.devices.is_empty() {
-        weakened.push(format!(
-            "devices    {}  (host device access)",
-            toolbox.security.devices.join(", ")
-        ));
-    }
-    if toolbox.user.is_empty() || toolbox.user.starts_with("0:") {
-        let user = if toolbox.user.is_empty() {
-            "image default"
-        } else {
-            toolbox.user.as_str()
-        };
-        weakened.push(format!("user       {user}  (may be root)"));
-    }
-    if toolbox.security.seccomp != SeccompProfile::Default {
-        weakened.push("seccomp    unconfined".to_owned());
-    }
-    if !toolbox.security.read_only_root {
-        weakened.push("rootfs     writable".to_owned());
-    }
-    match toolbox.runtime {
-        ToolboxRuntime::Runc => {}
-        ToolboxRuntime::Runsc => weakened.push("runtime    runsc".to_owned()),
-        ToolboxRuntime::Kata => weakened.push("runtime    kata".to_owned()),
-    }
-    if toolbox.workdir == "/" {
-        weakened.push("workdir    / (mounts the workspace over the root)".to_owned());
-    }
-    weakened
 }

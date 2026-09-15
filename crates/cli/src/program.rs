@@ -229,6 +229,25 @@ pub enum PresetAction {
     Update,
 }
 
+/// What `ghostai sandbox` was asked to do.
+///
+/// An enum rather than the string clap validated, so the dispatch is
+/// exhaustive. A `_ => list` arm would silently turn a verb somebody added to
+/// the parser and forgot to wire up into a listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxAction {
+    /// Every live instance.
+    List,
+    /// Whether the service and its engine are reachable.
+    Health,
+    /// Warm one instance without running a tool.
+    Start,
+    /// Stop one instance.
+    Stop,
+    /// Stop and start one instance.
+    Restart,
+}
+
 /// One parsed subcommand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subcommand {
@@ -240,6 +259,23 @@ pub enum Subcommand {
     Serve(Box<ServeArgs>),
     /// `toolbox list|approve|revoke`.
     Toolbox(StoreAction, Option<String>),
+    /// `container list|approve|revoke`.
+    Container(StoreAction, Option<String>),
+    /// Manage the sandbox service through its constrained socket API.
+    Sandbox {
+        /// Lifecycle operation.
+        action: SandboxAction,
+        /// Exact managed instance identifier.
+        id: Option<String>,
+        /// Container definition used when warming an instance.
+        container: Option<String>,
+        /// Registered workspace identifier.
+        workspace: Option<String>,
+        /// Service socket override.
+        socket: Option<String>,
+        /// Cancel active and queued work during stop/restart.
+        force: bool,
+    },
     /// `extension list|approve|revoke`.
     Extension(StoreAction, Option<String>),
     /// `agent install|list`.
@@ -314,6 +350,45 @@ fn global_option(name: &'static str, long: &'static str, t: &Translations) -> Ar
     global_arg(name, long).help_heading(heading(&t.t(keys::help::GLOBAL_OPTIONS)))
 }
 
+/// `ghostai sandbox`, which talks to the service over its socket.
+///
+/// Its own builder rather than a [`store_command`], because the service is not
+/// an approval ledger: these verbs manage *running* instances, and each takes
+/// options — a container to warm, a workspace to warm it in, the socket to
+/// reach — that approving a definition has no use for.
+fn sandbox_command(t: &Translations) -> Command {
+    Command::new("sandbox")
+        .about(t.t(keys::sandbox::DESCRIPTION))
+        .arg(
+            Arg::new("action")
+                .value_parser(["list", "health", "start", "stop", "restart"])
+                .default_value("list")
+                .help(t.t(keys::sandbox::action::DESCRIPTION)),
+        )
+        .arg(Arg::new("id").help(t.t(keys::sandbox::id::DESCRIPTION)))
+        .arg(
+            Arg::new("container")
+                .long("container")
+                .help(t.t(keys::sandbox::container::DESCRIPTION)),
+        )
+        .arg(
+            Arg::new("workspace")
+                .long("workspace")
+                .help(t.t(keys::sandbox::workspace::DESCRIPTION)),
+        )
+        .arg(
+            Arg::new("socket")
+                .long("socket")
+                .help(t.t(keys::sandbox::socket::DESCRIPTION)),
+        )
+        .arg(
+            Arg::new("force")
+                .long("force")
+                .action(ArgAction::SetTrue)
+                .help(t.t(keys::sandbox::force::DESCRIPTION)),
+        )
+}
+
 /// The whole command tree.
 ///
 /// Public so `tests/help_parity.rs` can render every `--help` page without a
@@ -381,12 +456,20 @@ pub fn build_command(t: &Translations) -> Command {
         .subcommand(chat_command(t))
         .subcommand(Command::new("init").about(t.t(keys::init::DESCRIPTION)))
         .subcommand(serve_command(t))
+        .subcommand(sandbox_command(t))
         .subcommand(store_command(
             "toolbox",
             t.t(keys::toolbox::DESCRIPTION),
             t.t(keys::toolbox::list::DESCRIPTION),
             t.t(keys::toolbox::approve::DESCRIPTION),
             t.t(keys::toolbox::revoke::DESCRIPTION),
+        ))
+        .subcommand(store_command(
+            "container",
+            t.t(keys::container::DESCRIPTION),
+            t.t(keys::container::list::DESCRIPTION),
+            t.t(keys::container::approve::DESCRIPTION),
+            t.t(keys::container::revoke::DESCRIPTION),
         ))
         .subcommand(store_command(
             "extension",
@@ -787,6 +870,17 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
 ///
 /// A bare `ghostai toolbox` lists, which is the one an operator means by it —
 /// so there is no "no verb" answer to give back.
+/// The verb clap already restricted to this set.
+fn sandbox_action_of(matches: &ArgMatches) -> SandboxAction {
+    match string_of(matches, "action").as_deref() {
+        Some("health") => SandboxAction::Health,
+        Some("start") => SandboxAction::Start,
+        Some("stop") => SandboxAction::Stop,
+        Some("restart") => SandboxAction::Restart,
+        _ => SandboxAction::List,
+    }
+}
+
 fn store_action_of(matches: &ArgMatches) -> (StoreAction, Option<String>) {
     match matches.subcommand() {
         Some(("approve", sub)) => (StoreAction::Approve, string_of(sub, "id")),
@@ -914,6 +1008,18 @@ where
             let (action, id) = store_action_of(sub);
             Subcommand::Toolbox(action, id)
         }
+        Some(("container", sub)) => {
+            let (action, id) = store_action_of(sub);
+            Subcommand::Container(action, id)
+        }
+        Some(("sandbox", sub)) => Subcommand::Sandbox {
+            action: sandbox_action_of(sub),
+            id: string_of(sub, "id"),
+            container: string_of(sub, "container"),
+            workspace: string_of(sub, "workspace"),
+            socket: string_of(sub, "socket"),
+            force: flag(sub, "force"),
+        },
         Some(("extension", sub)) => {
             let (action, id) = store_action_of(sub);
             Subcommand::Extension(action, id)

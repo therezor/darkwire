@@ -1,127 +1,68 @@
 /**
- * A toolbox: an image, the tools inside it, and the policy for running it.
+ * Toolboxes and containers: what an agent may call, and where it runs.
  *
- * The point of putting these in one operator-installed manifest rather than in
- * `agents.list.<id>` is that an agent's config is *editable* — through the
- * settings route, through a config file someone hand-edits, and through anything
- * that later gains the ability to propose a config patch. An image reference and
- * a capability set are not settings; they are the boundary that makes everything
- * else safe. So they live here, outside the config tree, and an agent carries a
- * toolbox *name* and nothing else that could widen it.
+ * Two manifests, approved separately, that deliberately do not know about each
+ * other:
+ *
+ *  - A **toolbox** is the complete set of operations one agent may call. It
+ *    names reusable operation definitions and the permission ceiling for each.
+ *    It holds no image, no capabilities and no network, so nothing in it can
+ *    widen a boundary.
+ *  - A **container** is where command operations run: an image, the hardening
+ *    around it, its resource budget, and whether agents share one instance. It
+ *    holds no tool grants, so approving a place to run commands is not
+ *    approving any particular command.
+ *
+ * Both live in an operator-installed policy directory rather than in
+ * `agents.list.<id>`, because an agent's config is *editable* — through the
+ * settings route, through a hand-edited file, and through anything that later
+ * gains the ability to propose a patch. An agent carries a toolbox name, a
+ * container name and its own egress request; every value that decides what an
+ * image is or what privileges it holds has no representation in the config tree
+ * at all.
  *
  * **Why not "tool".** That word is taken: a tool is a function the model can
  * call, with a schema and a risk band (`ToolDefinition`, `ToolRegistry`,
- * `agents.list.<id>.tools`). A toolbox is the *environment* those calls run in —
- * a box of programs `exec` can reach. Keeping the two words apart is what stops
- * "the agent's tools" from meaning two things in one sentence.
+ * `agents.list.<id>.tools`). A toolbox is the *set* of those an agent was
+ * granted, and an operation is the reviewed definition behind one.
  *
- * Four fields are load-bearing:
- *
- *  - **`image` must be digest-pinned.** A tag is a mutable pointer, and a toolbox
- *    approved once and then silently repointed is the whole approval gate
- *    defeated. The check lives in `ghostai-security`, where a refusal can carry
- *    a sentence explaining itself.
- *
- *  - **`network.maxMode` is a ceiling, not a setting.** An agent's own request is
- *    intersected with it, never unioned, so a toolbox shipping `none` cannot be
- *    given a network by any config anywhere.
- *
- *  - **`tools` is the toolset advertisement, and it is a list rather than prose.**
- *    A structured entry can be rendered in the UI, shown field by field in the
- *    install review, and composed into the prompt compactly. It replaced a single
- *    `brief` paragraph that could only be pasted whole and reviewed as a blob.
- *
- *  - **`notes` is for what a list cannot say.** "No browser and no JavaScript
- *    engine" is a caveat about the whole box, not about one program in it.
- *
- * What is deliberately *absent* is the boilerplate every toolbox would otherwise
- * repeat — that a shell is available, that only the workspace is mounted, where
- * truncated output goes. Those are properties of running in a toolbox at all, so
- * they are composed in code (`ghostai-agent`'s prompt builder) where they are
- * always true, rather than copied into every manifest where they can drift.
+ * An operation is a fixed program and a reviewed argument mapping, never a
+ * shell string. The JSON Schema it publishes is the same one its inputs are
+ * validated against before a process starts, so "what the model was told it
+ * could send" and "what the sandbox accepts" cannot drift apart.
  */
 
 import { z } from 'zod';
 
 import { ToolPermissionSchema } from './tools.js';
 
-/** How much network a toolbox is willing to permit at most. */
-export const ToolboxNetworkModeSchema = z.enum(['none', 'allowlist', 'open']);
-export type ToolboxNetworkMode = z.infer<typeof ToolboxNetworkModeSchema>;
-
 /**
- * The OCI runtime a toolbox wants.
+ * The OCI runtime a container wants.
  *
  * `runc` is the default everywhere. `runsc` (gVisor) trades syscall
  * compatibility for a real isolation boundary and is Linux-only; `kata` is a
  * microVM. Availability is probed when a container is first needed rather than
- * assumed, so a toolbox naming an absent runtime fails that turn with a sentence
- * instead of the whole install.
+ * assumed, so a definition naming an absent runtime fails that turn with a
+ * sentence instead of the whole install.
  */
-export const ToolboxRuntimeSchema = z.enum(['runc', 'runsc', 'kata']);
+export const ContainerRuntimeSchema = z.enum(['runc', 'runsc', 'kata']);
+export type ContainerRuntime = z.infer<typeof ContainerRuntimeSchema>;
 
-/**
- * One program in the box, as the model is told about it.
- *
- * Four fields rather than one paragraph, because they land in three different
- * places and a model reads them differently:
- *
- *  - **`use`** becomes the tool's own description. Imperative — "Search the web"
- *    — not a definition. The model already knows what `curl` is; what it does not
- *    know is what this box wants it *for*.
- *  - **`args`** becomes the description of the `args` field itself, which is the
- *    text a model is looking at while deciding what to put there. Naming the
- *    required flag here rather than in `use` is the difference between a model
- *    reading it and a model having read it.
- *  - **`example`** is a concrete argv. Models copy examples far more reliably
- *    than they follow prose, and this is the cheapest correctness win available:
- *    one array per entry, and the first call is usually right.
- *  - **`requiresArgs`** makes the schema itself refuse an empty call. Observed:
- *    a model called `fetch` with no URL, got a usage error, and gave up. A
- *    program that cannot do anything without an argument should say so where the
- *    validator can enforce it, not in a sentence.
- */
-export const ToolboxEntrySchema = z.object({
-  name: z.string().min(1),
-  /** One imperative sentence. Becomes the tool's description. */
-  use: z.string().default(''),
-  /** What the arguments mean. Becomes the `args` field's own description. */
-  args: z.string().default(''),
-  /** A concrete argv the model can copy, e.g. `["--json","sqlite wal"]`. */
-  example: z.array(z.string()).default([]),
-  /** When true, a call with no arguments is refused by the schema. */
-  requiresArgs: z.boolean().default(false),
-  /**
-   * What this program should be allowed to do, as the box's author sees it.
-   *
-   * A **default, not a ceiling** — unlike `network.maxMode` next door, an
-   * agent's own `tools` map overrides it in either direction. The asymmetry is
-   * deliberate: `maxMode` is a containment boundary that config must not be
-   * able to widen, while this is a suggestion about a program that is reachable
-   * through `exec` anyway. A toolbox that marked `nmap` as `ask` and could not
-   * be overridden would be a manifest edit — and therefore a re-approval —
-   * every time an operator wanted their own scanner to run unattended.
-   *
-   * `ask` by default because these are all `exec` underneath.
-   */
-  permission: ToolPermissionSchema.default('ask'),
-});
-export type ToolboxEntry = z.infer<typeof ToolboxEntrySchema>;
-
-export const ToolboxCapsSchema = z.object({
-  /** Almost always `['ALL']`. Listed rather than assumed so a manifest is readable. */
+export const ContainerCapsSchema = z.object({
+  /** Almost always `['ALL']`. Listed rather than assumed so a definition is readable. */
   drop: z.array(z.string()).default(['ALL']),
   /**
-   * Added back one at a time, with a reason. `NET_RAW` is what `nmap -sS` needs;
-   * `NET_ADMIN` is deliberately not grantable, because the egress gateway's rules
-   * live in a namespace the container shares and must not be able to flush.
+   * Added back one at a time, with a reason. `NET_ADMIN` is deliberately not
+   * grantable, because the egress gateway's rules live in a namespace the
+   * container shares and must not be able to flush them.
    */
   add: z.array(z.string()).default([]),
 });
+export type ContainerCaps = z.infer<typeof ContainerCapsSchema>;
 
-export const ToolboxSecuritySchema = z.object({
+export const ContainerSecuritySchema = z.object({
   noNewPrivileges: z.boolean().default(true),
-  /** `default` is Docker's own profile. `unconfined` is surfaced in the review. */
+  /** `default` is the engine's own profile. `unconfined` is surfaced in the review. */
   seccomp: z.enum(['default', 'unconfined']).default('default'),
   readOnlyRoot: z.boolean().default(true),
   /** Mount specs, e.g. `/tmp:rw,nosuid,size=512m`. */
@@ -129,72 +70,140 @@ export const ToolboxSecuritySchema = z.object({
   /** Rootless build needs `/dev/fuse`; nothing else should ask for a device. */
   devices: z.array(z.string()).default([]),
 });
+export type ContainerSecurity = z.infer<typeof ContainerSecuritySchema>;
 
-export const ToolboxLimitsSchema = z.object({
+export const ContainerLimitsSchema = z.object({
   memoryMb: z.coerce.number().int().min(0).default(2048),
   cpus: z.coerce.number().min(0).default(2),
   pidsMax: z.coerce.number().int().min(0).default(512),
-  /** Docker's 64m default produces short writes in build and scan workloads. */
+  /** The engine's 64m default produces short writes in build and scan workloads. */
   shmSizeMb: z.coerce.number().int().min(0).default(256),
 });
+export type ContainerLimits = z.infer<typeof ContainerLimitsSchema>;
 
-export const ToolboxNetworkSchema = z.object({
-  maxMode: ToolboxNetworkModeSchema.default('none'),
-  /**
-   * Resolvers the gateway permits on port 53. Without one, a CIDR allow-list
-   * makes every hostname unresolvable — `127.0.0.11` is Docker's embedded
-   * resolver and lives in the namespace the container shares with the gateway.
-   */
-  dns: z.array(z.string()).default(['127.0.0.11']),
-  /**
-   * Hostnames the credential/egress proxy permits, for a toolbox whose traffic
-   * is all HTTP(S) — a builder fetching packages, say. Useless for raw scanning,
-   * which is why a pentest toolbox scopes by CIDR instead.
-   */
-  proxyAllowHosts: z.array(z.string()).default([]),
-});
+/**
+ * One operation the toolbox permits an agent to invoke.
+ *
+ * `permission` is a ceiling: an agent's own `toolbox.tools` map may tighten it
+ * to `ask` or `deny`, never widen it. That is the opposite of an ordinary
+ * setting, and it is what lets an operator hand out one toolbox to several
+ * agents without re-reviewing each of their configs.
+ */
+export const ToolGrantSchema = z
+  .object({
+    name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+    definition: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    permission: ToolPermissionSchema.default('ask'),
+  })
+  .strict();
+export type ToolGrant = z.infer<typeof ToolGrantSchema>;
 
-export const ToolboxSchema = z.object({
-  /** Bumped only for a breaking manifest change; refused when unrecognised. */
-  schema: z.literal('ghostai.toolbox/1'),
-  name: z.string().min(1).max(64),
-  version: z.string().default('0.0.0'),
-  /** Shown in the UI. Empty falls back to the name. */
-  label: z.string().default(''),
-
-  /** What is in the box. See the module header on why this is a list. */
-  tools: z.array(ToolboxEntrySchema).default([]),
-  /** Caveats about the box as a whole, appended to the prompt section. */
-  notes: z.string().default(''),
-  /**
-   * How the model is told what is in here.
-   *
-   * `prompt` is one section of about forty tokens, whatever the box holds, and
-   * relies on the model reading its instructions. `tools` additionally
-   * materialises every `tools[]` entry as a real callable schema beside
-   * `read_file` and `exec` — roughly 60–80 tokens each, every request of every
-   * turn, and worth it for a model that reads its tool list far more attentively
-   * than its prose. See `toolboxTools` for the failure that motivates it.
-   */
-  expose: z.enum(['prompt', 'tools']).default('prompt'),
-
-  /** Must be digest-pinned. Validated in `ghostai-security`. */
-  image: z.string().min(1),
-  runtime: ToolboxRuntimeSchema.default('runc'),
-  /** Where the workspace is mounted inside the container. */
-  workdir: z.string().default('/workspace'),
-  /**
-   * `uid:gid` inside the container. Matching the host user is what keeps
-   * artefacts written into the workspace editable by the host's own tools —
-   * root-owned output is the most common complaint about this whole pattern.
-   */
-  user: z.string().default(''),
-
-  caps: ToolboxCapsSchema.prefault({}),
-  security: ToolboxSecuritySchema.prefault({}),
-  limits: ToolboxLimitsSchema.prefault({}),
-  network: ToolboxNetworkSchema.prefault({}),
-  /** Host env names passed through. Never a secret — those go via the proxy. */
-  env: z.array(z.string()).default([]),
-});
+/**
+ * An approved toolbox is the complete callable surface of one agent.
+ *
+ * Every grant names an operation definition installed beside it rather than
+ * carrying the definition inline, so one reviewed `git-status` is shared by
+ * every toolbox that grants it and is reviewed once. The approval hash covers
+ * the toolbox *and* every definition it names, so editing a shared definition
+ * revokes each toolbox that reaches it.
+ */
+export const ToolboxSchema = z
+  .object({
+    schema: z.literal('ghostai.toolbox/1'),
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    label: z.string().default(''),
+    version: z.string().default('0.0.0'),
+    /** Caveats about the set as a whole. Model guidance, never an authorisation rule. */
+    notes: z.string().default(''),
+    tools: z.array(ToolGrantSchema),
+  })
+  .strict();
 export type Toolbox = z.infer<typeof ToolboxSchema>;
+
+/**
+ * A reusable, operator-installed operation.
+ *
+ * The JSON Schema is validated offline at approval time and enforced again
+ * before every call, so it can never reference anything the validator would
+ * have to fetch.
+ */
+export const ToolOperationSchema = z
+  .object({
+    schema: z.literal('ghostai.tool/1'),
+    description: z.string(),
+    parameters: z.record(z.string(), z.unknown()),
+    implementation: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('transcript') }).strict(),
+      z
+        .object({
+          kind: z.literal('command'),
+          executable: z.string().startsWith('/'),
+          argv: z
+            .array(
+              z.union([
+                z.string(),
+                z
+                  .object({
+                    input: z.string(),
+                    workspacePath: z.boolean().default(false),
+                  })
+                  .strict(),
+              ]),
+            )
+            .default([]),
+          argvInput: z.string().optional(),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('registered'),
+          tool: z.string(),
+          digest: z.string(),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export type ToolOperation = z.infer<typeof ToolOperationSchema>;
+
+/**
+ * Where command operations run, chosen independently of the toolbox.
+ *
+ * **There is no network here, deliberately.** Egress is the agent's own
+ * request, configured in one place (`agents.list.<id>.container.network`), and
+ * the fields below are what decide whether a restricted egress gateway can be
+ * built around it at all: a root or non-numeric `user`, missing
+ * `noNewPrivileges` or a capability that can forge packets each make the
+ * gateway refuse. So an operator approving a definition is approving the
+ * *shape* an agent's network request will be honoured in, not the request.
+ */
+export const ContainerDefinitionSchema = z
+  .object({
+    schema: z.literal('ghostai.container/1'),
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    /**
+     * Must be digest-pinned: an immutable image ID or a registry digest. A tag
+     * is a mutable pointer, and a container approved once and then silently
+     * repointed is the approval gate defeated.
+     */
+    image: z.string().min(1),
+    /** Share one instance across agents asking for the same egress. */
+    shared: z.boolean().default(false),
+    runtime: ContainerRuntimeSchema.default('runc'),
+    /** Where the workspace is mounted inside the container. */
+    workdir: z.string().default('/workspace'),
+    /**
+     * `uid:gid` inside the container, non-root by default. Matching the host
+     * user is what keeps artefacts written into the workspace editable by the
+     * host's own tools — root-owned output is the most common complaint about
+     * this pattern.
+     */
+    user: z.string().default('1000:1000'),
+    caps: ContainerCapsSchema.prefault({}),
+    security: ContainerSecuritySchema.prefault({}),
+    limits: ContainerLimitsSchema.prefault({}),
+    /** Host env names passed through. Never a secret — those go via the proxy. */
+    env: z.array(z.string()).default([]),
+  })
+  .strict();
+export type ContainerDefinition = z.infer<typeof ContainerDefinitionSchema>;

@@ -206,18 +206,19 @@ pub struct PromptToolboxTool {
 
 /// What the prompt needs to know about a toolbox.
 ///
-/// A narrow view of the manifest rather than the manifest itself: this crate
-/// has no business knowing about capability sets or image digests, and taking
-/// the whole thing would make every caller construct one.
+/// A narrow view of two manifests rather than the manifests themselves: this
+/// crate has no business knowing about capability sets or image digests, and
+/// taking the whole thing would make every caller construct one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PromptToolbox {
-    /// The image's name. Empty is the host.
+    /// The toolbox's name.
     pub name: String,
-    /// Where the workspace is mounted inside the container.
+    /// Where the workspace is mounted inside the container, or empty for an
+    /// agent whose operations run on the host.
     pub workdir: String,
-    /// What is installed.
+    /// What it grants, after the agent's own overrides.
     pub tools: Vec<PromptToolboxTool>,
-    /// Caveats about the box as a whole.
+    /// Caveats about the set as a whole.
     pub notes: String,
 }
 

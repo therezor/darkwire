@@ -26,8 +26,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::container::{parse_manifest, sha256_hex};
 use crate::exec_guard::{SHELL_BINARIES, binary_name};
-use crate::toolbox::{parse_manifest, sha256_hex};
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
 

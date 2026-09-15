@@ -231,9 +231,11 @@ Create, rename, enable, delete. Per agent: the model, provider, reasoning effort
 temperature; limits (output tokens, context window, tool iterations, tool timeout, turn
 timeout); the **system prompt** on the screen and the other seven templates behind an
 **Advanced prompt settings** disclosure, each with a warning for stray placeholders; the
-**per-tool permission map**; the **toolbox** and its network mode, with a
-warning when a request is narrower than the manifest ceiling; and the **subagent list**,
-each with its own description and permission.
+**per-tool permission map**; the independent **toolbox** and **container** selections,
+the toolbox showing one row per grant with the ceiling an agent may only tighten; the
+**network** block, which appears once a container is chosen and shows its allow-lists only
+under `allowlist`; and the **subagent list**, each with its own description and
+permission.
 
 Model and budget live on the agent, not in Settings — they are properties of an agent, and
 an install with several agents has several answers.
@@ -281,16 +283,16 @@ to fill in first.
 
 ## Settings
 
-| Panel       | State                                                                                                                                                                  |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Providers   | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it. |
-| Tools       | Built. Install-wide only: approval timeout, `exec` settings, output caps. **No permission matrix here** — permission is per tool per agent.                            |
-| Account     | Built. Username and password together, requires the current password, revokes every other session.                                                                     |
-| Appearance  | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                             |
-| Automation  | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                      |
-| MCP servers | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                          |
-| Channels    | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.json`.                                                             |
-| Extensions  | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.      |
+| Panel       | State                                                                                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers   | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it.          |
+| Tools       | Built. Approval timeout, `exec` settings, output caps, and start/stop/restart controls for shared containers. **No permission matrix here** — permission is per tool per agent. |
+| Account     | Built. Username and password together, requires the current password, revokes every other session.                                                                              |
+| Appearance  | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                                      |
+| Automation  | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                               |
+| MCP servers | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                                   |
+| Channels    | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.json`.                                                                      |
+| Extensions  | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.               |
 
 Every panel on that list is built, and a panel arrives on it once it has something to
 configure. There are deliberately no placeholders naming a future phase: a settings

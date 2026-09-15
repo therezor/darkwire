@@ -63,14 +63,14 @@ use ghostai_core::{
 };
 use ghostai_protocol::json::Object;
 use ghostai_protocol::{
-    AgentSettings, AgentToolbox, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
+    AgentContainer, AgentSettings, AgentToolbox, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
     ToolPromptOverrides, ToolsConfig, Usage, apply_tool_prompts, with_subagent_run,
 };
 use ghostai_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
 use ghostai_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
-use ghostai_tools::{AutomationResolver, RunnerResolver, ToolContext, ToolScope, ToolboxRequest};
+use ghostai_tools::{AutomationResolver, PlacementRequest, ToolContext, ToolScope};
 use indexmap::IndexMap;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -220,18 +220,15 @@ pub struct AgentLoopOptions {
     /// workspace it belongs to and two sessions in one process can be in
     /// different ones.
     pub jails: Arc<dyn JailResolver>,
-    /// Supplies the container a turn's `exec` runs in, keyed the same way.
-    ///
-    /// Absent — or answering `None` — means the host, which is what `exec` has
-    /// always done.
-    pub runners: Option<Arc<dyn RunnerResolver>>,
     /// Supplies the scheduler a turn's automation tool writes through, keyed
     /// the same way and for the same reason: the port is scoped to the agent
     /// and the session, so a job records who asked for it and an agent cannot
     /// reach another's.
     pub automation: Option<Arc<dyn AutomationResolver>>,
-    /// Which toolbox this agent works in. Defaults to the host.
+    /// Which toolbox defines this agent's operations.
     pub toolbox: AgentToolbox,
+    /// Where command operations run, independently of the toolbox.
+    pub container: AgentContainer,
     /// The toolbox's declared contents, injected into the static prompt.
     pub toolbox_prompt: Option<PromptToolbox>,
     /// Defaults to the schema's defaults, so a caller with no config file
@@ -308,9 +305,9 @@ impl AgentLoopOptions {
             tools,
             store,
             jails,
-            runners: None,
             automation: None,
             toolbox: AgentToolbox::default(),
+            container: AgentContainer::default(),
             toolbox_prompt: None,
             config: AgentSettings::default(),
             tools_config: Arc::new(ToolsConfig::default()),
@@ -671,9 +668,9 @@ struct LoopInner {
     agent_id: String,
     store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
-    runners: Option<Arc<dyn RunnerResolver>>,
     automation: Option<Arc<dyn AutomationResolver>>,
     toolbox: AgentToolbox,
+    container: AgentContainer,
     toolbox_prompt: Option<PromptToolbox>,
     config: AgentSettings,
     tools_config: Arc<ToolsConfig>,
@@ -752,9 +749,9 @@ impl AgentLoop {
                 agent_id,
                 store: options.store,
                 jails: options.jails,
-                runners: options.runners,
                 automation: options.automation,
                 toolbox: options.toolbox,
+                container: options.container,
                 toolbox_prompt: options.toolbox_prompt,
                 config: options.config,
                 tools_config: options.tools_config,
@@ -1123,7 +1120,7 @@ impl AgentLoop {
         // Resolved once per turn, beside the jail and for the same reason: a
         // sandbox is a property of (agent, workspace, session), and re-deriving
         // it per tool call would let a mid-turn config change move it.
-        let sandbox = ToolboxRequest {
+        let sandbox = PlacementRequest {
             agent_id: session
                 .agent_id
                 .clone()
@@ -1131,21 +1128,17 @@ impl AgentLoop {
             workspace_id: session.workspace_id.clone(),
             session_key: input.session_key.clone(),
             toolbox: inner.toolbox.name.clone(),
-            network: inner.toolbox.network.clone(),
+            container: inner.container.name.clone(),
+            network: inner.container.network.clone(),
             workspace_root: jail.root().to_string_lossy().into_owned(),
         };
-        let runner = inner.runners.as_ref().and_then(|r| r.for_turn(&sandbox));
-        let sandboxed = runner.is_some();
         let automation = inner.automation.as_ref().and_then(|a| a.for_turn(&sandbox));
 
         let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.tools_config));
+        tool_context.placement = Some(sandbox.clone());
         tool_context.token = token.clone();
         tool_context.clock = Arc::clone(&inner.clock);
         tool_context.env = Arc::clone(&inner.env);
-        if let Some(runner) = runner {
-            tool_context.runner = runner;
-            tool_context.sandboxed = sandboxed;
-        }
         tool_context.automation = automation;
         // Deliberately left unset: `dispatch` is the one place a result is
         // truncated and fenced, and a registry that fenced too would produce an

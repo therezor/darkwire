@@ -1,7 +1,8 @@
 //! An agent preset: an installable agent definition.
 //!
-//! A preset is a JSON file — beside a toolbox manifest, or bundled with the
-//! CLI — that `ghostai agent install` turns into an entry in `agents.list`.
+//! A preset is a JSON file — beside a catalogue's toolbox and container
+//! definitions, or bundled with the CLI — that `ghostai agent install` turns
+//! into an entry in `agents.list`.
 //! After install it is ordinary agent config: the operator edits it in the UI,
 //! and nothing remembers where it came from. A preset is a starting point, not
 //! a subscription, which is why there is no version field to reconcile and no
@@ -11,8 +12,9 @@
 //! point: no model, provider, temperature or token caps, because those describe
 //! an install and a preset describes a role; no `exec` patch and no `enabled`
 //! flag, because installing a disabled agent is a contradiction; and the
-//! toolbox reference is the same name-and-network-request an agent carries, so
-//! a preset can express nothing a settings save could not. `tools_enabled` is
+//! toolbox and container references are the same names an agent carries, with
+//! everything that could widen a boundary living in the approved container
+//! definition, so a preset can express nothing a settings save could not. `tools_enabled` is
 //! the one settings knob a preset may set, because one preset exists to switch
 //! it off. `skills` is an install instruction rather than agent config, so
 //! [`preset_to_agent_entry`] drops it.
@@ -21,7 +23,9 @@ use garde::Validate;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AgentEntry, AgentToolbox, PromptMode, SubagentRef, default_agent_tools};
+use crate::config::{
+    AgentContainer, AgentEntry, AgentToolbox, PromptMode, SubagentRef, default_agent_tools,
+};
 use crate::ids::SLUG_ID_PATTERN;
 use crate::json::{literal, prefault};
 use crate::tools::ToolPermissions;
@@ -87,6 +91,11 @@ pub struct AgentPreset {
     #[schemars(transform = prefault)]
     #[garde(dive)]
     pub toolbox: AgentToolbox,
+    /// Command placement, selected independently of the toolbox.
+    #[serde(default)]
+    #[schemars(transform = prefault)]
+    #[garde(dive)]
+    pub container: AgentContainer,
     /// Agents this one may delegate to.
     #[serde(default)]
     #[garde(dive)]
@@ -125,6 +134,7 @@ pub fn preset_to_agent_entry(preset: &AgentPreset) -> AgentEntry {
         enabled: true,
         tools: preset.tools.clone(),
         toolbox: preset.toolbox.clone(),
+        container: preset.container.clone(),
         subagents: preset.subagents.clone(),
         ..AgentEntry::default()
     };

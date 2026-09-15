@@ -1,0 +1,11 @@
+FROM rust:1.97-alpine AS build
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev sqlite-dev
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p ghostai-sandbox
+
+FROM alpine:3.23
+RUN apk add --no-cache nftables su-exec ca-certificates libgcc
+COPY --from=build /src/target/release/ghostai-sandbox /usr/local/bin/ghostai-sandbox
+COPY deploy/sandbox/gateway-entrypoint.sh /usr/local/bin/gateway-entrypoint
+ENTRYPOINT ["sh", "/usr/local/bin/gateway-entrypoint"]

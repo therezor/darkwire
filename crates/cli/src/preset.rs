@@ -21,26 +21,26 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use ghostai_core::{
-    Database, ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, SystemClock,
-    ensure_dir, load_config, save_config,
+    ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, ensure_dir, load_config,
+    save_config,
 };
 use ghostai_i18n::{args, keys};
+use ghostai_protocol::toolbox::ContainerDefinition;
 use ghostai_protocol::{
     AgentEntry, AgentPreset, Config, DEFAULT_WORKSPACE_ID, TOOLBOX_DEFAULT_KEY, ToolPermission,
-    Toolbox, ToolboxNetworkMode,
 };
-use ghostai_runtime::{DockerEngineOptions, docker_engine};
-use ghostai_security::{ToolboxStore, weakened_in};
+use ghostai_sandbox::container_pool::{DockerEngineOptions, docker_engine};
+use ghostai_security::{PolicyStore, assert_gateway_compatible, parse_toolbox, weakened_in};
 
 use crate::Streams;
 use crate::agent::{InstallPlan, PresetPaths, plan_install};
 use crate::ask::Ask;
 use crate::catalogue::{
     CATALOGUE_PACKAGE, CatalogueOptions, FetchCatalogueOptions, Fetcher, assert_catalogue_layout,
-    catalogue_dir, catalogue_skills_dir, catalogue_toolbox, fetch_catalogue,
+    catalogue_container, catalogue_definition, catalogue_dir, catalogue_skills_dir,
+    catalogue_toolbox, fetch_catalogue,
 };
 use crate::i18n::{Env, Translations};
 use crate::presets::{find_preset, list_all_presets, preset_dirs, read_preset};
@@ -50,9 +50,10 @@ use crate::skill_install::{
     SkillInstallRequest, SkillInstallResult, WrittenSheet, install_skills, skills_target_dir,
 };
 
-/// The placeholder a catalogue's manifest carries where the image id goes.
+/// The placeholder a catalogue's container definition carries where the image
+/// id goes.
 ///
-/// The catalogue's own build script writes the same token, so a manifest that
+/// The catalogue's own build script writes the same token, so a definition that
 /// shipped a real image id would be one nobody could have built.
 pub const IMAGE_PLACEHOLDER: &str = "__IMAGE_ID__";
 
@@ -188,9 +189,9 @@ fn container_build(context: &Path, tag: &str) -> Result<String> {
 
 /// Whether a build reported a digest rather than a tag.
 ///
-/// A manifest is only worth approving if the image it names cannot move, so an
-/// id that is not `sha256:` plus sixty-four hex digits is refused rather than
-/// pinned into a manifest an operator would then approve.
+/// A definition is only worth approving if the image it names cannot move, so
+/// an id that is not `sha256:` plus sixty-four hex digits is refused rather
+/// than pinned into a definition an operator would then approve.
 fn is_pinned_image(id: &str) -> bool {
     let Some(hex) = id.strip_prefix("sha256:") else {
         return false;
@@ -198,54 +199,116 @@ fn is_pinned_image(id: &str) -> bool {
     hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// The wire spelling of a network ceiling, as an operator reads it.
-fn network_mode(mode: ToolboxNetworkMode) -> &'static str {
-    match mode {
-        ToolboxNetworkMode::None => "none",
-        ToolboxNetworkMode::Allowlist => "allowlist",
-        ToolboxNetworkMode::Open => "open",
-    }
-}
-
-/// Everything an operator has to weigh before approving.
+/// Everything an operator has to weigh before approving a container.
 ///
-/// The same lines `ghostai toolbox list` prints, because they are answering the
-/// same question in the same words — and the person reading one has often just
-/// read the other.
-fn describe(toolbox: &Toolbox) -> Vec<String> {
+/// The same lines `ghostai container list` prints, because they are answering
+/// the same question in the same words — and the person reading one has often
+/// just read the other.
+fn describe(container: &ContainerDefinition) -> Vec<String> {
     let mut lines = vec![
-        format!("    image      {}", toolbox.image),
-        format!("    network    {}", network_mode(toolbox.network.max_mode)),
+        format!("    image      {}", container.image),
+        format!(
+            "    sharing    {}",
+            if container.shared {
+                "shared"
+            } else {
+                "private"
+            }
+        ),
+        format!("    user       {}", container.user),
         format!(
             "    limits     {} MB, {} cpu",
-            toolbox.limits.memory_mb, toolbox.limits.cpus
+            container.limits.memory_mb, container.limits.cpus
         ),
     ];
-    if !toolbox.caps.add.is_empty() {
-        lines.push(format!("    caps       +{}", toolbox.caps.add.join(" +")));
+    if !container.caps.add.is_empty() {
+        lines.push(format!("    caps       +{}", container.caps.add.join(" +")));
     }
-    for warning in weakened_in(toolbox) {
+    if let Err(error) = assert_gateway_compatible(container) {
+        lines.push(format!(
+            "    egress     restricted mode unavailable — {}",
+            error.message
+        ));
+    }
+    for warning in weakened_in(container) {
         lines.push(format!("    {warning}  <-- review this"));
     }
     lines
 }
 
-/// Builds one toolbox and installs its manifest. Never approves it.
-fn install_toolbox(
+fn copy_policy_file(source: &Path, target: &Path) -> Result<()> {
+    ensure_dir(target.parent().unwrap_or(target))?;
+    std::fs::copy(source, target).map(|_| ()).map_err(|error| {
+        GhostError::new(
+            ErrorKind::Storage,
+            format!(
+                "{} could not be copied to {}",
+                source.display(),
+                target.display()
+            ),
+        )
+        .with_source(error)
+    })
+}
+
+/// Installs one toolbox and every operation definition it names.
+///
+/// The definitions travel with it rather than being installed on their own,
+/// because the approval hash covers all of them: a toolbox whose definitions
+/// were missing would resolve to a refusal rather than to something an operator
+/// could review.
+fn install_toolbox(name: &str, catalogue: &Path, policy_dir: &Path) -> Result<()> {
+    let Some(source) = catalogue_toolbox(catalogue, name) else {
+        return Ok(());
+    };
+    let bytes = std::fs::read(&source).map_err(|error| {
+        GhostError::new(
+            ErrorKind::Config,
+            format!("{} could not be read", source.display()),
+        )
+        .with_source(error)
+    })?;
+    let toolbox = parse_toolbox(&bytes)?;
+    for grant in &toolbox.tools {
+        let Some(definition) = catalogue_definition(catalogue, &grant.definition) else {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!(
+                    "Toolbox \"{name}\" grants \"{}\" from definition \"{}\", which this \
+                     catalogue does not carry.\n  Update the catalogue with `ghostai preset \
+                     update`.",
+                    grant.name, grant.definition
+                ),
+            )
+            .with_detail("definition", grant.definition.clone()));
+        };
+        copy_policy_file(
+            &definition,
+            &policy_dir
+                .join("tool-definitions")
+                .join(format!("{}.json", grant.definition)),
+        )?;
+    }
+    copy_policy_file(
+        &source,
+        &policy_dir.join("toolboxes").join(format!("{name}.json")),
+    )
+}
+
+/// Builds one container image and installs its definition. Never approves it.
+fn install_container(
     name: &str,
     context: &Path,
-    toolboxes_dir: &Path,
+    policy_dir: &Path,
     build: ImageBuilder<'_>,
 ) -> Result<()> {
     let image_id = build(context, &format!("ghostai/{name}:local"))?;
 
-    let target = toolboxes_dir.join(name);
-    ensure_dir(&target)?;
     // The placeholder is replaced rather than the file generated, so the
-    // manifest an operator reviews in the catalogue is the manifest that gets
-    // installed apart from one field.
-    let source = context.join("toolbox.json");
-    let manifest = std::fs::read_to_string(&source)
+    // definition an operator reviews in the catalogue is the definition that
+    // gets installed apart from one field.
+    let source = context.join("container.json");
+    let definition = std::fs::read_to_string(&source)
         .map_err(|error| {
             GhostError::new(
                 ErrorKind::Config,
@@ -254,7 +317,9 @@ fn install_toolbox(
             .with_source(error)
         })?
         .replace(IMAGE_PLACEHOLDER, &image_id);
-    std::fs::write(target.join("toolbox.json"), manifest).map_err(|error| {
+    let target = policy_dir.join("containers").join(format!("{name}.json"));
+    ensure_dir(target.parent().unwrap_or(&target))?;
+    std::fs::write(&target, definition).map_err(|error| {
         GhostError::new(
             ErrorKind::Storage,
             format!("{} could not be written", target.display()),
@@ -481,7 +546,7 @@ fn act(options: &mut PresetOptions<'_>, streams: &mut Streams) -> Result<u8> {
     let agents_dir = assert_catalogue_layout(&dir)?;
 
     let paths = PresetPaths {
-        toolboxes_dir: loaded.paths.toolboxes_dir.clone(),
+        policy_dir: loaded.paths.policy_dir.clone(),
         presets_dir: loaded.paths.presets_dir.clone(),
         db_file: loaded.paths.db_file.clone(),
         catalogue_agents_dir: Some(agents_dir.clone()),
@@ -633,54 +698,67 @@ fn install(
     chosen: &[Offer],
     streams: &mut Streams,
 ) -> Result<u8> {
-    // A fresh install has no root directory yet, and both the toolbox store and
+    // A fresh install has no root directory yet, and both the policy store and
     // the settings write go into it. Made once, here, rather than discovered as
-    // an unopenable database by whichever of them ran first.
+    // an unwritable directory by whichever of them ran first.
     ensure_dir(&loaded.paths.root)?;
 
-    // The boxes the *chosen* agents need, in first-mention order and each once.
-    // Two agents naming one box is one build.
-    let mut wanted: Vec<String> = Vec::new();
+    // What the *chosen* agents name, in first-mention order and each once. Two
+    // agents naming one container is one build.
+    let mut toolboxes: Vec<String> = Vec::new();
+    let mut containers: Vec<String> = Vec::new();
     for offer in chosen {
-        let name = &offer.preset.toolbox.name;
-        if !name.is_empty() && !wanted.contains(name) {
-            wanted.push(name.clone());
+        for (name, into) in [
+            (&offer.preset.toolbox.name, &mut toolboxes),
+            (&offer.preset.container.name, &mut containers),
+        ] {
+            if !name.is_empty() && !into.contains(name) {
+                into.push(name.clone());
+            }
         }
     }
 
-    // Already approved and unedited? Then there is nothing to build: rebuilding
-    // would change the image id, change the manifest, and revoke the approval
-    // the operator gave — turning a re-run into a silent downgrade.
-    let to_build: Vec<&String> = wanted
+    let missing: Vec<String> = toolboxes
         .iter()
-        .filter(|name| !is_approved(paths, name))
-        .collect();
-
-    let missing: Vec<&&String> = to_build
-        .iter()
+        .filter(|name| !is_toolbox_approved(paths, name))
         .filter(|name| catalogue_toolbox(catalogue, name).is_none())
+        .chain(
+            containers
+                .iter()
+                .filter(|name| !is_container_approved(paths, name))
+                .filter(|name| catalogue_container(catalogue, name).is_none()),
+        )
+        .cloned()
         .collect();
     if !missing.is_empty() {
         let quoted: Vec<String> = missing.iter().map(|name| format!("\"{name}\"")).collect();
         return Err(GhostError::new(
             ErrorKind::Config,
             format!(
-                "This catalogue has no toolbox named {}.\n  A preset naming a box the catalogue \
-                 does not carry cannot be installed.\n  Update the catalogue with `ghostai preset \
-                 update`.",
+                "This catalogue carries nothing named {}.\n  A preset naming a toolbox or \
+                 container the catalogue does not carry cannot be\n  installed. Update the \
+                 catalogue with `ghostai preset update`.",
                 quoted.join(", ")
             ),
         )
-        .with_detail(
-            "missing",
-            missing
-                .iter()
-                .map(|name| (**name).clone())
-                .collect::<Vec<_>>(),
-        ));
+        .with_detail("missing", missing));
     }
 
-    build_toolboxes(options, paths, catalogue, &to_build, streams)?;
+    // Already approved and unedited? Then there is nothing to install:
+    // rebuilding would change the image id, change the definition, and revoke
+    // the approval the operator gave — turning a re-run into a silent
+    // downgrade.
+    for name in &toolboxes {
+        if !is_toolbox_approved(paths, name) {
+            install_toolbox(name, catalogue, &paths.policy_dir)?;
+        }
+    }
+    let to_build: Vec<&String> = containers
+        .iter()
+        .filter(|name| !is_container_approved(paths, name))
+        .collect();
+    build_containers(options, paths, catalogue, &to_build, streams)?;
+    let wanted: Vec<String> = toolboxes.iter().chain(containers.iter()).cloned().collect();
 
     // Approval, before the presets rather than after — because approving is
     // what unblocks them, and a run that approved and then made the operator
@@ -749,11 +827,11 @@ fn install(
     Ok(0)
 }
 
-/// Builds and installs the manifests for the boxes that need one.
+/// Builds and installs the definitions for the containers that need one.
 ///
 /// The daemon is probed once, before the first build: five failed builds is a
 /// worse way to learn it is down than one sentence.
-fn build_toolboxes(
+fn build_containers(
     options: &PresetOptions<'_>,
     paths: &PresetPaths,
     catalogue: &Path,
@@ -770,19 +848,19 @@ fn build_toolboxes(
 
     let build = options.build.unwrap_or(&container_build);
     for name in to_build {
-        let Some(context) = catalogue_toolbox(catalogue, name) else {
+        let Some(context) = catalogue_container(catalogue, name) else {
             continue;
         };
         line(&mut streams.out, &format!("==> building {name}"))?;
-        install_toolbox(name, &context, &paths.toolboxes_dir, build)?;
+        install_container(name, &context, &paths.policy_dir, build)?;
         line(
             &mut streams.out,
             &format!(
                 "    installed {}",
                 paths
-                    .toolboxes_dir
-                    .join(name)
-                    .join("toolbox.json")
+                    .policy_dir
+                    .join("containers")
+                    .join(format!("{name}.json"))
                     .display()
             ),
         )?;
@@ -922,11 +1000,11 @@ fn report(
         line(out, "")?;
         line(
             out,
-            "Still unapproved. An agent cannot work in a toolbox until you",
+            "Still unapproved. An agent cannot use a toolbox or a container until",
         )?;
-        line(out, "approve it:")?;
-        for (name, _) in &pending {
-            line(out, &format!("    ghostai toolbox approve {name}"))?;
+        line(out, "you approve it:")?;
+        for entry in &pending {
+            line(out, &format!("    {}", entry.command()))?;
         }
     }
 
@@ -1028,17 +1106,29 @@ fn settle_approvals(
     if asked != Some(false) {
         line(
             &mut streams.out,
-            "These toolboxes are installed but not approved yet. Each runs your",
+            "These are installed but not approved yet. A toolbox decides what an",
         )?;
         line(
             &mut streams.out,
-            "commands in a container with the policy below:",
+            "agent may call; a container decides what the machine running those",
         )?;
-        for (name, toolbox) in &pending {
+        line(&mut streams.out, "calls is allowed to be:")?;
+        for entry in &pending {
             line(&mut streams.out, "")?;
-            line(&mut streams.out, &format!("  {name}"))?;
-            for text in describe(toolbox) {
-                line(&mut streams.out, &text)?;
+            match entry {
+                Pending::Toolbox(name) => {
+                    line(&mut streams.out, &format!("  toolbox {name}"))?;
+                    line(
+                        &mut streams.out,
+                        "    review its operations with `ghostai toolbox list`",
+                    )?;
+                }
+                Pending::Container(name, definition) => {
+                    line(&mut streams.out, &format!("  container {name}"))?;
+                    for text in describe(definition) {
+                        line(&mut streams.out, &text)?;
+                    }
+                }
             }
         }
         line(&mut streams.out, "")?;
@@ -1048,9 +1138,9 @@ fn settle_approvals(
         answer
     } else {
         let question = if pending.len() == 1 {
-            "Approve it, so agents may work in it?".to_owned()
+            "Approve it, so agents may use it?".to_owned()
         } else {
-            format!("Approve all {}, so agents may work in them?", pending.len())
+            format!("Approve all {}, so agents may use them?", pending.len())
         };
         match options.ask.as_mut() {
             Some(ask) => ask.confirm(&mut streams.out, &question, false)?,
@@ -1061,21 +1151,21 @@ fn settle_approvals(
         return Ok(());
     }
 
-    let store = open_store(paths)?;
-    for (name, _) in &pending {
-        let approved = store.approve(name)?;
+    let store = open_store(paths);
+    for entry in &pending {
+        let hash = match entry {
+            Pending::Toolbox(name) => store.approve_toolbox(name)?.sha256().to_owned(),
+            Pending::Container(name, _) => store.approve_container(name)?.sha256,
+        };
         line(
             &mut streams.out,
-            &format!(
-                "Approved {name} — manifest sha256:{}",
-                approved.manifest_sha256
-            ),
+            &format!("Approved {} — sha256:{hash}", entry.name()),
         )?;
     }
     line(&mut streams.out, "")?;
     line(
         &mut streams.out,
-        "Editing any of those manifests changes its hash and revokes this.",
+        "Editing any of those files changes its hash and revokes this.",
     )?;
     line(&mut streams.out, "")?;
     Ok(())
@@ -1099,40 +1189,75 @@ fn roster_is_stale(preset: &AgentPreset, entry: &AgentEntry, config: &Config) ->
 }
 
 /// The approval ledger over this run's paths.
-fn open_store(paths: &PresetPaths) -> Result<ToolboxStore> {
-    let database = Database::open(&paths.db_file)?;
-    ToolboxStore::new(database, paths.toolboxes_dir.clone(), Arc::new(SystemClock))
+fn open_store(paths: &PresetPaths) -> PolicyStore {
+    PolicyStore::new(paths.policy_dir.clone())
 }
 
 /// Whether this toolbox is installed, approved, and unedited since.
-fn is_approved(paths: &PresetPaths, name: &str) -> bool {
-    open_store(paths).is_ok_and(|store| store.require(name).is_ok())
+fn is_toolbox_approved(paths: &PresetPaths, name: &str) -> bool {
+    open_store(paths).require_toolbox(name).is_ok()
 }
 
-/// Installed-but-unapproved toolboxes among `names`, with what each asks for.
+/// Whether this container is installed, approved, and unedited since.
+fn is_container_approved(paths: &PresetPaths, name: &str) -> bool {
+    open_store(paths).require_container(name).is_ok()
+}
+
+/// One definition still waiting for an operator's approval.
 ///
-/// **An empty `names` is an empty answer, not "everything".** The list is the
-/// boxes this run's chosen agents named, so empty means nothing chosen needs a
-/// container — and a box left unapproved from some earlier run is not this
-/// run's business to ask about. The command that reports on those is
-/// `ghostai toolbox list`.
+/// The container carries what an operator reads before approving; a toolbox is
+/// named alone, because its own review is a list of operations and belongs in
+/// `ghostai toolbox list` rather than folded into an install summary.
+enum Pending {
+    /// A toolbox, named only.
+    Toolbox(String),
+    /// A container, with the policy an operator has to weigh.
+    Container(String, Box<ContainerDefinition>),
+}
+
+impl Pending {
+    fn name(&self) -> &str {
+        match self {
+            Pending::Toolbox(name) | Pending::Container(name, _) => name,
+        }
+    }
+
+    /// The command that approves it, printed when an operator declines.
+    fn command(&self) -> String {
+        match self {
+            Pending::Toolbox(name) => format!("ghostai toolbox approve {name}"),
+            Pending::Container(name, _) => format!("ghostai container approve {name}"),
+        }
+    }
+}
+
+/// Installed-but-unapproved definitions among `names`.
 ///
-/// It is also what keeps this off the database entirely on the common path: a
-/// fresh install picking a toolbox-free agent has no database yet, and opening
-/// one to discover there is nothing to say is how that run failed before.
-fn pending_approvals(paths: &PresetPaths, names: &[String]) -> Vec<(String, Toolbox)> {
+/// **An empty `names` is an empty answer, not "everything".** The list is what
+/// this run's chosen agents named, so empty means nothing chosen needs one —
+/// and a definition left unapproved from some earlier run is not this run's
+/// business to ask about. The commands that report on those are
+/// `ghostai toolbox list` and `ghostai container list`.
+fn pending_approvals(paths: &PresetPaths, names: &[String]) -> Vec<Pending> {
     if names.is_empty() {
         return Vec::new();
     }
-    let Ok(store) = open_store(paths) else {
-        return Vec::new();
-    };
-    store
-        .list()
+    let store = open_store(paths);
+    let toolboxes = store
+        .list_toolboxes()
         .into_iter()
         .filter(|entry| !entry.approved && names.contains(&entry.name))
-        .filter_map(|entry| entry.toolbox.map(|toolbox| (entry.name, toolbox)))
-        .collect()
+        .map(|entry| Pending::Toolbox(entry.name));
+    let containers = store
+        .list_containers()
+        .into_iter()
+        .filter(|entry| !entry.approved && names.contains(&entry.name))
+        .filter_map(|entry| {
+            entry
+                .value
+                .map(|definition| Pending::Container(entry.name, Box::new(definition)))
+        });
+    toolboxes.chain(containers).collect()
 }
 
 /// Runs one `ghostai preset` invocation, with the real world wired in.

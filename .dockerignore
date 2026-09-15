@@ -1,0 +1,15 @@
+.git
+target
+node_modules
+**/node_modules
+**/dist
+.pnpm-store
+.turbo
+coverage
+coverage.json
+.idea
+.codex
+.agents
+.env
+.env.*
+.ghostai

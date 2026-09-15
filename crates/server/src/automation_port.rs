@@ -36,7 +36,7 @@ use ghostai_protocol::automation::{
 use ghostai_tools::automation::{
     AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver,
 };
-use ghostai_tools::runner::ToolboxRequest;
+use ghostai_tools::runner::PlacementRequest;
 
 use crate::automation_store::{AutomationStore, CreateJobInput};
 use crate::scheduler::first_run_at;
@@ -101,7 +101,7 @@ impl ServerAutomationResolver {
 }
 
 impl AutomationResolver for ServerAutomationResolver {
-    fn for_turn(&self, request: &ToolboxRequest) -> Option<Arc<dyn AutomationPort>> {
+    fn for_turn(&self, request: &PlacementRequest) -> Option<Arc<dyn AutomationPort>> {
         Some(Arc::new(TurnPort {
             jobs: Arc::clone(&self.jobs),
             sessions: Arc::clone(&self.sessions),

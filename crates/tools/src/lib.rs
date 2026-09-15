@@ -28,12 +28,12 @@ pub mod automation;
 pub mod builtin;
 pub mod container_runner;
 pub mod names;
+pub mod operations;
 pub mod registry;
 pub mod runner;
 pub mod scope;
 pub mod sink;
 pub mod tool;
-pub mod toolbox_tools;
 
 #[cfg(feature = "testkit")]
 pub mod testkit;
@@ -46,16 +46,14 @@ pub use builtin::{
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,
-    KillSignal, RUNS_MOUNT_DIR, TOOLBOX_MOUNT_DIR, ToolboxMount, Transcript, container_create_argv,
+    KillSignal, RUNS_MOUNT_DIR, Transcript, WorkspaceMount, container_create_argv,
     container_exec_argv, container_is_gone, container_kill_argv, container_run_dir,
 };
 pub use names::{is_advertisable_name, namespaced_tool_name, namespaced_tool_names};
-pub use registry::{
-    ListenerId, ToolInvocation, ToolRegistry, ToolRegistryOptions, ToolScope, with_toolbox_tools,
-};
+pub use registry::{ListenerId, ToolInvocation, ToolRegistry, ToolRegistryOptions, ToolScope};
 pub use runner::{
-    CommandRunner, KILL_GRACE_MS, LocalRunner, OutputStream, OutputTee, RunOutcome, RunRequest,
-    RunnerResolver, ToolboxRequest,
+    CommandRunner, KILL_GRACE_MS, LocalRunner, OutputStream, OutputTee, PlacementRequest,
+    RunOutcome, RunRequest,
 };
 pub use scope::{is_enabled, permission_for};
 pub use sink::ToolSink;
@@ -63,7 +61,4 @@ pub use tool::{
     AnyTool, ArgIssue, BoxFuture, Preprocess, TOOL_NAME_PATTERN, Tool, ToolContext, ToolExecution,
     ToolHandler, ToolOutput, ToolSpec, TypedTool, assert_not_aborted, default_tools_config,
     is_tool_name, parameters_for,
-};
-pub use toolbox_tools::{
-    toolbox_permissions, toolbox_tool, toolbox_tools, visible_toolbox_entries,
 };

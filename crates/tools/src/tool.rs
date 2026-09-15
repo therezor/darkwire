@@ -112,6 +112,10 @@ pub struct ToolContext {
     /// host-shaped assumptions still hold*. A future runner that ran commands
     /// on another host without confining them would set one and not the other.
     pub sandboxed: bool,
+    /// The turn's placement, so an operation forwarded to the sandbox service
+    /// can name the agent, workspace, session and container it belongs to.
+    /// `None` is a turn with no container, which executes locally instead.
+    pub placement: Option<crate::PlacementRequest>,
     /// Where a scheduled job gets written, already scoped to this turn's agent
     /// and session. `None` is a build with no scheduler — the tool then refuses
     /// rather than pretending.
@@ -135,6 +139,7 @@ impl ToolContext {
             env: Arc::new(std::env::vars().collect()),
             runner: Arc::new(LocalRunner::default()),
             sandboxed: false,
+            placement: None,
             automation: None,
             nonce: None,
         }

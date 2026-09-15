@@ -20,6 +20,9 @@
  */
 
 import {
+  SandboxListResponseSchema,
+  type SandboxListResponse,
+  type SandboxRequest,
   AutomationJobListResponseSchema,
   AutomationJobSchema,
   AutomationRunListResponseSchema,
@@ -53,6 +56,7 @@ import {
   StatusResponseSchema,
   AgentListResponseSchema,
   ToolboxListResponseSchema,
+  ContainerListResponseSchema,
   ToolListResponseSchema,
   UploadResponseSchema,
   type AuthSessionResponse,
@@ -93,10 +97,11 @@ import {
   type StatusResponse,
   type AgentListResponse,
   type ToolboxListResponse,
+  type ContainerListResponse,
   type ToolListResponse,
   type UploadResponse,
 } from '@ghostwire/protocol';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 /** A non-2xx response, or a body that did not match its schema. */
 export class ApiError extends Error {
@@ -512,6 +517,25 @@ export const api = {
       ...(signal ? { signal } : {}),
     }),
 
+  sandboxes: (signal?: AbortSignal): Promise<SandboxListResponse> =>
+    request('/api/sandboxes', SandboxListResponseSchema, {
+      ...(signal ? { signal } : {}),
+    }),
+  /**
+   * Start, stop or restart one instance.
+   *
+   * `execute` is in the same type and is refused by the route: a model's tool
+   * call reaches the service through the agent loop, which carries the approval
+   * hash it resolved the toolbox at, and nothing here could supply one.
+   */
+  manageSandbox: (
+    operation: Exclude<SandboxRequest, { op: 'execute' } | { op: 'list' }>,
+  ): Promise<Record<string, unknown>> =>
+    request('/api/sandboxes', z.record(z.string(), z.unknown()), {
+      method: 'POST',
+      body: operation,
+    }),
+
   /**
    * Toolboxes installed on this machine.
    *
@@ -520,6 +544,12 @@ export const api = {
    */
   toolboxes: (signal?: AbortSignal): Promise<ToolboxListResponse> =>
     request('/api/toolboxes', ToolboxListResponseSchema, {
+      ...(signal ? { signal } : {}),
+    }),
+
+  /** The container definitions an operator installed. */
+  containers: (signal?: AbortSignal): Promise<ContainerListResponse> =>
+    request('/api/containers', ContainerListResponseSchema, {
       ...(signal ? { signal } : {}),
     }),
 

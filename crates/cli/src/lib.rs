@@ -36,6 +36,8 @@ pub mod skill_install;
 pub mod telegram;
 // Compiled only into a `test-hooks` build, and armed only by the environment on
 // top of that. See the module for the two-switch rule.
+pub mod container;
+pub mod sandbox_service;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 pub mod toolbox;
@@ -45,7 +47,7 @@ use std::io::Write;
 use ghostai_core::GhostError;
 
 use crate::i18n::{Env, Translations, describe_error};
-use crate::program::{Invocation, Parsed, Subcommand};
+use crate::program::{Invocation, Parsed, SandboxAction, Subcommand};
 
 pub use crate::program::VERSION;
 
@@ -151,6 +153,75 @@ async fn dispatch(
         Subcommand::Serve(args) => serve::run(&globals, *args, env, streams).await,
         Subcommand::Toolbox(action, id) => {
             toolbox::run(&globals, action, id.as_deref(), env, streams)
+        }
+        Subcommand::Container(action, id) => {
+            container::run(&globals, action, id.as_deref(), env, streams)
+        }
+        Subcommand::Sandbox {
+            action,
+            id,
+            container,
+            workspace,
+            socket,
+            force,
+        } => {
+            use ghostai_protocol::SandboxRequest;
+            use ghostai_sandbox::service::{SandboxClient, socket_path};
+            let required = |value: Option<String>, field: &str| {
+                value.ok_or_else(|| {
+                    GhostError::new(
+                        ghostai_core::ErrorKind::InvalidInput,
+                        format!("Missing {field}"),
+                    )
+                })
+            };
+            let request = match action {
+                SandboxAction::Health => SandboxRequest::Health,
+                SandboxAction::List => SandboxRequest::List,
+                // An operator warming an instance is asking for one a *turn*
+                // will reuse, so it has to carry the same network that turn
+                // will ask for — an instance's egress is part of its identity.
+                // Warming with none and then running with an allow-list starts
+                // a second container rather than reusing this one.
+                SandboxAction::Start => SandboxRequest::Start {
+                    container: required(container, "--container")?,
+                    workspace: required(workspace, "--workspace")?,
+                    agent: "operator".into(),
+                    session: "operator".into(),
+                    network: ghostai_protocol::ContainerNetwork::default(),
+                },
+                SandboxAction::Stop => SandboxRequest::Stop {
+                    instance: required(id, "instance id")?,
+                    force,
+                },
+                SandboxAction::Restart => SandboxRequest::Restart {
+                    instance: required(id, "instance id")?,
+                    force,
+                },
+            };
+            let loaded = ghostai_core::load_config(ghostai_core::LoadConfigOptions {
+                paths: runtime::load_options(&globals, None, env),
+                file: None,
+            })?;
+            let socket = socket_path(
+                socket
+                    .as_deref()
+                    .or_else(|| env.get("GHOSTAI_SANDBOX_SOCKET")),
+                &loaded.paths,
+            );
+            let result = SandboxClient::new(socket)
+                .request(request, &tokio_util::sync::CancellationToken::new())
+                .await?;
+            writeln!(
+                streams.out,
+                "{}",
+                serde_json::to_string_pretty(&result).map_err(|e| GhostError::new(
+                    ghostai_core::ErrorKind::Internal,
+                    e.to_string()
+                ))?
+            )
+            .map_err(GhostError::from)?;
+            Ok(0)
         }
         Subcommand::Extension(action, id) => {
             extension::run(&globals, action, id.as_deref(), env, streams)

@@ -8,7 +8,7 @@
 )]
 
 use ghostai_core::ErrorKind;
-use ghostai_protocol::{Config, DEFAULT_AGENT_ID, PromptMode, ToolPermission, ToolboxNetworkMode};
+use ghostai_protocol::{Config, DEFAULT_AGENT_ID, NetworkMode, PromptMode, ToolPermission};
 use ghostai_runtime::agents::{AgentMissReason, AgentWarningCode};
 use ghostai_runtime::{
     EffectiveAgent, assert_writable_agent_ids, has_agent, list_agents, prune_dangling_subagents,
@@ -164,11 +164,11 @@ mod resolve_agent {
     }
 
     #[test]
-    fn refuses_toolbox_networking_on_an_agent_that_names_none() {
+    fn refuses_egress_scoping_on_an_agent_that_names_no_container() {
         // Egress scoping is enforced by the container, so it means nothing on
         // the host.
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "", "network": {"mode": "open"}},
+            "container": {"name": "", "network": {"mode": "open"}},
         }}}});
         let error = resolve_agent(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);
@@ -176,9 +176,23 @@ mod resolve_agent {
     }
 
     #[test]
+    fn refuses_a_container_without_a_toolbox_capability_surface() {
+        let tree = json!({"agents": {"list": {"boxed": {
+            "container": {"name": "dev"},
+        }}}});
+        let error = resolve_agent(&config(&tree), Some("boxed")).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Config);
+        assert!(error.message.contains("no toolbox"), "{}", error.message);
+    }
+
+    #[test]
     fn refuses_an_egress_entry_that_is_not_a_cidr_block() {
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["example.com"]}},
+            "toolbox": {"name": "recon"},
+            "container": {
+                "name": "dev",
+                "network": {"mode": "allowlist", "allow": ["example.com"]},
+            },
         }}}});
         let error = resolve_agent(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);
@@ -192,13 +206,22 @@ mod resolve_agent {
         let tree = json!({"agents": {"list": {"net": {
             "toolbox": {
                 "name": "recon",
-                "network": {"mode": "allowlist", "allow": ["10.0.0.0/8"]},
                 "tools": {"*": "deny", "nmap": "allow"},
+            },
+            "container": {
+                "name": "dev",
+                "network": {
+                    "mode": "allowlist",
+                    "allow": ["10.0.0.0/8"],
+                    "dns": ["1.1.1.1"],
+                },
             },
         }}}});
         let agent = resolved(&tree, Some("net"));
         assert_eq!(agent.toolbox.name, "recon");
-        assert_eq!(agent.toolbox.network.mode, ToolboxNetworkMode::Allowlist);
+        assert_eq!(agent.container.name, "dev");
+        assert_eq!(agent.container.network.mode, NetworkMode::Allowlist);
+        assert_eq!(agent.container.network.dns, ["1.1.1.1"]);
         assert_eq!(agent.toolbox.tools["nmap"], ToolPermission::Allow);
     }
 
@@ -206,7 +229,7 @@ mod resolve_agent {
     fn defaults_an_agent_with_no_toolbox_entry_to_the_host() {
         let agent = resolved(&json!({}), None);
         assert_eq!(agent.toolbox.name, "");
-        assert_eq!(agent.toolbox.network.mode, ToolboxNetworkMode::None);
+        assert_eq!(agent.container.network.mode, NetworkMode::None);
     }
 }
 
@@ -491,7 +514,8 @@ mod or_default {
         // for settings that were never going to work would hide the one thing
         // the operator needs to see.
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["nope"]}},
+            "toolbox": {"name": "recon"},
+            "container": {"name": "dev", "network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}});
         let error = resolve_agent_or_default(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);

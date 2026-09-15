@@ -135,7 +135,8 @@ got here, it is edited the same way afterwards.
 | `enabled`          | boolean                              | `true`            |                                                                                                              |
 | `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
 | `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `toolbox`          | `{ name, network }`                  | `{ name: '', … }` | Empty name runs `exec` on the host. See [Toolboxes](toolboxes.md).                                           |
+| `toolbox`          | `{ name, tools }`                    | `{ name: '', … }` | The approved operation surface; empty means no toolbox-defined operations.                                   |
+| `container`        | `{ name, network }`                  | `{ name: '', … }` | Independent command placement; empty means the app environment. See [Toolboxes](toolboxes.md).               |
 | `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
 The eight prompt templates share one rule: **`''` inherits the built-in, and a single space
@@ -183,17 +184,29 @@ at call time.
 
 ### `agents.list.<id>.toolbox`
 
-| Key             | Type                    | Default  | Notes                                                            |
-| --------------- | ----------------------- | -------- | ---------------------------------------------------------------- |
-| `name`          | string                  | `''`     | A toolbox name, or empty to run on the host.                     |
-| `network.mode`  | `none\|allowlist\|open` | `'none'` | **Intersected** with the manifest's `maxMode`, never unioned.    |
-| `network.allow` | string[]                | `[]`     | CIDRs only — a hostname allow-list is defeated by DNS rebinding. |
+| Key     | Type                               | Default | Notes                                                      |
+| ------- | ---------------------------------- | ------- | ---------------------------------------------------------- |
+| `name`  | string                             | `''`    | An approved toolbox name, or empty for the built-in tools. |
+| `tools` | `Record<string, allow\|ask\|deny>` | `{}`    | Per-grant narrowing; `*` is the fallback. Never widens.    |
 
-There is no `image`, `runtime`, `caps` or `limits` here, deliberately. Those live in the
-toolbox manifest, which an operator installs and approves by hash. A value with no
-representation in this schema cannot be reached by a config patch — which is what makes
-"an agent cannot change the image it runs in" a property of the shape rather than a rule
-somebody enforces.
+### `agents.list.<id>.container`
+
+| Key             | Type                    | Default  | Notes                                                                   |
+| --------------- | ----------------------- | -------- | ----------------------------------------------------------------------- |
+| `name`          | string                  | `''`     | An independently approved container name, or empty to run on the host.  |
+| `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless a container is named: egress is enforced by its gateway. |
+| `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry.   |
+| `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.      |
+| `network.dns`   | string[]                | `[]`     | Resolvers, as non-loopback IP literals.                                 |
+
+**This is the only place egress is configured.** There is no second ceiling in the toolbox
+or the container definition, so what an agent may reach is one value in one file.
+
+There is no `image`, `runtime`, `caps` or `limits` in either agent selection,
+deliberately. Those live in the independently installed container definition, which an
+operator approves by hash. A value with no representation in this schema cannot be
+reached by a config patch — which is what keeps the hardening operator-only while the
+egress request is not.
 
 ### `agents.list.<id>.subagents[]`
 

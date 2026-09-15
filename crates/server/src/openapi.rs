@@ -528,6 +528,34 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         responses: &[(200, "ToolboxListResponse")],
     },
     RouteDoc {
+        id: RouteId::ContainersList,
+        summary: "Container definitions installed on this machine",
+        body: None,
+        query: None,
+        params: None,
+        responses: &[(200, "ContainerListResponse")],
+    },
+    RouteDoc {
+        id: RouteId::SandboxesList,
+        summary: "Live sandbox instances",
+        body: None,
+        query: None,
+        params: None,
+        responses: &[(200, "SandboxListResponse")],
+    },
+    RouteDoc {
+        id: RouteId::SandboxesManage,
+        summary: "Manage approved sandbox instances",
+        body: Some("SandboxRequest"),
+        query: None,
+        params: None,
+        // No typed response: this route forwards whatever op it was given and
+        // answers with the service's own JSON, so `stop` and `health` each
+        // return a different shape. Naming one of them would document a
+        // guarantee the route does not make.
+        responses: &[],
+    },
+    RouteDoc {
         id: RouteId::ToolsList,
         summary: "Every tool the registry holds, whoever may call it",
         body: None,

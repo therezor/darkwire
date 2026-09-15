@@ -144,7 +144,7 @@ mod resolve_ghost_paths {
                 root: root.clone(),
                 workspace: root.join("workspace"),
                 shared_dir: root.join("shared"),
-                toolboxes_dir: root.join("toolboxes"),
+                policy_dir: root.join("policy"),
                 presets_dir: root.join("presets"),
                 catalogue_dir: root.join("catalogue"),
                 runs_dir: root.join("runs"),

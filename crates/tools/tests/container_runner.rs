@@ -12,13 +12,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{Toolbox, ToolboxNetworkMode};
-use ghostai_security::{EffectiveNetwork, ExecPlan};
+use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_security::ExecPlan;
 use ghostai_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerExecOptions, ContainerRunner,
     ContainerRunnerOptions, KillSignal, OutputStream, OutputTee, RUNS_MOUNT_DIR, RunOutcome,
-    RunRequest, TOOLBOX_MOUNT_DIR, ToolboxMount, Transcript, container_create_argv,
-    container_exec_argv, container_is_gone, container_kill_argv, container_run_dir,
+    RunRequest, Transcript, WorkspaceMount, container_create_argv, container_exec_argv,
+    container_is_gone, container_kill_argv, container_run_dir,
 };
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -28,9 +29,9 @@ use tokio_util::sync::CancellationToken;
 
 const DIGEST: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-fn toolbox_of(overrides: Value) -> Toolbox {
+fn container_of(overrides: Value) -> ContainerDefinition {
     let mut base = json!({
-        "schema": "ghostai.toolbox/1",
+        "schema": "ghostai.container/1",
         "name": "kali",
         "image": format!("kalilinux/kali-rolling@{DIGEST}"),
     });
@@ -58,34 +59,29 @@ fn plan_of() -> ExecPlan {
     }
 }
 
-fn none() -> EffectiveNetwork {
-    EffectiveNetwork {
-        mode: ToolboxNetworkMode::None,
-        allow: Vec::new(),
-        dns: Vec::new(),
-        proxy_allow_hosts: Vec::new(),
-    }
+fn none() -> ContainerNetwork {
+    ContainerNetwork::default()
 }
 
-fn network(mode: ToolboxNetworkMode) -> EffectiveNetwork {
-    EffectiveNetwork {
+fn network(mode: NetworkMode) -> ContainerNetwork {
+    ContainerNetwork {
         mode,
         allow: vec!["10.0.0.0/8".to_owned()],
+        hosts: Vec::new(),
         dns: Vec::new(),
-        proxy_allow_hosts: Vec::new(),
     }
 }
 
-fn mount() -> ToolboxMount {
-    ToolboxMount {
+fn mount() -> WorkspaceMount {
+    WorkspaceMount {
         host_path: "/host/workspace".to_owned(),
         container_path: "/workspace".to_owned(),
     }
 }
 
-fn create(overrides: Value, network: EffectiveNetwork) -> Result<Vec<String>> {
+fn create(overrides: Value, network: ContainerNetwork) -> Result<Vec<String>> {
     container_create_argv(&ContainerCreateOptions::new(
-        toolbox_of(overrides),
+        container_of(overrides),
         network,
         mount(),
         "ghost-sbx-abc",
@@ -109,7 +105,7 @@ fn drops_all_capabilities_and_blocks_privilege_escalation() {
 }
 
 #[test]
-fn drops_all_even_when_the_toolbox_forgot_to_say_so() {
+fn drops_all_even_when_the_definition_forgot_to_say_so() {
     assert!(has(
         &argv(json!({"caps": {"drop": [], "add": []}})),
         "--cap-drop=ALL"
@@ -127,7 +123,7 @@ fn passes_init_without_which_signals_never_reach_the_command() {
 }
 
 #[test]
-fn adds_back_only_the_capabilities_the_toolbox_names() {
+fn adds_back_only_the_capabilities_the_definition_names() {
     let argv = argv(json!({"caps": {"drop": ["ALL"], "add": ["NET_RAW"]}}));
     assert!(has(&argv, "--cap-add=NET_RAW"));
     assert_eq!(
@@ -164,7 +160,16 @@ fn names_a_runtime_only_when_it_is_not_the_default() {
 }
 
 #[test]
-fn passes_unconfined_seccomp_only_when_the_toolbox_asks_for_it() {
+fn omits_the_hardening_a_definition_explicitly_turned_off() {
+    let argv = argv(json!({"security": {"noNewPrivileges": false, "readOnlyRoot": false}}));
+    assert!(!has(&argv, "--security-opt=no-new-privileges"));
+    assert!(!has(&argv, "--read-only"));
+    // The floor that is not the definition's to lower stays where it is.
+    assert!(has(&argv, "--cap-drop=ALL"));
+}
+
+#[test]
+fn passes_unconfined_seccomp_only_when_the_definition_asks_for_it() {
     assert!(!has(&argv(json!({})), "--security-opt=seccomp=unconfined"));
     assert!(has(
         &argv(json!({"security": {"seccomp": "unconfined"}})),
@@ -173,7 +178,7 @@ fn passes_unconfined_seccomp_only_when_the_toolbox_asks_for_it() {
 }
 
 #[test]
-fn mounts_the_workspace_at_the_toolbox_workdir() {
+fn mounts_the_workspace_at_the_container_workdir() {
     let argv = argv(json!({}));
     assert!(has(&argv, "--mount"));
     assert!(has(&argv, "type=bind,src=/host/workspace,dst=/workspace"));
@@ -194,9 +199,9 @@ fn mounts_the_workspace_at_the_toolbox_workdir() {
 #[test]
 fn survives_a_colon_in_the_workspace_path() {
     let argv = container_create_argv(&ContainerCreateOptions::new(
-        toolbox_of(json!({})),
+        container_of(json!({})),
         none(),
-        ToolboxMount {
+        WorkspaceMount {
             host_path: "/Users/me/Notes:2024/ws".to_owned(),
             container_path: "/workspace".to_owned(),
         },
@@ -210,21 +215,11 @@ fn survives_a_colon_in_the_workspace_path() {
 }
 
 #[test]
-fn mounts_the_approved_manifest_read_only_outside_the_workspace() {
-    let mut options = ContainerCreateOptions::new(toolbox_of(json!({})), none(), mount(), "c");
-    options.manifest_path = Some("/home/ghost/profiles/kali/profile.json".to_owned());
-    let argv = container_create_argv(&options).unwrap();
-    assert!(has(
-        &argv,
-        "type=bind,src=/home/ghost/profiles/kali,dst=/run/ghost,ro"
-    ));
-    assert!(!argv.join(" ").contains("/workspace/.ghost/profile.json"));
-}
-
-#[test]
 fn carries_labels_and_tmpfs_and_devices() {
     let mut options = ContainerCreateOptions::new(
-        toolbox_of(json!({"security": {"tmpfs": ["/tmp:rw,size=64m"], "devices": ["/dev/fuse"]}})),
+        container_of(
+            json!({"security": {"tmpfs": ["/tmp:rw,size=64m"], "devices": ["/dev/fuse"]}}),
+        ),
         none(),
         mount(),
         "c",
@@ -241,19 +236,71 @@ fn carries_labels_and_tmpfs_and_devices() {
 }
 
 #[test]
-fn runs_the_container_as_the_toolbox_user() {
+fn runs_the_container_as_the_definitions_user() {
     assert!(has(&argv(json!({"user": "1000:1000"})), "--user=1000:1000"));
-    assert!(!argv(json!({})).iter().any(|f| f.starts_with("--user")));
+    assert!(
+        !argv(json!({"user": ""}))
+            .iter()
+            .any(|f| f.starts_with("--user"))
+    );
+}
+
+#[test]
+fn masks_the_host_identifying_corners_of_sysfs_when_the_engine_honours_it() {
+    let mut options = ContainerCreateOptions::new(container_of(json!({})), none(), mount(), "c");
+    options.mask_sysfs = true;
+    let argv = container_create_argv(&options).unwrap();
+    for path in ["/sys/firmware", "/sys/class/block"] {
+        assert!(
+            has(
+                &argv,
+                &format!("--tmpfs={path}:ro,nosuid,nodev,noexec,size=4k")
+            ),
+            "{path} is not masked"
+        );
+    }
+    // Every masked path must exist on every architecture: a `--tmpfs` over one
+    // that does not makes runc try to create the mountpoint inside a read-only
+    // `/sys`, and the container never starts. The DMI directories are x86-only
+    // and broke every sandboxed turn on arm64 while they were in the list.
+    for x86_only in ["/sys/class/dmi", "/sys/devices/virtual/dmi"] {
+        assert!(
+            !argv.iter().any(|flag| flag.contains(x86_only)),
+            "{x86_only} does not exist on every architecture and must not be masked"
+        );
+    }
+}
+
+#[test]
+fn leaves_sysfs_alone_for_an_engine_that_would_have_to_copy_it_up() {
+    // Podman's copy-up needs a capability the container does not hold, so the
+    // masks are simply not requested there.
+    let argv = argv(json!({}));
+    assert!(!argv.iter().any(|flag| flag.contains("/sys/")));
+    assert!(!argv.iter().any(|flag| flag.contains("/sys/firmware")));
+}
+
+#[test]
+fn masking_sysfs_leaves_the_definitions_own_tmpfs_specs_intact() {
+    let mut options = ContainerCreateOptions::new(
+        container_of(json!({"security": {"tmpfs": ["/tmp:rw,size=64m"]}})),
+        none(),
+        mount(),
+        "c",
+    );
+    options.mask_sysfs = true;
+    let argv = container_create_argv(&options).unwrap();
+    assert!(has(&argv, "--tmpfs=/tmp:rw,size=64m"));
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
     /// The assertion that matters most is about what can never appear. A
-    /// toolbox is operator-installed, but it is still data, and this is the
-    /// line between "a container policy" and "host root".
+    /// container definition is operator-installed, but it is still data, and
+    /// this is the line between "a container policy" and "host root".
     #[test]
-    fn never_grants_privilege_or_the_daemon_socket_for_any_toolbox(
+    fn never_grants_privilege_or_the_daemon_socket_for_any_definition(
         drop in prop::collection::vec("[A-Za-z_]{0,12}", 0..4),
         add in prop::collection::vec("[A-Za-z_]{0,12}", 0..4),
         user in "[a-z0-9:]{0,12}",
@@ -282,8 +329,8 @@ fn isolates_the_network_entirely_when_the_mode_is_none() {
 #[test]
 fn joins_the_gateway_namespace_when_one_is_supplied() {
     let mut options = ContainerCreateOptions::new(
-        toolbox_of(json!({})),
-        network(ToolboxNetworkMode::Allowlist),
+        container_of(json!({})),
+        network(NetworkMode::Allowlist),
         mount(),
         "c",
     );
@@ -294,7 +341,7 @@ fn joins_the_gateway_namespace_when_one_is_supplied() {
 
 #[test]
 fn refuses_a_scoped_sandbox_with_no_gateway_rather_than_running_it_wide_open() {
-    let error = create(json!({}), network(ToolboxNetworkMode::Allowlist))
+    let error = create(json!({}), network(NetworkMode::Allowlist))
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Internal);
@@ -302,17 +349,44 @@ fn refuses_a_scoped_sandbox_with_no_gateway_rather_than_running_it_wide_open() {
 }
 
 #[test]
-fn uses_the_bridge_for_an_open_profile_with_no_gateway() {
+fn uses_the_bridge_for_an_open_request_with_no_gateway() {
     assert!(has(
-        &create(json!({}), network(ToolboxNetworkMode::Open)).unwrap(),
+        &create(json!({}), network(NetworkMode::Open)).unwrap(),
         "--network=bridge"
     ));
 }
 
-fn exec_argv(plan: &ExecPlan, toolbox: &Toolbox) -> Vec<String> {
+#[test]
+fn points_ordinary_clients_at_the_proxy_when_the_request_names_hosts() {
+    let asked = ContainerNetwork {
+        mode: NetworkMode::Allowlist,
+        allow: Vec::new(),
+        hosts: vec!["example.test".to_owned()],
+        dns: Vec::new(),
+    };
+    let mut options = ContainerCreateOptions::new(container_of(json!({})), asked, mount(), "c");
+    options.gateway_container = Some("ghost-netgate-1".to_owned());
+    let argv = container_create_argv(&options).unwrap();
+    for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+        assert!(has(&argv, &format!("{key}=http://127.0.0.1:3128")));
+    }
+}
+
+#[test]
+fn sets_no_proxy_variables_for_a_request_that_names_no_hosts() {
+    assert!(!argv(json!({})).iter().any(|flag| flag.contains("PROXY")));
+    assert!(
+        !create(json!({}), network(NetworkMode::Open))
+            .unwrap()
+            .iter()
+            .any(|flag| flag.contains("proxy"))
+    );
+}
+
+fn exec_argv(plan: &ExecPlan, container: &ContainerDefinition) -> Vec<String> {
     container_exec_argv(&ContainerExecOptions {
         plan,
-        toolbox,
+        container,
         container_name: "c",
         run_id: "r1",
     })
@@ -325,7 +399,7 @@ fn script_of(argv: &[String]) -> String {
 
 #[test]
 fn exec_passes_the_command_as_positional_parameters_never_inside_the_script() {
-    let result = exec_argv(&plan_of(), &toolbox_of(json!({})));
+    let result = exec_argv(&plan_of(), &container_of(json!({})));
     let script = script_of(&result);
     assert!(!script.contains("nmap"));
     assert!(!script.contains("10.0.0.5"));
@@ -339,22 +413,30 @@ fn exec_is_unaffected_by_shell_metacharacters_in_the_arguments() {
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let result = exec_argv(&plan, &toolbox_of(json!({})));
+    let result = exec_argv(&plan, &container_of(json!({})));
     assert_eq!(script_of(&result), r#"echo $$ > "$1"; shift; exec "$@""#);
     assert!(has(&result, "$(whoami)"));
     assert!(has(&result, "; rm -rf /"));
 }
 
 #[test]
-fn exec_runs_in_the_toolbox_workdir() {
-    let result = exec_argv(&plan_of(), &toolbox_of(json!({})));
+fn exec_leads_its_own_process_group_so_a_timeout_reaches_the_whole_tree() {
+    let result = exec_argv(&plan_of(), &container_of(json!({})));
+    let at = result.iter().position(|item| item == "setsid").unwrap();
+    assert_eq!(result[at + 1], "/bin/sh");
+    assert_eq!(result[at - 1], "c");
+}
+
+#[test]
+fn exec_runs_in_the_container_workdir() {
+    let result = exec_argv(&plan_of(), &container_of(json!({})));
     let at = result.iter().position(|item| item == "--workdir").unwrap();
     assert_eq!(result[at + 1], "/workspace");
 }
 
 #[test]
-fn exec_passes_through_only_the_environment_names_the_profile_lists() {
-    let result = exec_argv(&plan_of(), &toolbox_of(json!({"env": ["LANG"]})));
+fn exec_passes_through_only_the_environment_names_the_definition_lists() {
+    let result = exec_argv(&plan_of(), &container_of(json!({"env": ["LANG"]})));
     assert!(has(&result, "LANG=en_GB.UTF-8"));
     let joined = result.join(" ");
     assert!(!joined.contains("SECRET"));
@@ -362,14 +444,14 @@ fn exec_passes_through_only_the_environment_names_the_profile_lists() {
 }
 
 #[test]
-fn exec_omits_a_name_the_profile_lists_but_the_plan_does_not_carry() {
-    let result = exec_argv(&plan_of(), &toolbox_of(json!({"env": ["TZ"]})));
+fn exec_omits_a_name_the_definition_lists_but_the_plan_does_not_carry() {
+    let result = exec_argv(&plan_of(), &container_of(json!({"env": ["TZ"]})));
     assert!(!result.join(" ").contains("TZ="));
 }
 
 #[test]
 fn exec_writes_the_pid_to_a_tmpfs_not_the_read_only_transcript_mount() {
-    let result = exec_argv(&plan_of(), &toolbox_of(json!({})));
+    let result = exec_argv(&plan_of(), &container_of(json!({})));
     assert!(has(&result, "/tmp/.ghost-r1.pid"));
     assert!(!result.join(" ").contains("/workspace/.ghost"));
 }
@@ -383,19 +465,52 @@ fn reports_the_transcript_at_its_read_only_mount_outside_the_workspace() {
 }
 
 #[test]
-fn keeps_the_transcript_mount_a_sibling_of_the_toolbox_mount_never_nested() {
-    assert!(!RUNS_MOUNT_DIR.starts_with(&format!("{TOOLBOX_MOUNT_DIR}/")));
+fn keeps_the_transcript_mount_outside_every_other_mount_it_establishes() {
+    let mut options = ContainerCreateOptions::new(container_of(json!({})), none(), mount(), "c");
+    options.runs_path = Some("/home/ghost/runs".to_owned());
+    let argv = container_create_argv(&options).unwrap();
+    let targets: Vec<&str> = argv
+        .iter()
+        .filter_map(|flag| {
+            flag.split(',')
+                .find_map(|part| part.strip_prefix("dst="))
+                .filter(|target| !target.starts_with(RUNS_MOUNT_DIR))
+        })
+        .collect();
+    assert_eq!(targets, ["/workspace"]);
+    assert!(
+        !targets
+            .iter()
+            .any(|target| RUNS_MOUNT_DIR.starts_with(&format!("{target}/")))
+    );
 }
 
 #[test]
-fn mounts_the_transcript_directory_read_only() {
-    let mut options = ContainerCreateOptions::new(toolbox_of(json!({})), none(), mount(), "c");
+fn mounts_only_this_containers_own_transcripts_read_only() {
+    let mut options = ContainerCreateOptions::new(container_of(json!({})), none(), mount(), "c");
     options.runs_path = Some("/home/ghost/runs".to_owned());
     let argv = container_create_argv(&options).unwrap();
     assert!(has(
         &argv,
-        "type=bind,src=/home/ghost/runs,dst=/run/ghost-runs,ro"
+        "type=bind,src=/home/ghost/runs/c,dst=/run/ghost-runs/c,ro"
     ));
+}
+
+#[test]
+fn takes_the_transcript_path_with_an_empty_tmpfs_when_there_is_nothing_to_mount() {
+    let argv = argv(json!({}));
+    assert!(has(
+        &argv,
+        "--tmpfs=/run/ghost-runs:ro,nosuid,nodev,noexec,size=4k"
+    ));
+    assert!(!argv.iter().any(|flag| flag.contains("dst=/run/ghost-runs")));
+    // The `--mount` the bind would have taken is not left dangling in front of
+    // the flag that replaced it.
+    let at = argv
+        .iter()
+        .position(|flag| flag.starts_with("--tmpfs=/run/ghost-runs"))
+        .unwrap();
+    assert_ne!(argv[at - 1], "--mount");
 }
 
 #[test]
@@ -415,8 +530,15 @@ fn kill_takes_the_pid_file_as_a_parameter_rather_than_interpolating_it() {
 
 #[test]
 fn kill_refuses_to_signal_anything_that_is_not_a_bare_positive_integer() {
-    let argv = container_kill_argv("c", "r1", KillSignal::Term);
-    assert!(script_of(&argv).contains("*[!0-9]*"));
+    let script = script_of(&container_kill_argv("c", "r1", KillSignal::Term));
+    assert!(script.contains("*[!0-9]*"));
+    assert!(script.contains("| 0 | 1 )"));
+}
+
+#[test]
+fn kill_signals_the_group_rather_than_the_leader_alone() {
+    let script = script_of(&container_kill_argv("c", "r1", KillSignal::Term));
+    assert!(script.contains(r#"kill -"$2" -- -"$p""#));
 }
 
 /// Records what it was asked to run and answers without a process.
@@ -463,14 +585,33 @@ impl CommandRunner for FakeInner {
 }
 
 fn runner(inner: &Arc<FakeInner>, runs_root: PathBuf, bin: Option<&str>) -> ContainerRunner {
-    ContainerRunner::new(ContainerRunnerOptions {
-        toolbox: toolbox_of(json!({})),
+    ContainerRunner::new(runner_options(inner, runs_root, bin))
+}
+
+fn runner_options(
+    inner: &Arc<FakeInner>,
+    runs_root: PathBuf,
+    bin: Option<&str>,
+) -> ContainerRunnerOptions {
+    ContainerRunnerOptions {
+        container: container_of(json!({})),
         container_name: "c".to_owned(),
         runs_root,
         bin: bin.map(str::to_owned),
         next_run_id: Arc::new(|| "run-1".to_owned()),
         inner: Some(Arc::clone(inner) as Arc<dyn CommandRunner>),
-    })
+    }
+}
+
+#[test]
+fn options_describe_themselves_without_naming_the_run_id_source() {
+    let inner = FakeInner::new(FakeInner::ok());
+    let options = runner_options(&inner, PathBuf::from("/host/runs"), Some("podman"));
+    let text = format!("{options:?}");
+    assert!(text.contains("ContainerRunnerOptions"));
+    assert!(text.contains("kali"));
+    assert!(text.contains("podman"));
+    assert!(!text.contains("next_run_id"));
 }
 
 fn req(plan: ExecPlan, timeout_ms: u64) -> RunRequest {
@@ -480,12 +621,6 @@ fn req(plan: ExecPlan, timeout_ms: u64) -> RunRequest {
         token: CancellationToken::new(),
         clock: Arc::new(SystemClock),
         tee: None,
-    }
-}
-
-async fn settle() {
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
     }
 }
 
@@ -508,6 +643,38 @@ async fn writes_the_full_transcript_and_reports_where_it_is() {
     assert_eq!(
         std::fs::read_to_string(dir.path().join("c/run-1/stderr.log")).unwrap(),
         "a warning\n"
+    );
+}
+
+/// Records everything written to it, standing in for the caller's own progress
+/// stream.
+#[derive(Default)]
+struct Recorder(Mutex<Vec<u8>>);
+
+impl OutputTee for Recorder {
+    fn write(&self, _stream: OutputStream, chunk: &[u8]) {
+        self.0.lock().extend_from_slice(chunk);
+    }
+}
+
+#[tokio::test]
+async fn keeps_feeding_the_callers_progress_stream_while_it_writes_the_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = FakeInner::new(FakeInner::ok());
+    let progress = Arc::new(Recorder::default());
+    let mut request = req(plan_of(), 1_000);
+    request.tee = Some(Arc::clone(&progress) as Arc<dyn OutputTee>);
+    runner(&inner, dir.path().to_path_buf(), None)
+        .run(request)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(progress.0.lock().clone()).unwrap(),
+        "scan line one\na warning\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("c/run-1/stdout.log")).unwrap(),
+        "scan line one\n"
     );
 }
 
@@ -549,7 +716,6 @@ async fn signals_the_container_when_the_command_timed_out() {
         .run(req(plan_of(), 5))
         .await
         .unwrap();
-    settle().await;
     let calls = inner.calls.lock();
     assert!(
         calls
@@ -558,8 +724,8 @@ async fn signals_the_container_when_the_command_timed_out() {
     );
 }
 
-#[tokio::test]
-async fn signals_the_container_when_the_run_failed() {
+#[tokio::test(start_paused = true)]
+async fn escalates_to_a_second_harder_signal_when_the_run_failed() {
     let dir = tempfile::tempdir().unwrap();
     let inner = Arc::new(FakeInner {
         calls: Mutex::new(Vec::new()),
@@ -572,13 +738,12 @@ async fn signals_the_container_when_the_run_failed() {
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Tool);
-    settle().await;
     let calls = inner.calls.lock();
-    assert!(
-        calls
-            .iter()
-            .any(|call| call.plan.args.iter().any(|a| a == "TERM"))
-    );
+    let signals: Vec<&String> = calls
+        .iter()
+        .filter_map(|call| call.plan.args.last())
+        .collect();
+    assert_eq!(signals[1..], ["TERM", "KILL"]);
 }
 
 #[test]

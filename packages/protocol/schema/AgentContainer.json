@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "default": "",
+      "type": "string"
+    },
+    "network": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "allowlist",
+            "open"
+          ]
+        },
+        "allow": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hosts": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dns": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

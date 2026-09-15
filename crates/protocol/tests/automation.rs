@@ -8,9 +8,8 @@
 )]
 
 use garde::Validate;
-use ghostai_protocol::{
-    AutomationJob, AutomationPayload, AutomationSchedule, RunStatus, Toolbox, ToolboxLimits,
-};
+use ghostai_protocol::toolbox::{ContainerDefinition, ContainerLimits};
+use ghostai_protocol::{AutomationJob, AutomationPayload, AutomationSchedule, RunStatus, Toolbox};
 use serde_json::json;
 
 #[test]
@@ -72,23 +71,45 @@ fn a_job_fills_in_state_and_flags() {
 }
 
 #[test]
-fn a_toolbox_manifest_coerces_its_limits() {
-    let toolbox: Toolbox = serde_json::from_value(json!({
-        "schema": "ghostai.toolbox/1", "name": "recon", "image": "img@sha256:abc",
+fn a_container_manifest_coerces_its_limits() {
+    let container: ContainerDefinition = serde_json::from_value(json!({
+        "schema": "ghostai.container/1", "name": "dev", "image": "img@sha256:abc",
         "limits": {"memoryMb": "4096", "cpus": "1.5"},
     }))
     .unwrap();
-    assert_eq!(toolbox.limits.memory_mb, 4096);
-    assert!((toolbox.limits.cpus - 1.5).abs() < f64::EPSILON);
-    assert_eq!(toolbox.limits.pids_max, ToolboxLimits::default().pids_max);
-    assert_eq!(toolbox.caps.drop, vec!["ALL"]);
-    assert!(toolbox.security.read_only_root);
-    assert_eq!(toolbox.network.dns, vec!["127.0.0.11"]);
-    assert!(toolbox.validate().is_ok());
+    assert_eq!(container.limits.memory_mb, 4096);
+    assert!((container.limits.cpus - 1.5).abs() < f64::EPSILON);
+    assert_eq!(
+        container.limits.pids_max,
+        ContainerLimits::default().pids_max
+    );
+    assert_eq!(container.caps.drop, vec!["ALL"]);
+    assert!(container.security.read_only_root);
+    assert!(container.validate().is_ok());
     assert!(
-        serde_json::from_value::<Toolbox>(
-            json!({"schema": "ghostai.toolbox/2", "name": "x", "image": "i"})
+        serde_json::from_value::<ContainerDefinition>(
+            json!({"schema": "ghostai.container/2", "name": "x", "image": "i"})
         )
+        .is_err()
+    );
+}
+
+#[test]
+fn a_toolbox_manifest_carries_grants_and_no_image() {
+    let toolbox: Toolbox = serde_json::from_value(json!({
+        "schema": "ghostai.toolbox/1", "name": "recon",
+        "tools": [{"name": "git_status", "definition": "git-status"}],
+    }))
+    .unwrap();
+    assert_eq!(toolbox.tools.len(), 1);
+    assert_eq!(toolbox.tools[0].definition, "git-status");
+    assert!(toolbox.validate().is_ok());
+    // An image belongs to a container, so a toolbox naming one is rejected
+    // rather than quietly ignored.
+    assert!(
+        serde_json::from_value::<Toolbox>(json!({
+            "schema": "ghostai.toolbox/1", "name": "recon", "tools": [], "image": "img",
+        }))
         .is_err()
     );
 }

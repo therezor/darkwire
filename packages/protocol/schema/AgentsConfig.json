@@ -226,6 +226,31 @@
                 "default": "",
                 "type": "string"
               },
+              "tools": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "ask",
+                    "deny"
+                  ]
+                }
+              }
+            }
+          },
+          "container": {
+            "default": {},
+            "type": "object",
+            "properties": {
+              "name": {
+                "default": "",
+                "type": "string"
+              },
               "network": {
                 "default": {},
                 "type": "object",
@@ -245,22 +270,21 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "hosts": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "dns": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
-                }
-              },
-              "tools": {
-                "default": {},
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "type": "string",
-                  "enum": [
-                    "allow",
-                    "ask",
-                    "deny"
-                  ]
                 }
               }
             }

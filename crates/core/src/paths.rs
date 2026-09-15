@@ -97,8 +97,15 @@ pub struct GhostPaths {
     pub workspace: PathBuf,
     /// The layer agents working in one folder share, keyed by workspace.
     pub shared_dir: PathBuf,
-    /// Installed toolboxes, one directory per toolbox holding `toolbox.json`.
-    pub toolboxes_dir: PathBuf,
+    /// Operator-installed policy: `toolboxes/`, `containers/` and
+    /// `tool-definitions/`, each holding one `<name>.json` per definition with
+    /// its `<name>.approval.sha256` beside it.
+    ///
+    /// Beside the workspace and never inside it: the jail root *is* the
+    /// workspace, so policy kept in there would be writable by `write_file` and
+    /// prompt injection would become a way to rewrite the rules an agent runs
+    /// under.
+    pub policy_dir: PathBuf,
     /// Installed agent presets.
     pub presets_dir: PathBuf,
     /// The preset catalogue cache.
@@ -173,7 +180,7 @@ impl GhostPaths {
 
         Ok(GhostPaths {
             shared_dir: root.join("shared"),
-            toolboxes_dir: root.join("toolboxes"),
+            policy_dir: root.join("policy"),
             presets_dir: root.join("presets"),
             catalogue_dir: root.join("catalogue"),
             runs_dir: root.join("runs"),

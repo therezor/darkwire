@@ -198,13 +198,30 @@ back out. What a client can see is a per-instance `credentialsPresent` boolean.
 
 **Stops:** the policy an agent runs under being changed underneath the operator.
 
-A toolbox is authorised by **content hash, not signature** — the question is "are these
-exact bytes approved?", not "who wrote them". Editing an installed manifest silently
-revokes its approval, and the next turn refuses with a sentence naming the drift.
+A toolbox is authorised as a **dependency bundle hash, not a signature** — the manifest
+and every reusable tool definition it names are approved together, length-framed, so
+editing a shared definition revokes every toolbox that reaches it. A container definition
+has a separate approval hash over its own bytes alone. Editing either silently revokes
+that one resource. The approval is a file beside the definition rather than a database
+row, which is what lets the app and the isolated sandbox service verify the same answer
+without either being the authority on the other.
 
-Two things are refused outright: an image that is not digest-pinned, and any of
-`NET_ADMIN`, `SYS_ADMIN`, `SYS_MODULE`. Manifests live beside the workspace, never inside
-it, so `write_file` plus an injection cannot rewrite them.
+Re-checked **during** a call, not only before it: a 250 ms ticker re-resolves the approval
+beside a running command and cancels the moment the hash it was authorised under stops
+matching. A revoke means it now, not when the process happens to exit.
+
+The toolbox is the complete callable surface and agent permissions may only tighten its
+ceilings. Containers require content-addressed images; `NET_ADMIN`, `SYS_ADMIN` and
+`SYS_MODULE` are refused. Restricted egress uses a separate default-deny gateway whose
+namespace the tool container shares. Definitions live beside the workspace, never inside
+it, so file tools cannot rewrite the policy the agent runs under.
+
+**Egress is agent configuration, and that is a deliberate narrowing of this boundary.**
+A settings save can set `network.mode` to `open`; it cannot change an image digest, a
+capability, a seccomp profile, a uid, `noNewPrivileges` or the shared flag, because none
+of those has any representation in the config tree. A gateway also refuses to start for a
+container whose hardening could not enforce a restricted allow-list, so the two halves
+cannot silently disagree. The trade was one configuration point for one fewer ceiling.
 
 Full detail in [Toolboxes](toolboxes.md).
 
@@ -219,10 +236,10 @@ An extension is authorised by **content digest, not signature**, exactly as a
 toolbox is — the question is "are these the exact bytes approved?", not "who
 wrote them". It diverges from the toolbox in one place, and the divergence is
 what makes the analogy hold: the digest covers **every file under the install
-directory**, not the manifest alone. A toolbox manifest pins an immutable image,
-so approving the manifest approves the code; an extension manifest names a
-_path_, so approving it would approve a pointer and the file behind it could be
-swapped afterwards without moving an approved byte.
+directory**, not the manifest alone. A container definition pins an immutable
+image, so approving the definition approves the code; an extension manifest
+names a _path_, so approving it would approve a pointer and the file behind it
+could be swapped afterwards without moving an approved byte.
 
 Editing any file, adding one, removing one or renaming one moves the digest and
 revokes the approval, and the next reconcile refuses with a sentence naming the

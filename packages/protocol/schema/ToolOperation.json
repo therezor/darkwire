@@ -1,0 +1,112 @@
+{
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ghostai.tool/1"
+    },
+    "description": {
+      "type": "string"
+    },
+    "parameters": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "implementation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "transcript"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "command"
+            },
+            "executable": {
+              "type": "string",
+              "pattern": "^\\/.*"
+            },
+            "argv": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      },
+                      "workspacePath": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "argvInput": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "executable"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "registered"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool",
+            "digest"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "description",
+    "parameters",
+    "implementation"
+  ],
+  "additionalProperties": false
+}

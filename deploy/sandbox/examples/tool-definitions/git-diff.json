@@ -1,0 +1,24 @@
+{
+  "schema": "ghostai.tool/1",
+  "description": "Show unstaged changes without external diff programs.",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "implementation": {
+    "kind": "command",
+    "executable": "/usr/bin/git",
+    "argv": [
+      "--no-pager",
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "safe.directory=/workspace",
+      "diff",
+      "--no-ext-diff",
+      "--no-textconv"
+    ]
+  }
+}

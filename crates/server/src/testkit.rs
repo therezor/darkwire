@@ -38,7 +38,7 @@ use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::BoxFuture;
 use ghostai_security::jail::{JailOptions, WorkspaceJail, single_jail};
 use ghostai_security::random::RandomSource;
-use ghostai_security::toolbox_store::ToolboxListing;
+use ghostai_security::{ContainerListing, ToolboxListing};
 use ghostai_tools::{ToolRegistry, ToolScope};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -232,6 +232,8 @@ pub struct FakeRuntimeOptions {
     /// about what the listing *says* supplies entries, including the ones that
     /// carry a `problem` and so are reported but not usable.
     pub toolboxes: Vec<ToolboxListing>,
+    /// Independently installed container definitions.
+    pub containers: Vec<ContainerListing>,
 }
 
 /// One agent's view, over a real jail and a real workspace tree.
@@ -335,6 +337,7 @@ pub struct FakeRuntime {
     agent: Arc<FakeAgentView>,
     registered_tools: Vec<ToolDefinition>,
     toolboxes: Vec<ToolboxListing>,
+    containers: Vec<ContainerListing>,
     credentials: Mutex<IndexMap<String, bool>>,
     /// Every patch this runtime was asked to apply, in order.
     patches: Mutex<Vec<ConfigPatch>>,
@@ -425,6 +428,7 @@ impl FakeRuntime {
                 .clone()
                 .unwrap_or_else(|| options.tools.clone()),
             toolboxes: options.toolboxes.clone(),
+            containers: options.containers.clone(),
             agent,
             credentials: Mutex::new(options.credentials_present.clone()),
             patches: Mutex::new(Vec::new()),
@@ -556,6 +560,10 @@ impl ServerRuntime for FakeRuntime {
 
     fn toolboxes(&self) -> Vec<ToolboxListing> {
         self.toolboxes.clone()
+    }
+
+    fn containers(&self) -> Vec<ContainerListing> {
+        self.containers.clone()
     }
 
     fn extensions(&self) -> ExtensionCounts {

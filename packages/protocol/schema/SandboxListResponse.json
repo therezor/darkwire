@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "properties": {
+    "instances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "busy": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastUsedMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "agents": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "workspace",
+          "container",
+          "shared",
+          "busy",
+          "lastUsedMs"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "instances"
+  ],
+  "additionalProperties": false
+}

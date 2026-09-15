@@ -32,6 +32,13 @@ const THRESHOLDS = {
   runtime: { lines: 85, branches: 80 },
   'extension-host': { lines: 85, branches: 80 },
   server: { lines: 85, branches: 80 },
+  // The one crate held at the default on purpose. Its policy decisions are
+  // covered like any other guard — the socket boundary, the egress refusals,
+  // the proxy's header rules — but roughly a third of it only runs with a
+  // container daemon behind it, and the test that supplies one is `#[ignore]`d
+  // because CI has none. Raising this bar would mean either deleting that
+  // third or asserting it against a mock of the daemon, which tests the mock.
+  sandbox: { lines: 70, branches: 65 },
   // Wire adapters and process runners: much of the surface is I/O plumbing.
   providers: { lines: 80, branches: 75 },
   tools: { lines: 80, branches: 75 },

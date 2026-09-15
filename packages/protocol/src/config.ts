@@ -516,45 +516,44 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
   });
 
 /**
- * How much network an agent asks its toolbox for.
+ * How much of the network an agent's container reaches.
  *
- * Intersected with the profile's `network.maxMode`, never unioned: a profile is
- * a ceiling and this is a narrowing of it. An agent asking for `open` against a
- * profile whose maximum is `none` gets `none`, and the settings save that tried
- * it is refused rather than silently downgraded — a config that means something
- * other than what it says is worse than one that fails.
+ * The one place egress is configured. A container definition decides whether a
+ * restricted gateway *can* be built — a non-root numeric uid, no-new-privs, no
+ * packet-forging capability — and this decides what that gateway permits.
+ * Splitting the two across both files is what produced a "ceiling" nobody could
+ * find the other half of.
  *
- * `allow` is CIDRs only. A hostname allow-list is defeated by DNS rebinding,
- * which is the attack `guardedFetch` already exists to stop; a profile whose
- * traffic is all HTTP(S) scopes by hostname through the proxy instead
- * (`SandboxProfileNetwork.proxyAllowHosts`).
+ * `allow` and `hosts` are alternatives, not layers. A CIDR allow-list is
+ * enforced by the gateway's packet filter and is the only thing that works for
+ * raw scanning. A host allow-list is enforced by the egress proxy, which sees
+ * the name rather than the address a name resolved to, and so is the only thing
+ * DNS rebinding cannot defeat — the attack `guardedFetch` already exists to
+ * stop. Asking for both would mean two enforcement points disagreeing about one
+ * request, so it is refused.
  */
-export const AgentToolboxNetworkSchema = z.object({
-  mode: z.enum(['none', 'allowlist', 'open']).default('none'),
+export const NetworkModeSchema = z.enum(['none', 'allowlist', 'open']);
+export type NetworkMode = z.infer<typeof NetworkModeSchema>;
+
+export const ContainerNetworkSchema = z.object({
+  mode: NetworkModeSchema.default('none'),
+  /** CIDRs the packet filter permits, for `allowlist`. */
   allow: z.array(z.string()).default([]),
+  /** Exact DNS names the egress proxy permits, for `allowlist`. */
+  hosts: z.array(z.string()).default([]),
+  /**
+   * Resolvers the gateway permits on port 53, as IP literals.
+   *
+   * Empty is correct for a host allow-list, where the proxy resolves names on
+   * the container's behalf, and wrong for a CIDR allow-list, where nothing in
+   * the container can resolve a name without one.
+   */
+  dns: z.array(z.string()).default([]),
 });
-export type AgentToolboxNetwork = z.infer<typeof AgentToolboxNetworkSchema>;
+export type ContainerNetwork = z.infer<typeof ContainerNetworkSchema>;
 
 /**
- * Which toolbox an agent works in — that is, where its `exec` calls run.
- *
- * An empty `name` is the behaviour that has always existed: a child process on
- * the machine running GhostAI, inside the workspace jail. A named toolbox routes
- * `exec` into that toolbox's container instead.
- *
- * There is no separate `sandbox` key, because the two would be one idea wearing
- * two words: "where exec runs" *is* "which box of tools the agent has".
- *
- * **There is no `image`, `runtime`, `caps` or `limits` here, deliberately.**
- * Those live in the toolbox manifest, which is installed by an operator and
- * authorised by content hash. A value with no representation in this schema
- * cannot be reached by a config patch, a settings save, or anything that later
- * gains the ability to propose one — which is what makes "the agent cannot
- * change the image it runs in" a property of the shape rather than a rule
- * somebody has to enforce.
- */
-/**
- * The key in `AgentToolbox.tools` standing for "every entry not named above".
+ * The key in `AgentToolbox.tools` standing for "every grant not named above".
  *
  * Here rather than in `ghostai-tools`, which is where it is resolved, because
  * three packages need the *spelling* without the resolution: the runtime reads
@@ -563,39 +562,65 @@ export type AgentToolboxNetwork = z.infer<typeof AgentToolboxNetworkSchema>;
  */
 export const TOOLBOX_DEFAULT_KEY = '*';
 
+/**
+ * Which toolbox defines this agent's callable operations.
+ *
+ * **There is no `image`, `runtime`, `caps` or `limits` here, deliberately.**
+ * Those live in a container definition, which is installed by an operator and
+ * authorised by content hash. A value with no representation in this schema
+ * cannot be reached by a config patch, a settings save, or anything that later
+ * gains the ability to propose one — which is what makes "the agent cannot
+ * change the image it runs in" a property of the shape rather than a rule
+ * somebody has to enforce.
+ */
 export const AgentToolboxSchema = z.object({
-  /** A toolbox name, or empty to run on the host. */
+  /** A toolbox name, or empty for no toolbox operations. */
   name: z.string().default(''),
-  network: AgentToolboxNetworkSchema.prefault({}),
   /**
-   * Which of the box's programs this agent gets, overriding the manifest.
+   * Which of the toolbox's grants this agent gets, tightening the manifest.
    *
-   * A box is stocked for a job, not for an agent. `recon` declares
-   * twenty-four programs because reconnaissance needs all of them somewhere;
+   * A toolbox is stocked for a job, not for an agent. `recon` grants
+   * twenty-four operations because reconnaissance needs all of them somewhere;
    * an agent that only resolves hostnames wants four, and being offered the
    * other twenty costs ~60–80 tokens each on every request of every turn and
    * gives the model twenty ways to answer the wrong question. So the manifest
-   * says what the box *has* and this says what the agent *sees*.
+   * says what the toolbox *grants* and this says what the agent *sees*.
    *
-   * **`*` is the default for every entry the manifest declares and this map
-   * does not name.** That is the whole reason the field is a record rather
-   * than a list: `{'*': 'deny', nmap: 'allow'}` is "only nmap", and
-   * `{curl: 'deny'}` is "everything but curl", and both are one line. Without
-   * a default, the first of those means enumerating twenty-three denials.
+   * **`*` is the default for every grant this map does not name.** That is the
+   * whole reason the field is a record rather than a list: `{'*': 'deny', nmap:
+   * 'allow'}` is "only nmap", and `{curl: 'deny'}` is "everything but curl",
+   * and both are one line. Without a default, the first of those means
+   * enumerating twenty-three denials.
    *
-   * The key is only meaningful here. `AgentEntry.tools` is a flat map over
-   * advertised tool names with no wildcard, and it is laid over the resolved
-   * result of this one — a per-tool statement in the agent's own map is more
-   * specific than a default in the box's.
-   *
-   * **These are defaults, not a ceiling**, and may widen as well as narrow. A
-   * manifest's per-tool permission is the box author's opinion about a program
-   * `exec` can reach anyway; `network.maxMode` is the containment boundary and
-   * is intersected rather than overridden. See `assertNetworkWithinCeiling`.
+   * **Each entry is intersected with the grant's own permission and can only
+   * tighten it.** The manifest is what an operator approved; a config that
+   * could widen it would make approving a toolbox meaningless.
    */
   tools: ToolPermissionsSchema.default({}),
 });
 export type AgentToolbox = z.infer<typeof AgentToolboxSchema>;
+
+/**
+ * Where this agent's command operations run, and what they can reach.
+ *
+ * An empty `name` is the behaviour that has always existed: a child process on
+ * the machine running GhostAI, inside the workspace jail, where a network
+ * request means nothing and is refused rather than ignored. A named container
+ * routes command operations through the sandbox service instead.
+ *
+ * The image, capabilities, hardening and sharing live in the approved
+ * definition and have no representation here. The network *does* live here:
+ * egress is the one thing an operator configures per agent rather than per
+ * image, and a single place to configure it is worth more than a second ceiling
+ * nobody could locate.
+ */
+export const AgentContainerSchema = z.object({
+  /** An approved container name, or empty to run on the host. */
+  name: z.string().default(''),
+  /** What this agent's container may reach. */
+  network: ContainerNetworkSchema.prefault({}),
+});
+export type AgentContainer = z.infer<typeof AgentContainerSchema>;
 
 /**
  * Another agent this one may hand a task to.
@@ -789,6 +814,8 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
   /** Merged over `tools.exec`, so one agent can hold a tighter allow-list. */
   exec: patchOf(ExecToolConfigSchema).optional(),
   toolbox: AgentToolboxSchema.prefault({}),
+  /** Command placement, selected independently of the toolbox. */
+  container: AgentContainerSchema.prefault({}),
   /**
    * Agents this one may delegate to. Order is the order the model sees them.
    *
@@ -1017,9 +1044,10 @@ export const ConfigPatchSchema = z.strictObject({
               // without it a save that only changes the mode would have to
               // resend `allow` — which is how a settings panel silently clears
               // the allow-list it never rendered.
-              toolbox: patchOf(AgentToolboxSchema)
+              toolbox: patchOf(AgentToolboxSchema).optional(),
+              container: patchOf(AgentContainerSchema)
                 .extend({
-                  network: patchOf(AgentToolboxNetworkSchema).optional(),
+                  network: patchOf(ContainerNetworkSchema).optional(),
                 })
                 .optional(),
               // `subagents` is deliberately *not* restated beside these. It is

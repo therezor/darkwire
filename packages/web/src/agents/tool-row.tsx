@@ -98,6 +98,7 @@ export function ToolRow({
   detail,
   risk,
   permission,
+  ceiling = 'allow',
   fields,
   override,
   disabled,
@@ -109,6 +110,7 @@ export function ToolRow({
   readonly detail: string;
   readonly risk: ToolRisk | undefined;
   readonly permission: ToolPermission;
+  readonly ceiling?: ToolPermission;
   /** Top-level arguments from the live schema. Empty when it is not registered. */
   readonly fields: readonly ToolField[];
   readonly override: ToolPromptOverride | undefined;
@@ -178,9 +180,20 @@ export function ToolRow({
               {t('agents.toolPermissionFor', { name })}
             </span>
           }
-          value={permission}
+          value={
+            ceiling === 'deny'
+              ? 'deny'
+              : ceiling === 'ask' && permission === 'allow'
+                ? 'ask'
+                : permission
+          }
           disabled={disabled}
-          options={TOOL_PERMISSIONS.map((option) => ({
+          options={TOOL_PERMISSIONS.filter(
+            (option) =>
+              ceiling === 'allow' ||
+              option === 'deny' ||
+              (ceiling === 'ask' && option === 'ask'),
+          ).map((option) => ({
             value: option,
             label: t(PERMISSION_LABELS[option]),
           }))}

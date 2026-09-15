@@ -34,7 +34,7 @@ use ghostai_protocol::rest::{
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::{BoxFuture, ChatResult, ToolChoice};
 use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::toolbox_store::ToolboxListing;
+use ghostai_security::policy_store::{ContainerListing, ToolboxListing};
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -207,6 +207,24 @@ pub trait ServerRuntime: Send + Sync {
     /// being usable the moment it changes.
     fn toolboxes(&self) -> Vec<ToolboxListing> {
         Vec::new()
+    }
+
+    /// Independently installed container definitions, read fresh.
+    fn containers(&self) -> Vec<ContainerListing> {
+        Vec::new()
+    }
+
+    /// Operator lifecycle controls, never arbitrary tool execution.
+    fn sandbox_request(
+        &self,
+        _request: serde_json::Value,
+    ) -> BoxFuture<'_, Result<serde_json::Value>> {
+        Box::pin(async {
+            Err(ghostai_core::GhostError::new(
+                ghostai_core::ErrorKind::Config,
+                "Sandbox service is not configured",
+            ))
+        })
     }
 
     /// Forgets whatever is cached against one workspace id.

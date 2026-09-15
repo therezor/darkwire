@@ -97,7 +97,10 @@ the schema, and changing either revokes every other session.
 | ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------- |
 | GET    | `/api/agents`                 | `required` | **Read-only.** Agents are created and edited through `PATCH /api/settings`. |
 | GET    | `/api/tools`                  | `required` | What is registered, with source and risk band.                              |
-| GET    | `/api/toolboxes`              | `required` | Installed manifests and their approval state.                               |
+| GET    | `/api/toolboxes`              | `required` | Installed toolbox capability policies and approval state.                   |
+| GET    | `/api/containers`             | `required` | Independently installed execution-container definitions and approval state. |
+| GET    | `/api/sandboxes`              | `required` | Live container instances, sharing and busy state.                           |
+| POST   | `/api/sandboxes`              | `required` | Start, stop, restart, or health-check an instance.                          |
 | GET    | `/api/mcp`                    | `required` | Each configured MCP server's live state. See below.                         |
 | GET    | `/api/extensions`             | `required` | Every discovered extension, its state and its warnings.                     |
 | POST   | `/api/extensions/:id/approve` | `required` | Records the digest of the files on disk **now**.                            |

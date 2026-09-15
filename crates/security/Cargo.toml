@@ -25,6 +25,7 @@ futures.workspace = true
 garde.workspace = true
 hickory-resolver.workspace = true
 indexmap.workspace = true
+jsonschema.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true

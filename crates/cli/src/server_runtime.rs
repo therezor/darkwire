@@ -53,7 +53,7 @@ use ghostai_runtime::{
     GhostRuntime, PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, open_vault, resolve_agent,
 };
 use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::toolbox_store::{ToolboxListing, ToolboxStore};
+use ghostai_security::policy_store::{ContainerListing, PolicyStore, ToolboxListing};
 use ghostai_security::{CredentialVault, ExtensionStore};
 use ghostai_server::runtime::DirectChatInput;
 use ghostai_server::{AgentSummary, AgentView, ExtensionCounts, ServerRuntime};
@@ -550,18 +550,23 @@ impl ServerRuntime for CliServerRuntime {
 
     /// Read from disk on every call, deliberately.
     ///
-    /// A profile edited after approval must stop reporting as usable the moment
-    /// it changes, and a list cached at boot would keep saying it was fine
-    /// until a restart. Constructing the store per call is a table check and a
-    /// directory read.
+    /// A definition edited after approval must stop reporting as usable the
+    /// moment it changes, and a list cached at boot would keep saying it was
+    /// fine until a restart. Constructing the store per call is a directory
+    /// read.
     fn toolboxes(&self) -> Vec<ToolboxListing> {
-        ToolboxStore::new(
-            self.database(),
-            self.runtime.paths().toolboxes_dir,
-            Arc::new(SystemClock),
-        )
-        .map(|store| store.list())
-        .unwrap_or_default()
+        PolicyStore::new(self.runtime.paths().policy_dir).list_toolboxes()
+    }
+
+    fn containers(&self) -> Vec<ContainerListing> {
+        PolicyStore::new(self.runtime.paths().policy_dir).list_containers()
+    }
+
+    fn sandbox_request(
+        &self,
+        request: serde_json::Value,
+    ) -> BoxFuture<'_, Result<serde_json::Value>> {
+        Box::pin(self.runtime.sandbox_request(request))
     }
 
     fn release_workspace(&self, workspace_id: &str) {

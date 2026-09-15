@@ -318,12 +318,16 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::ToolsConfig>,
     },
     RegisteredSchema {
-        name: "AgentToolboxNetwork",
-        schema: schema_for::<config::AgentToolboxNetwork>,
+        name: "ContainerNetwork",
+        schema: schema_for::<config::ContainerNetwork>,
     },
     RegisteredSchema {
         name: "AgentToolbox",
         schema: schema_for::<config::AgentToolbox>,
+    },
+    RegisteredSchema {
+        name: "AgentContainer",
+        schema: schema_for::<config::AgentContainer>,
     },
     RegisteredSchema {
         name: "SubagentRef",
@@ -363,32 +367,36 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     },
     // toolbox
     RegisteredSchema {
-        name: "ToolboxNetworkMode",
-        schema: schema_for::<toolbox::ToolboxNetworkMode>,
+        name: "ToolOperation",
+        schema: schema_for::<toolbox::ToolOperation>,
     },
     RegisteredSchema {
-        name: "ToolboxRuntime",
-        schema: schema_for::<toolbox::ToolboxRuntime>,
+        name: "ContainerDefinition",
+        schema: schema_for::<toolbox::ContainerDefinition>,
     },
     RegisteredSchema {
-        name: "ToolboxEntry",
-        schema: schema_for::<toolbox::ToolboxEntry>,
+        name: "NetworkMode",
+        schema: schema_for::<config::NetworkMode>,
     },
     RegisteredSchema {
-        name: "ToolboxCaps",
-        schema: schema_for::<toolbox::ToolboxCaps>,
+        name: "ContainerRuntime",
+        schema: schema_for::<toolbox::ContainerRuntime>,
     },
     RegisteredSchema {
-        name: "ToolboxSecurity",
-        schema: schema_for::<toolbox::ToolboxSecurity>,
+        name: "ToolGrant",
+        schema: schema_for::<toolbox::ToolGrant>,
     },
     RegisteredSchema {
-        name: "ToolboxLimits",
-        schema: schema_for::<toolbox::ToolboxLimits>,
+        name: "ContainerCaps",
+        schema: schema_for::<toolbox::ContainerCaps>,
     },
     RegisteredSchema {
-        name: "ToolboxNetwork",
-        schema: schema_for::<toolbox::ToolboxNetwork>,
+        name: "ContainerSecurity",
+        schema: schema_for::<toolbox::ContainerSecurity>,
+    },
+    RegisteredSchema {
+        name: "ContainerLimits",
+        schema: schema_for::<toolbox::ContainerLimits>,
     },
     RegisteredSchema {
         name: "Toolbox",
@@ -764,8 +772,28 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<rest::ToolboxSummary>,
     },
     RegisteredSchema {
+        name: "ContainerSummary",
+        schema: schema_for::<rest::ContainerSummary>,
+    },
+    RegisteredSchema {
         name: "ToolboxListResponse",
         schema: schema_for::<rest::ToolboxListResponse>,
+    },
+    RegisteredSchema {
+        name: "ContainerListResponse",
+        schema: schema_for::<rest::ContainerListResponse>,
+    },
+    RegisteredSchema {
+        name: "SandboxInstanceSummary",
+        schema: schema_for::<rest::SandboxInstanceSummary>,
+    },
+    RegisteredSchema {
+        name: "SandboxListResponse",
+        schema: schema_for::<rest::SandboxListResponse>,
+    },
+    RegisteredSchema {
+        name: "SandboxRequest",
+        schema: schema_for::<rest::SandboxRequest>,
     },
     RegisteredSchema {
         name: "McpServerState",

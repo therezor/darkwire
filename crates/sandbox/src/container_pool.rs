@@ -1,27 +1,38 @@
-//! One warm container per session, and the [`CommandRunner`] that talks to it.
+//! Warm containers and the [`CommandRunner`] that talks to them.
 //!
-//! The key is `(agent_id, workspace_id, session_key)`, and each third of that is
-//! load-bearing:
+//! A definition's `shared` flag decides which of two identities an instance
+//! gets, and they are different shapes rather than the same shape with a
+//! relaxation.
 //!
-//!  - **The agent** decides the *policy* — which toolbox, and how much of its
-//!    network ceiling to use. Two agents on one conversation are two sandboxes.
-//!  - **The workspace** decides what is *mounted*, so it cannot be shared across
-//!    one; this is the same axis [`crate::JailCache`] is keyed on.
+//! **Private** instances are keyed by `(agent_id, workspace_id, session_key)`:
+//!
+//!  - **The agent** is part of the identity. Two agents on one conversation are
+//!    two private containers.
+//!  - **The workspace** decides what is *mounted*, so it cannot be shared
+//!    across one.
 //!  - **The session** decides the *instance*. Keying on the agent alone would
 //!    put two conversations in one container, which for a security agent means
-//!    one engagement's loot sitting in another's `/tmp`. Keying per *call* would
-//!    be stricter still and pay a container start on every command.
+//!    one engagement's loot sitting in another's `/tmp`. Keying per *call*
+//!    would be stricter still and pay a container start on every command.
 //!
-//! Starting is lazy, on the first command that needs it, because an install with
-//! six sandboxed agents should not run six containers to answer one question.
-//! Reaping is on idle, on session end, and on reconfigure — the last of those
-//! because a toolbox can change underneath a running pool, and a container
-//! started under the old manifest must not outlive it.
+//! **Shared** instances are keyed by workspace, mount, approval digest and the
+//! **effective network**. Agent and session are deliberately absent — that is
+//! what sharing means — and the network is deliberately present: two agents
+//! reaching different parts of the network are not interchangeable, and an
+//! instance that served the wider of the two requests would quietly hand the
+//! narrower one a reach nobody granted it. Toolbox identity is absent from both
+//! keys, so agents keep their own operation permissions while reusing one
+//! container.
 //!
-//! **Failure to start is a refusal, never a downgrade.** A sandbox that cannot
-//! be created must not fall back to running the command on the host: that is the
-//! one failure mode where the operator believes there is a boundary and there is
-//! not.
+//! Starting is lazy, on the first command that needs it, because an install
+//! with six containerised agents should not run six containers to answer one
+//! question. Reaping is on idle, on session end for private instances, and on
+//! reconfigure.
+//!
+//! **Failure to start is a refusal, never a downgrade.** A container that
+//! cannot be created must not fall back to running the command on the host:
+//! that is the one failure mode where the operator believes there is a boundary
+//! and there is not.
 
 use std::fs;
 use std::process;
@@ -29,13 +40,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::Toolbox;
-use ghostai_security::{
-    ApprovedToolbox, ToolboxStore, assert_network_within_ceiling, effective_network,
-};
+use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::{ContainerNetwork, NetworkMode, SandboxInstanceSummary};
+use ghostai_security::{ApprovedContainer, PolicyStore, assert_container_network};
 use ghostai_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerRunner, ContainerRunnerOptions,
-    RunOutcome, RunRequest, RunnerResolver, ToolboxMount, ToolboxRequest, container_create_argv,
+    PlacementRequest, RunOutcome, RunRequest, WorkspaceMount, container_create_argv,
     container_is_gone,
 };
 use indexmap::IndexMap;
@@ -43,10 +53,10 @@ use nix::unistd::Pid;
 use parking_lot::Mutex;
 
 /// Beyond this many live containers the least-recently-used session is reaped.
-pub const MAX_LIVE_TOOLBOXES: usize = 4;
+pub const MAX_LIVE_CONTAINERS: usize = 4;
 
 /// How long a container may sit unused before it is stopped.
-pub const TOOLBOX_IDLE_MS: i64 = 10 * 60_000;
+pub const CONTAINER_IDLE_MS: i64 = 10 * 60_000;
 
 /// Label naming the process that created a sandbox.
 ///
@@ -106,6 +116,21 @@ pub fn owner_process_looks_alive(owner: &str) -> bool {
 
 /// Spawns and stops containers. Injected so the pool is testable with no daemon.
 pub trait ContainerEngine: Send + Sync {
+    /// Provision enforced egress before any sandbox joins its namespace.
+    fn gateway(
+        &self,
+        _name: &str,
+        _container: &ContainerDefinition,
+        network: &ContainerNetwork,
+    ) -> Result<Option<String>> {
+        if network.mode == NetworkMode::Allowlist {
+            return Err(GhostError::new(
+                ErrorKind::Tool,
+                "This engine cannot enforce restricted egress",
+            ));
+        }
+        Ok(None)
+    }
     /// Starts the container `argv` describes.
     fn start(&self, argv: &[String]) -> Result<()>;
     /// Stops one by name.
@@ -128,7 +153,8 @@ pub trait ContainerEngine: Send + Sync {
 /// A seam for the pool's *own* behaviour — marking a container busy, rebuilding
 /// one that disappeared — none of which is about `docker exec` and all of which
 /// otherwise needs a daemon to observe.
-pub type RunnerFactory = Arc<dyn Fn(&str, &Toolbox) -> Arc<dyn CommandRunner> + Send + Sync>;
+pub type RunnerFactory =
+    Arc<dyn Fn(&str, &ContainerDefinition) -> Arc<dyn CommandRunner> + Send + Sync>;
 
 /// Translates GhostAI's view of a path into the *daemon's*.
 pub type HostPathFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -137,9 +163,11 @@ pub type HostPathFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 pub type IdFactory = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// What a pool is built from.
-pub struct ToolboxPoolOptions {
+pub struct ContainerPoolOptions {
+    /// Container CLI used consistently for both control and execution.
+    pub bin: Option<String>,
     /// The approval ledger, re-read on every turn.
-    pub toolboxes: Arc<ToolboxStore>,
+    pub policies: Arc<PolicyStore>,
     /// How containers are started and stopped.
     pub engine: Arc<dyn ContainerEngine>,
     /// Where command transcripts are written.
@@ -152,14 +180,15 @@ pub struct ToolboxPoolOptions {
     /// Identity for a host install. A containerised GhostAI has to translate,
     /// because a bind path is resolved by the daemon and not by this process —
     /// the failure otherwise is a silently empty mount rather than an error.
-    /// Applied to every path that reaches a volume, which is the workspace *and*
-    /// the toolbox manifest.
+    /// Applied to every path that reaches a volume.
     pub host_path: Option<HostPathFn>,
     /// Stamps last use and decides what is idle.
     pub clock: Arc<dyn Clock>,
     /// How long a container may sit unused.
     pub idle_ms: i64,
-    /// The live-container cap.
+    /// The live-container cap. Zero is no cap, the same way `idle_ms` of zero
+    /// is no sweep — an operator who writes it means "do not bound this", and
+    /// reading it as "bound this at nothing" would refuse every container.
     pub max_live: usize,
     /// Container and run names.
     pub new_id: Option<IdFactory>,
@@ -170,21 +199,22 @@ pub struct ToolboxPoolOptions {
     pub owner: Option<String>,
 }
 
-impl ToolboxPoolOptions {
+impl ContainerPoolOptions {
     /// Options with the shipped bounds, the host clock and no injected seams.
     pub fn new(
-        toolboxes: Arc<ToolboxStore>,
+        policies: Arc<PolicyStore>,
         engine: Arc<dyn ContainerEngine>,
         runs_dir: impl Into<std::path::PathBuf>,
-    ) -> ToolboxPoolOptions {
-        ToolboxPoolOptions {
-            toolboxes,
+    ) -> ContainerPoolOptions {
+        ContainerPoolOptions {
+            bin: None,
+            policies,
             engine,
             runs_dir: runs_dir.into(),
             host_path: None,
             clock: Arc::new(SystemClock),
-            idle_ms: TOOLBOX_IDLE_MS,
-            max_live: MAX_LIVE_TOOLBOXES,
+            idle_ms: CONTAINER_IDLE_MS,
+            max_live: MAX_LIVE_CONTAINERS,
             new_id: None,
             new_runner: None,
             owner: None,
@@ -192,9 +222,9 @@ impl ToolboxPoolOptions {
     }
 }
 
-impl std::fmt::Debug for ToolboxPoolOptions {
+impl std::fmt::Debug for ContainerPoolOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ToolboxPoolOptions")
+        f.debug_struct("ContainerPoolOptions")
             .field("runs_dir", &self.runs_dir)
             .field("idle_ms", &self.idle_ms)
             .field("max_live", &self.max_live)
@@ -204,6 +234,9 @@ impl std::fmt::Debug for ToolboxPoolOptions {
 
 /// One live container.
 struct Entry {
+    shared: bool,
+    gateway: Option<String>,
+    agents: std::collections::BTreeSet<String>,
     name: String,
     runner: Arc<dyn CommandRunner>,
     /// Kept beside the composite key rather than parsed back out of it.
@@ -213,15 +246,15 @@ struct Entry {
     /// that happens to end with another's text is reaped with it. Storing the
     /// value removes the parsing entirely.
     session_key: String,
-    /// What the manifest hashed to when this container was started.
-    manifest_sha256: String,
+    /// What the definition hashed to when this container was started.
+    digest: String,
     /// The turn that asked for this container, kept so it can be rebuilt.
     ///
     /// A container can go away underneath a warm session — the daemon
     /// restarting, a prune, an operator tidying up — and rebuilding it needs the
-    /// mount, the network and the toolbox name that created it. Without them the
-    /// only recovery is to fail the command.
-    request: ToolboxRequest,
+    /// mount, the network and the container name that created it. Without them
+    /// the only recovery is to fail the command.
+    request: PlacementRequest,
     last_used_ms: i64,
     /// How many commands are running in this container right now.
     ///
@@ -235,63 +268,219 @@ struct Entry {
 
 /// The mutable half, behind one lock.
 struct Live {
+    serial: IndexMap<String, Arc<tokio::sync::Mutex<()>>>,
+    epochs: IndexMap<String, u64>,
     /// Insertion order is the recency order.
     entries: IndexMap<String, Entry>,
-    /// The current policy per key, which a turn's runner reads on every command.
+    /// The newest policy seen per key, which [`ContainerPool::warm`] starts
+    /// from.
     ///
     /// Held here rather than read from the live [`Entry`] because with a lazily
     /// started container there is no entry to read it from the first time — and
-    /// after a container is dropped there is none to read it from again. A later
-    /// turn on the same session overwrites it, which keeps the runner a turn is
-    /// holding pointed at current policy.
-    specs: IndexMap<String, ToolboxRequest>,
-    /// The runner handed to a turn, per key.
-    ///
-    /// Cached so asking twice in one session is the same object, which is what
-    /// tells a reader nothing restarted.
-    facades: IndexMap<String, Arc<dyn CommandRunner>>,
+    /// after a container is dropped there is none to read it from again.
+    specs: IndexMap<String, PlacementRequest>,
     counter: u64,
     swept: bool,
 }
 
 /// Live sandboxes, and the runners that reach them.
-pub struct ToolboxPool {
-    options: ToolboxPoolOptions,
+pub struct ContainerPool {
+    starting: Mutex<()>,
+    options: ContainerPoolOptions,
     owner: String,
     live: Mutex<Live>,
     /// A handle on itself, so a turn's runner can outlive any one container
     /// without the caller having to hold two objects.
-    me: std::sync::Weak<ToolboxPool>,
+    me: std::sync::Weak<ContainerPool>,
 }
 
-impl std::fmt::Debug for ToolboxPool {
+impl std::fmt::Debug for ContainerPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ToolboxPool")
+        f.debug_struct("ContainerPool")
             .field("live", &self.live.lock().entries.len())
             .field("owner", &self.owner)
             .finish_non_exhaustive()
     }
 }
 
-/// The composite key a container is held under.
-fn key_of(request: &ToolboxRequest) -> String {
+/// The key a private container is held under. See the module header.
+fn key_of(request: &PlacementRequest) -> String {
     format!(
         "{} {} {}",
         request.agent_id, request.workspace_id, request.session_key
     )
 }
 
-impl ToolboxPool {
+/// The key a shared container is held under.
+///
+/// Serialised rather than joined with a separator, because every component is
+/// operator- or client-supplied and a workspace path containing the separator
+/// would otherwise collide with a different workspace. The network is part of
+/// it: an instance that reaches more than this request asked for is not this
+/// request's instance.
+fn shared_key_of(request: &PlacementRequest, digest: &str) -> Result<String> {
+    serde_json::to_string(&(
+        "shared",
+        &request.workspace_id,
+        &request.workspace_root,
+        &request.container,
+        digest,
+        &request.network,
+    ))
+    .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))
+}
+
+/// The approved definition a request resolves to, with its approval hash.
+struct ContainerSpec {
+    definition: ContainerDefinition,
+    digest: String,
+}
+
+impl ContainerPool {
+    /// Safe lifecycle metadata; contains no host paths or command arguments.
+    pub fn status(&self) -> Vec<SandboxInstanceSummary> {
+        self.live
+            .lock()
+            .entries
+            .values()
+            .map(|entry| SandboxInstanceSummary {
+                id: entry.name.clone(),
+                workspace: entry.request.workspace_id.clone(),
+                container: entry.request.container.clone(),
+                shared: entry.shared,
+                busy: u64::from(entry.busy),
+                last_used_ms: entry.last_used_ms.max(0).cast_unsigned(),
+                agents: entry.agents.iter().cloned().collect(),
+            })
+            .collect()
+    }
+
+    /// Transcript directory of the instance this request would run in.
+    ///
+    /// Resolved through the instance key rather than by scanning for a matching
+    /// entry, so it reads transcripts under exactly the sharing rule the pool
+    /// placed them under. Matching on workspace and digest alone let two shared
+    /// instances of one container — separate because they asked for different
+    /// egress — read each other's transcripts.
+    pub fn transcript_directory(&self, request: &PlacementRequest) -> Result<std::path::PathBuf> {
+        let approved = self
+            .container_spec(request)?
+            .ok_or_else(|| GhostError::new(ErrorKind::Config, "No container selected"))?;
+        let key = Self::key_for(request, &approved)?;
+        let live = self.live.lock();
+        let entry = live.entries.get(&key).ok_or_else(|| {
+            GhostError::new(
+                ErrorKind::NotFound,
+                "This container's transcripts are no longer available",
+            )
+        })?;
+        Ok(self.options.runs_dir.join(&entry.name))
+    }
+
+    /// Stop an exact managed instance. Busy instances require explicit force.
+    pub fn stop_instance(&self, name: &str, force: bool) -> Result<()> {
+        let _starting = self.starting.lock();
+        let key = {
+            let live = self.live.lock();
+            let (key, entry) = live
+                .entries
+                .iter()
+                .find(|(_, entry)| entry.name == name)
+                .ok_or_else(|| {
+                    GhostError::new(ErrorKind::InvalidInput, "Unknown managed container")
+                })?;
+            if (entry.busy > 0
+                || live
+                    .serial
+                    .get(key)
+                    .is_some_and(|lock| lock.try_lock().is_err()))
+                && !force
+            {
+                return Err(GhostError::new(
+                    ErrorKind::InvalidInput,
+                    "Container is busy or has queued work; force is required",
+                ));
+            }
+            key.clone()
+        };
+        *self.live.lock().epochs.entry(key.clone()).or_default() += 1;
+        self.drop_entry(&key);
+        Ok(())
+    }
+
+    /// Restart an exact managed instance using its registered policy.
+    pub fn restart_instance(&self, name: &str, force: bool) -> Result<()> {
+        let (key, spec) = {
+            let live = self.live.lock();
+            let (key, entry) = live
+                .entries
+                .iter()
+                .find(|(_, entry)| entry.name == name)
+                .ok_or_else(|| {
+                    GhostError::new(ErrorKind::InvalidInput, "Unknown managed container")
+                })?;
+            (key.clone(), entry.request.clone())
+        };
+        self.stop_instance(name, force)?;
+        self.ensure(&key, &spec)
+    }
+
+    /// Explicitly warm an approved instance without executing a tool.
+    pub fn warm(&self, request: &PlacementRequest) -> Result<()> {
+        self.resolve_turn(request)?;
+        let keys: Vec<String> = self
+            .live
+            .lock()
+            .specs
+            .iter()
+            .filter(|(_, spec)| *spec == request)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in keys {
+            self.ensure(&key, request)?;
+        }
+        Ok(())
+    }
+
+    /// Periodic cleanup, plus a sweep for instances whose definition stopped
+    /// being approved. An in-flight operation revalidates on its own ticker;
+    /// this is what catches an idle warm container nothing is about to call.
+    pub fn maintain(&self) {
+        self.reap_idle();
+        let valid: std::collections::BTreeSet<String> = self
+            .options
+            .policies
+            .list_containers()
+            .into_iter()
+            .filter(|entry| entry.approved)
+            .filter_map(|entry| self.options.policies.require_container(&entry.name).ok())
+            .map(|entry| entry.sha256)
+            .collect();
+        let invalid: Vec<String> = self
+            .live
+            .lock()
+            .entries
+            .iter()
+            .filter(|(_, entry)| !valid.contains(&entry.digest))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in invalid {
+            self.drop_entry(&key);
+        }
+    }
+
     /// A pool over `options`.
-    pub fn new(options: ToolboxPoolOptions) -> Arc<ToolboxPool> {
+    pub fn new(options: ContainerPoolOptions) -> Arc<ContainerPool> {
         let owner = options.owner.clone().unwrap_or_else(owner_tag);
-        Arc::new_cyclic(|me| ToolboxPool {
+        Arc::new_cyclic(|me| ContainerPool {
+            starting: Mutex::new(()),
             options,
             owner,
             live: Mutex::new(Live {
                 entries: IndexMap::new(),
                 specs: IndexMap::new(),
-                facades: IndexMap::new(),
+                serial: IndexMap::new(),
+                epochs: IndexMap::new(),
                 counter: 0,
                 swept: false,
             }),
@@ -316,7 +505,9 @@ impl ToolboxPool {
             .lock()
             .entries
             .iter()
-            .filter(|(_, entry)| entry.session_key == session_key)
+            .filter(|(_, entry)| {
+                !entry.shared && entry.session_key == session_key && entry.busy == 0
+            })
             .map(|(key, _)| key.clone())
             .collect();
         for key in doomed {
@@ -377,62 +568,174 @@ impl ToolboxPool {
         }
     }
 
+    /// The definition a request resolves to, or `None` when it names no
+    /// container and so runs on the host.
+    ///
+    /// The toolbox is not consulted: which operations an agent may call and
+    /// where one runs are two approvals, and the pool only answers the second.
+    fn container_spec(&self, request: &PlacementRequest) -> Result<Option<ContainerSpec>> {
+        if request.container.is_empty() {
+            return Ok(None);
+        }
+        let ApprovedContainer { definition, sha256 } = self
+            .options
+            .policies
+            .require_container(&request.container)?;
+        Ok(Some(ContainerSpec {
+            definition,
+            digest: sha256,
+        }))
+    }
+
+    /// The key this request's instance lives under, private or shared.
+    fn key_for(request: &PlacementRequest, spec: &ContainerSpec) -> Result<String> {
+        if spec.definition.shared {
+            shared_key_of(request, &spec.digest)
+        } else {
+            Ok(key_of(request))
+        }
+    }
+
     /// Starts this key's container if it has none.
     ///
-    /// The other half of a policy-only [`RunnerResolver::for_turn`]: every path
-    /// that runs a command goes through here first, so "there is an entry" is
-    /// still true by the time anything needs one — established at first use
+    /// The other half of a policy-only [`ContainerPool::resolve_turn`]: every
+    /// path that runs a command goes through here first, so "there is an entry"
+    /// is still true by the time anything needs one — established at first use
     /// rather than at turn open.
     ///
-    /// The approval is re-checked rather than reused from `for_turn`, and the
-    /// rebuild path does the same. A turn can sit between its opening and its
-    /// first tool call for a long time, and a toolbox revoked in that window
-    /// must not get a container.
-    fn ensure(&self, key: &str, spec: &ToolboxRequest) -> Result<()> {
-        if self.live.lock().entries.contains_key(key) {
+    /// The approval is re-checked rather than reused from `resolve_turn`, and
+    /// the rebuild path does the same. A turn can sit between its opening and
+    /// its first tool call for a long time, and a container revoked in that
+    /// window must not be started.
+    ///
+    /// This is also where the cap is enforced, and it is enforced *before* the
+    /// start rather than swept up after one: at the cap, the least-recently-used
+    /// idle instance makes room, and when every instance has a command in it the
+    /// turn is told to come back. Evicting a busy container would kill work
+    /// somebody is waiting on to serve somebody who has not started yet.
+    fn ensure(&self, key: &str, spec: &PlacementRequest) -> Result<()> {
+        let _starting = self.starting.lock();
+        let approved = self
+            .container_spec(spec)?
+            .ok_or_else(|| GhostError::new(ErrorKind::Config, "No container selected"))?;
+        assert_container_network(&spec.network, &spec.agent_id)?;
+        if let Some(entry) = self.live.lock().entries.get_mut(key) {
+            entry.agents.insert(spec.agent_id.clone());
             return Ok(());
         }
-        let approved = self.options.toolboxes.require(&spec.toolbox)?;
-        assert_network_within_ceiling(&approved.toolbox, &spec.network, &spec.agent_id)?;
+        self.reap_idle();
+        let candidate = {
+            let live = self.live.lock();
+            if self.options.max_live == 0 || live.entries.len() < self.options.max_live {
+                None
+            } else {
+                Some(
+                    live.entries
+                        .iter()
+                        .find(|(key, entry)| {
+                            entry.busy == 0
+                                && live
+                                    .serial
+                                    .get(*key)
+                                    .is_none_or(|lock| lock.try_lock().is_ok())
+                        })
+                        .map(|(key, _)| key.clone())
+                        .ok_or_else(|| {
+                            GhostError::new(
+                                ErrorKind::Tool,
+                                "All sandbox capacity is busy; retry when a command completes",
+                            )
+                        })?,
+                )
+            }
+        };
+        if let Some(candidate) = candidate {
+            self.drop_entry(&candidate);
+        }
         let entry = self.start(spec, &approved)?;
         self.live.lock().entries.insert(key.to_owned(), entry);
-        self.evict_beyond_cap(key);
         Ok(())
     }
 
+    /// The shipped runner for a started container: `docker exec` into it.
+    ///
+    /// Only reached when no [`RunnerFactory`] was injected, which in practice
+    /// means everywhere but a test.
+    fn docker_exec_runner(
+        &self,
+        name: &str,
+        container: &ContainerDefinition,
+    ) -> Arc<dyn CommandRunner> {
+        let pool_ids = self.options.new_id.clone();
+        let clock = Arc::clone(&self.options.clock);
+        let counter = Arc::new(Mutex::new(0u64));
+        Arc::new(ContainerRunner::new(ContainerRunnerOptions {
+            container: container.clone(),
+            container_name: name.to_owned(),
+            runs_root: self.options.runs_dir.clone(),
+            bin: self.options.bin.clone(),
+            // Keyed on the container name this pool generated, never on the
+            // client-chosen session key — that string has no business becoming
+            // a path component.
+            next_run_id: Arc::new(move || {
+                if let Some(new_id) = &pool_ids {
+                    return new_id();
+                }
+                let mut counter = counter.lock();
+                *counter += 1;
+                format!("{}-{counter}", clock.now_ms())
+            }),
+            inner: None,
+        }))
+    }
+
     /// Builds and registers one container.
-    fn start(&self, request: &ToolboxRequest, approved: &ApprovedToolbox) -> Result<Entry> {
-        let toolbox = &approved.toolbox;
+    fn start(&self, request: &PlacementRequest, approved: &ContainerSpec) -> Result<Entry> {
+        let container = &approved.definition;
         let name = format!("ghost-sbx-{}", self.next_id());
+        fs::create_dir_all(self.options.runs_dir.join(&name))
+            .map_err(|e| GhostError::new(ErrorKind::Tool, e.to_string()))?;
 
         // **Every** path handed to the daemon goes through the translation, not
-        // just the workspace. The manifest lives under `GHOSTAI_HOME`, so a
-        // containerised GhostAI that translated only the workspace would ask the
-        // daemon to mount its own copy of a path that means something else on
-        // the host, and usually nothing. The failure is a container that starts
-        // and carries the wrong policy file, which is worse than one that
-        // refuses.
+        // just the workspace. A containerised GhostAI that translated only the
+        // workspace would ask the daemon to mount its own copy of a path that
+        // means something else on the host, and usually nothing. The failure is
+        // a container that starts with the wrong directory bound into it, which
+        // is worse than one that refuses.
         let mut create = ContainerCreateOptions::new(
-            toolbox.clone(),
-            effective_network(toolbox, &request.network),
-            ToolboxMount {
+            container.clone(),
+            request.network.clone(),
+            WorkspaceMount {
                 host_path: self.daemon_path(&request.workspace_root),
-                container_path: toolbox.workdir.clone(),
+                container_path: container.workdir.clone(),
             },
             name.clone(),
         );
-        create.manifest_path = Some(self.daemon_path(&approved.manifest_path.to_string_lossy()));
+        // Podman copies a sysfs directory up into a tmpfs laid over it, which
+        // needs a capability this container does not hold, so the masking is
+        // asked for only where it works.
+        create.mask_sysfs = self
+            .options
+            .bin
+            .as_deref()
+            .unwrap_or("docker")
+            .ends_with("docker");
         create.runs_path = Some(self.daemon_path(&self.options.runs_dir.to_string_lossy()));
         create
             .labels
             .insert("ghostai.session".to_owned(), request.session_key.clone());
         create
             .labels
-            .insert("ghostai.toolbox".to_owned(), toolbox.name.clone());
+            .insert("ghostai.container".to_owned(), container.name.clone());
         create
             .labels
             .insert(OWNER_LABEL.to_owned(), self.owner.clone());
-        let argv = container_create_argv(&create)?;
+        // Validate mounts and hardening before allocating a gateway. Restricted
+        // networking needs its namespace name, so use a non-started placeholder
+        // for this validation pass.
+        create.gateway_container = Some(format!("{name}-gateway"));
+        container_create_argv(&create)?;
+        create.gateway_container = None;
 
         // The *root*, not this container's subdirectory. A bind mount refuses a
         // source the daemon cannot see, and a desktop daemon's file sharing does
@@ -467,10 +770,20 @@ impl ToolboxPool {
                 ),
             )
             .with_detail("agentId", request.agent_id.clone())
-            .with_detail("toolbox", toolbox.name.clone())
+            .with_detail("container", container.name.clone())
             .with_source(error)
         })?;
         self.sweep_once();
+
+        create.gateway_container =
+            self.options
+                .engine
+                .gateway(&name, container, &create.network)?;
+        let argv = container_create_argv(&create).inspect_err(|_| {
+            if let Some(gateway) = &create.gateway_container {
+                let _ = self.options.engine.stop(gateway);
+            }
+        })?;
 
         // Refused, never downgraded to the host. See the module header.
         //
@@ -479,6 +792,9 @@ impl ToolboxPool {
         // fact that would have told them what to do — a missing image, a bad
         // flag, a mount source the daemon cannot see.
         self.options.engine.start(&argv).map_err(|error| {
+            if let Some(gateway) = &create.gateway_container {
+                let _ = self.options.engine.stop(gateway);
+            }
             GhostError::new(
                 ErrorKind::Tool,
                 format!(
@@ -488,48 +804,25 @@ impl ToolboxPool {
                 ),
             )
             .with_detail("agentId", request.agent_id.clone())
-            .with_detail("toolbox", toolbox.name.clone())
+            .with_detail("container", container.name.clone())
             .with_source(error)
         })?;
 
-        tracing::info!(container = %name, toolbox = %toolbox.name, "sandbox started");
+        tracing::info!(instance = %name, container = %container.name, "container started");
 
-        let runner = if let Some(factory) = &self.options.new_runner {
-            factory(&name, toolbox)
-        } else {
-            {
-                let runs_root = self.options.runs_dir.clone();
-                let pool_ids = self.options.new_id.clone();
-                let clock = Arc::clone(&self.options.clock);
-                let counter = Arc::new(Mutex::new(0u64));
-                let mut runner = ContainerRunnerOptions {
-                    toolbox: toolbox.clone(),
-                    container_name: name.clone(),
-                    runs_root,
-                    bin: None,
-                    // Keyed on the container name this pool generated, never on
-                    // the client-chosen session key — that string has no
-                    // business becoming a path component.
-                    next_run_id: Arc::new(move || {
-                        if let Some(new_id) = &pool_ids {
-                            return new_id();
-                        }
-                        let mut counter = counter.lock();
-                        *counter += 1;
-                        format!("{}-{counter}", clock.now_ms())
-                    }),
-                    inner: None,
-                };
-                runner.bin = None;
-                Arc::new(ContainerRunner::new(runner)) as Arc<dyn CommandRunner>
-            }
+        let runner = match &self.options.new_runner {
+            Some(factory) => factory(&name, container),
+            None => self.docker_exec_runner(&name, container),
         };
 
         Ok(Entry {
+            shared: container.shared,
+            gateway: create.gateway_container.clone(),
+            agents: std::collections::BTreeSet::from([request.agent_id.clone()]),
             name,
             runner,
             session_key: request.session_key.clone(),
-            manifest_sha256: approved.manifest_sha256.clone(),
+            digest: approved.digest.clone(),
             request: request.clone(),
             last_used_ms: self.options.clock.now_ms(),
             busy: 0,
@@ -568,9 +861,14 @@ impl ToolboxPool {
         outcome
     }
 
-    /// The policy a turn's runner should start a container from, right now.
-    fn spec_for(&self, key: &str) -> Option<ToolboxRequest> {
-        self.live.lock().specs.get(key).cloned()
+    /// How many times this key has been explicitly stopped or restarted.
+    fn epoch_of(&self, key: &str) -> u64 {
+        self.live
+            .lock()
+            .epochs
+            .get(key)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Drops idle containers.
@@ -579,48 +877,20 @@ impl ToolboxPool {
             return;
         }
         let cutoff = self.options.clock.now_ms() - self.options.idle_ms;
-        let doomed: Vec<String> = self
-            .live
-            .lock()
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.busy == 0 && entry.last_used_ms < cutoff)
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in doomed {
-            self.drop_entry(&key);
-        }
-    }
-
-    /// Drops least-recently-used entries until the cap is met.
-    ///
-    /// `keep` is the entry the caller is about to hand back, and excluding it is
-    /// not a nicety: with a cap of zero — or one, on a pool that just evicted
-    /// down to it — the newest entry is also the only entry, so an unguarded
-    /// loop would stop the container it is in the middle of returning a runner
-    /// for. Every command would then fail against a container that no longer
-    /// exists, and the pool would report having started one.
-    ///
-    /// A busy container is skipped for the same reason the idle sweep skips it,
-    /// with one consequence worth naming: enough concurrent long commands leave
-    /// the pool *over* its cap rather than killing work to get under it. The cap
-    /// is there to stop containers accumulating unused, and a container with a
-    /// command in it is not that.
-    fn evict_beyond_cap(&self, keep: &str) {
         let doomed: Vec<String> = {
             let live = self.live.lock();
-            let mut over = live.entries.len();
-            let mut doomed = Vec::new();
-            for (key, entry) in &live.entries {
-                if over <= self.options.max_live {
-                    break;
-                }
-                if key != keep && entry.busy == 0 {
-                    doomed.push(key.clone());
-                    over -= 1;
-                }
-            }
-            doomed
+            live.entries
+                .iter()
+                .filter(|(key, entry)| {
+                    entry.busy == 0
+                        && entry.last_used_ms < cutoff
+                        && live
+                            .serial
+                            .get(*key)
+                            .is_none_or(|lock| lock.try_lock().is_ok())
+                })
+                .map(|(key, _)| key.clone())
+                .collect()
         };
         for key in doomed {
             self.drop_entry(&key);
@@ -631,11 +901,6 @@ impl ToolboxPool {
     fn drop_entry(&self, key: &str) {
         let entry = {
             let mut live = self.live.lock();
-            // The facade outlives one container but not the entry: a turn still
-            // holding it rebuilds through it, while a later resolve builds a
-            // fresh one rather than this map growing by one closure per session
-            // forever.
-            live.facades.shift_remove(key);
             live.entries.shift_remove(key)
         };
         let Some(entry) = entry else {
@@ -650,48 +915,72 @@ impl ToolboxPool {
             // to stop one must not take down the turn that triggered the sweep.
             tracing::warn!(container = %entry.name, error = %error.message, "sandbox stop failed");
         }
+        if let Some(gateway) = entry.gateway {
+            let _ = self.options.engine.stop(&gateway);
+        }
     }
 }
 
 /// The runner a turn holds, which outlives any one container.
 ///
-/// Two jobs beyond delegating. It marks the container busy for the duration of
-/// each command, so an idle sweep cannot stop something mid-scan. And it
-/// recognises the daemon reporting that the container is gone — which arrives as
-/// an ordinary non-zero exit with the daemon's words on stderr — and rebuilds it
-/// rather than passing that off as the command's own failure. The retry is safe
-/// for the one reason that matters: an exec that could not find its container
-/// never started the command, so nothing has run twice.
+/// Three jobs beyond delegating.
+///
+/// It **serialises** commands on the instance, because a shared container is one
+/// filesystem and two agents writing it at once is a race nobody asked for.
+///
+/// It **refuses after an explicit stop or restart**, by comparing the epoch it
+/// was minted at against the instance's. An operator who stops an instance means
+/// it; handing the next command a fresh container under the same key would make
+/// the stop look like it did nothing.
+///
+/// And it **rebuilds a container that disappeared** — which arrives as an
+/// ordinary non-zero exit with the daemon's words on stderr — rather than
+/// passing that off as the command's own failure. The two are told apart by the
+/// epoch: a stop bumps it and a daemon restart does not, so this retries only
+/// what nobody asked to end. The retry is safe for the one reason that matters:
+/// an exec that could not find its container never started the command, so
+/// nothing has run twice.
 struct Facade {
     /// Weak, because the pool owns the facade: a strong handle here would be a
     /// cycle, and a facade a turn is still holding after the runtime dropped its
     /// pool has nothing left to run in anyway.
-    pool: std::sync::Weak<ToolboxPool>,
+    pool: std::sync::Weak<ContainerPool>,
     key: String,
+    spec: PlacementRequest,
+    serial: Arc<tokio::sync::Mutex<()>>,
+    epoch: u64,
 }
 
 impl CommandRunner for Facade {
     fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
         Box::pin(async move {
+            let _lease = tokio::select! {
+                lease = self.serial.lock() => lease,
+                () = request.token.cancelled() => {
+                    return Err(GhostError::aborted("queued sandbox command"));
+                }
+                () = tokio::time::sleep(QUEUE_TIMEOUT) => {
+                    return Err(GhostError::new(
+                        ErrorKind::Tool,
+                        "Shared container queue timed out",
+                    ));
+                }
+            };
             let Some(pool) = self.pool.upgrade() else {
                 return Err(GhostError::new(
                     ErrorKind::Tool,
                     "The sandbox pool this turn belongs to has been shut down.",
                 ));
             };
-            let Some(spec) = pool.spec_for(&self.key) else {
-                return Err(GhostError::new(
-                    ErrorKind::Internal,
-                    "This turn's sandbox policy is no longer in the pool.",
-                )
-                .with_detail("key", self.key.clone()));
-            };
+            if pool.epoch_of(&self.key) != self.epoch {
+                return Err(GhostError::aborted("Sandbox was stopped or restarted"));
+            }
 
             // Where the container actually comes from now. Anything this raises
-            // — a dead daemon, a revoked toolbox — fails the command, which the
+            // — a dead daemon, a revoked container — fails the command, which the
             // tool registry renders as a failed tool card rather than letting it
             // unwind the turn.
-            pool.ensure(&self.key, &spec)?;
+            pool.ensure(&self.key, &self.spec)?;
 
             let outcome = pool.run_on(&self.key, request.clone()).await?;
             if !container_is_gone(&outcome) {
@@ -703,18 +992,18 @@ impl CommandRunner for Facade {
                 .lock()
                 .entries
                 .get(&self.key)
-                .map(|entry| (entry.name.clone(), entry.request.toolbox.clone()));
-            let Some((name, toolbox)) = stale else {
+                .map(|entry| (entry.name.clone(), entry.request.container.clone()));
+            let Some((name, container)) = stale else {
                 return Ok(outcome);
             };
             tracing::warn!(
-                container = %name,
-                toolbox = %toolbox,
+                instance = %name,
+                container = %container,
                 "sandbox disappeared; rebuilding it and retrying the command"
             );
 
             pool.drop_entry(&self.key);
-            pool.ensure(&self.key, &spec)?;
+            pool.ensure(&self.key, &self.spec)?;
             // Once. A second disappearance is something other than a stale
             // handle, and a loop that keeps rebuilding would hide it.
             pool.run_on(&self.key, request).await
@@ -722,61 +1011,44 @@ impl CommandRunner for Facade {
     }
 }
 
-impl RunnerResolver for ToolboxPool {
-    /// The runner for a turn — policy only, and deliberately no container.
-    ///
-    /// Resolving a sandbox is on the turn-open path, and starting one there
-    /// meant probing the daemon there too. A daemon that has gone away did not
-    /// fail this turn, it blocked for five seconds and *then* failed it — every
-    /// session and every route with it. Worse, it failed before the turn had
-    /// opened, so the failure had no turn to belong to and the operator was
-    /// offered no way to re-run it.
-    ///
-    /// So this decides *whether* a sandbox is allowed and the first command
-    /// starts it. A turn that calls no tool now touches the daemon not at all,
-    /// and a daemon that is down surfaces as a failed tool card inside a live
-    /// turn — which is a thing the model can read and the operator can act on.
-    ///
-    /// The trait cannot report a refusal, so a revoked or over-privileged
-    /// toolbox arrives here as `None` — which would mean the host. The runtime
-    /// therefore calls [`ToolboxPool::resolve_turn`], which keeps the refusal;
-    /// this method exists for the loop, which asks after the runtime has already
-    /// decided the agent may have a sandbox at all.
-    fn for_turn(&self, request: &ToolboxRequest) -> Option<Arc<dyn CommandRunner>> {
-        match self.resolve_turn(request) {
-            Ok(runner) => runner,
-            // Refusal, never a downgrade: a turn whose toolbox went away between
-            // its opening and this call gets a runner that fails the command,
-            // rather than one that runs it on the host.
-            Err(error) => Some(Arc::new(Refusing::new(&error))),
-        }
+impl ContainerPool {
+    /// Check whether the configured container daemon is reachable without
+    /// starting or changing an instance.
+    pub fn probe_engine(&self) -> Result<()> {
+        self.options.engine.probe()
     }
-}
 
-impl ToolboxPool {
-    /// [`RunnerResolver::for_turn`], with the refusal still visible.
+    /// The runner for a turn, decided without touching the daemon.
     ///
-    /// `Ok(None)` is an agent that names no toolbox, which is the host and is
-    /// not a refusal. An error is a toolbox that cannot be honoured — revoked,
-    /// edited since approval, asking for more network than its ceiling allows —
-    /// and the runtime reports it where the operator can act on it.
-    pub fn resolve_turn(&self, request: &ToolboxRequest) -> Result<Option<Arc<dyn CommandRunner>>> {
-        if request.toolbox.is_empty() {
+    /// Resolving is on the turn-open path, and starting a container there meant
+    /// probing the daemon there too. A daemon that has gone away did not fail
+    /// that turn, it blocked for five seconds and *then* failed it. So this
+    /// decides *whether* a container is allowed and the first command starts
+    /// one, which puts a daemon outage on a tool card inside a live turn.
+    ///
+    /// `Ok(None)` is a request that selects no container, which is the host and
+    /// is not a refusal. An error is a container that cannot be honoured —
+    /// revoked, edited since approval, asked for egress nothing could enforce —
+    /// and the service reports it where the operator can act on it.
+    pub fn resolve_turn(
+        &self,
+        request: &PlacementRequest,
+    ) -> Result<Option<Arc<dyn CommandRunner>>> {
+        let Some(approved) = self.container_spec(request)? else {
             return Ok(None);
-        }
-        let key = key_of(request);
+        };
         self.reap_idle();
 
-        // **Before the cache, not after.** Requiring the toolbox is the only
-        // thing that re-reads the manifest and re-checks its hash against the
-        // approvals table, and a warm entry that skipped it kept serving a
-        // toolbox the operator had revoked — or edited into something they
-        // considered unsafe — for as long as the session stayed active. A revoke
-        // is a different process writing the shared database, so nothing
-        // notifies this pool; asking every turn is what makes revocation mean
-        // something. It costs one read, one hash and one row.
-        let approved = self.options.toolboxes.require(&request.toolbox)?;
-        assert_network_within_ceiling(&approved.toolbox, &request.network, &request.agent_id)?;
+        // **Before the cache, not after.** Requiring the container is the only
+        // thing that re-reads the definition and re-checks its hash against the
+        // approval, and a warm entry that skipped it kept serving a container
+        // the operator had revoked — or edited into something they considered
+        // unsafe — for as long as the session stayed active. A revoke is another
+        // process writing a file, so nothing notifies this pool; asking every
+        // turn is what makes revocation mean something. It costs one read and
+        // one hash.
+        assert_container_network(&request.network, &request.agent_id)?;
+        let key = Self::key_for(request, &approved)?;
 
         let stale = {
             let mut live = self.live.lock();
@@ -786,7 +1058,8 @@ impl ToolboxPool {
             live.specs.insert(key.clone(), request.clone());
             match live.entries.get_mut(&key) {
                 None => false,
-                Some(entry) if entry.manifest_sha256 == approved.manifest_sha256 => {
+                Some(entry) if entry.digest == approved.digest => {
+                    entry.agents.insert(request.agent_id.clone());
                     entry.last_used_ms = self.options.clock.now_ms();
                     // Re-inserted so iteration order stays least-recently-used
                     // first.
@@ -795,10 +1068,10 @@ impl ToolboxPool {
                     }
                     false
                 }
-                // A live container started from a manifest that has since
+                // A live container started from a definition that has since
                 // changed is stopped rather than reused: it was built with the
-                // old policy's flags. The next command starts a replacement from
-                // the manifest as it is now.
+                // old definition's flags. The next command starts a replacement
+                // from the definition as it is now.
                 Some(_) => true,
             }
         };
@@ -806,57 +1079,30 @@ impl ToolboxPool {
             self.drop_entry(&key);
         }
 
-        Ok(Some(self.facade_for(&key)))
-    }
-
-    /// The runner a turn holds, built once per key.
-    fn facade_for(&self, key: &str) -> Arc<dyn CommandRunner> {
-        let mut live = self.live.lock();
-        if let Some(cached) = live.facades.get(key) {
-            return Arc::clone(cached);
-        }
-        let facade: Arc<dyn CommandRunner> = Arc::new(Facade {
+        let serial = self
+            .live
+            .lock()
+            .serial
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let epoch = self.epoch_of(&key);
+        Ok(Some(Arc::new(Facade {
             pool: self.me.clone(),
-            key: key.to_owned(),
-        });
-        live.facades.insert(key.to_owned(), Arc::clone(&facade));
-        facade
+            key,
+            spec: request.clone(),
+            serial,
+            epoch,
+        })))
     }
 }
 
-/// A runner that fails every command with the reason the sandbox was refused.
+/// How long a command may wait for its turn on a shared instance.
 ///
-/// The shape a refusal takes once the caller can no longer be told: the command
-/// does not run, and the model is told why, which is the whole of "refusal,
-/// never a downgrade" at this altitude.
-struct Refusing {
-    kind: ErrorKind,
-    message: String,
-    details: serde_json::Map<String, serde_json::Value>,
-}
-
-impl Refusing {
-    /// A refusal that can be raised again for every command on this turn.
-    ///
-    /// The parts rather than the error, because an error carries a source chain
-    /// that is not duplicable and a refusal has to be answerable more than once.
-    fn new(error: &GhostError) -> Refusing {
-        Refusing {
-            kind: error.kind,
-            message: error.message.clone(),
-            details: error.details.clone(),
-        }
-    }
-}
-
-impl CommandRunner for Refusing {
-    fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
-        let _ = request;
-        Box::pin(async move {
-            Err(GhostError::new(self.kind, self.message.clone()).with_details(self.details.clone()))
-        })
-    }
-}
+/// A queue rather than a refusal, because two agents sharing a container is the
+/// point of `shared: true`; a bound on it, because a queue nobody drains is a
+/// turn that never ends.
+const QUEUE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// How long a control-plane call may take before it is treated as unreachable.
 ///
@@ -877,6 +1123,8 @@ pub type LivenessFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// What a real engine is built from.
 #[derive(Clone)]
 pub struct DockerEngineOptions {
+    /// Pinned image containing the firewall bootstrap and domain proxy.
+    pub gateway_image: Option<String>,
     /// `podman` is wire-compatible for everything used here.
     pub bin: String,
     /// Defaults to [`owner_tag`], matching the pool's default.
@@ -898,6 +1146,7 @@ pub struct DockerEngineOptions {
 impl Default for DockerEngineOptions {
     fn default() -> Self {
         DockerEngineOptions {
+            gateway_image: None,
             bin: "docker".to_owned(),
             owner: None,
             is_owner_alive: None,
@@ -922,6 +1171,7 @@ impl std::fmt::Debug for DockerEngineOptions {
 /// of tens of milliseconds, and the alternative is an async `for_turn` that every
 /// caller above would have to await for the sake of one detached run.
 pub struct DockerEngine {
+    gateway_image: Option<String>,
     bin: String,
     owner: String,
     is_owner_alive: LivenessFn,
@@ -949,6 +1199,7 @@ struct CliOutput {
 /// The daemon CLI as a [`ContainerEngine`].
 pub fn docker_engine(options: DockerEngineOptions) -> Arc<dyn ContainerEngine> {
     Arc::new(DockerEngine {
+        gateway_image: options.gateway_image,
         bin: options.bin,
         owner: options.owner.unwrap_or_else(owner_tag),
         is_owner_alive: options
@@ -1061,6 +1312,62 @@ impl DockerEngine {
 }
 
 impl ContainerEngine for DockerEngine {
+    fn gateway(
+        &self,
+        name: &str,
+        container: &ContainerDefinition,
+        network: &ContainerNetwork,
+    ) -> Result<Option<String>> {
+        if network.mode != NetworkMode::Allowlist {
+            return Ok(None);
+        }
+        let image = self.gateway_image.as_ref().ok_or_else(|| {
+            GhostError::new(
+                ErrorKind::Config,
+                "Restricted egress requires a pinned gatewayImage in service configuration",
+            )
+        })?;
+        // The gateway's own image gets the digest-pin check every tool image
+        // gets. It holds NET_ADMIN, so a repointable tag here would be the one
+        // place in the system where an unreviewed image rewrites the filter.
+        let mut gateway_definition = container.clone();
+        gateway_definition.image.clone_from(image);
+        ghostai_security::assert_container_policy(&gateway_definition)?;
+        let rules = ghostai_security::egress::gateway_rules(container, network)?;
+        let gateway = format!("{name}-gateway");
+        let mut args = argv(&[
+            "run",
+            "--detach",
+            "--rm",
+            "--name",
+            &gateway,
+            "--cap-drop=ALL",
+            "--cap-add=NET_ADMIN",
+            "--cap-add=SETUID",
+            "--cap-add=SETGID",
+            "--security-opt=no-new-privileges",
+            "--read-only",
+            "--tmpfs=/tmp:rw,nosuid,size=16m",
+            "--memory=128m",
+            "--pids-limit=64",
+            "--cpus=0.5",
+            "--label",
+            &format!("{OWNER_LABEL}={}", self.owner),
+            "--label",
+            "ghostai.session=gateway",
+            "--env",
+        ]);
+        args.push(format!("GHOSTAI_NFT_RULES={rules}"));
+        args.push(image.clone());
+        args.extend(network.hosts.clone());
+        self.run(&args, "gateway start", self.start_timeout)?;
+        let ready = self.run(&argv(&["exec", &gateway, "sh", "-c", "for n in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/ready && exit 0; sleep 0.2; done; exit 1"]), "gateway readiness", self.control_timeout);
+        if let Err(error) = ready {
+            let _ = self.stop(&gateway);
+            return Err(error);
+        }
+        Ok(Some(gateway))
+    }
     fn probe(&self) -> Result<()> {
         self.run(
             &argv(&["version", "--format", "{{.Server.Version}}"]),
@@ -1090,6 +1397,12 @@ impl ContainerEngine for DockerEngine {
                 Some((id, rest)) => (id, rest.trim()),
                 None => (row, ""),
             };
+            if let Some((installation, _)) = self.owner.rsplit_once('/')
+                && self.owner.starts_with("service:")
+                && !container_owner.starts_with(&format!("{installation}/"))
+            {
+                continue;
+            }
 
             // This process's own. Shutdown reaps them, and doing it here would
             // kill the container the turn that triggered this sweep is about to

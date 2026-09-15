@@ -18,8 +18,11 @@ describe('AgentPresetSchema', () => {
     expect(preset.tools).toEqual(DEFAULT_AGENT_TOOLS);
     expect(preset.toolbox).toEqual({
       name: '',
-      network: { mode: 'none', allow: [] },
       tools: {},
+    });
+    expect(preset.container).toEqual({
+      name: '',
+      network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
     expect(preset.subagents).toEqual([]);
     expect(preset.skills).toEqual([]);
@@ -58,15 +61,19 @@ describe('AgentPresetSchema', () => {
     // preset has no field through which to widen them.
     const preset = AgentPresetSchema.parse({
       ...MINIMAL,
-      toolbox: { name: 'web-research', network: { mode: 'open' } },
+      toolbox: { name: 'web-research' },
+      container: { name: 'dev', network: { mode: 'open' }, image: 'ignored' },
     });
 
     expect(preset.toolbox).toEqual({
       name: 'web-research',
-      network: { mode: 'open', allow: [] },
       tools: {},
     });
-    expect('image' in preset.toolbox).toBe(false);
+    expect(preset.container).toEqual({
+      name: 'dev',
+      network: { mode: 'open', allow: [], hosts: [], dns: [] },
+    });
+    expect('image' in preset.container).toBe(false);
   });
 });
 

@@ -41,8 +41,8 @@ use ghostai_channels::{
 use ghostai_core::Clock;
 use ghostai_core::paths::GhostPaths;
 use ghostai_core::{
-    Database, ErrorKind, GhostError, LoadConfigOptions, Result, SystemClock, ensure_dir,
-    load_config,
+    Database, ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, SystemClock,
+    ensure_dir, load_config,
 };
 use ghostai_protocol::automation::AutomationRun;
 use ghostai_protocol::rest::ChannelStatus;
@@ -302,7 +302,7 @@ impl LateAutomation {
 impl ghostai_tools::AutomationResolver for LateAutomation {
     fn for_turn(
         &self,
-        request: &ghostai_tools::ToolboxRequest,
+        request: &ghostai_tools::PlacementRequest,
     ) -> Option<Arc<dyn ghostai_tools::AutomationPort>> {
         self.inner.read().as_ref()?.for_turn(request)
     }
@@ -765,6 +765,14 @@ pub struct RunningServer {
     database: parking_lot::Mutex<Option<Database>>,
     token: CancellationToken,
     listener: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The sandbox service this process started, when it started one.
+    ///
+    /// Aborted on the way down rather than awaited: it holds an exclusive lock
+    /// on its state directory, and a test that starts a second server in the
+    /// same install would otherwise be refused by a service that outlived the
+    /// first. Its own containers are reaped by the sweep the next one runs.
+    sandbox_service:
+        parking_lot::Mutex<Option<Arc<tokio::task::JoinHandle<ghostai_core::Result<()>>>>>,
     closed: parking_lot::Mutex<bool>,
 }
 
@@ -814,6 +822,9 @@ impl RunningServer {
             let _ = handle.await;
         }
         self.runtime.close().await;
+        if let Some(service) = self.sandbox_service.lock().take() {
+            service.abort();
+        }
         // Last, and only now: every writer above has stopped.
         drop(self.database.lock().take());
     }
@@ -829,6 +840,28 @@ pub struct ServeOptions {
     pub env: Env,
     /// Registered before the pumps start, ahead of the built-ins.
     pub channels: Vec<ghostai_channels::ChannelFactory>,
+}
+
+/// The install's paths and its open database, before anything else exists.
+///
+/// Split out of [`start`] because it is the one step with no dependency on
+/// anything the rest of boot builds: it reads the config file only to learn
+/// where the database lives, and everything after it works from the runtime's
+/// own load rather than this one.
+fn open_store(
+    globals: &Globals,
+    workspace: Option<&str>,
+    env: &Env,
+) -> Result<(LoadedConfig, Database)> {
+    let loaded = load_config(LoadConfigOptions {
+        paths: load_options(globals, workspace, env),
+        file: None,
+    })?;
+    if let Some(parent) = loaded.paths.db_file.parent() {
+        ensure_dir(parent)?;
+    }
+    let database = Database::open(&loaded.paths.db_file)?;
+    Ok((loaded, database))
 }
 
 /// Brings the whole stack up and returns it. Does not block.
@@ -847,14 +880,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     // (1) Read once, here, only for the database path: the runtime loads it
     // again for itself, and the config it ends up with is the one everything
     // else uses.
-    let loaded = load_config(LoadConfigOptions {
-        paths: load_options(&globals, args.workspace.as_deref(), &env),
-        file: None,
-    })?;
-    if let Some(parent) = loaded.paths.db_file.parent() {
-        ensure_dir(parent)?;
-    }
-    let database = Database::open(&loaded.paths.db_file)?;
+    let (loaded, database) = open_store(&globals, args.workspace.as_deref(), &env)?;
     let clock = Arc::new(SystemClock);
 
     // (2) Before the runtime, because the runtime hands it to the loop.
@@ -893,6 +919,13 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
         ..RuntimeOptions::default()
     })?;
     register_test_tools(&runtime);
+
+    // Started after the runtime, because it reads the policy directory the
+    // runtime just resolved, and before the first turn, because a turn is what
+    // needs it. Nothing is started when an operator has deployed a service of
+    // their own; see the module docs.
+    let sandbox_service =
+        crate::sandbox_service::start_embedded(&loaded.paths, runtime.workspaces(), &env).await;
 
     // The host is folded into the settings; the port is not, and the asymmetry
     // is the point. The boot policy refuses a non-loopback bind with
@@ -1004,6 +1037,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
         database: parking_lot::Mutex::new(Some(database)),
         token,
         listener: parking_lot::Mutex::new(Some(handle)),
+        sandbox_service: parking_lot::Mutex::new(sandbox_service),
         closed: parking_lot::Mutex::new(false),
     }))
 }

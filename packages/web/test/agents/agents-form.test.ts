@@ -111,6 +111,31 @@ describe('toAgentEntryForm', () => {
       write_file: 'deny',
     });
   });
+
+  it('shows each egress list as the comma-separated text a box holds', () => {
+    // All three, because all three are edited as one box each. A list the form
+    // could read but not show would come back empty the first time the agent
+    // was saved from this screen.
+    const shown = toAgentEntryForm(
+      AgentEntrySchema.parse({
+        container: {
+          name: 'dev',
+          network: {
+            mode: 'allowlist',
+            allow: ['10.0.0.0/8', '192.168.1.0/24'],
+            hosts: ['api.example.com'],
+            dns: ['10.0.0.53', '10.0.0.54'],
+          },
+        },
+      }),
+    );
+
+    expect(shown.containerName).toBe('dev');
+    expect(shown.containerNetworkMode).toBe('allowlist');
+    expect(shown.containerAllow).toBe('10.0.0.0/8, 192.168.1.0/24');
+    expect(shown.containerHosts).toBe('api.example.com');
+    expect(shown.containerDns).toBe('10.0.0.53, 10.0.0.54');
+  });
 });
 
 describe('toAgentEntryPatch', () => {
@@ -208,6 +233,9 @@ describe('toAgentEntryPatch', () => {
       model: 'llama3',
       toolbox: {
         name: 'kali-pentest',
+      },
+      container: {
+        name: 'dev',
         network: { mode: 'allowlist', allow: ['10.0.0.0/8'] },
       },
     });
@@ -215,7 +243,11 @@ describe('toAgentEntryPatch', () => {
     const entry = parsed(
       toAgentEntryPatch(
         'reviewer',
-        form({ toolboxName: 'ghost-research', toolboxNetworkMode: 'open' }),
+        form({
+          toolboxName: 'ghost-research',
+          containerName: 'dev',
+          containerNetworkMode: 'open',
+        }),
         stored,
         t,
       ),
@@ -223,9 +255,14 @@ describe('toAgentEntryPatch', () => {
 
     expect((entry as { toolbox: Record<string, unknown> }).toolbox).toEqual({
       name: 'ghost-research',
-      network: { mode: 'open', allow: [] },
       tools: {},
     });
+    expect((entry as { container: Record<string, unknown> }).container).toEqual(
+      {
+        name: 'dev',
+        network: { mode: 'open', allow: [], hosts: [], dns: [] },
+      },
+    );
   });
 
   it('carries the per-box defaults a preset wrote, which it cannot edit', () => {
@@ -239,7 +276,6 @@ describe('toAgentEntryPatch', () => {
       model: 'llama3',
       toolbox: {
         name: 'recon',
-        network: { mode: 'open', allow: [] },
         tools: { '*': 'deny', nmap: 'allow' },
       },
     });
@@ -276,16 +312,20 @@ describe('toAgentEntryPatch', () => {
     ).toEqual({});
   });
 
-  it('clears the allow-list when the mode stops using it', () => {
-    // Otherwise a stale set of CIDRs sits in the file waiting to take effect the
-    // next time somebody switches back to `allowlist`.
+  it('keeps all three egress lists while the mode is an allow-list', () => {
+    // Three lists rather than one, because they are enforced in three different
+    // places: CIDRs by the packet filter, names by the egress proxy, resolvers
+    // by whatever the container asks for a name. A form that parsed one of them
+    // would be a container reaching more, or less, than the screen says.
     const entry = parsed(
       toAgentEntryPatch(
         'reviewer',
         form({
-          toolboxName: 'kali',
-          toolboxNetworkMode: 'none',
-          toolboxAllow: '10.0.0.0/8',
+          containerName: 'dev',
+          containerNetworkMode: 'allowlist',
+          containerAllow: '10.0.0.0/8, 192.168.1.0/24',
+          containerHosts: 'api.example.com , , docs.example.com',
+          containerDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -293,21 +333,89 @@ describe('toAgentEntryPatch', () => {
     );
 
     expect(
-      (entry as { toolbox: Record<string, unknown> }).toolbox.network,
+      (entry as { container: Record<string, unknown> }).container.network,
     ).toEqual({
-      mode: 'none',
-      allow: [],
+      mode: 'allowlist',
+      allow: ['10.0.0.0/8', '192.168.1.0/24'],
+      hosts: ['api.example.com', 'docs.example.com'],
+      dns: ['10.0.0.53'],
     });
   });
 
-  it('forces an agent with no toolbox onto no network', () => {
-    // Egress scoping is enforced by the sandbox, so it means nothing on the host
-    // — and `assertBuildable` refuses the combination outright, which would turn
-    // a save into a 400 rather than a setting that quietly does nothing.
+  it('clears all three egress lists when the mode stops using them', () => {
+    // Otherwise a stale set of CIDRs, host names and resolvers sits in the file
+    // waiting to take effect the next time somebody switches back to
+    // `allowlist` — and the screen would not be showing any of them.
     const entry = parsed(
       toAgentEntryPatch(
         'reviewer',
-        form({ toolboxName: '', toolboxNetworkMode: 'open' }),
+        form({
+          toolboxName: 'kali',
+          containerName: 'dev',
+          containerNetworkMode: 'none',
+          containerAllow: '10.0.0.0/8',
+          containerHosts: 'api.example.com',
+          containerDns: '10.0.0.53',
+        }),
+        EMPTY,
+        t,
+      ),
+    );
+
+    expect(
+      (entry as { container: Record<string, unknown> }).container.network,
+    ).toEqual({
+      mode: 'none',
+      allow: [],
+      hosts: [],
+      dns: [],
+    });
+  });
+
+  it('drops the egress lists on an open network too, not only on none', () => {
+    // `open` reaches everything, so a list left beside it is not a narrowing
+    // that failed to apply — it is a claim about the container that is false.
+    const entry = parsed(
+      toAgentEntryPatch(
+        'reviewer',
+        form({
+          containerName: 'dev',
+          containerNetworkMode: 'open',
+          containerAllow: '10.0.0.0/8',
+          containerHosts: 'api.example.com',
+          containerDns: '10.0.0.53',
+        }),
+        EMPTY,
+        t,
+      ),
+    );
+
+    expect(
+      (entry as { container: Record<string, unknown> }).container.network,
+    ).toEqual({
+      mode: 'open',
+      allow: [],
+      hosts: [],
+      dns: [],
+    });
+  });
+
+  it('forces an agent with no toolbox or container onto no network', () => {
+    // Egress scoping is enforced by the container's gateway, so it means
+    // nothing on the host — and `assertBuildable` refuses the combination
+    // outright, which would turn a save into a 400 rather than a setting that
+    // quietly does nothing.
+    const entry = parsed(
+      toAgentEntryPatch(
+        'reviewer',
+        form({
+          toolboxName: '',
+          containerName: '',
+          containerNetworkMode: 'allowlist',
+          containerAllow: '10.0.0.0/8',
+          containerHosts: 'api.example.com',
+          containerDns: '10.0.0.53',
+        }),
         EMPTY,
         t,
       ),
@@ -315,9 +423,14 @@ describe('toAgentEntryPatch', () => {
 
     expect((entry as { toolbox: Record<string, unknown> }).toolbox).toEqual({
       name: '',
-      network: { mode: 'none', allow: [] },
       tools: {},
     });
+    expect((entry as { container: Record<string, unknown> }).container).toEqual(
+      {
+        name: '',
+        network: { mode: 'none', allow: [], hosts: [], dns: [] },
+      },
+    );
   });
 
   it('reports every bad field at once, not the first', () => {

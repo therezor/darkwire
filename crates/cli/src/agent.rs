@@ -1,17 +1,18 @@
 //! `ghostai agent` — install agent presets, and list agents and presets.
 //!
 //! `install` is a config merge, not a package manager. A preset is a JSON file
-//! already on the box — laid down beside a toolbox manifest by the catalogue,
-//! or written by an operator — and installing it writes one entry into
-//! `agents.list` in `config.json`. Nothing is fetched, and after the write the
-//! entry is ordinary agent config the web UI edits like any other.
+//! already on the box — laid down by the catalogue, or written by an operator —
+//! and installing it writes one entry into `agents.list` in `config.json`.
+//! Nothing is fetched, and after the write the entry is ordinary agent config
+//! the web UI edits like any other.
 //!
 //! The argument is either a path — anything with a separator, a `.json` suffix,
 //! or that exists as a file — or a preset id looked up in the directories
 //! [`crate::presets::preset_dirs`] names, operator's before the catalogue's.
 //! There is one preset format and one place ids are searched; an agent that
 //! needs a container is not a different kind of preset, it is a preset whose
-//! `toolbox.name` is set.
+//! `toolbox.name` and `container.name` are set. The two are independent: a
+//! preset may name either, both or neither.
 //!
 //! Two refusals do the real work:
 //!
@@ -30,17 +31,17 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use ghostai_core::{
-    Database, ErrorKind, GhostError, GhostPaths, LoadConfigOptions, Result, SystemClock,
-    load_config, save_config,
+    ErrorKind, GhostError, GhostPaths, LoadConfigOptions, Result, load_config, save_config,
 };
 use ghostai_protocol::{
-    AgentPreset, Config, DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, RESERVED_AGENT_IDS, SubagentRef,
-    is_agent_id, preset_to_agent_entry,
+    AgentPreset, Config, DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, NetworkMode, RESERVED_AGENT_IDS,
+    SubagentRef, is_agent_id, preset_to_agent_entry,
 };
-use ghostai_security::{ToolboxStore, assert_network_within_ceiling};
+use ghostai_security::{
+    PolicyStore, assert_container_network, assert_gateway_compatible, toolbox::invalid,
+};
 
 use crate::Streams;
 use crate::catalogue::{
@@ -58,11 +59,12 @@ use crate::skill_install::{SkillInstallRequest, install_skills, skills_target_di
 /// it likes without standing up a whole resolved install.
 #[derive(Debug, Clone, Default)]
 pub struct PresetPaths {
-    /// Installed toolbox manifests, one directory each.
-    pub toolboxes_dir: PathBuf,
+    /// The operator's policy directory: toolboxes, containers and operation
+    /// definitions.
+    pub policy_dir: PathBuf,
     /// `<root>/presets` — an operator's own drop-in directory.
     pub presets_dir: PathBuf,
-    /// The one SQLite file, which holds the toolbox approvals.
+    /// The one SQLite file.
     pub db_file: PathBuf,
     /// The catalogue's `agents/`, when there is a catalogue.
     ///
@@ -171,15 +173,32 @@ pub enum InstallPlan {
     },
 }
 
-/// The toolbox checks the runtime's build applies, run before the write.
+/// The policy checks the runtime's build applies, run before the write.
 ///
 /// An entry that fails them is a config the server refuses to boot on, so it is
 /// better to find out here, where the message can name the fix.
-fn check_toolbox(preset: &AgentPreset, paths: &PresetPaths) -> Result<()> {
-    let database = Database::open(&paths.db_file)?;
-    let store = ToolboxStore::new(database, paths.toolboxes_dir.clone(), Arc::new(SystemClock))?;
-    let approved = store.require(&preset.toolbox.name)?;
-    assert_network_within_ceiling(&approved.toolbox, &preset.toolbox.network, &preset.id)
+fn check_policy(preset: &AgentPreset, paths: &PresetPaths) -> Result<()> {
+    let store = PolicyStore::new(paths.policy_dir.clone());
+    if !preset.container.name.is_empty() {
+        if preset.toolbox.name.is_empty() {
+            return Err(invalid(
+                "A container only hosts a toolbox's approved operations; this preset names no toolbox",
+            ));
+        }
+        let container = store.require_container(&preset.container.name)?;
+        if preset.container.network.mode == NetworkMode::Allowlist {
+            assert_gateway_compatible(&container.definition)?;
+        }
+    } else if preset.container.network.mode != NetworkMode::None {
+        return Err(invalid(
+            "This preset asks for a network but names no container; egress is enforced by the container's gateway",
+        ));
+    }
+    assert_container_network(&preset.container.network, &preset.id)?;
+    if preset.toolbox.name.is_empty() {
+        return Ok(());
+    }
+    store.require_toolbox(&preset.toolbox.name).map(|_| ())
 }
 
 /// What installing one preset into `config` would do.
@@ -196,9 +215,11 @@ pub fn plan_install(
 ) -> Result<InstallPlan> {
     assert_installable_id(&preset.id)?;
 
-    if !preset.toolbox.name.is_empty()
-        && let Err(error) = check_toolbox(preset, paths)
-    {
+    // Unconditionally, not only when a name is set. A preset naming neither a
+    // toolbox nor a container can still ask for egress, and skipping the check
+    // for it let exactly the config this guard exists to catch reach
+    // `config.json` and fail the next boot instead.
+    if let Err(error) = check_policy(preset, paths) {
         return Ok(InstallPlan::Blocked {
             id: preset.id.clone(),
             reason: error.message,
@@ -303,7 +324,7 @@ fn install(
     };
     line(out, &format!("    label      {label}"))?;
     let toolbox = if preset.toolbox.name.is_empty() {
-        "none — commands run on this machine"
+        "none — no toolbox selected"
     } else {
         &preset.toolbox.name
     };
@@ -450,7 +471,7 @@ pub fn preset_paths_of(
         ..CatalogueOptions::default()
     });
     Ok(PresetPaths {
-        toolboxes_dir: paths.toolboxes_dir.clone(),
+        policy_dir: paths.policy_dir.clone(),
         presets_dir: paths.presets_dir.clone(),
         db_file: paths.db_file.clone(),
         catalogue_agents_dir: dir.as_deref().and_then(catalogue_agents_dir),

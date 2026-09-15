@@ -46,8 +46,9 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::{SeccompProfile, Toolbox, ToolboxNetworkMode, ToolboxRuntime};
-use ghostai_security::{EffectiveNetwork, ExecPlan};
+use ghostai_protocol::toolbox::{ContainerDefinition, ContainerRuntime, SeccompProfile};
+use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_security::{ExecPlan, egress::PROXY_PORT};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use regex::Regex;
@@ -66,21 +67,22 @@ use crate::tool::BoxFuture;
 /// the recovery path — `grep` your own truncated output — with no way to plant
 /// anything.
 ///
-/// A *sibling* of [`TOOLBOX_MOUNT_DIR`], never nested inside it.
-/// `/run/ghost/runs` would ask runc to create a mountpoint inside a mount that
-/// is itself read-only, which fails outright: "make mountpoint … read-only file
-/// system". The same trap [`TOOLBOX_MOUNT_DIR`] documents, one level along.
+/// Its own top-level path, never nested inside another read-only mount.
+/// `/run/ghost/runs` under a read-only `/run/ghost` would ask runc to create a
+/// mountpoint inside a mount it is in the middle of establishing, which fails
+/// outright: "make mountpoint … read-only file system".
 pub const RUNS_MOUNT_DIR: &str = "/run/ghost-runs";
 
-/// Where the approved manifest is mounted, read-only.
-///
-/// Outside the workspace, and that is not cosmetic. Nesting it under the
-/// workdir — `/workspace/.ghost/profile.json` — asks the runtime to create a
-/// mountpoint *inside* a bind mount it is in the middle of establishing, which
-/// `runc` refuses outright: "mountpoint is outside of rootfs". Mounting the
-/// profile's own directory somewhere of its own has no such problem, and
-/// immutability from the mount table is satisfied wherever the mount lands.
-pub const TOOLBOX_MOUNT_DIR: &str = "/run/ghost";
+struct TranscriptAndProgress {
+    transcript: Arc<Transcript>,
+    progress: Arc<dyn OutputTee>,
+}
+impl OutputTee for TranscriptAndProgress {
+    fn write(&self, stream: OutputStream, bytes: &[u8]) {
+        self.transcript.write(stream, bytes);
+        self.progress.write(stream, bytes);
+    }
+}
 
 /// Records the pid, then becomes the command.
 ///
@@ -89,44 +91,48 @@ pub const TOOLBOX_MOUNT_DIR: &str = "/run/ghost";
 /// the pid written is the command's own, not a shell that would exit first.
 const EXEC_SCRIPT: &str = r#"echo $$ > "$1"; shift; exec "$@""#;
 
-/// Signals the recorded pid.
+/// Signals the recorded pid's whole process group, which `setsid` in
+/// [`container_exec_argv`] made the command its own leader of.
 ///
-/// The digit check is not defensive padding. The pid file lives on a tmpfs the
-/// agent can write, so `-1` in it would turn a timeout into `kill -TERM -1` —
-/// every process in the namespace, including PID 1, which kills the container
-/// and leaves the pool serving an entry for something that no longer exists.
-/// Only a bare positive integer is ever signalled.
-const KILL_SCRIPT: &str = r#"p=$(cat "$1" 2>/dev/null); case "$p" in "" | *[!0-9]* ) exit 0 ;; esac; kill -"$2" "$p" 2>/dev/null || true"#;
+/// The digit check is not defensive padding, and neither are the `0` and `1`
+/// cases. The pid file lives on a tmpfs the agent can write, so `-1` in it
+/// would turn a timeout into `kill -TERM -1` — every process in the namespace,
+/// including PID 1, which kills the container and leaves the pool serving an
+/// entry for something that no longer exists. Only a bare positive integer
+/// above 1 is ever signalled.
+const KILL_SCRIPT: &str = r#"p=$(cat "$1" 2>/dev/null); case "$p" in "" | *[!0-9]* | 0 | 1 ) exit 0 ;; esac; kill -"$2" -- -"$p" 2>/dev/null || true"#;
 
 /// How a container sees the workspace, and where the daemon finds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolboxMount {
+pub struct WorkspaceMount {
     /// The workspace as **the daemon** resolves it, which is not always as
     /// GhostAI sees it: a containerised GhostAI asking for its own
     /// `/data/workspace` gets the host's.
     pub host_path: String,
-    /// `toolbox.workdir`.
+    /// `container.workdir`.
     pub container_path: String,
 }
 
 /// What `docker run` needs for a session's sandbox.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContainerCreateOptions {
-    /// The approved manifest.
-    pub toolbox: Toolbox,
-    /// The network the agent is actually getting.
-    pub network: EffectiveNetwork,
+    /// The approved definition.
+    pub container: ContainerDefinition,
+    /// What the agent asked to reach.
+    pub network: ContainerNetwork,
     /// The workspace mount.
-    pub mount: ToolboxMount,
+    pub mount: WorkspaceMount,
     /// The container's name.
     pub container_name: String,
     /// Set when an egress gateway owns the network namespace.
     pub gateway_container: Option<String>,
-    /// Absolute host path of the approved manifest.
+    /// Mask the host-identifying corners of `/sys` with empty tmpfs mounts.
     ///
-    /// Its *directory* is what gets mounted: binding a single file needs the
-    /// mountpoint to exist in the image, and a directory mount does not.
-    pub manifest_path: Option<String>,
+    /// Set for engines that honour a tmpfs over a `sysfs` subdirectory. Podman
+    /// copies the underlying directory up into the new mount, which needs a
+    /// capability the container does not have, so it is left off there and the
+    /// container simply reads what `sysfs` shows.
+    pub mask_sysfs: bool,
     /// Host transcript *root*, long-lived. Mounted read-only. See
     /// [`container_run_dir`].
     pub runs_path: Option<String>,
@@ -135,20 +141,20 @@ pub struct ContainerCreateOptions {
 }
 
 impl ContainerCreateOptions {
-    /// Options with no gateway, manifest, transcripts or labels.
+    /// Options with no gateway, transcripts, sysfs masking or labels.
     pub fn new(
-        toolbox: Toolbox,
-        network: EffectiveNetwork,
-        mount: ToolboxMount,
+        container: ContainerDefinition,
+        network: ContainerNetwork,
+        mount: WorkspaceMount,
         container_name: impl Into<String>,
     ) -> ContainerCreateOptions {
         ContainerCreateOptions {
-            toolbox,
+            container,
             network,
             mount,
             container_name: container_name.into(),
             gateway_container: None,
-            manifest_path: None,
+            mask_sysfs: false,
             runs_path: None,
             labels: IndexMap::new(),
         }
@@ -158,39 +164,57 @@ impl ContainerCreateOptions {
 /// `ALL` is dropped whatever the profile says, then named capabilities are
 /// added back.
 ///
-/// Not `toolbox.caps.drop` alone: a manifest that left it empty — through an
-/// edit, a template someone trimmed, or a future schema default nobody thought
-/// about — would inherit Docker's default capability set rather than none, and
-/// the resulting container would look correctly configured in every other
-/// respect. The floor belongs in code, where no data can lower it. The
-/// profile's own `drop` list is still emitted, so an operator can be explicit
-/// without that meaning anything different.
-fn capability_flags(toolbox: &Toolbox) -> Vec<String> {
+/// Not `container.caps.drop` alone: a definition that left it empty — through
+/// an edit, a template someone trimmed, or a future schema default nobody
+/// thought about — would inherit Docker's default capability set rather than
+/// none, and the resulting container would look correctly configured in every
+/// other respect. The floor belongs in code, where no data can lower it. The
+/// definition's own `drop` list is still emitted, so an operator can be
+/// explicit without that meaning anything different.
+fn capability_flags(container: &ContainerDefinition) -> Vec<String> {
     let mut flags = vec!["--cap-drop=ALL".to_owned()];
-    for capability in &toolbox.caps.drop {
+    for capability in &container.caps.drop {
         if !capability.eq_ignore_ascii_case("ALL") {
             flags.push(format!("--cap-drop={capability}"));
         }
     }
-    for capability in &toolbox.caps.add {
+    for capability in &container.caps.add {
         flags.push(format!("--cap-add={capability}"));
     }
     flags
 }
 
+/// The corners of `sysfs` that name the host rather than describe the sandbox.
+///
+/// A shell in the container can otherwise read the machine's firmware tables
+/// and every disk model and filesystem UUID attached to it — none of which the
+/// workspace jail, the capability set or the egress filter has any bearing on,
+/// and all of which identify the operator's machine to whatever the agent is
+/// talking to. An empty tmpfs over each is cheaper than a seccomp rule and
+/// needs no privilege to establish.
+///
+/// **Every path here must exist on every architecture.** A `--tmpfs` over a
+/// path that is not there makes runc try to create the mountpoint inside a
+/// read-only `/sys`, and the container does not start at all. `/sys/class/dmi`
+/// and `/sys/devices/virtual/dmi` were in this list and are x86-only, which
+/// broke every sandboxed turn on arm64 — measured, not predicted. Masking
+/// `/sys/firmware` still covers the raw DMI tables where they exist, so what
+/// was lost is the parsed duplicate of data already hidden.
+const MASKED_SYSFS_PATHS: &[&str] = &["/sys/firmware", "/sys/class/block"];
+
 /// How the container reaches the network.
 ///
 /// `container:<gw>` makes it join the gateway's namespace, where the gateway's
 /// nftables rules already apply and the sandbox — holding no `NET_ADMIN`,
-/// which the toolbox policy refuses — cannot flush them.
+/// which the container policy refuses — cannot flush them.
 fn network_flags(options: &ContainerCreateOptions) -> Result<Vec<String>> {
-    if options.network.mode == ToolboxNetworkMode::None {
+    if options.network.mode == NetworkMode::None {
         return Ok(vec!["--network=none".to_owned()]);
     }
     if let Some(gateway) = &options.gateway_container {
         return Ok(vec![format!("--network=container:{gateway}")]);
     }
-    if options.network.mode == ToolboxNetworkMode::Allowlist {
+    if options.network.mode == NetworkMode::Allowlist {
         // Refused rather than silently run wide open. An allow-list with no
         // gateway to enforce it is indistinguishable from no allow-list at all,
         // and this is the failure that would look like it worked.
@@ -222,11 +246,11 @@ fn bind_mount(source: &str, target: &str, read_only: bool) -> String {
     parts.join(",")
 }
 
-fn runtime_flag(runtime: ToolboxRuntime) -> Option<String> {
+fn runtime_flag(runtime: ContainerRuntime) -> Option<String> {
     match runtime {
-        ToolboxRuntime::Runc => None,
-        ToolboxRuntime::Runsc => Some("--runtime=runsc".to_owned()),
-        ToolboxRuntime::Kata => Some("--runtime=kata".to_owned()),
+        ContainerRuntime::Runc => None,
+        ContainerRuntime::Runsc => Some("--runtime=runsc".to_owned()),
+        ContainerRuntime::Kata => Some("--runtime=kata".to_owned()),
     }
 }
 
@@ -239,19 +263,12 @@ fn cpus_text(cpus: f64) -> String {
     }
 }
 
-fn parent_dir(path: &str) -> String {
-    Path::new(path).parent().map_or_else(
-        || ".".to_owned(),
-        |parent| parent.to_string_lossy().into_owned(),
-    )
-}
-
 /// The `docker run` argv for a session's sandbox.
 ///
 /// Pure, so the whole flag set is testable without a daemon — including the
 /// assertions that matter most, which are about what can *never* appear.
 pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<String>> {
-    let toolbox = &options.toolbox;
+    let container = &options.container;
     let mount = &options.mount;
     let mut argv: Vec<String> = ["run", "--detach", "--rm", "--name"]
         .into_iter()
@@ -269,57 +286,80 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
     // are never reaped.
     argv.push("--init".to_owned());
 
-    argv.extend(runtime_flag(toolbox.runtime));
+    argv.extend(runtime_flag(container.runtime));
 
-    if toolbox.limits.memory_mb > 0 {
-        argv.push(format!("--memory={}m", toolbox.limits.memory_mb));
+    if container.limits.memory_mb > 0 {
+        argv.push(format!("--memory={}m", container.limits.memory_mb));
     }
-    if toolbox.limits.cpus > 0.0 {
-        argv.push(format!("--cpus={}", cpus_text(toolbox.limits.cpus)));
+    if container.limits.cpus > 0.0 {
+        argv.push(format!("--cpus={}", cpus_text(container.limits.cpus)));
     }
-    if toolbox.limits.pids_max > 0 {
-        argv.push(format!("--pids-limit={}", toolbox.limits.pids_max));
+    if container.limits.pids_max > 0 {
+        argv.push(format!("--pids-limit={}", container.limits.pids_max));
     }
-    if toolbox.limits.shm_size_mb > 0 {
-        argv.push(format!("--shm-size={}m", toolbox.limits.shm_size_mb));
+    if container.limits.shm_size_mb > 0 {
+        argv.push(format!("--shm-size={}m", container.limits.shm_size_mb));
     }
 
-    argv.extend(capability_flags(toolbox));
-    if toolbox.security.no_new_privileges {
+    argv.extend(capability_flags(container));
+    // The proxy enforces the host allow-list, so a program that ignored these
+    // would reach nothing: the gateway's filter permits only the proxy's own
+    // uid and its loopback port. They are set so ordinary clients route there
+    // without configuration, not to make the restriction work.
+    if !options.network.hosts.is_empty() {
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+            argv.push("--env".to_owned());
+            argv.push(format!("{key}=http://127.0.0.1:{PROXY_PORT}"));
+        }
+    }
+    if container.security.no_new_privileges {
         argv.push("--security-opt=no-new-privileges".to_owned());
     }
-    if toolbox.security.seccomp == SeccompProfile::Unconfined {
+    if container.security.seccomp == SeccompProfile::Unconfined {
         argv.push("--security-opt=seccomp=unconfined".to_owned());
     }
-    if toolbox.security.read_only_root {
+    if container.security.read_only_root {
         argv.push("--read-only".to_owned());
     }
-    for spec in &toolbox.security.tmpfs {
+    for spec in &container.security.tmpfs {
         argv.push(format!("--tmpfs={spec}"));
     }
-    for spec in &toolbox.security.devices {
+    if options.mask_sysfs {
+        for path in MASKED_SYSFS_PATHS {
+            argv.push(format!("--tmpfs={path}:ro,nosuid,nodev,noexec,size=4k"));
+        }
+    }
+    for spec in &container.security.devices {
         argv.push(format!("--device={spec}"));
     }
-    if !toolbox.user.is_empty() {
-        argv.push(format!("--user={}", toolbox.user));
+    if !container.user.is_empty() {
+        argv.push(format!("--user={}", container.user));
     }
 
     argv.extend(network_flags(options)?);
 
     argv.push("--mount".to_owned());
     argv.push(bind_mount(&mount.host_path, &mount.container_path, false));
-    // Read-only, so the policy the container runs under is immutable from the
-    // mount table rather than by anyone remembering to check it. The profile's
-    // *directory*, and outside the workdir — see `TOOLBOX_MOUNT_DIR`.
-    if let Some(manifest) = &options.manifest_path {
-        argv.push("--mount".to_owned());
-        argv.push(bind_mount(&parent_dir(manifest), TOOLBOX_MOUNT_DIR, true));
-    }
     // Read-only, so the agent can read its own truncated output and cannot
-    // plant a symlink where the host is about to write the next one.
+    // plant a symlink where the host is about to write the next one. Scoped to
+    // this container's own subdirectory, so a shared instance does not hand one
+    // agent another's transcripts.
+    //
+    // When there are no transcripts to mount, an empty read-only tmpfs takes
+    // the path instead of leaving it absent: an unmounted path is a writable
+    // directory inside the image that something could populate and then read
+    // back as though the host had written it.
     if let Some(runs) = &options.runs_path {
         argv.push("--mount".to_owned());
-        argv.push(bind_mount(runs, RUNS_MOUNT_DIR, true));
+        argv.push(bind_mount(
+            &format!("{runs}/{}", options.container_name),
+            &format!("{RUNS_MOUNT_DIR}/{}", options.container_name),
+            true,
+        ));
+    } else {
+        argv.push(format!(
+            "--tmpfs={RUNS_MOUNT_DIR}:ro,nosuid,nodev,noexec,size=4k"
+        ));
     }
     argv.push("--workdir".to_owned());
     argv.push(mount.container_path.clone());
@@ -328,7 +368,7 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
     // infinity`, which busybox does not always accept.
     argv.push("--entrypoint".to_owned());
     argv.push("/bin/sh".to_owned());
-    argv.push(toolbox.image.clone());
+    argv.push(container.image.clone());
     argv.push("-c".to_owned());
     argv.push("exec tail -f /dev/null".to_owned());
     Ok(argv)
@@ -339,8 +379,8 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
 pub struct ContainerExecOptions<'a> {
     /// The guarded command.
     pub plan: &'a ExecPlan,
-    /// The approved manifest.
-    pub toolbox: &'a Toolbox,
+    /// The approved definition.
+    pub container: &'a ContainerDefinition,
     /// The container to run in.
     pub container_name: &'a str,
     /// Identifies this run's transcript directory and pid file.
@@ -386,15 +426,19 @@ pub fn container_exec_argv(options: &ContainerExecOptions<'_>) -> Vec<String> {
     let mut argv = vec![
         "exec".to_owned(),
         "--workdir".to_owned(),
-        options.toolbox.workdir.clone(),
+        options.container.workdir.clone(),
     ];
-    for name in &options.toolbox.env {
+    for name in &options.container.env {
         if let Some(value) = options.plan.env.get(name) {
             argv.push("--env".to_owned());
             argv.push(format!("{name}={value}"));
         }
     }
     argv.push(options.container_name.to_owned());
+    // Its own process group, so a timeout can signal the whole tree rather than
+    // the one pid the script recorded. A program that forks and returns would
+    // otherwise leave its children running in a container that is still warm.
+    argv.push("setsid".to_owned());
     argv.push("/bin/sh".to_owned());
     argv.push("-c".to_owned());
     argv.push(EXEC_SCRIPT.to_owned());
@@ -564,8 +608,8 @@ pub type RunIdSource = Arc<dyn Fn() -> String + Send + Sync>;
 /// How a [`ContainerRunner`] is bound to its container.
 #[derive(Clone)]
 pub struct ContainerRunnerOptions {
-    /// The approved manifest.
-    pub toolbox: Toolbox,
+    /// The approved definition.
+    pub container: ContainerDefinition,
     /// The container every command runs in.
     pub container_name: String,
     /// Host transcript root, shared by every container and long-lived.
@@ -588,7 +632,7 @@ pub struct ContainerRunnerOptions {
 impl std::fmt::Debug for ContainerRunnerOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContainerRunnerOptions")
-            .field("toolbox", &self.toolbox.name)
+            .field("container", &self.container.name)
             .field("container_name", &self.container_name)
             .field("runs_root", &self.runs_root)
             .field("bin", &self.bin)
@@ -602,7 +646,7 @@ impl std::fmt::Debug for ContainerRunnerOptions {
 /// `SIGTERM`→`SIGKILL` escalation and cancellation all stay in one
 /// implementation rather than being reimplemented slightly differently here.
 pub struct ContainerRunner {
-    toolbox: Toolbox,
+    container: ContainerDefinition,
     container_name: String,
     runs_root: PathBuf,
     bin: String,
@@ -632,7 +676,7 @@ impl ContainerRunner {
     /// Binds a runner to one container.
     pub fn new(options: ContainerRunnerOptions) -> ContainerRunner {
         ContainerRunner {
-            toolbox: options.toolbox,
+            container: options.container,
             container_name: options.container_name,
             runs_root: options.runs_root,
             bin: options.bin.unwrap_or_else(|| "docker".to_owned()),
@@ -663,17 +707,15 @@ impl ContainerRunner {
     /// Detached: a container that has already exited is the common case, and
     /// failing the turn over a kill that had nothing to kill would be worse
     /// than the leak this is defending against.
-    fn signal_inside(
+    async fn signal_inside(
         &self,
         plan: &ExecPlan,
         run_id: &str,
         signal: KillSignal,
         clock: &Arc<dyn Clock>,
     ) {
-        let mut kill_plan = self.client_plan(
-            plan,
-            container_kill_argv(&self.container_name, run_id, signal),
-        );
+        let args = container_kill_argv(&self.container_name, run_id, signal);
+        let mut kill_plan = self.client_plan(plan, args);
         kill_plan.timeout_ms = 5_000;
         let request = RunRequest {
             plan: kill_plan,
@@ -683,9 +725,7 @@ impl ContainerRunner {
             tee: None,
         };
         let inner = Arc::clone(&self.inner);
-        tokio::spawn(async move {
-            let _ = inner.run(request).await;
-        });
+        let _ = inner.run(request).await;
     }
 }
 
@@ -700,7 +740,7 @@ impl CommandRunner for ContainerRunner {
             )?);
             let exec_argv = container_exec_argv(&ContainerExecOptions {
                 plan: &request.plan,
-                toolbox: &self.toolbox,
+                container: &self.container,
                 container_name: &self.container_name,
                 run_id: &run_id,
             });
@@ -709,7 +749,13 @@ impl CommandRunner for ContainerRunner {
                 timeout_ms: request.timeout_ms,
                 token: request.token.clone(),
                 clock: Arc::clone(&request.clock),
-                tee: Some(Arc::clone(&transcript) as Arc<dyn OutputTee>),
+                tee: Some(match &request.tee {
+                    Some(progress) => Arc::new(TranscriptAndProgress {
+                        transcript: Arc::clone(&transcript),
+                        progress: Arc::clone(progress),
+                    }) as Arc<dyn OutputTee>,
+                    None => Arc::clone(&transcript) as Arc<dyn OutputTee>,
+                }),
             };
 
             let outcome = self.inner.run(client).await;
@@ -726,7 +772,8 @@ impl CommandRunner for ContainerRunner {
                             &run_id,
                             KillSignal::Kill,
                             &request.clock,
-                        );
+                        )
+                        .await;
                     }
                     Ok(RunOutcome {
                         transcript_dir: Some(transcript.container_dir().to_owned()),
@@ -734,7 +781,15 @@ impl CommandRunner for ContainerRunner {
                     })
                 }
                 Err(error) => {
-                    self.signal_inside(&request.plan, &run_id, KillSignal::Term, &request.clock);
+                    self.signal_inside(&request.plan, &run_id, KillSignal::Term, &request.clock)
+                        .await;
+                    // A second, harder signal after a grace period. The first
+                    // is the polite one a program may handle; a program that
+                    // ignores it would otherwise keep running in a container
+                    // that is still warm and still serving the next turn.
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    self.signal_inside(&request.plan, &run_id, KillSignal::Kill, &request.clock)
+                        .await;
                     Err(error)
                 }
             }

@@ -1,0 +1,289 @@
+//! Container definitions: parsing, policy, and what an egress gateway needs.
+//!
+//! A container is authorised by **content hash**, not by a signature. The
+//! question asked at resolution is only ever "are these exact bytes approved?",
+//! and an operator answers it once by installing the definition. That choice is
+//! worth stating because the alternative looks stronger and is not: an Ed25519
+//! signature answers *who authored this policy*, which matters when a
+//! definition arrives from somewhere else and proves nothing when the key sits
+//! on the same disk as the file it signs. The approval check is a single
+//! predicate over bytes so a signature path can be added later as a second way
+//! to satisfy the same question, without disturbing anything that calls it.
+//!
+//! Two refusals here are absolute, and the difference between them is the
+//! design:
+//!
+//!  - **An image must be digest-pinned.** A tag is a mutable pointer, so a
+//!    container approved once and then repointed is the approval gate defeated
+//!    while every hash still matches. Nothing in the review would show it.
+//!  - **`NET_ADMIN` is never grantable.** The egress gateway's rules live in a
+//!    network namespace the container *shares*; a container holding
+//!    `NET_ADMIN` can flush them. This is refused rather than surfaced because
+//!    it breaks an invariant the rest of the system relies on, and no operator
+//!    reviewing a definition could be expected to reconstruct that.
+//!
+//! `seccomp: unconfined` is deliberately *not* in that list. It is genuinely
+//! risky and genuinely required for rootless builds inside a container, so it
+//! is surfaced in the install review and left to the operator. The rule of
+//! thumb: refuse what silently breaks the machinery, surface what is merely
+//! dangerous.
+//!
+//! A third group is refused only when it matters. A root uid, missing
+//! `no_new_privileges` or a packet-forging capability are all legitimate for a
+//! container with no network, and each of them defeats a restricted egress
+//! gateway. So they are checked by [`assert_gateway_compatible`], which runs
+//! when an agent asks that container for an allow-list, rather than at install
+//! — and the container list reports the sentence in advance, so the choice is
+//! visible before a save fails.
+
+use std::sync::LazyLock;
+
+use garde::Validate;
+use ghostai_core::{ErrorKind, GhostError, Result};
+pub use ghostai_protocol::BUILTIN_TOOL_NAMES;
+use ghostai_protocol::toolbox::{ContainerDefinition, ContainerRuntime, SeccompProfile};
+use regex::Regex;
+use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
+
+use crate::random::hex_lower;
+
+/// The two immutable ways to name an image.
+///
+/// `name@sha256:<64 hex>` is a registry digest. A bare `sha256:<64 hex>` is a
+/// local image **ID**, which is what `docker build` produces and what a
+/// container built on this machine has to reference — there is no registry
+/// digest until something is pushed. Both are content addresses, so both are as
+/// unrepointable as the other; a tag is neither.
+///
+/// **Anchored at both ends deliberately.** A pattern anchored only at the end
+/// accepts `-v/:/hostfs@sha256:<64 hex>`, and the image is pushed to the engine
+/// as a bare argv token — so a definition could smuggle a flag past the check
+/// and bind host root into the container. That is not currently exploitable,
+/// because the token after the image happens to be one the engine rejects, but
+/// it survives by accident of argument order rather than by design.
+static IMAGE_DIGEST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[a-z0-9][a-z0-9._\-/:]*@sha256:[0-9a-f]{64}$|^sha256:[0-9a-f]{64}$")
+        .unwrap_or_else(|_| unreachable!("the pattern is a literal"))
+});
+
+/// Capabilities a container may never request. See the module header.
+const FORBIDDEN_CAPABILITIES: &[&str] = &["NET_ADMIN", "SYS_ADMIN", "SYS_MODULE"];
+
+/// Capabilities that defeat a restricted egress gateway.
+///
+/// `NET_RAW` forges packets past a filter that matches on the socket's owner;
+/// `SETUID` and `SETGID` reach the proxy's own uid, which the filter accepts
+/// unconditionally.
+const GATEWAY_INCOMPATIBLE_CAPABILITIES: &[&str] = &["NET_RAW", "SETUID", "SETGID"];
+
+/// The sha256 of a manifest's exact bytes.
+///
+/// Over the bytes, never over a re-serialisation of the parsed object: a
+/// definition that round-trips through a formatter gains and loses whitespace
+/// and key order, and an approval keyed on that would break on a formatter
+/// rather than on a change of meaning.
+pub fn manifest_hash(bytes: &[u8]) -> String {
+    sha256_hex(bytes)
+}
+
+/// Lowercase hex of the sha256 of `bytes`.
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    hex_lower(&Sha256::digest(bytes))
+}
+
+/// Parses manifest bytes into `T`, with the schema's own errors turned into a
+/// sentence that names the field. Shared with the extension manifest.
+pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
+    bytes: &[u8],
+    what: &str,
+) -> Result<T> {
+    let json: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
+        GhostError::new(ErrorKind::Config, format!("{what} is not valid JSON")).with_source(error)
+    })?;
+    let parsed: T = serde_path_to_error::deserialize(json).map_err(|error| {
+        let path = error.path().to_string();
+        let field = if path == "." { "(root)" } else { path.as_str() };
+        GhostError::new(
+            ErrorKind::Config,
+            format!("{what} is not valid: {field}: {}", error.inner()),
+        )
+    })?;
+    if let Err(report) = parsed.validate() {
+        let detail = report
+            .iter()
+            .map(|(path, error)| {
+                let path = path.to_string();
+                let field = if path.is_empty() {
+                    "(root)"
+                } else {
+                    path.as_str()
+                };
+                format!("{field}: {error}")
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(GhostError::new(
+            ErrorKind::Config,
+            format!("{what} is not valid: {detail}"),
+        ));
+    }
+    Ok(parsed)
+}
+
+/// Parses definition bytes, with the schema's own errors turned into a
+/// sentence.
+pub fn parse_container(bytes: &[u8]) -> Result<ContainerDefinition> {
+    parse_manifest(bytes, "Container definition")
+}
+
+fn policy_error(container: &ContainerDefinition, message: String) -> GhostError {
+    GhostError::new(ErrorKind::Config, message).with_detail("container", container.name.as_str())
+}
+
+/// Refuses a container the machinery cannot honour.
+///
+/// Separate from parsing because a definition can be perfectly well-formed and
+/// still ask for something that would quietly disable a guarantee elsewhere.
+pub fn assert_container_policy(container: &ContainerDefinition) -> Result<()> {
+    if !IMAGE_DIGEST_PATTERN.is_match(&container.image) {
+        return Err(policy_error(
+            container,
+            format!(
+                "Container \"{}\" must pin its image by digest, not by tag: {}\n  A tag can be repointed after approval, which would leave the recorded hash\n  matching an image nobody reviewed. Use name@sha256:<digest>.",
+                container.name, container.image
+            ),
+        )
+        .with_detail("image", container.image.as_str()));
+    }
+
+    for capability in &container.caps.add {
+        let upper = capability.to_uppercase();
+        let name = upper.strip_prefix("CAP_").unwrap_or(&upper);
+        if FORBIDDEN_CAPABILITIES.contains(&name) {
+            return Err(policy_error(
+                container,
+                format!(
+                    "Container \"{}\" asks for {capability}, which is never granted.\n  The egress gateway's rules live in a namespace the container shares, and a\n  container holding NET_ADMIN could flush them.",
+                    container.name
+                ),
+            )
+            .with_detail("capability", capability.as_str()));
+        }
+    }
+
+    if container.workdir == "/" || !container.workdir.starts_with('/') {
+        return Err(policy_error(
+            container,
+            format!(
+                "Container \"{}\" must mount the workspace at an absolute path other than \"/\".\n  Mounting it over the root would bury the image's own filesystem.",
+                container.name
+            ),
+        )
+        .with_detail("workdir", container.workdir.as_str()));
+    }
+
+    Ok(())
+}
+
+/// Whether a restricted egress gateway can be built around this container.
+///
+/// Not part of [`assert_container_policy`], because every condition here is
+/// legitimate for a container that reaches nothing: a root uid is how a
+/// rootless builder works, and `NET_RAW` is what `nmap -sS` needs. They are
+/// refused only when an agent asks *this* container for an allow-list, which is
+/// the moment the gateway has to filter by the socket's owner and would be
+/// filtering something that can rewrite itself.
+pub fn assert_gateway_compatible(container: &ContainerDefinition) -> Result<()> {
+    let uid = container.user.split(':').next().unwrap_or_default();
+    if uid.is_empty() || uid == "0" || !uid.bytes().all(|c| c.is_ascii_digit()) {
+        return Err(policy_error(
+            container,
+            format!(
+                "Container \"{}\" runs as \"{}\", so a restricted allow-list cannot be enforced in it.\n  The gateway filters by the socket's owning uid, which needs a non-root numeric one.\n  Use network mode \"none\" or \"open\", or select a container with a numeric user.",
+                container.name,
+                if container.user.is_empty() {
+                    "the image default"
+                } else {
+                    container.user.as_str()
+                }
+            ),
+        ));
+    }
+    if uid == crate::egress::PROXY_UID {
+        return Err(policy_error(
+            container,
+            format!(
+                "Container \"{}\" runs as uid {}, which the egress proxy reserves for itself.\n  Traffic from it would be accepted unfiltered. Choose another uid.",
+                container.name,
+                crate::egress::PROXY_UID
+            ),
+        ));
+    }
+    if !container.security.no_new_privileges {
+        return Err(policy_error(
+            container,
+            format!(
+                "Container \"{}\" disables no-new-privileges, so a restricted allow-list cannot be enforced in it.\n  A process that can gain privileges can become the uid the gateway trusts.",
+                container.name
+            ),
+        ));
+    }
+    for capability in &container.caps.add {
+        let upper = capability.to_uppercase();
+        let name = upper.strip_prefix("CAP_").unwrap_or(&upper);
+        if GATEWAY_INCOMPATIBLE_CAPABILITIES.contains(&name) {
+            return Err(policy_error(
+                container,
+                format!(
+                    "Container \"{}\" holds {capability}, so a restricted allow-list cannot be enforced in it.\n  It can forge packets or change uid past a filter that matches on either.\n  Use network mode \"none\" or \"open\", or select a container without it.",
+                    container.name
+                ),
+            )
+            .with_detail("capability", capability.as_str()));
+        }
+    }
+    Ok(())
+}
+
+/// Everything about a container that grants more than the defaults do.
+///
+/// The two fields that actually reach the host are the ones worth naming:
+/// `security.devices` becomes `--device=…`, so `/dev/sda:/dev/sda:rwm` is raw
+/// disk access, and `user: "0:0"` runs as root inside. A definition asking for
+/// both passes [`assert_container_policy`], so a summary of image and limits
+/// alone would present a total escape as a clean container. Neither is
+/// *refused*, because a device is legitimate for a rootless builder; both are
+/// named loudly.
+pub fn weakened_in(container: &ContainerDefinition) -> Vec<String> {
+    let mut weakened = Vec::new();
+    if !container.security.devices.is_empty() {
+        weakened.push(format!(
+            "devices    {}  (host device access)",
+            container.security.devices.join(", ")
+        ));
+    }
+    if container.user.is_empty() || container.user.starts_with("0:") {
+        let user = if container.user.is_empty() {
+            "image default"
+        } else {
+            container.user.as_str()
+        };
+        weakened.push(format!("user       {user}  (may be root)"));
+    }
+    if container.security.seccomp != SeccompProfile::Default {
+        weakened.push("seccomp    unconfined".to_owned());
+    }
+    if !container.security.read_only_root {
+        weakened.push("rootfs     writable".to_owned());
+    }
+    if !container.security.no_new_privileges {
+        weakened.push("privileges may be gained (no-new-privileges off)".to_owned());
+    }
+    match container.runtime {
+        ContainerRuntime::Runc => {}
+        ContainerRuntime::Runsc => weakened.push("runtime    runsc".to_owned()),
+        ContainerRuntime::Kata => weakened.push("runtime    kata".to_owned()),
+    }
+    weakened
+}

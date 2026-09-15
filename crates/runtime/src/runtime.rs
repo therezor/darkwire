@@ -66,21 +66,20 @@ use ghostai_mcp::{
     BackoffOptions, McpConnector, McpManager, McpManagerOptions, SdkConnector, SdkConnectorOptions,
 };
 use ghostai_protocol::{
-    Config, ConfigPatch, DEFAULT_AGENT_ID, McpServerStatus, ProviderConfig, ToolPermissions,
-    ToolSource, new_uuid,
+    Config, ConfigPatch, DEFAULT_AGENT_ID, McpServerStatus, NetworkMode, ProviderConfig,
+    SandboxRequest, TOOLBOX_DEFAULT_KEY, ToolPermission, ToolPermissions, ToolSource, new_uuid,
 };
 use ghostai_providers::{
     ChatProvider, PROVIDERS, ProviderInstance, ProviderSpec, ResolveInstanceOptions,
     resolve_connection, resolve_instance,
 };
 use ghostai_security::{
-    CredentialVault, ExtensionStore, JailResolver, OsRandom, RandomSource, ToolboxStore,
-    WorkspaceJail, assert_network_within_ceiling,
+    ApprovedToolbox, CredentialVault, ExtensionStore, JailResolver, OsRandom, PolicyStore,
+    RandomSource, WorkspaceJail, assert_gateway_compatible, narrow_permission,
 };
 use ghostai_tools::{
-    AnyTool, AutomationResolver, BuiltinOptions, RunnerResolver, ToolRegistry, ToolRegistryOptions,
-    ToolSink, register_builtins, toolbox_permissions, toolbox_tools, visible_toolbox_entries,
-    with_toolbox_tools,
+    AnyTool, AutomationResolver, BuiltinOptions, ToolRegistry, ToolRegistryOptions, ToolSink,
+    register_builtins,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
@@ -95,10 +94,6 @@ use crate::loop_cache::LoopCache;
 use crate::merge::merge_config_patch;
 use crate::provider_cache::{ProviderCache, ProviderRequest};
 use crate::tool_sink::registry_tool_sink;
-use crate::toolbox_pool::{
-    ContainerEngine, DockerEngineOptions, HostPathFn, ToolboxPool, ToolboxPoolOptions,
-    docker_engine,
-};
 
 /// How the MCP client is wired, or that it is switched off.
 ///
@@ -177,11 +172,6 @@ pub struct RuntimeOptions {
     pub approvals: Option<Arc<dyn ApprovalGate>>,
     /// The environment to read. Defaults to the process environment.
     pub env: Option<HashMap<String, String>>,
-    /// How sandbox containers are started. Defaults to the `docker` CLI.
-    ///
-    /// Injected so a test can exercise the pool — and the refusals around it —
-    /// without a daemon, and so an install can point at `podman` instead.
-    pub container_engine: Option<Arc<dyn ContainerEngine>>,
     /// Supplies the scheduler a turn's automation tool writes through.
     ///
     /// Injected rather than built here, because the store it needs is created by
@@ -193,7 +183,7 @@ pub struct RuntimeOptions {
     /// supply this: a bind path is resolved by the daemon, so asking for its own
     /// `/data/workspace` would mount the host's path of that name — silently,
     /// and usually as an empty directory.
-    pub host_workspace_path: Option<HostPathFn>,
+    pub host_workspace_path: Option<ghostai_sandbox::container_pool::HostPathFn>,
     /// The credential vault. See [`VaultChoice`].
     pub vault: VaultChoice,
     /// The MCP client.
@@ -222,7 +212,6 @@ impl Default for RuntimeOptions {
             tools: true,
             approvals: None,
             env: None,
-            container_engine: None,
             automation: None,
             host_workspace_path: None,
             vault: VaultChoice::default(),
@@ -266,11 +255,6 @@ struct Resolved {
     warnings: Vec<AgentConfigWarning>,
     paths: GhostPaths,
     jails: Arc<JailCache>,
-    /// Live sandbox containers, or absent when no enabled agent asks for one.
-    ///
-    /// Built only when something needs it, so an install with no sandboxed agent
-    /// never probes for a container runtime.
-    toolbox_pool: Option<Arc<ToolboxPool>>,
     /// One loop per agent, built on first use. Dropped whole on a reconfigure.
     loops: Arc<LoopCache>,
     agent_loop: Option<AgentLoop>,
@@ -282,11 +266,12 @@ struct Resolved {
     unconfigured: Option<(ErrorKind, String)>,
 }
 
-/// What one build resolved about a toolbox.
-struct BuiltToolboxes {
-    pool: Option<Arc<ToolboxPool>>,
+/// What one build resolved about the policy every agent named.
+struct BuiltPolicies {
+    /// The prompt section describing each toolboxed agent's operations.
     prompts: IndexMap<String, PromptToolbox>,
-    exposed: IndexMap<String, Vec<AnyTool>>,
+    /// The permission each agent's grants resolved to, for the advertised-name
+    /// warnings.
     permissions: IndexMap<String, ToolPermissions>,
 }
 
@@ -544,7 +529,6 @@ impl GhostRuntime {
                 warnings: Vec::new(),
                 paths: loaded.paths.clone(),
                 jails: Arc::new(JailCache::new(loaded.paths.clone())?),
-                toolbox_pool: None,
                 loops: Arc::new(LoopCache::new(Arc::new(|_| Ok(None)))),
                 agent_loop: None,
                 instance: None,
@@ -574,6 +558,34 @@ impl GhostRuntime {
     /// Resolved against the config, so a patched workspace moves it.
     pub fn paths(&self) -> GhostPaths {
         self.current.read().paths.clone()
+    }
+
+    /// Where the sandbox service listens for this install.
+    fn sandbox_socket(&self) -> std::path::PathBuf {
+        ghostai_sandbox::service::socket_path(
+            self.env.get("GHOSTAI_SANDBOX_SOCKET").map(String::as_str),
+            &self.paths(),
+        )
+    }
+
+    /// Management calls use the same service transport as container tools.
+    ///
+    /// `execute` is refused here rather than filtered at the route: a model's
+    /// tool call reaches the service through the agent loop, which supplies the
+    /// approval hash it resolved the toolbox at. An `execute` arriving as a
+    /// management call has no such provenance, whatever it claims.
+    pub async fn sandbox_request(&self, value: serde_json::Value) -> Result<serde_json::Value> {
+        let request: SandboxRequest = serde_json::from_value(value)
+            .map_err(|e| GhostError::new(ErrorKind::InvalidInput, e.to_string()))?;
+        if matches!(request, SandboxRequest::Execute { .. }) {
+            return Err(GhostError::new(
+                ErrorKind::PermissionDenied,
+                "Tool execution is not a management operation",
+            ));
+        }
+        ghostai_sandbox::service::SandboxClient::new(self.sandbox_socket())
+            .request(request, &tokio_util::sync::CancellationToken::new())
+            .await
     }
 
     /// The config file that was read, or would have been.
@@ -798,11 +810,6 @@ impl GhostRuntime {
         let (next, _) = prune_dangling_subagents(&merged);
         let built = self.build(next.clone(), Some(&previous))?;
         *self.current.write() = Arc::new(built);
-        // After the build, never before: a reconfigure that failed must leave
-        // the runtime serving exactly what it was serving — with its containers
-        // still alive. Stopping them first would make a *refused* save kill the
-        // sandboxes of every running session.
-        self.retire_toolboxes(&previous);
         Ok(next)
     }
 
@@ -854,11 +861,14 @@ impl GhostRuntime {
         let previous = Arc::clone(&self.current.read());
         let built = self.build(loaded.config.clone(), Some(&previous))?;
         *self.current.write() = Arc::new(built);
-        self.retire_toolboxes(&previous);
         Ok(loaded.config)
     }
 
-    /// Stops the containers and connections this runtime owns.
+    /// Stops the connections this runtime owns.
+    ///
+    /// No containers: this process holds no engine handle. The sandbox service
+    /// owns every container's lifetime and reaps its own on shutdown, which is
+    /// what lets a warm shared instance outlive one app restart.
     ///
     /// The database is not closed here: it is a shared handle, and whoever
     /// opened it — possibly the server, sharing one WAL with the auth store and
@@ -866,10 +876,6 @@ impl GhostRuntime {
     /// contract a borrowed connection had, arrived at by ownership rather than
     /// by a flag.
     pub async fn close(&self) {
-        let current = Arc::clone(&self.current.read());
-        if let Some(pool) = &current.toolbox_pool {
-            pool.close();
-        }
         if let Some(host) = &self.extensions {
             host.stop().await;
         }
@@ -878,27 +884,6 @@ impl GhostRuntime {
         }
         if self.owns_providers {
             self.providers.clear();
-        }
-    }
-
-    /// Stops the containers a superseded build owned.
-    ///
-    /// A toolbox can change under a running pool, and a container started from
-    /// the manifest that was approved *before* a save must not outlive it.
-    /// Guarded on identity because the build reuses the pool when nothing about
-    /// it moved, and closing the one now in use would stop the sandboxes it just
-    /// kept.
-    fn retire_toolboxes(&self, previous: &Resolved) {
-        let Some(stale) = &previous.toolbox_pool else {
-            return;
-        };
-        let current = Arc::clone(&self.current.read());
-        let kept = current
-            .toolbox_pool
-            .as_ref()
-            .is_some_and(|live| Arc::ptr_eq(live, stale));
-        if !kept {
-            stale.close();
         }
     }
 
@@ -944,7 +929,7 @@ impl GhostRuntime {
         // unapproved toolbox, a manifest edited since approval, a network
         // request above its ceiling — must leave the runtime serving on the
         // settings that worked a moment ago.
-        let built = self.build_toolboxes(&agents, &paths)?;
+        let built = Self::resolve_policies(&agents, &paths)?;
 
         // Here rather than in `resolve_agents`, because only now is the full set
         // of names an agent can advertise known: the toolbox's own programs are
@@ -993,8 +978,7 @@ impl GhostRuntime {
         // contract: reconcile is synchronous and infallible, every dial happens
         // on a background task, and an unreachable server becomes a status row
         // rather than a save the operator loses. The same stance an unconfigured
-        // provider already has — see the header — and the same one the toolbox
-        // pool takes by not probing the daemon here.
+        // provider already has — see the header.
         if let Some(mcp) = &self.mcp {
             mcp.reconcile(&config.tools.mcp_servers);
         }
@@ -1020,10 +1004,7 @@ impl GhostRuntime {
             config.clone(),
             paths.clone(),
             Arc::clone(&jails),
-            built.pool.clone(),
             Arc::new(built.prompts.clone()),
-            Arc::new(built.exposed.clone()),
-            Arc::new(built.permissions.clone()),
         );
         let loops = Arc::new(LoopCache::new(factory));
         cache_resolver.bind(&loops);
@@ -1035,7 +1016,6 @@ impl GhostRuntime {
             warnings,
             paths,
             jails,
-            toolbox_pool: built.pool,
             loops,
             agent_loop,
             instance: resolved.instance,
@@ -1249,101 +1229,111 @@ impl GhostRuntime {
         }
     }
 
-    /// The pool, when any enabled agent names a toolbox.
+    /// Resolve every toolbox and container an enabled agent names.
     ///
-    /// Absent otherwise, and that is not an optimisation: probing for a
-    /// container runtime on an install that has no sandboxed agent would turn
-    /// "docker is not running" into a boot failure for people who never asked
-    /// for a container.
-    fn build_toolboxes(
-        &self,
-        agents: &[EffectiveAgent],
-        paths: &GhostPaths,
-    ) -> Result<BuiltToolboxes> {
-        let boxed: Vec<&EffectiveAgent> = agents
+    /// Nothing here reaches a container engine, and that is the point of the
+    /// split rather than an optimisation: whether a definition is installed,
+    /// approved and internally coherent is static config and belongs in an
+    /// all-or-nothing rebuild, while whether an engine is *running* changes
+    /// while the server is up. The sandbox service answers the second, on the
+    /// first command that needs one.
+    fn resolve_policies(agents: &[EffectiveAgent], paths: &GhostPaths) -> Result<BuiltPolicies> {
+        let named: Vec<&EffectiveAgent> = agents
             .iter()
-            .filter(|agent| !agent.toolbox.name.is_empty())
+            .filter(|agent| !agent.toolbox.name.is_empty() || !agent.container.name.is_empty())
             .collect();
-        if boxed.is_empty() {
-            return Ok(BuiltToolboxes {
-                pool: None,
+        if named.is_empty() {
+            return Ok(BuiltPolicies {
                 prompts: IndexMap::new(),
-                exposed: IndexMap::new(),
                 permissions: IndexMap::new(),
             });
         }
 
-        let toolboxes = Arc::new(ToolboxStore::new(
-            self.store.database().clone(),
-            paths.toolboxes_dir.clone(),
-            Arc::clone(&self.clock),
-        )?);
+        let policies = PolicyStore::new(paths.policy_dir.clone());
 
-        // Every toolboxed agent resolved *here*, so an unapproved toolbox, one
-        // edited since approval, or a network request above its ceiling is a
+        // Every agent resolved *here*, so an unapproved toolbox, a definition
+        // edited since approval, or an egress request nothing could enforce is a
         // refusal on the save rather than a turn that dies on its first command.
         // The prompt sections fall out of the same pass, which is why this is not
         // two walks.
         let mut prompts = IndexMap::new();
-        let mut exposed = IndexMap::new();
         let mut permissions = IndexMap::new();
-        for agent in boxed {
-            let approved = toolboxes.require(&agent.toolbox.name)?;
-            assert_network_within_ceiling(&approved.toolbox, &agent.toolbox.network, &agent.id)?;
-            exposed.insert(agent.id.clone(), toolbox_tools(&approved.toolbox)?);
-            permissions.insert(
-                agent.id.clone(),
-                toolbox_permissions(&approved.toolbox, &agent.toolbox.tools),
-            );
+        for agent in named {
+            let mut workdir = String::new();
+            if !agent.container.name.is_empty() {
+                let container = policies.require_container(&agent.container.name)?;
+                // Whether a *restricted* allow-list can be enforced in this
+                // container depends on its uid, its privileges and its
+                // capabilities. Checked on the save, where the operator can
+                // change either half, rather than at the first command.
+                if agent.container.network.mode == NetworkMode::Allowlist {
+                    assert_gateway_compatible(&container.definition)?;
+                }
+                workdir.clone_from(&container.definition.workdir);
+            }
+            if agent.toolbox.name.is_empty() {
+                continue;
+            }
+            let approved = policies.require_toolbox(&agent.toolbox.name)?;
+            let resolved = resolved_permissions(&approved, &agent.toolbox.tools);
             prompts.insert(
                 agent.id.clone(),
                 PromptToolbox {
-                    name: approved.toolbox.name.clone(),
-                    workdir: approved.toolbox.workdir.clone(),
+                    name: approved.resolved.toolbox.name.clone(),
+                    workdir,
                     // Resolved against the same overrides the permission map is,
                     // so the prose and the tool schemas cannot list different
-                    // programs. An agent given four of this box's twenty-four
+                    // operations. An agent given four of a toolbox's twenty-four
                     // must not be told it has the other twenty.
-                    tools: visible_toolbox_entries(&approved.toolbox, &agent.toolbox.tools)
-                        .into_iter()
-                        .map(|entry| PromptToolboxTool {
-                            name: entry.name.clone(),
-                            use_for: entry.r#use.clone(),
+                    tools: approved
+                        .resolved
+                        .toolbox
+                        .tools
+                        .iter()
+                        .filter(|grant| resolved.get(&grant.name) != Some(&ToolPermission::Deny))
+                        .map(|grant| PromptToolboxTool {
+                            name: grant.name.clone(),
+                            use_for: approved
+                                .resolved
+                                .operations
+                                .get(&grant.name)
+                                .map(|operation| operation.description.clone())
+                                .unwrap_or_default(),
                         })
                         .collect(),
-                    notes: approved.toolbox.notes.clone(),
+                    notes: approved.resolved.toolbox.notes.clone(),
                 },
             );
+            permissions.insert(agent.id.clone(), resolved);
         }
 
-        // **The daemon is deliberately not probed here.** Whether a toolbox is
-        // installed, approved and internally coherent is static config, and
-        // belongs in an all-or-nothing rebuild. Whether a container runtime is
-        // *running* is not: it changes while the server is up, an operator may
-        // start the daemon after GhostAI, and one sandboxed agent must not make
-        // the daemon a precondition for the web UI, the settings screen and every
-        // other agent. Probing here did exactly that. The pool probes on first
-        // use instead, and refuses that turn.
-        let engine = self
-            .options
-            .container_engine
-            .clone()
-            .unwrap_or_else(|| docker_engine(DockerEngineOptions::default()));
-
-        let mut options = ToolboxPoolOptions::new(toolboxes, engine, paths.runs_dir.clone());
-        options.clock = Arc::clone(&self.clock);
-        options
-            .host_path
-            .clone_from(&self.options.host_workspace_path);
-        let pool = ToolboxPool::new(options);
-
-        Ok(BuiltToolboxes {
-            pool: Some(pool),
+        Ok(BuiltPolicies {
             prompts,
-            exposed,
             permissions,
         })
     }
+}
+
+/// Each grant's permission after the agent's own map has tightened it.
+fn resolved_permissions(
+    approved: &ApprovedToolbox,
+    overrides: &ToolPermissions,
+) -> ToolPermissions {
+    approved
+        .resolved
+        .toolbox
+        .tools
+        .iter()
+        .map(|grant| {
+            let requested = overrides
+                .get(&grant.name)
+                .or_else(|| overrides.get(TOOLBOX_DEFAULT_KEY));
+            let permission = requested.map_or(grant.permission, |requested| {
+                narrow_permission(grant.permission, *requested)
+            });
+            (grant.name.clone(), permission)
+        })
+        .collect()
 }
 
 /// Resolves a subagent's loop through the cache that built its parent.
@@ -1382,6 +1372,7 @@ impl GhostRuntime {
     /// resolver is filled in once the cache exists.
     #[allow(
         clippy::too_many_arguments,
+        clippy::too_many_lines,
         reason = "one call site; every argument is a distinct product of the same build"
     )]
     fn loop_factory(
@@ -1389,10 +1380,7 @@ impl GhostRuntime {
         config: Config,
         paths: GhostPaths,
         jails: Arc<JailCache>,
-        pool: Option<Arc<ToolboxPool>>,
         prompts: Arc<IndexMap<String, PromptToolbox>>,
-        exposed: Arc<IndexMap<String, Vec<AnyTool>>>,
-        permissions: Arc<IndexMap<String, ToolPermissions>>,
     ) -> (crate::loop_cache::LoopFactory, Arc<CacheResolver>) {
         let resolver = Arc::new(CacheResolver {
             loops: Mutex::new(None),
@@ -1410,10 +1398,7 @@ impl GhostRuntime {
                 agent_id,
                 &paths,
                 &jails,
-                pool.as_ref(),
                 &prompts,
-                &exposed,
-                &permissions,
                 Arc::clone(&bound) as Arc<dyn LoopResolver>,
             )
         });
@@ -1425,6 +1410,7 @@ impl GhostRuntime {
     /// The loop for one agent, or `None` when nothing can run a turn.
     #[allow(
         clippy::too_many_arguments,
+        clippy::too_many_lines,
         reason = "one call site; every argument is a distinct product of the same build"
     )]
     fn create_loop(
@@ -1433,10 +1419,7 @@ impl GhostRuntime {
         agent_id: &str,
         paths: &GhostPaths,
         jails: &Arc<JailCache>,
-        pool: Option<&Arc<ToolboxPool>>,
         prompts: &IndexMap<String, PromptToolbox>,
-        exposed: &IndexMap<String, Vec<AnyTool>>,
-        permissions: &IndexMap<String, ToolPermissions>,
         resolver: Arc<dyn LoopResolver>,
     ) -> Result<Option<AgentLoop>> {
         let agent = resolve_agent(config, Some(agent_id))?;
@@ -1445,30 +1428,50 @@ impl GhostRuntime {
             return Ok(None);
         };
 
-        // One map, built once, used for both halves of the scope below — so a
-        // name cannot be enabled in the definitions the model sees and refused by
-        // the gate, or the reverse. The toolbox's manifest supplies defaults for
-        // its own programs and the agent's own map wins over them: a manifest is
-        // the box author's opinion about a program that `exec` can reach anyway,
-        // not a containment boundary. (The network ceiling is the boundary, and
-        // it is intersected rather than overridden.)
-        let mut scope_permissions: ToolPermissions =
-            permissions.get(&agent.id).cloned().unwrap_or_default();
-        for (name, permission) in &agent.tools {
-            scope_permissions.insert(name.clone(), *permission);
-        }
-
-        // A view of the one shared registry, not a registry of its own: an MCP
-        // server is one connection however many agents are configured. The
-        // overlay, not the registry: a toolbox's programs are this agent's alone,
-        // so they are laid over its view rather than registered globally where
-        // two toolboxes holding `curl` would collide.
-        let scope = with_toolbox_tools(
-            self.tools.select(scope_permissions.clone()),
-            exposed.get(&agent.id).cloned().unwrap_or_default(),
-            scope_permissions,
-            Some(Arc::clone(&self.clock)),
-        )?;
+        // Two shapes, and which one an agent gets is decided by whether it
+        // names a toolbox:
+        //
+        //  - **No toolbox** is the built-in scope narrowed by `agent.tools`:
+        //    `read_file`, `exec` and whatever MCP servers and extensions
+        //    registered, gated by the agent's own map.
+        //  - **A toolbox** is a *complete* scope of its granted operations and
+        //    nothing else. No `exec` to reach a program the toolbox did not
+        //    grant, no ambient MCP tool the operator did not name. A toolbox
+        //    that wants a built-in back grants it explicitly as a `registered`
+        //    operation, pinned to that tool's definition digest.
+        //
+        // A view of the one shared registry rather than a registry of its own in
+        // both cases: an MCP server is one connection however many agents are
+        // configured.
+        let mut containerized = None;
+        let scope = if agent.toolbox.name.is_empty() {
+            self.tools.select(agent.tools.clone())
+        } else {
+            let store = Arc::new(PolicyStore::new(paths.policy_dir.clone()));
+            let approved = store.require_toolbox(&agent.toolbox.name)?;
+            containerized = Some(!agent.container.name.is_empty());
+            // A command operation runs in a container by being *sent* to the
+            // service that owns one. Without a container the same operation runs
+            // here, as a guarded child process in the workspace jail — which is
+            // why the executor is `None` rather than a local implementation of
+            // the same trait.
+            let remote = if agent.container.name.is_empty() {
+                None
+            } else {
+                store.require_container(&agent.container.name)?;
+                Some(Arc::new(ghostai_sandbox::service::SandboxClient::new(
+                    self.sandbox_socket(),
+                ))
+                    as Arc<dyn ghostai_tools::operations::OperationExecutor>)
+            };
+            ghostai_tools::operations::approved_operation_scope(
+                &approved,
+                &store,
+                &self.tools,
+                &agent.toolbox.tools,
+                remote.as_ref(),
+            )?
+        };
 
         let mut options = AgentLoopOptions::new(
             provider,
@@ -1480,6 +1483,7 @@ impl GhostRuntime {
         options.config = agent.settings.clone();
         options.tools_config = Arc::new(agent.tools_config.clone());
         options.toolbox = agent.toolbox.clone();
+        options.container = agent.container.clone();
         options.toolbox_prompt = prompts.get(&agent.id).cloned();
         // The delegation half of what this agent may do. Beside the tools and
         // for the same reason: both are resolved once, here, so a turn never asks
@@ -1493,7 +1497,6 @@ impl GhostRuntime {
         options.host = Host::default();
         options.approvals.clone_from(&self.options.approvals);
         options.automation.clone_from(&self.options.automation);
-        options.runners = pool.map(|pool| Arc::clone(pool) as Arc<dyn RunnerResolver>);
         // Read per turn, so the clock the model is given is the same one the
         // scheduler reads cron expressions against and the UI renders timestamps
         // in — one zone, and no conversion asked of anybody. Read off the *live*
@@ -1516,8 +1519,14 @@ impl GhostRuntime {
             },
             id: agent.id.clone(),
             tool_prompts: Some(agent.tool_prompts.clone()),
-            platform_prompt: Some(agent.platform_prompt.clone()),
-            toolbox_prompt: Some(agent.toolbox_prompt.clone()),
+            platform_prompt: Some(match containerized {
+                Some(true) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the approved tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
+                Some(false) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. They run in the app environment or their configured provider, without toolbox container isolation. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
+                _ => agent.platform_prompt.clone(),
+            }),
+            toolbox_prompt: Some(if containerized.is_some() && agent.toolbox_prompt.is_empty() {
+                "## Toolbox: {{name}}\n\nUse only the approved operations listed in your tools. Their schemas and permission ceilings are fixed by the operator.{{tools}}{{notes}}".into()
+            } else { agent.toolbox_prompt.clone() }),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
         });
 

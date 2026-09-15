@@ -179,7 +179,8 @@ mod construction {
         // An unbuildable agent is refused outright rather than surviving as a
         // warning: an egress rule that is not a CIDR was never going to work.
         let install = Install::with(&json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["nope"]}},
+            "toolbox": {"name": "recon"},
+            "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}}));
         assert_eq!(err(install.runtime()).kind, ErrorKind::Config);
     }
@@ -441,7 +442,8 @@ mod reconfigure {
         let runtime = install.runtime().unwrap();
         let error = err(
             runtime.reconfigure(&patch(json!({"agents": {"list": {"net": {
-                "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["nope"]}},
+                "toolbox": {"name": "recon"},
+                "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
             }}}}))),
         );
         assert_eq!(error.kind, ErrorKind::Config);
@@ -563,7 +565,8 @@ mod reload {
         let install = Install::with(&configured("llama3"));
         let runtime = install.runtime().unwrap();
         install.write_config(&json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["nope"]}},
+            "toolbox": {"name": "recon"},
+            "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}}));
         assert_eq!(err(runtime.reload()).kind, ErrorKind::Config);
         assert_eq!(runtime.model(), "llama3");
@@ -752,7 +755,8 @@ mod multiple_agents {
         let runtime = install.runtime().unwrap();
         let error = err(
             runtime.reconfigure(&patch(json!({"agents": {"list": {"net": {
-                "toolbox": {"name": "recon", "network": {"mode": "allowlist", "allow": ["nope"]}},
+                "toolbox": {"name": "recon"},
+                "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
             }}}}))),
         );
         assert_eq!(error.kind, ErrorKind::Config);
@@ -1080,59 +1084,68 @@ mod mcp {
 mod toolboxed_agents {
     use super::*;
 
-    use ghostai_core::{Clock, SystemClock};
-    use ghostai_runtime::ContainerEngine;
-    use ghostai_security::ToolboxStore;
-    use ghostai_tools::ToolboxRequest;
+    use ghostai_security::PolicyStore;
 
     const DIGEST: &str = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
-    /// An engine that records nothing and starts nothing.
-    struct Quiet;
-
-    impl ContainerEngine for Quiet {
-        fn start(&self, argv: &[String]) -> ghostai_core::Result<()> {
-            let _ = argv;
-            Ok(())
-        }
-        fn stop(&self, name: &str) -> ghostai_core::Result<()> {
-            let _ = name;
-            Ok(())
-        }
-        fn probe(&self) -> ghostai_core::Result<()> {
-            Ok(())
-        }
-        fn reap_orphans(&self) -> ghostai_core::Result<()> {
-            Ok(())
-        }
-    }
-
+    /// Installs a toolbox granting two operations, and the definitions behind
+    /// them. A grant list is the whole manifest: nothing here names an image.
     fn install_toolbox(install: &Install, name: &str, approve: bool) {
-        let dir = install.root.join("toolboxes");
+        let policy = install.root.join("policy");
         common::write(
-            &dir.join(name).join("toolbox.json"),
+            &policy.join("toolboxes").join(format!("{name}.json")),
             serde_json::to_string(&json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
-                "image": DIGEST,
-                "expose": "tools",
                 "tools": [
-                    {"name": "nmap", "use": "Scan a host"},
-                    {"name": "dig", "use": "Resolve a name"},
+                    {"name": "nmap", "definition": "nmap", "permission": "ask"},
+                    {"name": "dig", "definition": "dig", "permission": "ask"},
                 ],
             }))
             .unwrap(),
         );
-        if approve {
-            ToolboxStore::new(
-                install.database.clone(),
-                &dir,
-                Arc::new(SystemClock) as Arc<dyn Clock>,
-            )
-            .unwrap()
-            .approve(name)
-            .unwrap();
+        for (grant, description) in [("nmap", "Scan a host"), ("dig", "Resolve a name")] {
+            common::write(
+                &policy
+                    .join("tool-definitions")
+                    .join(format!("{grant}.json")),
+                serde_json::to_string(&json!({
+                    "schema": "ghostai.tool/1",
+                    "description": description,
+                    "implementation": {
+                        "kind": "command",
+                        "executable": format!("/usr/bin/{grant}"),
+                        "argv": [],
+                    },
+                    "parameters": {
+                        "type": "object", "properties": {}, "additionalProperties": false,
+                    },
+                }))
+                .unwrap(),
+            );
         }
+        if approve {
+            PolicyStore::new(policy).approve_toolbox(name).unwrap();
+        }
+    }
+
+    /// Installs a container definition and approves it. `overrides` is merged
+    /// over the defaults, so a test can weaken exactly one field.
+    fn install_container(install: &Install, name: &str, overrides: &Value) {
+        let policy = install.root.join("policy");
+        let mut definition = json!({
+            "schema": "ghostai.container/1",
+            "name": name,
+            "image": DIGEST,
+        });
+        for (key, value) in overrides.as_object().unwrap() {
+            definition[key] = value.clone();
+        }
+        common::write(
+            &policy.join("containers").join(format!("{name}.json")),
+            serde_json::to_string(&definition).unwrap(),
+        );
+        PolicyStore::new(policy).approve_container(name).unwrap();
     }
 
     fn boxed_agent(tools: &Value) -> Value {
@@ -1148,43 +1161,122 @@ mod toolboxed_agents {
         })
     }
 
-    fn options(install: &Install) -> RuntimeOptions {
-        RuntimeOptions {
-            container_engine: Some(Arc::new(Quiet)),
-            ..install.options()
-        }
+    /// The scanner agent with a container and an egress request.
+    fn boxed_agent_with_container(container: &Value) -> Value {
+        let mut tree = boxed_agent(&json!({}));
+        tree["agents"]["list"]["scanner"]["container"] = container.clone();
+        tree
     }
 
     #[test]
-    fn builds_a_pool_only_when_an_enabled_agent_names_a_toolbox() {
-        // Probing for a container runtime on an install that has none would turn
-        // "docker is not running" into a boot failure for people who never asked
-        // for a container.
+    fn an_install_that_names_no_toolbox_resolves_no_policy_at_all() {
+        // Reading the policy directory for an install with none would turn a
+        // missing directory into a boot failure for people who never asked for
+        // a toolbox.
         let install = Install::with(&configured("llama3"));
-        let runtime = create_runtime(options(&install)).unwrap();
+        let runtime = install.runtime().unwrap();
         assert!(runtime.configured());
     }
 
     #[test]
-    fn exposes_a_toolboxs_programs_to_the_agent_that_named_it() {
+    fn exposes_a_toolboxs_grants_to_the_agent_that_named_it() {
         let install = Install::with(&boxed_agent(&json!({})));
         install_toolbox(&install, "recon", true);
-        let runtime = create_runtime(options(&install)).unwrap();
+        let runtime = install.runtime().unwrap();
         assert!(runtime.loop_for(Some("scanner")).unwrap().is_some());
-        // The overlay, not the registry: a toolbox's programs are this agent's
-        // alone, so two toolboxes holding `curl` cannot collide.
+        // A scope of its own, not the registry: a grant belongs to the one
+        // agent that was given it, so two toolboxes holding `nmap` cannot
+        // collide.
         assert!(!runtime.tools().has("nmap"));
     }
 
     #[test]
     fn refuses_to_build_at_all_when_an_agent_asks_for_an_unapproved_toolbox() {
-        // A settings save naming an unapproved toolbox is a refusal that changes
-        // nothing, rather than a turn that dies on its first command.
+        // A settings save naming an unapproved toolbox is a refusal that
+        // changes nothing, rather than a turn that dies on its first command.
         let install = Install::with(&boxed_agent(&json!({})));
         install_toolbox(&install, "recon", false);
-        assert_eq!(
-            err(create_runtime(options(&install))).kind,
-            ErrorKind::Config
+        let error = err(create_runtime(install.options()));
+        assert_eq!(error.kind, ErrorKind::Config);
+        assert!(error.message.contains("never been approved"));
+    }
+
+    #[test]
+    fn refuses_a_container_that_hosts_no_toolbox() {
+        let mut tree = boxed_agent_with_container(&json!({"name": "dev"}));
+        tree["agents"]["list"]["scanner"]["toolbox"] = json!({"name": ""});
+        let install = Install::with(&tree);
+        install_container(&install, "dev", &json!({}));
+        let error = err(create_runtime(install.options()));
+        assert_eq!(error.kind, ErrorKind::Config);
+        assert!(
+            error.message.contains("but no toolbox"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn refuses_egress_scoping_on_an_agent_that_names_no_container() {
+        let mut tree = boxed_agent(&json!({}));
+        tree["agents"]["list"]["scanner"]["container"] =
+            json!({"name": "", "network": {"mode": "open"}});
+        let install = Install::with(&tree);
+        install_toolbox(&install, "recon", true);
+        let error = err(create_runtime(install.options()));
+        assert!(
+            error.message.contains("names no container"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_toolbox_and_a_container_are_approved_independently() {
+        let install = Install::with(&boxed_agent_with_container(&json!({"name": "dev"})));
+        install_toolbox(&install, "recon", true);
+        install_container(&install, "dev", &json!({}));
+        assert!(
+            install
+                .runtime()
+                .unwrap()
+                .loop_for(Some("scanner"))
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn refuses_an_allowlist_a_container_could_not_enforce() {
+        // The uid decides whether the gateway can filter by socket owner, so a
+        // root container and a restricted allow-list is refused on the save
+        // rather than at the first command.
+        let install = Install::with(&boxed_agent_with_container(&json!({
+            "name": "dev",
+            "network": {"mode": "allowlist", "hosts": ["deb.debian.org"]},
+        })));
+        install_toolbox(&install, "recon", true);
+        install_container(&install, "dev", &json!({"user": "0:0"}));
+        let error = err(create_runtime(install.options()));
+        assert!(
+            error.message.contains("restricted allow-list"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn an_unenforceable_egress_request_is_refused_on_the_save() {
+        let install = Install::with(&boxed_agent_with_container(&json!({
+            "name": "dev",
+            "network": {"mode": "allowlist", "allow": ["10.0.0.0/8"], "hosts": ["a.example"]},
+        })));
+        install_toolbox(&install, "recon", true);
+        install_container(&install, "dev", &json!({}));
+        assert!(
+            err(create_runtime(install.options()))
+                .message
+                .contains("Choose one")
         );
     }
 
@@ -1192,7 +1284,7 @@ mod toolboxed_agents {
     fn leaves_the_runtime_serving_when_a_patch_names_an_unapproved_toolbox() {
         let install = Install::with(&configured("llama3"));
         install_toolbox(&install, "recon", false);
-        let runtime = create_runtime(options(&install)).unwrap();
+        let runtime = install.runtime().unwrap();
         let error = err(
             runtime.reconfigure(&patch(json!({"agents": {"list": {"scanner": {
                 "model": "m", "provider": "ollama",
@@ -1205,46 +1297,15 @@ mod toolboxed_agents {
     }
 
     #[test]
-    fn hands_a_turn_the_pool_as_its_runner_resolver() {
-        let install = Install::with(&boxed_agent(&json!({})));
-        install_toolbox(&install, "recon", true);
-        let runtime = create_runtime(options(&install)).unwrap();
-        // The loop builds, which is what proves the pool reached it: an agent
-        // naming a toolbox with no resolver behind it would run on the host.
-        assert!(runtime.loop_for(Some("scanner")).unwrap().is_some());
-        let _ = ToolboxRequest {
-            agent_id: "scanner".to_owned(),
-            workspace_id: "default".to_owned(),
-            session_key: "s".to_owned(),
-            toolbox: "recon".to_owned(),
-            network: ghostai_protocol::AgentToolboxNetwork::default(),
-            workspace_root: runtime.jail().root().to_string_lossy().into_owned(),
-        };
-    }
-
-    #[test]
-    fn stops_the_containers_a_superseded_build_owned() {
-        let install = Install::with(&boxed_agent(&json!({})));
-        install_toolbox(&install, "recon", true);
-        let runtime = create_runtime(options(&install)).unwrap();
-        // A toolbox can change under a running pool, and a container started
-        // from the manifest approved *before* a save must not outlive it.
-        runtime
-            .reconfigure(&patch(json!({"server": {"port": 4567}})))
-            .unwrap();
-        assert!(runtime.loop_for(Some("scanner")).unwrap().is_some());
-    }
-
-    #[test]
-    fn warns_about_an_override_naming_a_program_the_agent_was_not_given() {
+    fn warns_about_an_override_naming_a_grant_the_agent_was_not_given() {
         // Only here is the full set of names an agent can advertise known: the
-        // toolbox's own programs are merged over its map when the loop is built.
+        // toolbox's grants are merged over its map when the loop is built.
         let mut tree = boxed_agent(&json!({"*": "deny", "nmap": "allow"}));
         tree["agents"]["list"]["scanner"]["toolPrompts"] =
             json!({"nmap": {"description": "mine"}, "dig": {"description": "theirs"}});
         let install = Install::with(&tree);
         install_toolbox(&install, "recon", true);
-        let runtime = create_runtime(options(&install)).unwrap();
+        let runtime = install.runtime().unwrap();
         let unknown: Vec<String> = runtime
             .config_warnings()
             .into_iter()

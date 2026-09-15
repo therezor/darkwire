@@ -5,28 +5,6 @@
       "default": "",
       "type": "string"
     },
-    "network": {
-      "default": {},
-      "type": "object",
-      "properties": {
-        "mode": {
-          "default": "none",
-          "type": "string",
-          "enum": [
-            "none",
-            "allowlist",
-            "open"
-          ]
-        },
-        "allow": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "tools": {
       "default": {},
       "type": "object",

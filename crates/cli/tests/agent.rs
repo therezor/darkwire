@@ -111,21 +111,42 @@ impl Home {
         self.catalogue = Some(dir.to_string_lossy().into_owned());
     }
 
-    /// A toolbox manifest on disk. Presets never live here — see [`Home::preset`].
+    /// The operator's policy directory, which sits beside the workspace.
+    fn policy(&self) -> std::path::PathBuf {
+        self.path().join("policy")
+    }
+
+    /// A toolbox manifest and the definition it grants. Presets never live
+    /// here — see [`Home::preset`].
     fn toolbox(&self, name: &str) {
-        let dir = self.path().join("toolboxes").join(name);
-        std::fs::create_dir_all(&dir).expect("a toolbox directory");
+        let root = self.policy();
+        std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
+        std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
         std::fs::write(
-            dir.join("toolbox.json"),
+            root.join("toolboxes").join(format!("{name}.json")),
             json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
-                "image": format!("sha256:{}", "d".repeat(64)),
-                "tools": [{"name": "rg", "use": "Search."}],
+                "tools": [{"name": "rg", "definition": "rg", "permission": "ask"}],
             })
             .to_string(),
         )
         .expect("a manifest");
+        std::fs::write(
+            root.join("tool-definitions").join("rg.json"),
+            json!({
+                "schema": "ghostai.tool/1",
+                "description": "Search the workspace.",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
+                "implementation": {
+                    "kind": "command",
+                    "executable": "/usr/bin/rg",
+                    "argv": ["--files"],
+                },
+            })
+            .to_string(),
+        )
+        .expect("a definition");
     }
 
     fn approve(&self, name: &str) {
@@ -144,6 +165,42 @@ impl Home {
         )
         .expect("the approval answers with an exit code");
         assert_eq!(code, 0, "{}", err.text());
+    }
+
+    /// A container definition on disk, approved.
+    fn container(&self, name: &str) {
+        self.install_container(name);
+        let out = Sink::default();
+        let err = Sink::default();
+        let mut streams = Streams {
+            out: Box::new(out),
+            err: Box::new(err.clone()),
+        };
+        let code = ghostai::container::run(
+            &self.globals(),
+            StoreAction::Approve,
+            Some(name),
+            &self.env(),
+            &mut streams,
+        )
+        .expect("the container approval answers with an exit code");
+        assert_eq!(code, 0, "{}", err.text());
+    }
+
+    /// The same definition, left unapproved.
+    fn install_container(&self, name: &str) {
+        let dir = self.policy().join("containers");
+        std::fs::create_dir_all(&dir).expect("a containers directory");
+        std::fs::write(
+            dir.join(format!("{name}.json")),
+            json!({
+                "schema": "ghostai.container/1",
+                "name": name,
+                "image": format!("sha256:{}", "d".repeat(64)),
+            })
+            .to_string(),
+        )
+        .expect("a container definition");
     }
 
     /// A preset in `<root>/presets`, the operator's own directory.
@@ -276,9 +333,77 @@ fn refuses_a_preset_whose_toolbox_was_never_approved() {
 }
 
 #[test]
-fn refuses_a_network_request_above_the_toolbox_ceiling() {
-    // The runtime would refuse the same pair at build; failing at install is
-    // the same rule at the moment the operator can still fix the preset.
+fn refuses_a_preset_whose_container_was_never_approved() {
+    // The two approvals are independent, so an approved toolbox does not carry
+    // the container in with it.
+    let home = Home::new();
+    home.toolbox("research");
+    home.approve("research");
+    home.install_container("dev");
+    home.preset(
+        "scout",
+        &preset_for(
+            "scout",
+            &json!({"toolbox": {"name": "research"}, "container": {"name": "dev"}}),
+        ),
+    );
+
+    let run = home.install("scout");
+
+    assert_eq!(run.code, 1);
+    assert!(
+        run.errors.contains("ghostai container approve dev"),
+        "{}",
+        run.errors
+    );
+    assert!(home.config().is_none(), "nothing was written");
+}
+
+#[test]
+fn installs_a_preset_once_both_halves_are_approved() {
+    // A toolbox decides what the agent may call and a container decides what
+    // the machine running those calls may be. Two approvals, one entry.
+    let home = Home::new();
+    home.toolbox("research");
+    home.approve("research");
+    home.container("dev");
+    home.preset(
+        "scout",
+        &preset_for(
+            "scout",
+            &json!({"toolbox": {"name": "research"}, "container": {"name": "dev"}}),
+        ),
+    );
+
+    let run = home.install("scout");
+
+    assert_eq!(run.code, 0, "{}", run.errors);
+    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
+}
+
+#[test]
+fn refuses_a_container_without_a_toolbox_before_writing_config() {
+    // A container only hosts a toolbox's approved operations, so one on its own
+    // would run nothing.
+    let home = Home::new();
+    home.container("dev");
+    home.preset(
+        "scout",
+        &preset_for("scout", &json!({"container": {"name": "dev"}})),
+    );
+
+    let run = home.install("scout");
+
+    assert_eq!(run.code, 1);
+    assert!(run.errors.contains("names no toolbox"), "{}", run.errors);
+    assert!(home.config().is_none(), "nothing was written");
+}
+
+#[test]
+fn refuses_a_network_request_from_a_preset_that_names_no_container() {
+    // Egress is scoped by the container's gateway, so a request made without
+    // one means nothing — and silently ignoring it would leave the config
+    // saying one thing and the agent doing another.
     let home = Home::new();
     home.toolbox("research");
     home.approve("research");
@@ -286,19 +411,98 @@ fn refuses_a_network_request_above_the_toolbox_ceiling() {
         "scout",
         &preset_for(
             "scout",
-            &json!({"toolbox": {"name": "research", "network": {"mode": "open"}}}),
+            &json!({"toolbox": {"name": "research"}, "container": {"network": {"mode": "open"}}}),
         ),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 1);
-    let lowered = run.errors.to_lowercase();
-    assert!(
-        lowered.contains("network") || lowered.contains("open"),
-        "{}",
-        run.errors
+    assert!(run.errors.contains("names no container"), "{}", run.errors);
+    assert!(home.config().is_none(), "nothing was written");
+}
+
+#[test]
+fn refuses_a_network_request_from_a_preset_that_names_nothing_at_all() {
+    // The same refusal, on a preset that names neither a toolbox nor a
+    // container. This is the one the check used to be skipped for: with both
+    // names empty there was nothing to look up, so the egress request went
+    // straight into `config.json` and failed the next boot instead.
+    let home = Home::new();
+    home.preset(
+        "scout",
+        &preset_for(
+            "scout",
+            &json!({"container": {"network": {"mode": "open"}}}),
+        ),
     );
+
+    let run = home.install("scout");
+
+    assert_eq!(run.code, 1);
+    assert!(run.errors.contains("names no container"), "{}", run.errors);
+    assert!(home.config().is_none(), "nothing was written");
+}
+
+#[test]
+fn refuses_an_egress_request_nothing_could_enforce() {
+    // The runtime applies these at build, so an entry that fails them is a
+    // config the server refuses to boot on. Each is refused here instead, where
+    // the message can still name the preset the operator has to fix.
+    for (network, expected) in [
+        (
+            json!({"mode": "allowlist"}),
+            "asks for an allow-list with no entries",
+        ),
+        (
+            json!({"mode": "allowlist", "allow": ["10.0.0.0/8"], "hosts": ["example.com"]}),
+            "lists both CIDRs and hosts",
+        ),
+        (
+            json!({"mode": "allowlist", "allow": ["example.com"], "dns": ["10.0.0.53"]}),
+            "not a CIDR block",
+        ),
+        (
+            json!({"mode": "allowlist", "hosts": ["*.example.com"]}),
+            "not an exact DNS name",
+        ),
+        (
+            json!({"mode": "allowlist", "hosts": ["example.com"], "dns": ["resolver.local"]}),
+            "not an IP literal",
+        ),
+        (
+            json!({"mode": "allowlist", "allow": ["10.0.0.0/8"]}),
+            "names no DNS resolver",
+        ),
+        (
+            json!({"mode": "none", "allow": ["10.0.0.0/8"]}),
+            "network mode is not \"allowlist\"",
+        ),
+    ] {
+        let home = Home::new();
+        home.toolbox("research");
+        home.approve("research");
+        home.container("dev");
+        home.preset(
+            "scout",
+            &preset_for(
+                "scout",
+                &json!({
+                    "toolbox": {"name": "research"},
+                    "container": {"name": "dev", "network": network},
+                }),
+            ),
+        );
+
+        let run = home.install("scout");
+
+        assert_eq!(run.code, 1, "{expected}");
+        assert!(run.errors.contains(expected), "{}", run.errors);
+        assert!(
+            home.config().is_none(),
+            "nothing was written for {expected}"
+        );
+    }
 }
 
 #[test]

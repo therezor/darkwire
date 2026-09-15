@@ -4,7 +4,7 @@
     "name": {
       "type": "string"
     },
-    "use": {
+    "description": {
       "type": "string"
     },
     "permission": {
@@ -18,7 +18,7 @@
   },
   "required": [
     "name",
-    "use",
+    "description",
     "permission"
   ]
 }

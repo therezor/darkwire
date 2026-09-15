@@ -195,6 +195,28 @@
                       "name": {
                         "type": "string"
                       },
+                      "tools": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "container": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
                       "network": {
                         "type": "object",
                         "properties": {
@@ -211,21 +233,19 @@
                             "items": {
                               "type": "string"
                             }
+                          },
+                          "hosts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "dns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
-                        }
-                      },
-                      "tools": {
-                        "type": "object",
-                        "propertyNames": {
-                          "type": "string"
-                        },
-                        "additionalProperties": {
-                          "type": "string",
-                          "enum": [
-                            "allow",
-                            "ask",
-                            "deny"
-                          ]
                         }
                       }
                     }

@@ -1,7 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "maxMode": {
+    "mode": {
       "default": "none",
       "type": "string",
       "enum": [
@@ -10,16 +10,21 @@
         "open"
       ]
     },
-    "dns": {
-      "default": [
-        "127.0.0.11"
-      ],
+    "allow": {
+      "default": [],
       "type": "array",
       "items": {
         "type": "string"
       }
     },
-    "proxyAllowHosts": {
+    "hosts": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dns": {
       "default": [],
       "type": "array",
       "items": {

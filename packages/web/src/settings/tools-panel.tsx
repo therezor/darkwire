@@ -18,6 +18,7 @@
  */
 
 import { useState, type JSX } from 'react';
+import { ContainersPanel } from './containers-panel.js';
 import { useTranslation } from 'react-i18next';
 
 import type { Config } from '@ghostwire/protocol';
@@ -64,6 +65,7 @@ export function ToolsPanel({
 
   return (
     <div className="stack settings-panel">
+      <ContainersPanel />
       <Section
         title={t('settings.tools.approvalTitle')}
         description={t('settings.tools.approvalDesc')}

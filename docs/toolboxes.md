@@ -1,45 +1,134 @@
-# Toolboxes
+# Toolboxes and containers
 
-A toolbox is a container image **plus its whole security policy**, installed by an
-operator and authorised by content hash. Point an agent at one and its `exec` calls run
-inside that container instead of on the host.
+Two manifests, approved separately, that deliberately do not know about each other.
+
+A **toolbox** is the complete set of operations one agent may call. It names reusable
+operation definitions and a permission ceiling for each. It holds no image, no
+capabilities and no network, so nothing in it can widen a boundary.
+
+A **container** is where command operations run: an image, the hardening around it, its
+resource budget, and whether agents share one instance. It holds no tool grants, so
+approving a place to run commands is not approving any particular command.
+
+An agent selects each independently. The same toolbox runs on the host or in different
+containers, and several agents can reuse one shared container in a workspace.
 
 This is the answer to the honest limit stated in [Security](security.md): a workspace is
 an organisational boundary, not a security boundary, wherever host `exec` is enabled. A
 container is the boundary.
 
-It is also what makes heavy tooling practical. A research or security image carries
-hundreds of programs a model already knows from pretraining; the toolbox declares them as
-prose in about forty tokens rather than as tool schemas at sixty to eighty each on every
-request.
+## The policy directory
 
-## The shape
+Three flat directories under `~/.ghostai/policy/`, plus one approval file beside each
+definition:
+
+```text
+policy/
+├── toolboxes/coding.json                 ghostai.toolbox/1
+├── toolboxes/coding.approval.sha256
+├── tool-definitions/git-status.json      ghostai.tool/1
+├── containers/dev.json                   ghostai.container/1
+└── containers/dev.approval.sha256
+```
+
+It sits **beside** the workspace, never inside it. The jail root _is_ the workspace, so a
+definition kept in there would be writable by `write_file`, and prompt injection would
+become a way to rewrite the policy the agent runs under.
+
+## The toolbox
+
+A grant list, and nothing else:
 
 ```json
 {
   "schema": "ghostai.toolbox/1",
-  "name": "web-research",
-  "version": "3.0.0",
-  "label": "Web research",
+  "name": "coding",
+  "label": "Repository inspection",
+  "version": "1.0.0",
+  "notes": "Builds are slow. Prefer a targeted test over the whole suite.",
   "tools": [
-    {
-      "name": "search",
-      "use": "Search the web and read the top results.",
-      "args": "The query as plain words. --recent day|week limits by age.",
-      "example": ["best local model for tool calling"],
-      "permission": "allow",
-      "requiresArgs": true
-    },
-    {
-      "name": "curl",
-      "use": "Call an API.",
-      "permission": "ask",
-      "requiresArgs": true
-    }
-  ],
-  "notes": "Write findings to /workspace and search them with rg.",
-  "expose": "tools",
+    { "name": "git_status", "definition": "git-status", "permission": "allow" },
+    { "name": "cargo_test", "definition": "cargo-test", "permission": "ask" }
+  ]
+}
+```
+
+| Field                | Type                   | Default   | Notes                                                    |
+| -------------------- | ---------------------- | --------- | -------------------------------------------------------- |
+| `schema`             | `'ghostai.toolbox/1'`  | —         | Required.                                                |
+| `name`               | slug                   | —         | Also the filename. Lowercase, digits and `-`.            |
+| `label`              | string                 | `''`      | Shown in the UI. Empty falls back to the name.           |
+| `version`            | string                 | `'0.0.0'` | The manifest's own version.                              |
+| `notes`              | string                 | `''`      | Caveats about the set, appended to the prompt section.   |
+| `tools[].name`       | string                 | —         | The callable name, local to this toolbox.                |
+| `tools[].definition` | slug                   | —         | The definition under `tool-definitions/` it resolves to. |
+| `tools[].permission` | `allow \| ask \| deny` | `'ask'`   | A **ceiling**. An agent may only tighten it.             |
+
+`notes` is model guidance, never an authorisation rule.
+
+## The operation definition
+
+One reviewed operation, reusable by every toolbox that names it:
+
+```json
+{
+  "schema": "ghostai.tool/1",
+  "description": "Show repository status",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "implementation": {
+    "kind": "command",
+    "executable": "/usr/bin/git",
+    "argv": ["-c", "core.fsmonitor=false", "status", "--porcelain=v1"]
+  }
+}
+```
+
+An operation is a fixed program and a reviewed argument mapping, never a shell string.
+`git diff $PATH` is not expressible, because there is nowhere to put it. The JSON Schema
+it publishes is the same one its inputs are validated against before a process starts, so
+what the model was told it could send and what the sandbox accepts cannot drift apart.
+
+Three implementation kinds:
+
+- **`command`** — an absolute `executable` outside the workspace, plus `argv`. An argv
+  element may be a literal string or `{ "input": "path", "workspacePath": true }`, naming
+  a required scalar property of the schema. `workspacePath` resolves the value through
+  the jail. `argvInput` names a required array of strings appended verbatim, and should
+  be reviewed as a broad capability.
+- **`registered`** — an installed built-in, MCP or extension tool, pinned by `tool` name
+  and the `digest` of its advertised definition. This is how a toolbox grants a built-in
+  back.
+- **`transcript`** — reads a bounded portion of output from the agent's current container
+  instance.
+
+Four rules are enforced at approval and again at every call:
+
+- The schema must be self-contained. `$ref`, `$dynamicRef` and `$recursiveRef` are
+  refused, because validation must never fetch anything.
+- `type: object` with `additionalProperties: false`, so an extra argument is refused
+  rather than ignored.
+- The executable is absolute, contains no `..`, and is not under `/workspace` — a file
+  `write_file` could replace between approval and call.
+- Every argv input is a **required scalar** property. Optional means the argv has a hole
+  at a position the operator counted on being filled; non-scalar means one input becomes
+  several arguments.
+
+A tool definition has no approval of its own. It is covered by the hash of every toolbox
+that names it, which is stricter than approving it once: a definition shared by three
+toolboxes cannot be edited without all three noticing.
+
+## The container definition
+
+```json
+{
+  "schema": "ghostai.container/1",
+  "name": "dev",
   "image": "sha256:…",
+  "shared": true,
   "runtime": "runc",
   "workdir": "/workspace",
   "user": "1000:1000",
@@ -50,293 +139,287 @@ request.
     "readOnlyRoot": true,
     "tmpfs": ["/tmp:rw,nosuid,size=256m"]
   },
-  "limits": { "memoryMb": 1024, "cpus": 2, "pidsMax": 128, "shmSizeMb": 64 },
-  "network": { "maxMode": "open", "dns": [], "proxyAllowHosts": [] },
+  "limits": { "memoryMb": 2048, "cpus": 2, "pidsMax": 512, "shmSizeMb": 256 },
   "env": ["LANG", "TZ"]
 }
 ```
 
-### Fields
+| Field                        | Type                    | Default        | Notes                                                                      |
+| ---------------------------- | ----------------------- | -------------- | -------------------------------------------------------------------------- |
+| `schema`                     | `'ghostai.container/1'` | —              | Required.                                                                  |
+| `name`                       | slug                    | —              | Also the filename.                                                         |
+| `image`                      | string                  | —              | **Must be digest-pinned.** `name@sha256:<64hex>` or a bare local image id. |
+| `shared`                     | boolean                 | `false`        | Reuse one instance across agents in a workspace.                           |
+| `runtime`                    | `runc \| runsc \| kata` | `'runc'`       | `runsc` is gVisor, `kata` a microVM.                                       |
+| `workdir`                    | string                  | `'/workspace'` | Where the workspace is mounted. Absolute, and not `/`.                     |
+| `user`                       | string                  | `'1000:1000'`  | `uid:gid` inside the container.                                            |
+| `caps.drop`                  | string[]                | `['ALL']`      |                                                                            |
+| `caps.add`                   | string[]                | `[]`           | `NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are never grantable.             |
+| `security.noNewPrivileges`   | boolean                 | `true`         |                                                                            |
+| `security.seccomp`           | `default \| unconfined` | `'default'`    | `unconfined` is surfaced to the operator, not refused.                     |
+| `security.readOnlyRoot`      | boolean                 | `true`         |                                                                            |
+| `security.tmpfs`, `.devices` | string[]                | `[]`           |                                                                            |
+| `limits.memoryMb`            | int                     | `2048`         |                                                                            |
+| `limits.cpus`                | number                  | `2`            |                                                                            |
+| `limits.pidsMax`             | int                     | `512`          |                                                                            |
+| `limits.shmSizeMb`           | int                     | `256`          |                                                                            |
+| `env`                        | string[]                | `[]`           | Host variables passed through. Everything else is scrubbed.                |
 
-| Field                        | Type                        | Default          | Notes                                                                      |
-| ---------------------------- | --------------------------- | ---------------- | -------------------------------------------------------------------------- |
-| `schema`                     | `'ghostai.toolbox/1'`       | —                | Required.                                                                  |
-| `name`                       | string                      | —                | Also the directory name under `~/.ghostai/toolboxes/`.                     |
-| `version`                    | string                      | `'0.0.0'`        |                                                                            |
-| `label`                      | string                      | `''`             | Shown in the UI.                                                           |
-| `tools[]`                    | see below                   | `[]`             | The programs worth naming. Not an inventory of the image.                  |
-| `notes`                      | string                      | `''`             | Caveats about the box as a whole, included in the prompt.                  |
-| `expose`                     | `prompt \| tools`           | `'prompt'`       | See [Exposure](#exposure).                                                 |
-| `image`                      | string                      | —                | **Must be digest-pinned.** `name@sha256:<64hex>` or a bare local image id. |
-| `runtime`                    | `runc \| runsc \| kata`     | `'runc'`         | `runsc` is gVisor, `kata` a lightweight VM.                                |
-| `workdir`                    | string                      | `'/workspace'`   | Where the workspace is mounted inside the container.                       |
-| `user`                       | string                      | `''`             | `uid:gid`.                                                                 |
-| `caps.drop`                  | string[]                    | `['ALL']`        |                                                                            |
-| `caps.add`                   | string[]                    | `[]`             | `NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are **never grantable**.         |
-| `security.noNewPrivileges`   | boolean                     | `true`           |                                                                            |
-| `security.seccomp`           | `default \| unconfined`     | `'default'`      | `unconfined` is surfaced to the operator, not refused.                     |
-| `security.readOnlyRoot`      | boolean                     | `true`           |                                                                            |
-| `security.tmpfs`, `.devices` | string[]                    | `[]`             |                                                                            |
-| `limits.memoryMb`            | int                         | `2048`           |                                                                            |
-| `limits.cpus`                | number                      | `2`              |                                                                            |
-| `limits.pidsMax`             | int                         | `512`            |                                                                            |
-| `limits.shmSizeMb`           | int                         | `256`            |                                                                            |
-| `network.maxMode`            | `none \| allowlist \| open` | `'none'`         | A **ceiling**. See below.                                                  |
-| `network.dns`                | string[]                    | `['127.0.0.11']` |                                                                            |
-| `network.proxyAllowHosts`    | string[]                    | `[]`             | Hostname scoping for HTTP(S), through the proxy.                           |
-| `env`                        | string[]                    | `[]`             | Host variables passed through. Everything else is scrubbed.                |
+**The image must be digest-pinned.** A tag is a mutable pointer, so a container approved
+once and then repointed is the approval gate defeated while every hash still matches. The
+pattern is anchored at both ends: an end-only anchor would accept something like
+`-v/:/hostfs@sha256:…`, and the image is pushed to the engine as a bare argv token.
 
-Each entry in `tools[]`:
+**`NET_ADMIN` is never grantable.** The egress gateway's rules live in a network namespace
+the container _shares_, and a container holding `NET_ADMIN` can flush them. This is refused
+rather than surfaced because it breaks an invariant the rest of the system relies on.
 
-| Field          | Type                   | Default | Notes                                                                       |
-| -------------- | ---------------------- | ------- | --------------------------------------------------------------------------- |
-| `name`         | string                 | —       | The program.                                                                |
-| `use`          | string                 | `''`    | One sentence. This is what the model reads to decide whether to call it.    |
-| `args`         | string                 | `''`    | Flag reference, in prose.                                                   |
-| `example`      | string[]               | `[]`    | An argv.                                                                    |
-| `permission`   | `allow \| ask \| deny` | `'ask'` | A **default** the agent may override — the opposite direction to `maxMode`. |
-| `requiresArgs` | boolean                | `false` |                                                                             |
+**`seccomp: unconfined` is deliberately not refused.** It is genuinely risky and genuinely
+required for rootless builds, so it is surfaced in the install review and left to the
+operator. The rule of thumb: refuse what silently breaks the machinery, surface what is
+merely dangerous.
 
-## Two absolute refusals
+**The image needs `setsid`.** Every command runs through it so a timeout reaches the whole
+process tree rather than the leader alone. On Debian and Ubuntu that is `util-linux`;
+BusyBox provides it already.
 
-**The image must be digest-pinned.** A tag is a mutable pointer; a toolbox approved once
-and then repointed would defeat the whole gate. The pattern is anchored at both ends —
-an end-only anchor would let a manifest smuggle something like `-v /:/hostfs` past as an
-argv token.
+### tmpfs is memory
 
-**`NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are never grantable.** A sandbox with
-`NET_ADMIN` shares the egress gateway's network namespace and can flush its rules, which
-would make every other network control decorative.
-
-## tmpfs is memory
-
-`security.tmpfs` and `limits.memoryMb` are not independent budgets. A tmpfs is
-RAM-backed, and its pages are charged to the container's memory cgroup — so a box with
-`/tmp` at 512m and `memoryMb` at 1024 has half its memory reachable by writing files.
+`security.tmpfs` and `limits.memoryMb` are not independent budgets. A tmpfs is RAM-backed
+and its pages are charged to the container's memory cgroup, so a container with `/tmp` at
+512m and `memoryMb` at 1024 has half its memory reachable by writing files.
 
 It is easy to miss, because the default Docker behaviour hides it: without
 `--memory-swap`, swap is twice the memory limit, so tmpfs pages get swapped and a write
 past the limit succeeds slowly instead of failing. With swap disabled the same write is
-OOM-killed. Size `/tmp` for what a job actually spills, not generously, and count it
-against `memoryMb` when you set that.
+OOM-killed. Size `/tmp` for what a job actually spills, and count it against `memoryMb`.
 
-Work belongs in the workspace anyway — a bind mount on real disk, outside this budget
+Work belongs in the workspace anyway, a bind mount on real disk outside this budget
 entirely. `/tmp` is for what a program does behind your back.
 
-`seccomp: unconfined` is deliberately _surfaced_ rather than refused — there are real
-tools that need it, and the operator approving the manifest is the right person to make
-that call knowingly.
-
-## Network is a ceiling
-
-The manifest's `maxMode` and the agent's requested `mode` are **intersected, never
-unioned**. An agent asking for `open` against a manifest whose maximum is `none` gets
-`none` — and the settings save that tried it is _refused_ rather than silently
-downgraded, because a config that means something other than what it says is worse than
-one that fails.
-
-The agent's `allow` list is CIDRs only. A hostname allow-list is defeated by DNS
-rebinding, which is the attack the guarded fetch already exists to stop; a manifest whose
-traffic is all HTTP(S) scopes by hostname through `proxyAllowHosts` instead.
-
-Per-tool `permission` runs the other way: the manifest supplies a _default_ and the agent
-may loosen or tighten it. That asymmetry is intentional. Network is a capability the
-operator grants to the box; a tool permission is a judgement about a specific agent's job.
-
-### Giving an agent part of a box
-
-A box is stocked for a job, not for an agent. A reconnaissance box declares two dozen
-programs because reconnaissance needs all of them somewhere — but an agent that only
-resolves hostnames wants four, and being offered the other twenty costs 60–80 tokens each
-on every request of every turn and gives the model twenty ways to answer the wrong
-question.
-
-So a preset narrows the box it names, in `toolbox.tools`:
+## Binding an agent
 
 ```json
 "toolbox": {
   "name": "recon",
-  "network": { "mode": "open", "allow": [] },
-  "tools": { "*": "deny", "nmap": "allow", "httpx": "allow", "dnsx": "allow" }
+  "tools": { "*": "deny", "nmap": "allow", "dnsx": "allow" }
+},
+"container": {
+  "name": "security-tools",
+  "network": { "mode": "allowlist", "hosts": ["deb.debian.org"] }
 }
 ```
 
-`*` is the permission for every program the manifest declares and this map does not name,
-which is what makes "only these four" one line instead of twenty denials. Leave it out and
-each unnamed program keeps the manifest's own default:
+`toolbox.tools` narrows the manifest's grants and can only tighten them. `*` stands for
+every grant the map does not name, which is what makes "only these two" one line instead
+of twenty denials. A `deny` is an **absence**, not a refusal at call time: the tool is
+never sent to the model, and the prompt section does not mention it either. That is the
+point, because the cost it saves is the schema it would otherwise carry on every request
+of every turn.
 
-```json
-"toolbox": { "name": "coding", "tools": { "npm": "deny" } }
+Leaving `container.name` empty runs command operations on the host, inside the workspace
+jail. That still constrains which operations are callable; it does not claim OS isolation.
+
+### The scope is complete
+
+An agent with a toolbox can call its grants and **nothing else**. There is no `exec` to
+reach a program the toolbox did not grant, no `read_file`, no `memory`, no `skill`, and no
+ambient MCP or extension tool. A toolbox that wants a built-in back grants it explicitly,
+as a `registered` operation pinned to that tool's definition digest, so "this agent may
+read files" is a line in a reviewed manifest instead of a default nobody chose.
+
+Delegation is the one exception, and it is not an exception to the scope: a subagent's
+delegate tool comes from the agent's own `subagents` bindings and is appended after the
+scope, so a toolboxed agent can still delegate.
+
+Authorisation is re-checked **during** a call, not only before it. A turn can run for
+minutes, and an operator who revokes a toolbox mid-run means it now. A 250 ms ticker
+re-resolves the approval beside the running command and cancels the moment the hash it was
+authorised under stops matching.
+
+## Network
+
+Egress is configured in exactly one place: the agent's `container.network`.
+
+| Field   | Type                        | Default  | Notes                                          |
+| ------- | --------------------------- | -------- | ---------------------------------------------- |
+| `mode`  | `none \| allowlist \| open` | `'none'` |                                                |
+| `allow` | string[]                    | `[]`     | CIDR blocks, enforced by the gateway's filter. |
+| `hosts` | string[]                    | `[]`     | Exact DNS names, enforced by the egress proxy. |
+| `dns`   | string[]                    | `[]`     | Resolvers, as non-loopback IP literals.        |
+
+`allowlist` runs through a separate gateway container whose network namespace the tool
+container shares, with default-deny nftables rules. There is no interface in the tool
+container to route around, and no host firewall table is touched.
+
+`allow` and `hosts` are **alternatives, not layers**, and naming both is refused. CIDRs are
+enforced in the packet filter and are the only thing that works for traffic that is not
+HTTP; hosts are enforced by the proxy, which sees the _name_ rather than an address DNS
+rebinding chose. A request enforced in two places is enforced in neither.
+
+A CIDR allow-list needs at least one `dns` entry, and it must not be loopback: an engine's
+embedded resolver answers on an address inside the shared namespace, so a rule naming it
+would match traffic this filter never sees. A host allow-list needs no resolver, because
+the proxy resolves on the container's behalf.
+
+Four things about a container decide whether a restricted allow-list can be enforced in it
+at all, and each is refused at save time rather than at the first command:
+
+- a root or non-numeric `user`, because the gateway filters by the socket's owning uid;
+- `user` 65532, which the egress proxy reserves for itself;
+- `noNewPrivileges` off, because a process that can gain privileges can become the uid the
+  gateway trusts;
+- `NET_RAW`, `SETUID` or `SETGID`, which forge packets or change uid past a filter that
+  matches on either.
+
+None of these is refused at _install_: a root uid is how a rootless builder works, and
+`NET_RAW` is what `nmap -sS` needs. They are legitimate for a container that reaches
+nothing. `ghostai container list` and the settings screen report the sentence in advance,
+so the choice is visible before a save fails.
+
+**Egress is agent configuration, so a settings save can set `open`.** That is a deliberate
+change from having it capped by the manifest: one configuration point was worth more than
+a second ceiling. The hardening that remains operator-only is everything in the approved
+container definition — the image digest, the capabilities, the seccomp profile, the uid,
+`noNewPrivileges` and the shared flag — and a gateway refuses to start for a container
+whose hardening cannot support restricted egress.
+
+## Sharing and instances
+
+With `shared: true`, agents and sessions in one workspace that ask for the **same
+egress** reuse one serialized instance. The effective network is part of the instance key,
+so two agents asking for different egress from one shared definition get two instances
+rather than one of them silently getting the other's reach. Different workspaces never
+share. With `shared: false` the instance is private to the agent, workspace and session.
+
+They share workspace state, not permissions: every operation is re-authorised against the
+calling toolbox immediately before dispatch.
+
+Instances are pooled — at most four live at once, reaped after ten minutes idle. When
+every live instance is busy, a new one is **refused** rather than made room for: evicting
+a container with a command still running in it would kill work somebody is waiting on.
+
+An instance the daemon has lost — restarted underneath, removed by hand — is rebuilt once
+and the command retried, which is safe because a command that could not find its container
+never started. An instance an operator **stopped** is not rebuilt: the two are told apart
+by a counter the stop increments and a daemon restart does not.
+
+**A container that fails to start is a refusal, never a downgrade to the host.** An agent
+configured to run in one does not quietly get a shell on your machine because Docker was
+not running.
+
+## Inside the container
+
+- Only the workspace is mounted from the host, read-write, at `workdir`. Everything else
+  in the filesystem disappears when the instance is reaped.
+- Output too large to return inline is kept in full under `/run/ghost-runs/<container>/`,
+  read-only and outside the workspace. It is scoped to that one instance, so a shared
+  container does not hand one agent another's transcripts. When there is nothing to mount,
+  an empty read-only tmpfs takes the path instead, so nothing inside can populate a
+  directory and read it back as though the host had written it.
+- On Docker, `/sys/firmware` and `/sys/class/block` are masked with read-only tmpfs, so a
+  command cannot read the host's firmware tables, its disk models or its filesystem
+  UUIDs. Those two are masked and no others because every masked path has to exist on
+  every architecture: a tmpfs over one that does not makes the runtime try to create the
+  mountpoint inside a read-only `/sys`, and the container never starts. `/sys/class/dmi`
+  is x86-only for exactly that reason. Podman copies a sysfs directory up into the tmpfs
+  laid over it, which needs a capability this container does not hold, so the masking is
+  asked for only where it works.
+- The file tools, when a toolbox grants them, always act on the workspace on this machine
+  through the jail. What they call `notes/todo.md` is `<workdir>/notes/todo.md` to a
+  command.
+
+## Approval
+
+An approval is a file recording the sha256 of the exact bytes that were reviewed:
+
+```bash
+ghostai toolbox list
+ghostai toolbox approve coding
+ghostai toolbox revoke coding
+
+ghostai container list
+ghostai container approve dev
+ghostai container revoke dev
 ```
 
-A `deny` is an **absence**, not a refusal at call time: the tool is never sent to the
-model, and the prompt section does not mention it either. That is the point — the cost it
-saves is the definition it would otherwise carry on every request.
+A toolbox's hash covers the manifest **and every definition it names**, length-framed so
+two definitions whose bytes could be split differently cannot hash alike. A container's
+hash covers its definition alone. The two are independent: editing a container does not
+revoke a toolbox.
 
-Three layers resolve, most specific first: the agent's own `tools` map (which is what the
-web UI edits, one row per program), then this per-box map, then the manifest. **None of
-them is a boundary.** `exec` reaches the program either way, so a manifest permission is
-the box author's opinion about scope, not containment — `network.maxMode`, the
-capabilities and the container are the boundary, and they are not reachable from a preset
-at all.
+The definition is a file on disk and the approval is a second file, and neither is
+authority on its own. Resolution asks whether _these_ bytes are approved, so **editing an
+installed definition silently revokes its approval** and the next turn refuses with a
+sentence naming the drift. There is no `--force`: re-approving is reviewing the new bytes.
 
-## Building and approving
+Three failure modes get three different sentences, because "not installed", "installed but
+never approved" and "edited since approval" are three different things to do next.
 
-Toolbox images are built from the
-[`GhostAI-presets`](https://github.com/therezor/GhostAI-presets) repository, which carries
-each toolbox's `Dockerfile` and manifest. Ordinarily you never do this by hand — picking an
-agent builds the box it needs:
+The approval is a file rather than a database row so the sandbox service can enforce the
+same answer. It owns the container engine and the app does not; both read this directory
+and neither writes the other's state. A row in the app's database would have to be told to
+the service over the socket, which would make the app the authority on what the service is
+allowed to run. Mount the policy directory read-only into both processes after approval.
+
+Revocation cancels active operations. Stopped or revoked calls are never replayed.
+
+## Building and installing
+
+Definitions are built from the
+[`GhostAI-presets`](https://github.com/therezor/GhostAI-presets) repository. Ordinarily you
+never do this by hand — picking an agent builds what it needs:
 
 ```bash
 ghostai preset install
 ```
 
-For a box you are writing, `build.sh` in that repository does the same one at a time:
+A catalogue entry carries `containers/<name>/{Dockerfile, container.json}`, the toolbox at
+`toolboxes/<name>.json`, and every `tool-definitions/<def>.json` the toolbox references.
+Installing runs `docker build --iidfile`, checks the result is a real `sha256:` image id,
+substitutes that id into the definition, and writes it to `containers/<name>.json`. The
+toolbox and its definitions are copied verbatim — their bytes are what the approval hash
+covers, so rewriting them would break it.
 
-```bash
-./build.sh web-research
-```
+**The image is referenced by its image ID, not a registry digest.** An image ID is the
+content hash `docker build` produces: a content address, exactly as unrepointable as a
+registry digest, and available on a machine with no internet. That is what makes this work
+on an air-gapped install.
 
-Either way it is `docker build --iidfile`, a check that the result is a real `sha256:`
-image id, a substitution of that id into the manifest, and an install to
-`~/.ghostai/toolboxes/<name>/`.
-
-**The image is referenced by its image ID, not by a registry digest.** An image ID is the
-content hash `docker build` produces — a content address, exactly as unrepointable as a
-registry digest, and available on a machine with no internet. A tag is neither. This is
-what makes a toolbox work on an air-gapped install.
-
-**Installing is only half of it.** The manifest lands on disk; nothing will _run_ it until
-its hash is approved:
-
-```bash
-ghostai toolbox list
-ghostai toolbox approve web-research
-ghostai toolbox revoke web-research
-```
-
-Approval records the sha256 of the manifest bytes as they are now. The manifest is a file
-on disk and the approval is a database row, and the two do not trust each other: **editing
-an installed manifest silently revokes its approval**, and the next turn refuses with a
-sentence naming the drift. There is no `--force` — re-approving is reviewing the new bytes.
-
-The hash covers the manifest bytes and nothing else, so a file an install puts beside
-`toolbox.json` neither blocks resolution nor revokes an approval when it changes.
-
-Toolboxes live beside the workspace, never inside it, so `write_file` plus a prompt
-injection cannot rewrite the policy the agent runs under.
+Installing is only half of it. Nothing runs until both hashes are approved, and
+approving is a separate decision: the run prints what each definition asks for and then
+asks. A run with nobody to ask, a pipe or a CI job, approves nothing and prints the
+`ghostai toolbox approve` and `ghostai container approve` lines instead. `--approve` is how
+a script says yes.
 
 ## Agent presets
 
-A toolbox is an environment; the agent that works in it is config. That config is a
-preset — a JSON file named for the agent id it installs, from your own
-`~/.ghostai/presets/` or the catalogue's `agents/` — and installing it writes one entry in
-`agents.list`:
+A toolbox is a capability surface; the agent that uses it is config. That config is a
+preset, a JSON file named for the agent id it installs, from `~/.ghostai/presets/` or the
+catalogue's `agents/`:
 
 ```bash
-ghostai preset install researcher   # builds its box too, if it needs one
-ghostai agent install researcher    # config merge only, box must already be approved
+ghostai preset install researcher   # builds what it needs
+ghostai agent install researcher    # config merge only; definitions must be approved
 ```
 
-**A preset is not a per-toolbox file.** Every preset lives in that one directory whether
-or not it names a container, because an agent that works in one is not a different kind
-of agent — it is an agent whose `toolbox.name` is set. So `researcher` sits beside
-`nano`, and there is one place to look (plus `~/.ghostai/presets/` for your own). The
-toolbox directory holds the Dockerfile and the manifest, and nothing else.
+Every preset lives in that one directory whether or not it names a container, because an
+agent that works in one is not a different kind of agent — it is an agent whose
+`toolbox.name` is set.
 
-The preset carries the agent's `systemPrompt` — which is where the toolbox's tool
-documentation lives, beside what each manifest entry already declares — its tool
-permissions, its toolbox reference and its network request. It deliberately cannot carry
-a model, a provider, or anything from the toolbox manifest's side of the boundary: the
-shape is a strict subset of an `agents.list` entry, so a preset can express nothing a
-settings save could not. See [CLI](cli.md#ghost-agent) for the full resolution order.
+A preset carries the agent's `systemPrompt`, its tool permissions, its toolbox reference
+and its container reference. It deliberately cannot carry a model, a provider, or anything
+from a manifest's side of the boundary: the shape is a strict subset of an `agents.list`
+entry, so a preset can express nothing a settings save could not. See
+[CLI](cli.md#ghost-agent) for the full resolution order.
 
-Install refuses a preset whose toolbox is not approved (the server would refuse to boot
-on the result) and refuses to overwrite an existing agent without `--force`, because the
-existing entry may carry your own edits.
+Install refuses a preset whose toolbox is not approved, because the server would refuse to
+boot on the result, and refuses to overwrite an existing agent without `--force`.
 
-## The catalogue's toolboxes
-
-This repository ships no toolboxes. They live in
-[`GhostAI-presets`](https://github.com/therezor/GhostAI-presets) and are versioned there,
-so the authoritative list is that repository's `toolboxes/` — a table here would be a copy
-that goes stale on somebody else's release. `ghostai preset list` prints what the catalogue
-you have actually carries, which is the answer that matters on your machine.
-
-What is worth stating here is why they are shaped the way they are, because each is a
-decision this document's rules made:
-
-A box whose tools need _different_ permissions sets `expose: "tools"`, so each program is
-a named, listable tool with its own permission rather than one `exec` grant covering all
-of them — that is the worked example of [For security work](#for-security-work). A box
-that reaches a target caps network at `open`, because a scanner that cannot reach the
-target is inert, and one that raw-scans adds back exactly one capability, `NET_RAW` (for
-`nmap -sS`), recorded in the manifest and re-approved on any edit. A box that runs its
-tools unattended against a target is the box to leave uninstalled unless someone is doing
-authorized security testing.
-
-**Documents and data are one box, and one agent, on purpose.** They were two of each,
-and the boundary ran through the middle of a single job: a zip of spreadsheets with a
-PDF summary needs whatever converts the document and whatever counts the rows to be the
-same thing, in the same turn. Split, the one that could read the file could not query
-it — and a coordinator had to guess which of them to ask.
-
-**`coding` is the second box with a network, and the only one that also runs arbitrary
-code.** A coding box that cannot reach a registry cannot run a test suite whose
-dependencies are not vendored, so its ceiling is `open` — but node, python and git are
-already arbitrary execution, and egress turns that into a way out. It is a per-toolbox
-decision recorded in the manifest, and narrowing it back to `none` is a one-word edit
-that forces a re-approval.
-
-There is no scoped middle ground yet: `allowlist` needs an egress gateway container to
-enforce it, and the runner refuses to start a scoped sandbox without one rather than
-quietly running wide open. `proxyAllowHosts` is inert for the same reason. Until a
-gateway ships, the honest choice is between `none` and `open`.
-
-## Exposure
-
-`expose` decides how the container's programs reach the model.
-
-- **`prompt`** (default) — the manifest's `tools[]` are described in the system prompt and
-  the model calls them through `exec`. About forty tokens for the whole box, cached once
-  per session.
-- **`tools`** — each declared program is materialised as a real callable tool with its own
-  schema and its own permission. Sixty to eighty tokens each, on every request of every
-  turn — but the model gets argument validation and per-program approval prompts.
-
-Use `tools` when individual programs need different permissions, which is exactly the
-shipped `web-research` case: `search`, `fetch`, `rg` and `jq` are `allow`, while `curl`
-and `python3` are `ask`, because those two are the ones that can reach anywhere and run
-anything.
-
-## Inside the container
-
-- Only `/workspace` is mounted from the host, read-write. Everything else in the
-  filesystem disappears when the session ends.
-- The manifest directory is mounted read-only at `/run/ghost`, so anything installed
-  beside `toolbox.json` is readable from inside. Nothing shipped uses it today.
-- Output too large to return inline is kept in full under `/run/ghost-runs/<id>/`,
-  read-only and outside the workspace — reachable with a shell command, not with the file
-  tools. That path is outside the workspace because a symlink-planting escape was
-  demonstrated before it moved.
-- **A shell is available**, so a pipeline goes through `["bash","-lc","…"]`. No shell
-  string is ever built on the host side: a fixed `sh -c` literal takes the argv as
-  positional parameters.
-- The file tools are unaffected. They always act on the workspace on this machine, through
-  the jail. What the file tools call `notes/todo.md` is `/workspace/notes/todo.md` to a
-  command.
-
-Containers are pooled — at most four live at once, keyed by agent, workspace and session,
-and reaped after ten minutes idle.
-
-**A sandbox that fails to start is a refusal, never a downgrade to the host.** An agent
-configured to run in a container does not quietly get a shell on your machine because
-Docker was not running.
-
-## Why the exec guard relaxes inside one
+## Why the exec guard relaxes inside a container
 
 On the host, `guard_exec` refuses shell binaries and refuses path arguments pointing
-outside the workspace. Inside a toolbox both restrictions lift — and they lift
+outside the workspace. Inside a container both restrictions lift, and they lift
 **together**, which is the point.
 
 Both exist to enforce by inspection what a container enforces by construction. A container
@@ -349,13 +432,16 @@ Everything else still applies: argv is still argv, the environment allow-list st
 the output budget is still enforced as the process writes, and the call is still gated by
 the agent's tool permissions.
 
-## For security work
+## Running it
 
-The shipped `web-research` box is a worked example, not the only shape. The same manifest
-format takes an image with whatever tooling a job needs, and the properties that matter
-for that use are all in the table above: capabilities dropped, root read-only, pids and
-memory bounded, network capped at the manifest and narrowed per agent, every argv audited,
-and the whole policy pinned to bytes an operator reviewed.
+See [Sandbox service](sandbox-service.md) for deployment and instance management:
 
-Build the image locally, approve its hash, give one agent `toolbox.name` and a network
-mode, and leave the rest of your agents on `none`.
+```bash
+ghostai sandbox health
+ghostai sandbox list
+ghostai sandbox start --container dev --workspace default
+ghostai sandbox stop <instance>
+ghostai sandbox restart <instance>
+```
+
+Ready examples live under `deploy/sandbox/examples/`.

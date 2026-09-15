@@ -616,61 +616,108 @@ pub fn default_agent_tools() -> ToolPermissions {
         .collect()
 }
 
-/// How much network an agent asks its toolbox for.
+/// How much of the network an agent's container reaches.
 ///
-/// Intersected with the toolbox's `network.max_mode`, never unioned: a toolbox
-/// is a ceiling and this is a narrowing of it. An agent asking for `open`
-/// against a ceiling of `none` has its settings save refused rather than
-/// silently downgraded. `allow` is CIDRs only: a hostname allow-list is defeated
-/// by DNS rebinding, and a toolbox whose traffic is all HTTP(S) scopes by
-/// hostname through the proxy instead.
+/// The one place egress is configured. A container definition decides whether
+/// a restricted gateway *can* be built — a non-root numeric uid, no-new-privs,
+/// no packet-forging capability — and this decides what that gateway permits.
+/// Splitting the two across both files is what produced a "ceiling" nobody
+/// could find the other half of.
+///
+/// `allow` and `hosts` are alternatives, not layers. A CIDR allow-list is
+/// enforced by the gateway's packet filter and is the only thing that works
+/// for raw scanning. A host allow-list is enforced by the egress proxy, which
+/// sees the name rather than the address a name resolved to, and so is the
+/// only thing DNS rebinding cannot defeat. Asking for both would mean two
+/// enforcement points disagreeing about one request.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct AgentToolboxNetwork {
-    /// The request.
+pub struct ContainerNetwork {
+    /// How much network to permit at all.
     #[serde(default)]
-    pub mode: crate::toolbox::ToolboxNetworkMode,
-    /// CIDRs, for `allowlist`.
+    pub mode: NetworkMode,
+    /// CIDRs the packet filter permits, for `allowlist`.
     #[serde(default)]
     pub allow: Vec<String>,
+    /// Exact DNS names the egress proxy permits, for `allowlist`.
+    #[serde(default)]
+    pub hosts: Vec<String>,
+    /// Resolvers the gateway permits on port 53, as IP literals.
+    ///
+    /// Empty is correct for a host allow-list, where the proxy resolves names
+    /// on the container's behalf, and wrong for a CIDR allow-list, where
+    /// nothing in the container can resolve a name without one.
+    #[serde(default)]
+    pub dns: Vec<String>,
+}
+
+/// How much network an agent asks for. Ordered weakest to strongest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkMode {
+    /// No network at all.
+    #[default]
+    None,
+    /// Only what `allow` or `hosts` names.
+    Allowlist,
+    /// Anything.
+    Open,
 }
 
 /// The key in [`AgentToolbox::tools`] standing for "every entry not named".
 pub const TOOLBOX_DEFAULT_KEY: &str = "*";
 
-/// Which toolbox an agent works in — that is, where its `exec` calls run.
+/// Which toolbox defines this agent's callable operations.
 ///
-/// An empty `name` is a child process on the machine running GhostAI, inside
-/// the workspace jail; a named toolbox routes `exec` into that toolbox's
-/// container. **There is no image, runtime, caps or limits here, deliberately.**
-/// Those live in the toolbox manifest, installed by an operator and authorised
-/// by content hash. A value with no representation in this type cannot be
-/// reached by a config patch, which is what makes "the agent cannot change the
-/// image it runs in" a property of the shape rather than a rule to enforce.
+/// **There is no image, runtime, caps or limits here, deliberately.** Those
+/// live in a container definition, installed by an operator and authorised by
+/// content hash. A value with no representation in this type cannot be reached
+/// by a config patch, which is what makes "the agent cannot change the image it
+/// runs in" a property of the shape rather than a rule to enforce.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct AgentToolbox {
-    /// A toolbox name, or empty to run on the host.
+    /// A toolbox name, or empty for no toolbox operations.
     #[serde(default)]
     pub name: String,
-    /// The network request.
+    /// Which of the toolbox's grants this agent gets, tightening the manifest.
+    ///
+    /// A toolbox is stocked for a job, not for an agent: `recon` grants
+    /// twenty-four operations and an agent that only resolves hostnames wants
+    /// four. `*` stands for every grant this map does not name, which is the
+    /// whole reason it is a map rather than a list: `{"*": "deny", "nmap":
+    /// "allow"}` is "only nmap" in one line. Each entry is intersected with the
+    /// grant's own permission and can only tighten it.
+    #[serde(default)]
+    pub tools: ToolPermissions,
+}
+
+/// Where this agent's command operations run, and what they can reach.
+///
+/// An empty name runs command operations on the machine running GhostAI,
+/// inside the workspace jail, where a network request means nothing and is
+/// refused rather than ignored. A named container routes them through the
+/// sandbox service instead.
+///
+/// The image, capabilities, hardening and sharing live in the approved
+/// definition and have no representation here. The network *does* live here:
+/// egress is the one thing an operator configures per agent rather than per
+/// image, and a single place to configure it is worth more than a second
+/// ceiling nobody could locate.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct AgentContainer {
+    /// An approved container name, or empty to run on the host.
+    #[serde(default)]
+    pub name: String,
+    /// What this agent's container may reach.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
-    pub network: AgentToolboxNetwork,
-    /// Which of the box's programs this agent gets, overriding the manifest.
-    ///
-    /// A box is stocked for a job, not for an agent: `recon` declares
-    /// twenty-four programs and an agent that only resolves hostnames wants
-    /// four. `*` is the default for every entry the manifest declares and this
-    /// map does not name, which is the whole reason it is a map rather than a
-    /// list: `{"*": "deny", "nmap": "allow"}` is "only nmap" in one line.
-    /// These are defaults, not a ceiling, and may widen as well as narrow;
-    /// `network.max_mode` is the containment boundary.
-    #[serde(default)]
-    pub tools: ToolPermissions,
+    pub network: ContainerNetwork,
 }
 
 /// Another agent this one may hand a task to.
@@ -787,11 +834,16 @@ pub struct AgentEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub exec: Option<ExecToolConfigPatch>,
-    /// Where `exec` runs.
+    /// Which approved operation surface this agent can call.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
     pub toolbox: AgentToolbox,
+    /// Where command operations run, independently of the toolbox selection.
+    #[serde(default)]
+    #[schemars(transform = prefault)]
+    #[garde(dive)]
+    pub container: AgentContainer,
     /// Agents this one may delegate to. Order is the order the model sees
     /// them, which is why this is a list and not a map.
     #[serde(default)]
@@ -818,6 +870,7 @@ impl Default for AgentEntry {
             tools: default_agent_tools(),
             exec: None,
             toolbox: AgentToolbox::default(),
+            container: AgentContainer::default(),
             subagents: Vec::new(),
         }
     }
@@ -1174,22 +1227,26 @@ pub struct ExecToolConfigPatch {
     pub max_output_bytes: Option<u64>,
 }
 
-/// A patch over [`AgentToolboxNetwork`].
+/// A patch over [`ContainerNetwork`].
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct AgentToolboxNetworkPatch {
-    /// See [`AgentToolboxNetwork::mode`].
+pub struct ContainerNetworkPatch {
+    /// See [`ContainerNetwork::mode`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<crate::toolbox::ToolboxNetworkMode>,
-    /// See [`AgentToolboxNetwork::allow`].
+    pub mode: Option<NetworkMode>,
+    /// See [`ContainerNetwork::allow`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow: Option<Vec<String>>,
+    /// See [`ContainerNetwork::hosts`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosts: Option<Vec<String>>,
+    /// See [`ContainerNetwork::dns`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns: Option<Vec<String>>,
 }
 
-/// A patch over [`AgentToolbox`]. `network` is itself a patch, so a save that
-/// only changes the mode does not have to resend `allow` — which is how a
-/// settings panel silently clears the allow-list it never rendered.
+/// A patch over [`AgentToolbox`].
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -1197,13 +1254,25 @@ pub struct AgentToolboxPatch {
     /// See [`AgentToolbox::name`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// See [`AgentToolbox::network`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(dive)]
-    pub network: Option<AgentToolboxNetworkPatch>,
     /// See [`AgentToolbox::tools`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolPermissions>,
+}
+
+/// A patch over [`AgentContainer`]. `network` is itself a patch, so a save
+/// that only changes the mode does not have to resend `allow` — which is how a
+/// settings panel silently clears the allow-list it never rendered.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct AgentContainerPatch {
+    /// See [`AgentContainer::name`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// See [`AgentContainer::network`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub network: Option<ContainerNetworkPatch>,
 }
 
 /// A patch over [`AgentEntry`].
@@ -1266,6 +1335,10 @@ pub struct AgentEntryPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub toolbox: Option<AgentToolboxPatch>,
+    /// See [`AgentEntry::container`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub container: Option<AgentContainerPatch>,
     /// See [`AgentEntry::subagents`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
@@ -1292,11 +1365,16 @@ impl From<AgentEntry> for AgentEntryPatch {
             exec: entry.exec,
             toolbox: Some(AgentToolboxPatch {
                 name: Some(entry.toolbox.name),
-                network: Some(AgentToolboxNetworkPatch {
-                    mode: Some(entry.toolbox.network.mode),
-                    allow: Some(entry.toolbox.network.allow),
-                }),
                 tools: Some(entry.toolbox.tools),
+            }),
+            container: Some(AgentContainerPatch {
+                name: Some(entry.container.name),
+                network: Some(ContainerNetworkPatch {
+                    mode: Some(entry.container.network.mode),
+                    allow: Some(entry.container.network.allow),
+                    hosts: Some(entry.container.network.hosts),
+                    dns: Some(entry.container.network.dns),
+                }),
             }),
             subagents: Some(entry.subagents),
         }

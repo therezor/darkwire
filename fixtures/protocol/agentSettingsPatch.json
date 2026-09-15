@@ -48,11 +48,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -117,11 +122,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -184,11 +194,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -252,11 +267,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -318,11 +338,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -386,11 +411,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": [],
               "reasoningEffort": "low"
@@ -460,11 +490,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }
@@ -526,11 +561,16 @@
               },
               "toolbox": {
                 "name": "",
+                "tools": {}
+              },
+              "container": {
+                "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": []
-                },
-                "tools": {}
+                  "allow": [],
+                  "hosts": [],
+                  "dns": []
+                }
               },
               "subagents": []
             }

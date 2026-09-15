@@ -1,0 +1,216 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "health"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "list"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "execute"
+        },
+        "toolbox": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "network": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "open"
+              ]
+            },
+            "allow": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hosts": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dns": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "args": {}
+      },
+      "required": [
+        "op",
+        "toolbox",
+        "approval",
+        "container",
+        "operation",
+        "workspace",
+        "agent",
+        "session",
+        "args"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "start"
+        },
+        "container": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "network": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "open"
+              ]
+            },
+            "allow": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hosts": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dns": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "op",
+        "container",
+        "workspace",
+        "agent",
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "stop"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "instance"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "restart"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "instance"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
