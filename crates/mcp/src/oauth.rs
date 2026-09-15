@@ -388,7 +388,7 @@ impl OAuthFlow {
     ///
     /// Dynamic registration wins over the configured id: if the server issued
     /// us one, that is the identity it knows us by. A `clientId` in
-    /// `config.json` is the pre-registered case, and the fallback for a server
+    /// `config.yaml` is the pre-registered case, and the fallback for a server
     /// that does not support registration at all.
     pub fn client_information(&self) -> Option<ClientInformation> {
         let registered: Option<ClientInformation> = read_json(

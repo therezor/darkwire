@@ -559,7 +559,7 @@ export const api = {
    * Separate from `settings()` for the reason `agents()` is: the settings tree
    * says what an operator asked for, and this says what came of it. A server
    * that is unreachable is a live state that changes without the config
-   * changing, and `config.json` is not where that belongs.
+   * changing, and `config.yaml` is not where that belongs.
    */
   mcpServers: (signal?: AbortSignal): Promise<McpStatusResponse> =>
     request('/api/mcp', McpStatusResponseSchema, {
@@ -654,7 +654,7 @@ export const api = {
     }),
 
   /**
-   * Makes the server re-read `config.json` and rebuild what depends on it.
+   * Makes the server re-read `config.yaml` and rebuild what depends on it.
    *
    * Not a restart: the process, the socket and any turn already running all
    * survive. It is for the changes a running server cannot see — a config

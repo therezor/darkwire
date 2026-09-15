@@ -1,4 +1,4 @@
-//! Versioned, bounded Unix-socket protocol for approved container operations.
+//! Versioned, bounded Unix-socket protocol for granted container operations.
 use crate::container_pool::{
     ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
 };
@@ -30,7 +30,7 @@ pub struct ServiceConfig {
     /// Where the service listens. Its directory is the access boundary: the
     /// socket is group-readable and nothing else names it.
     pub socket: PathBuf,
-    /// The approval ledger both this service and the app read.
+    /// The policy directory both this service and the app read.
     pub policy_root: PathBuf,
     /// Lock file, installation identity and command transcripts.
     pub state_root: PathBuf,
@@ -241,7 +241,7 @@ impl OperationExecutor for SandboxClient {
     fn execute<'a>(
         &'a self,
         toolbox: &'a str,
-        approval: &'a str,
+        digest: &'a str,
         operation: &'a str,
         args: Value,
         ctx: &'a ToolContext,
@@ -252,7 +252,7 @@ impl OperationExecutor for SandboxClient {
             };
             let request = SandboxRequest::Execute {
                 toolbox: toolbox.into(),
-                approval: approval.into(),
+                digest: digest.into(),
                 container: placement.container.clone(),
                 operation: operation.into(),
                 workspace: placement.workspace_id.clone(),
@@ -384,7 +384,7 @@ impl Service {
 struct ExecuteRequest {
     spec: PlacementRequest,
     toolbox: String,
-    approval: String,
+    digest: String,
     container: String,
     operation: String,
     workspace: String,
@@ -446,12 +446,12 @@ impl Service {
         )
     }
 
-    /// Runs one granted operation in its approved container.
+    /// Runs one granted operation in its container.
     ///
-    /// Both approvals are re-checked here even though the caller resolved them:
+    /// Both definitions are re-read here even though the caller resolved them:
     /// the caller is the app, and the service owns the engine. They are then
-    /// re-checked again on a ticker for as long as the command runs, because a
-    /// revoke during a twenty-minute scan has to reach the command that is
+    /// re-read again on a ticker for as long as the command runs, because an
+    /// edit during a twenty-minute scan has to reach the command that is
     /// already inside the container.
     async fn execute(
         &self,
@@ -462,28 +462,28 @@ impl Service {
         let ExecuteRequest {
             spec,
             toolbox,
-            approval,
+            digest,
             container,
             operation,
             workspace,
             args,
         } = request;
         self.authorize_toolbox(&toolbox, &workspace)?;
-        let approved = self.store.require_toolbox(&toolbox)?;
-        if approval != approved.sha256() {
+        let installed = self.store.require_toolbox(&toolbox)?;
+        if digest != installed.digest() {
             return Err(invalid(
-                "Toolbox approval changed since the call was prepared",
+                "The toolbox definition changed since the call was prepared",
             ));
         }
-        let approved_container = self.store.require_container(&container)?;
-        let grant = approved
+        let installed_container = self.store.require_container(&container)?;
+        let grant = installed
             .resolved
             .toolbox
             .tools
             .iter()
             .find(|g| g.name == operation && g.permission != ToolPermission::Deny)
             .ok_or_else(|| invalid("Operation is not granted by the toolbox"))?;
-        let definition = approved
+        let definition = installed
             .resolved
             .operations
             .get(&grant.name)
@@ -541,12 +541,12 @@ impl Service {
                     return Ok(json!({"content":content,"isError":outcome.timed_out || outcome.code != Some(0), "details":{"transcriptDir":outcome.transcript_dir,"run":run_id,"truncated":outcome.truncated}}));
                 },
                 _ = interval.tick() => {
-                    let toolbox_current = self.store.require_toolbox(&toolbox).is_ok_and(|a| a.sha256() == approved.sha256());
-                    let container_current = self.store.require_container(&container).is_ok_and(|a| a.sha256 == approved_container.sha256);
+                    let toolbox_current = self.store.require_toolbox(&toolbox).is_ok_and(|a| a.digest() == installed.digest());
+                    let container_current = self.store.require_container(&container).is_ok_and(|a| a.digest == installed_container.digest);
                     if token.is_cancelled() || !toolbox_current || !container_current {
                         run_token.cancel();
                         let _ = (&mut run).await;
-                        return Err(invalid("Execution cancelled or policy approval revoked"));
+                        return Err(invalid("Cancelled, or a definition changed while this ran"));
                     }
                 }
             }
@@ -554,9 +554,9 @@ impl Service {
     }
 }
 
-/// How often a running command's two approvals are re-read from disk.
+/// How often a running command's two definitions are re-read from disk.
 ///
-/// An in-flight scan is the one place a revoke has to reach code that is
+/// An in-flight scan is the one place an edit has to reach code that is
 /// already inside the container; the idle sweep cannot see it.
 const REVALIDATE_EVERY: Duration = Duration::from_millis(250);
 
@@ -598,7 +598,7 @@ impl Service {
             }
             SandboxRequest::Execute {
                 toolbox,
-                approval,
+                digest,
                 container,
                 operation,
                 workspace,
@@ -612,7 +612,7 @@ impl Service {
                     ExecuteRequest {
                         spec,
                         toolbox,
-                        approval,
+                        digest,
                         container,
                         operation,
                         workspace,

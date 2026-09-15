@@ -22,7 +22,7 @@ COPY --from=build /src/target/release/ghostai-sandbox /usr/local/bin/ghostai-san
 ENTRYPOINT ["ghostai-sandbox"]
 CMD ["serve-env"]
 
-# The image `containers/dev.json` points at. Built separately and referenced by
+# The image `containers/dev.yaml` points at. Built separately and referenced by
 # its id, never by this tag: a container definition that named a tag would be
 # repointable after approval.
 FROM alpine:3.23 AS tools

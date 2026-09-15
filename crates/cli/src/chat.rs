@@ -289,7 +289,7 @@ impl ChatSession {
     /// The fallback below is not optional. The rule answers the *stored* id
     /// when neither it nor the request resolves, and asking for a loop by an id
     /// that names nothing runnable is a refusal — so without this, deleting an
-    /// agent from `config.json` would turn a working conversation into a hard
+    /// agent from `config.yaml` would turn a working conversation into a hard
     /// failure on its next turn. The default runs it instead, and says so every
     /// time, because nothing is written down to make the substitution stick.
     fn agent_for_this_turn(&self, renderer: &mut TurnRenderer) -> Option<String> {

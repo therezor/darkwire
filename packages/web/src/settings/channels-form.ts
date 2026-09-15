@@ -9,7 +9,7 @@
  *
  * The bot token is deliberately absent from both the form and the patch. It is
  * a credential: it goes to the vault through `PUT /api/settings/credentials`,
- * never into `config.json`, so the panel holds it in its own state and this
+ * never into `config.yaml`, so the panel holds it in its own state and this
  * module never sees it.
  */
 

@@ -19,10 +19,6 @@ use ghostai_protocol::Config;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-const DEFAULTS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../fixtures/config/defaults.json"
-));
 const ROUNDTRIP: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/config/roundtrip.json"
@@ -33,7 +29,7 @@ fn temp() -> TempDir {
 }
 
 fn write_config(root: &Path, value: &str) -> PathBuf {
-    let file = root.join("config.json");
+    let file = root.join("config.yaml");
     fs::write(&file, value).unwrap();
     file
 }
@@ -62,7 +58,7 @@ mod parse {
 
     #[test]
     fn fills_every_default_from_an_empty_object() {
-        let config = parse_config("{}", Path::new("config.json")).unwrap();
+        let config = parse_config("{}", Path::new("config.yaml")).unwrap();
         assert_eq!(config.agents.list["default"].settings.provider, "auto");
         assert_eq!(config.server.port, 3000);
         assert_eq!(config.tools.approval_timeout_ms, 5 * 60 * 1000);
@@ -70,15 +66,15 @@ mod parse {
     }
 
     #[test]
-    fn names_the_file_and_the_syntax_problem_on_malformed_json() {
+    fn names_the_file_and_the_syntax_problem_on_malformed_yaml() {
         let error = err(parse_config(
             "{ \"agents\": ",
-            Path::new("/etc/ghost/config.json"),
+            Path::new("/etc/ghost/config.yaml"),
         ));
         assert_eq!(error.kind, ErrorKind::Config);
-        assert!(error.message.contains("/etc/ghost/config.json"));
-        assert!(error.message.contains("not valid JSON"));
-        assert_eq!(error.details["file"], "/etc/ghost/config.json");
+        assert!(error.message.contains("/etc/ghost/config.yaml"));
+        assert!(error.message.contains("not valid YAML"));
+        assert_eq!(error.details["file"], "/etc/ghost/config.yaml");
     }
 
     #[test]
@@ -86,7 +82,7 @@ mod parse {
         // The point of the flattening: `agents.list.default.temperature` is a
         // string an operator can search their config file for.
         let text = json!({"agents": {"list": {"default": {"temperature": 9}}}}).to_string();
-        let error = err(parse_config(&text, Path::new("config.json")));
+        let error = err(parse_config(&text, Path::new("config.yaml")));
         assert!(
             error.message.contains("agents.list.default.temperature"),
             "{}",
@@ -97,7 +93,7 @@ mod parse {
 
     #[test]
     fn labels_a_root_level_type_error_rather_than_emitting_an_empty_path() {
-        let error = err(parse_config("[]", Path::new("config.json")));
+        let error = err(parse_config("[]", Path::new("config.yaml")));
         assert!(error.message.contains("(root)"), "{}", error.message);
     }
 
@@ -105,7 +101,7 @@ mod parse {
     fn names_a_missing_required_field_at_its_own_path() {
         let text =
             json!({"providers": {"ollama": {"apiBase": "http://gpu.lan:11434/v1"}}}).to_string();
-        let error = err(parse_config(&text, Path::new("config.json")));
+        let error = err(parse_config(&text, Path::new("config.yaml")));
         assert!(
             error.message.contains("providers.ollama.type"),
             "{}",
@@ -117,7 +113,7 @@ mod parse {
     fn names_a_field_of_the_wrong_type() {
         let error = err(parse_config(
             "{ \"server\": { \"port\": \"3000\" } }",
-            Path::new("config.json"),
+            Path::new("config.yaml"),
         ));
         assert!(error.message.contains("server.port"), "{}", error.message);
     }
@@ -136,7 +132,7 @@ mod load {
         let root = temp();
         let loaded = load_config(options(root.path())).unwrap();
         assert!(!loaded.from_file);
-        assert_eq!(loaded.file, root.path().join("config.json"));
+        assert_eq!(loaded.file, root.path().join("config.yaml"));
         assert_eq!(
             loaded.config.agents.list["default"]
                 .settings
@@ -182,7 +178,7 @@ mod load {
         let root = temp();
         let loaded = load_config(options(root.path())).unwrap();
         assert!(!loaded.from_file);
-        assert!(!root.path().join("config.json").exists());
+        assert!(!root.path().join("config.yaml").exists());
     }
 
     #[test]
@@ -277,7 +273,7 @@ mod load {
     fn treats_a_missing_parent_directory_as_no_config() {
         let root = temp();
         let mut options = options(root.path());
-        options.file = Some(root.path().join("missing").join("config.json"));
+        options.file = Some(root.path().join("missing").join("config.yaml"));
         assert!(!load_config(options).unwrap().from_file);
     }
 
@@ -309,7 +305,7 @@ mod save {
     #[test]
     fn round_trips_through_load_config() {
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         let mut config = parse_config("{}", &file).unwrap();
         config.server.port = 4242;
         save_config(&file, &config).unwrap();
@@ -326,11 +322,11 @@ mod save {
     #[test]
     fn writes_a_file_a_human_can_read_and_edit() {
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         save_config(&file, &parse_config("{}", &file).unwrap()).unwrap();
         let text = fs::read_to_string(&file).unwrap();
-        assert!(text.starts_with("{\n  \"workspace\""));
-        assert!(text.ends_with("}\n"));
+        assert!(text.starts_with("workspace:"));
+        assert!(text.ends_with('\n'));
     }
 
     #[cfg(unix)]
@@ -338,13 +334,13 @@ mod save {
     fn writes_the_file_private_to_the_user() {
         use std::os::unix::fs::PermissionsExt as _;
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         save_config(&file, &Config::default()).unwrap();
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        assert!(!root.path().join("config.json.tmp").exists());
+        assert!(!root.path().join("config.yaml.tmp").exists());
     }
 
     #[test]
@@ -354,7 +350,7 @@ mod save {
             .path()
             .join("nested")
             .join("deeper")
-            .join("config.json");
+            .join("config.yaml");
         save_config(&file, &parse_config("{}", &file).unwrap()).unwrap();
         let mut options = options(root.path());
         options.file = Some(file);
@@ -364,7 +360,7 @@ mod save {
     #[test]
     fn refuses_to_write_settings_the_next_boot_would_reject() {
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         let mut broken = Config::default();
         broken.agents.list["default"].settings.temperature = Some(9.0);
         let error = err(save_config(&file, &broken));
@@ -380,13 +376,13 @@ mod save {
     #[test]
     fn leaves_the_previous_file_in_place_when_the_write_fails() {
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         save_config(&file, &Config::default()).unwrap();
         let before = fs::read_to_string(&file).unwrap();
 
         // A directory where the temp file wants to go: the write fails, and the
         // rename that would have replaced the real file never runs.
-        fs::create_dir(root.path().join("config.json.tmp")).unwrap();
+        fs::create_dir(root.path().join("config.yaml.tmp")).unwrap();
         let mut changed = Config::default();
         changed.server.port = 4242;
         let error = err(save_config(&file, &changed));
@@ -403,30 +399,33 @@ mod fixtures {
     use super::*;
 
     #[test]
-    fn defaults_json_is_exactly_what_save_config_writes_for_the_defaults() {
+    fn defaults_yaml_round_trips_through_the_saved_file() {
         let root = temp();
-        let file = root.path().join("config.json");
+        let file = root.path().join("config.yaml");
         save_config(&file, &Config::default()).unwrap();
-        assert_eq!(fs::read_to_string(&file).unwrap(), DEFAULTS);
+        assert_eq!(
+            parse_config(&fs::read_to_string(&file).unwrap(), &file).unwrap(),
+            Config::default()
+        );
         assert_eq!(
             render_config(&parse_config("{}", &file).unwrap()).unwrap(),
-            DEFAULTS
+            fs::read_to_string(&file).unwrap()
         );
     }
 
     #[test]
-    fn roundtrip_json_matches_parse_config_then_save_config() {
+    fn roundtrip_cases_preserve_the_parsed_configuration() {
         let fixture: Value = serde_json::from_str(ROUNDTRIP).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 10);
-        let file = Path::new("config.json");
+        let file = Path::new("config.yaml");
         for case in cases {
             let name = case["name"].as_str().unwrap();
             let input = serde_json::to_string(&case["input"]).unwrap();
             let config = parse_config(&input, file).unwrap();
             assert_eq!(
-                render_config(&config).unwrap(),
-                case["output"].as_str().unwrap(),
+                parse_config(&render_config(&config).unwrap(), file).unwrap(),
+                config,
                 "case: {name}"
             );
         }

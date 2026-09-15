@@ -22,13 +22,13 @@
 //! what a *model* chose: the exec guard refuses absolute paths and shell
 //! binaries and classifies every path-shaped argument against the workspace
 //! jail; the fetch guard refuses loopback and private ranges. An MCP entry is
-//! operator configuration in `config.json`, in the same trust class as
+//! operator configuration in `config.yaml`, in the same trust class as
 //! `providers.<id>.apiBase` or a toolbox image. Its command is almost always
 //! `npx`, `uvx`, `docker` or an absolute path to a binary outside the
 //! workspace on purpose, and the single most common MCP deployment is a server
 //! on loopback — every one of which the guards refuse by design. Running them
 //! through would make the feature unusable while protecting against nothing:
-//! anyone able to edit `config.json` can already add a binary to
+//! anyone able to edit `config.yaml` can already add a binary to
 //! `tools.exec.allowedBinaries`. The model's reach stops at a bridged tool's
 //! *arguments*, which are JSON over a pipe and never become argv.
 //!

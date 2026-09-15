@@ -49,6 +49,7 @@ futures = "=0.3.34"
 # serialisation: the wire contract
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+serde_yaml_ng = "=0.10.0"
 schemars = { version = "=1.2.2", features = ["indexmap2"] }
 serde_with = "=3.23.0"
 garde = { version = "=0.23.0", features = ["derive", "regex"] }

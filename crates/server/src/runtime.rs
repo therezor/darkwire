@@ -157,7 +157,7 @@ pub trait ServerRuntime: Send + Sync {
     /// server answering on the settings that worked a moment ago.
     fn apply_settings(&self, patch: ConfigPatch) -> Result<Config>;
 
-    /// Re-reads `config.json` from disk and rebuilds what depends on it.
+    /// Re-reads `config.yaml` from disk and rebuilds what depends on it.
     ///
     /// The other direction from [`Self::apply_settings`], which takes a patch
     /// from a client and writes it out. This one takes what the *file* says and
@@ -179,7 +179,7 @@ pub trait ServerRuntime: Send + Sync {
     /// Writes or clears one credential. A `None` value deletes the entry.
     fn set_credential(&self, request: &SetCredentialRequest) -> Result<()>;
 
-    /// Set when `config.json` failed to parse and the defaults are in use.
+    /// Set when `config.yaml` failed to parse and the defaults are in use.
     fn load_error(&self) -> Option<String>;
 
     /// Settings that parsed but could not be fully honoured. Empty is healthy.
@@ -311,7 +311,7 @@ pub trait ServerRuntime: Send + Sync {
     /// Every configured MCP server and the state it is actually in.
     ///
     /// Live state, which is why it is not on [`Self::config`]: "unreachable
-    /// since 12:04" is not something to write into `config.json`, and the
+    /// since 12:04" is not something to write into `config.yaml`, and the
     /// settings tree is what gets written back.
     fn mcp_servers(&self) -> Vec<McpServerStatus> {
         Vec::new()
@@ -326,7 +326,7 @@ pub trait ServerRuntime: Send + Sync {
     ///
     /// A route rather than a settings patch, because an approval is not
     /// configuration: it is a statement about the exact bytes on disk right
-    /// now, and writing it into `config.json` would make it survive an edit to
+    /// now, and writing it into `config.yaml` would make it survive an edit to
     /// the very files it was about.
     ///
     /// `None` means this build has no extension host, which is a 404.

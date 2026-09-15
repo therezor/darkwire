@@ -612,7 +612,7 @@ pub fn resolve_agent_or_default(config: &Config, id: Option<&str>) -> Result<Age
 /// Every agent that can run a turn, plus what had to be ignored to build them.
 ///
 /// The default one first, then insertion order — the order the operator wrote
-/// them in `config.json` and the order the picker shows.
+/// them in `config.yaml` and the order the picker shows.
 ///
 /// Warnings come out beside the agents rather than hanging off each one, because
 /// an [`EffectiveAgent`] is held by the loop and the picker and half the settings

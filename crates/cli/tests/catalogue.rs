@@ -39,11 +39,11 @@ use tempfile::TempDir;
 fn write_catalogue(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(dir.join("agents")).unwrap();
     std::fs::create_dir_all(dir.join("toolboxes")).unwrap();
-    std::fs::write(dir.join("toolboxes").join("coding.json"), "{}").unwrap();
+    std::fs::write(dir.join("toolboxes").join("coding.yaml"), "{}").unwrap();
     let context = dir.join("containers").join("dev");
     std::fs::create_dir_all(&context).unwrap();
     std::fs::write(context.join("Dockerfile"), "FROM scratch\n").unwrap();
-    std::fs::write(context.join("container.json"), "{}").unwrap();
+    std::fs::write(context.join("container.yaml"), "{}").unwrap();
     dir.to_path_buf()
 }
 
@@ -217,7 +217,7 @@ fn refuses_a_catalogue_with_no_agents_naming_the_version_it_wants() {
 
 #[test]
 fn answers_with_a_build_context_only_when_the_definition_is_there_too() {
-    // A build context with no `container.json` is a half-checkout, and an image
+    // A build context with no `container.yaml` is a half-checkout, and an image
     // build would be the wrong error to report it with.
     let root = TempDir::new().unwrap();
     let dir = write_catalogue(&root.path().join("c"));
@@ -240,7 +240,7 @@ fn answers_with_a_toolbox_manifest_as_a_file_of_its_own() {
 
     assert_eq!(
         catalogue_toolbox(&dir, "coding"),
-        Some(dir.join("toolboxes").join("coding.json"))
+        Some(dir.join("toolboxes").join("coding.yaml"))
     );
     assert_eq!(catalogue_toolbox(&dir, "nowhere"), None);
 }

@@ -133,7 +133,7 @@ const TOOLS = {
 };
 
 /**
- * One approved, shared container definition, as the wire carries it.
+ * One shared container definition, as the wire carries it.
  *
  * Stated in full rather than trimmed to the fields under test: `api.containers`
  * parses the response, so a summary missing `runtime`, `workdir`, `user` or
@@ -150,7 +150,6 @@ const CONTAINER = {
   limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
   capsAdded: [],
   weakened: [],
-  approved: true,
 };
 
 const SHELL_ROUTES: Record<string, StubRoute> = {
@@ -394,7 +393,7 @@ describe('the providers panel', () => {
 });
 
 describe('the tools panel', () => {
-  it('starts an approved shared tool container with a structured request', async () => {
+  it('starts a shared tool container with a structured request', async () => {
     const instances = {
       instances: [
         {

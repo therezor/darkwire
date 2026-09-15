@@ -1,16 +1,15 @@
-//! `ghostai toolbox` — list, approve and revoke toolboxes.
+//! `ghostai toolbox list` — what each installed toolbox would let an agent do.
 //!
-//! `approve` is the whole security model in one verb. It records the sha256 of
-//! the toolbox bytes *and every operation definition they name*, as they are
-//! now, and resolution later compares against that — so this is not a flag
-//! being set, it is a statement about specific content. Editing any of those
-//! files afterwards changes the hash and revokes the approval automatically,
-//! which is why nothing here needs a `--force`.
-//!
-//! The listing prints what an operator has to weigh before approving, not just
+//! The manifest on disk is the policy, so there is no verb here that changes
+//! anything; writing the file is the decision. What this prints is what an
+//! operator has to weigh before pointing an agent at one, and it is more than
 //! the id: every granted operation, its permission ceiling, and the exact
-//! program and argument mapping behind it. A review that shows only a name is a
-//! rubber stamp with extra steps.
+//! program and argument mapping behind it. A listing that shows only a name
+//! makes selection a rubber stamp with extra steps.
+//!
+//! The digest is printed too, because it is what a running command is pinned
+//! to: edit a manifest or any definition it names and the digest moves, which
+//! cancels commands running under the old one.
 
 use std::io::Write;
 
@@ -20,14 +19,14 @@ use ghostai_security::{PolicyStore, ResolvedToolbox};
 
 use crate::Streams;
 use crate::i18n::Env;
-use crate::program::{Globals, StoreAction};
+use crate::program::Globals;
 use crate::runtime::load_options;
 
-/// Everything about a toolbox that bears on whether it is safe to approve.
+/// Everything about a toolbox that bears on whether it is safe to select.
 ///
 /// Each grant is printed with the operation behind it rather than its name
 /// alone: two toolboxes can both grant `search`, and what an operator is
-/// approving is the program that runs, not the word.
+/// choosing is the program that runs, not the word.
 fn describe(resolved: &ResolvedToolbox) -> Vec<String> {
     let mut lines = Vec::new();
     for grant in &resolved.toolbox.tools {
@@ -82,19 +81,13 @@ fn permission_name(permission: ghostai_protocol::ToolPermission) -> &'static str
 }
 
 /// Runs one `ghostai toolbox` invocation and answers with its exit code.
-pub fn run(
-    globals: &Globals,
-    action: StoreAction,
-    id: Option<&str>,
-    env: &Env,
-    streams: &mut Streams,
-) -> Result<u8> {
+pub fn run(globals: &Globals, env: &Env, streams: &mut Streams) -> Result<u8> {
     let loaded = load_config(LoadConfigOptions {
         paths: load_options(globals, None, env),
         file: None,
     })?;
     let store = PolicyStore::new(loaded.paths.policy_dir.clone());
-    match act(&store, action, id, streams) {
+    match act(&store, streams) {
         Ok(code) => Ok(code),
         Err(error) => {
             // `GhostError` messages are written to be read by the person who
@@ -105,74 +98,30 @@ pub fn run(
     }
 }
 
-fn act(
-    store: &PolicyStore,
-    action: StoreAction,
-    id: Option<&str>,
-    streams: &mut Streams,
-) -> Result<u8> {
-    if action == StoreAction::List {
-        let listing = store.list_toolboxes();
-        if listing.is_empty() {
-            writeln!(
-                streams.out,
-                "No toolboxes installed under {}",
-                store.root().join("toolboxes").display()
-            )
-            .map_err(GhostError::from)?;
-            return Ok(0);
-        }
-        for entry in listing {
-            let state = if entry.approved {
-                "approved"
-            } else {
-                "NOT APPROVED"
-            };
-            writeln!(streams.out, "{}  [{state}]", entry.name).map_err(GhostError::from)?;
-            if let Some(resolved) = entry.value.as_ref() {
-                for line in describe(resolved) {
-                    writeln!(streams.out, "{line}").map_err(GhostError::from)?;
-                }
-            }
-            if let Some(problem) = entry.problem.as_deref() {
-                writeln!(streams.out, "    problem    {problem}").map_err(GhostError::from)?;
-            }
-            writeln!(streams.out).map_err(GhostError::from)?;
-        }
-        return Ok(0);
-    }
-
-    let Some(id) = id.filter(|value| !value.is_empty()) else {
-        writeln!(
-            streams.err,
-            "Which toolbox? Pass an id — see `ghostai toolbox list`."
-        )
-        .map_err(GhostError::from)?;
-        return Ok(2);
-    };
-
-    if action == StoreAction::Revoke {
-        store.revoke_toolbox(id)?;
+fn act(store: &PolicyStore, streams: &mut Streams) -> Result<u8> {
+    let listing = store.list_toolboxes();
+    if listing.is_empty() {
         writeln!(
             streams.out,
-            "Revoked {id}. The manifest is still installed; it will no longer run."
+            "No toolboxes installed under {}",
+            store.root().join("toolboxes").display()
         )
         .map_err(GhostError::from)?;
         return Ok(0);
     }
-
-    let approved = store.approve_toolbox(id)?;
-    writeln!(streams.out, "Approved {id}:").map_err(GhostError::from)?;
-    for line in describe(&approved.resolved) {
-        writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+    for entry in listing {
+        writeln!(streams.out, "{}", entry.name).map_err(GhostError::from)?;
+        if let Some(resolved) = entry.value.as_ref() {
+            for line in describe(resolved) {
+                writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+            }
+            writeln!(streams.out, "    digest     sha256:{}", resolved.digest)
+                .map_err(GhostError::from)?;
+        }
+        if let Some(problem) = entry.problem.as_deref() {
+            writeln!(streams.out, "    problem    {problem}").map_err(GhostError::from)?;
+        }
+        writeln!(streams.out).map_err(GhostError::from)?;
     }
-    writeln!(streams.out, "    bundle     sha256:{}", approved.sha256())
-        .map_err(GhostError::from)?;
-    writeln!(streams.out).map_err(GhostError::from)?;
-    writeln!(
-        streams.out,
-        "Editing the manifest or any definition it names changes this hash and\nrevokes the approval."
-    )
-    .map_err(GhostError::from)?;
     Ok(0)
 }

@@ -10,7 +10,7 @@
 //! *here* rather than in the runtime:
 //!
 //!  - **A settings save persists.** The runtime deliberately does not write
-//!    `config.json` — previewing a patch and saving one are different
+//!    `config.yaml` — previewing a patch and saving one are different
 //!    operations — so `apply_settings` is reconfigure-then-write. The write
 //!    runs after the rebuild, so a patch that cannot be built leaves both the
 //!    running server and the file on the settings that worked.

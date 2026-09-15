@@ -107,25 +107,18 @@ fn offers_extension_and_container_beside_toolbox() {
 }
 
 #[test]
-fn container_commands_carry_their_verb_and_id() {
-    for (argv, expected) in [
-        (vec!["container", "list"], (StoreAction::List, None)),
-        (
-            vec!["container", "approve", "dev"],
-            (StoreAction::Approve, Some("dev")),
-        ),
-        (
-            vec!["container", "revoke", "dev"],
-            (StoreAction::Revoke, Some("dev")),
-        ),
-    ] {
+fn container_is_a_listing_with_nothing_to_decide() {
+    // The definition file is the policy, so there is no verb here that changes
+    // one. A bare `container` and `container list` are the same request.
+    for argv in [vec!["container"], vec!["container", "list"]] {
         match invocation(&argv).command {
-            Subcommand::Container(action, id) => {
-                assert_eq!(action, expected.0);
-                assert_eq!(id.as_deref(), expected.1);
-            }
-            other => panic!("expected container command, got {other:?}"),
+            Subcommand::Container => {}
+            other => panic!("expected a container listing, got {other:?}"),
         }
+    }
+    match run(&["container", "approve", "dev"]) {
+        Parsed::Refused(_, code) => assert_ne!(code, 0),
+        other => panic!("expected approve to be gone, got {other:?}"),
     }
 }
 
@@ -155,10 +148,8 @@ fn offers_preset_with_its_three_subcommands_and_flags() {
     for flag in ["--from", "--refresh", "--offline", "--force"] {
         assert!(install.contains(flag), "{flag} missing from {install}");
     }
-    // Declared as a pair rather than as one negatable flag, which is what makes
-    // "neither was passed" a third state.
-    assert!(install.contains("--approve"));
-    assert!(install.contains("--no-approve"));
+    // Nothing to approve any more: installing a definition is the decision.
+    assert!(!install.contains("--approve"), "{install}");
 }
 
 #[test]
@@ -172,28 +163,6 @@ fn reads_a_preset_subcommands_options_whether_or_not_it_takes_arguments() {
             assert_eq!(catalogue.from.as_deref(), Some("/somewhere"));
         }
         other => panic!("expected preset list, got {other:?}"),
-    }
-}
-
-#[test]
-fn install_keeps_the_three_states_of_approve() {
-    let neither = invocation(&["preset", "install", "coder"]);
-    match neither.command {
-        Subcommand::Preset(_, PresetAction::Install { approve, ids, .. }) => {
-            assert_eq!(approve, None, "neither flag must stay the asking state");
-            assert_eq!(ids, vec!["coder".to_owned()]);
-        }
-        other => panic!("expected preset install, got {other:?}"),
-    }
-
-    for (flag, expected) in [("--approve", true), ("--no-approve", false)] {
-        let run = invocation(&["preset", "install", flag]);
-        match run.command {
-            Subcommand::Preset(_, PresetAction::Install { approve, .. }) => {
-                assert_eq!(approve, Some(expected));
-            }
-            other => panic!("expected preset install, got {other:?}"),
-        }
     }
 }
 
@@ -366,26 +335,8 @@ fn accepts_every_level_the_help_lists() {
 
 #[test]
 fn store_commands_carry_their_verb_and_id() {
-    for (argv, expected) in [
-        (vec!["toolbox", "list"], (StoreAction::List, None)),
-        (
-            vec!["toolbox", "approve", "sandbox"],
-            (StoreAction::Approve, Some("sandbox")),
-        ),
-        (
-            vec!["toolbox", "revoke", "sandbox"],
-            (StoreAction::Revoke, Some("sandbox")),
-        ),
-    ] {
-        match invocation(&argv).command {
-            Subcommand::Toolbox(action, id) => {
-                assert_eq!(action, expected.0);
-                assert_eq!(id.as_deref(), expected.1);
-            }
-            other => panic!("expected toolbox, got {other:?}"),
-        }
-    }
-
+    // Only `extension` still has three verbs: its approval is a record in a
+    // store rather than a file an operator edits.
     match invocation(&["extension", "approve", "hello"]).command {
         Subcommand::Extension(action, id) => {
             assert_eq!(action, StoreAction::Approve);
@@ -398,7 +349,11 @@ fn store_commands_carry_their_verb_and_id() {
 #[test]
 fn a_bare_store_command_lists() {
     match invocation(&["toolbox"]).command {
-        Subcommand::Toolbox(StoreAction::List, None) => {}
+        Subcommand::Toolbox => {}
+        other => panic!("expected a listing, got {other:?}"),
+    }
+    match invocation(&["extension"]).command {
+        Subcommand::Extension(StoreAction::List, None) => {}
         other => panic!("expected a listing, got {other:?}"),
     }
 }

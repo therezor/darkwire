@@ -30,7 +30,7 @@ fn install(base: &Path, id: &str, overrides: &Value, files: &[(&str, &str)]) -> 
         manifest[key] = value.clone();
     }
     write(
-        &dir.join("ghostai.extension.json"),
+        &dir.join("ghostai.extension.yaml"),
         serde_json::to_string(&manifest).unwrap(),
     );
     for (path, content) in files {
@@ -92,7 +92,7 @@ fn parses_a_manifest_and_fills_the_defaults() {
 
 #[test]
 fn parse_errors_name_the_field() {
-    assert!(message_of(&parse_extension(b"{")).contains("not valid JSON"));
+    assert!(message_of(&parse_extension(b"{")).contains("not valid YAML"));
     assert!(message_of(&parse_extension(br#"{"schema":"ghostai.extension/1"}"#)).contains("id"));
     assert!(message_of(&parse_extension(br#""a string""#)).contains("(root)"));
     assert!(
@@ -204,8 +204,8 @@ fn the_digest_is_stable_across_identical_installs_and_walks_nested_directories()
     let a = install(&base, "slack", &json!({}), ENTRY);
     let b = install(&base, "slack-two", &json!({}), ENTRY);
     write(
-        &b.join("ghostai.extension.json"),
-        std::fs::read(a.join("ghostai.extension.json")).unwrap(),
+        &b.join("ghostai.extension.yaml"),
+        std::fs::read(a.join("ghostai.extension.yaml")).unwrap(),
     );
     assert_eq!(extension_digest(&b).unwrap(), extension_digest(&a).unwrap());
 
@@ -277,7 +277,7 @@ fn install_v2(base: &Path, id: &str, command: &Value, files: &[(&str, &str)]) ->
     let dir = base.join(id);
     std::fs::create_dir_all(&dir).unwrap();
     write(
-        &dir.join("ghostai.extension.json"),
+        &dir.join("ghostai.extension.yaml"),
         serde_json::to_string(&json!({
             "schema": "ghostai.extension/2",
             "id": id,
@@ -380,7 +380,7 @@ fn a_v1_manifest_is_still_held_to_the_entry_rule() {
     let dir = base.join("slack");
     std::fs::create_dir_all(&dir).unwrap();
     write(
-        &dir.join("ghostai.extension.json"),
+        &dir.join("ghostai.extension.yaml"),
         r#"{"schema":"ghostai.extension/1","id":"slack","entry":"dist/index.cjs","command":["node","index.mjs"]}"#,
     );
     write(&dir.join("dist/index.cjs"), "module.exports = {};\n");

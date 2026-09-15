@@ -933,7 +933,7 @@ fn output_set(field: &str, renderer: &mut TurnRenderer, on: bool) {
 /// switch expects; `on` and `off` say it outright, for one that has lost track.
 /// The setting lasts as long as the process: `--no-reasoning` is how a script
 /// says it once, and a prompt asking to see less for the next few turns has not
-/// made a decision worth writing to `config.json`.
+/// made a decision worth writing to `config.yaml`.
 fn output_command(
     field: Option<&str>,
     word: Option<&str>,

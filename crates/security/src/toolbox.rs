@@ -2,12 +2,12 @@
 //!
 //! A toolbox names reusable operation definitions rather than carrying them, so
 //! one reviewed `git-status` is shared by every toolbox that grants it. That
-//! makes the approval question wider than one file: [`resolve_bundle`] reads
+//! makes the identity of a toolbox wider than one file: [`resolve_bundle`] reads
 //! the toolbox and each definition it names **once**, hashes those same bytes
 //! together, and returns the values it parsed from them. Hashing the bundle is
-//! what makes editing a shared definition revoke every toolbox that reaches it;
-//! hashing the bytes it actually parsed is what stops a definition being read
-//! twice and changing in between.
+//! what makes editing a shared definition move the digest of every toolbox that
+//! reaches it; hashing the bytes it actually parsed is what stops a definition
+//! being read twice and changing in between.
 //!
 //! The constraints on an operation are all about the same thing: an operation
 //! is a fixed program and a reviewed argument mapping, never a shell string.
@@ -17,11 +17,11 @@
 //! is no command to filter — they are what keeps the argv shape honest:
 //!
 //!  - **The schema must be self-contained.** A `$ref` would make validation
-//!    fetch something, at approval time and again at call time, and the two
+//!    fetch something, at resolution time and again at call time, and the two
 //!    could differ.
 //!  - **The executable is absolute and outside the workspace.** A relative path
 //!    resolves against a working directory nobody stated, and one inside the
-//!    workspace is a file `write_file` can replace between approval and call.
+//!    workspace is a file `write_file` can replace between resolution and call.
 //!  - **Every argv input is a required scalar.** Optional means the argv has a
 //!    hole at a position the operator counted on being filled; a non-scalar
 //!    means one input becomes several arguments, which is the shell-injection
@@ -76,13 +76,13 @@ pub struct ResolvedToolbox {
     pub toolbox: Toolbox,
     /// Each grant's name mapped to the definition it resolved to.
     pub operations: BTreeMap<String, ToolOperation>,
-    /// The hash over the toolbox and every definition it names.
-    pub sha256: String,
+    /// The digest over the toolbox and every definition it names.
+    pub digest: String,
 }
 
 fn read_dependency(root: &Path, folder: &str, name: &str, bundle: &mut Vec<u8>) -> Result<Vec<u8>> {
     assert_slug(name)?;
-    let path = root.join(folder).join(format!("{name}.json"));
+    let path = root.join(folder).join(format!("{name}.yaml"));
     let bytes = std::fs::read(&path)
         .map_err(|e| invalid(format!("Cannot read {}: {e}", path.display())))?;
     // Length framing prevents ambiguous concatenations across dependencies: two
@@ -101,7 +101,7 @@ pub fn resolve_bundle(root: &Path, bytes: &[u8]) -> Result<ResolvedToolbox> {
     let mut operations = BTreeMap::new();
     for grant in &toolbox.tools {
         let bytes = read_dependency(root, "tool-definitions", &grant.definition, &mut bundle)?;
-        let operation: ToolOperation = serde_json::from_slice(&bytes)
+        let operation: ToolOperation = serde_yaml_ng::from_slice(&bytes)
             .map_err(|e| invalid(format!("{}: {e}", grant.definition)))?;
         validate_operation(&operation)?;
         if operations.insert(grant.name.clone(), operation).is_some() {
@@ -111,7 +111,7 @@ pub fn resolve_bundle(root: &Path, bytes: &[u8]) -> Result<ResolvedToolbox> {
     Ok(ResolvedToolbox {
         toolbox,
         operations,
-        sha256: manifest_hash(&bundle),
+        digest: manifest_hash(&bundle),
     })
 }
 
@@ -138,7 +138,7 @@ fn reject_references(value: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Validate an operation's schema and argument mapping before approval.
+/// Validate an operation's schema and argument mapping before it is granted.
 pub fn validate_operation(operation: &ToolOperation) -> Result<()> {
     reject_references(&operation.parameters)?;
     if operation.parameters.get("type") != Some(&Value::from("object"))
@@ -221,7 +221,7 @@ pub fn validate_operation(operation: &ToolOperation) -> Result<()> {
     Ok(())
 }
 
-/// Validate one call against the exact approved input schema.
+/// Validate one call against the exact granted input schema.
 pub fn validate_input(operation: &ToolOperation, input: &Value) -> Result<()> {
     let validator =
         jsonschema::validator_for(&operation.parameters).map_err(|e| invalid(e.to_string()))?;

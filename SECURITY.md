@@ -28,8 +28,10 @@ Anything that lets someone do something the operator did not authorise, in parti
   that crosses an origin carrying credentials.
 - Reading a credential back out of the vault over HTTP, or out of a log.
 - Bypassing the approval gate: an `ask` tool that runs without the operator answering.
-- Running an unapproved toolbox or extension, or getting an approval to survive a change
+- Running an unapproved extension, or getting an extension approval to survive a change
   to the bytes it covers.
+- Running a toolbox operation or a container whose definition has changed under it, or
+  reaching a definition outside `~/.ghostai/policy/`.
 - Authentication bypass, session fixation, or defeating the login throttle.
 - Escaping a toolbox container, or widening its network mode beyond the manifest's
   ceiling.

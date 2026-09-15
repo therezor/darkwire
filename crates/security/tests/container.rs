@@ -65,9 +65,9 @@ fn parses_a_minimal_definition_with_every_default() {
 
 #[test]
 fn parse_errors_name_the_problem() {
-    let not_json = parse_container(b"not json").unwrap_err();
-    assert_eq!(not_json.kind, ErrorKind::Config);
-    assert!(not_json.message.contains("not valid JSON"));
+    let malformed = parse_container(b"{").unwrap_err();
+    assert_eq!(malformed.kind, ErrorKind::Config);
+    assert!(malformed.message.contains("not valid YAML"));
 
     let schema = message_of(&parse_container(&definition_bytes(
         &json!({"schema": "ghostai.container/2"}),

@@ -171,7 +171,7 @@ interface ModelChoice {
  *  - **`auto` offers everything.** It is not a provider, it is "resolve one",
  *    so narrowing the list would leave a fresh install with no models at all.
  *  - **The current model is always in the list**, even when no provider
- *    advertises it. A model typed into `config.json` by hand, or one a provider
+ *    advertises it. A model typed into `config.yaml` by hand, or one a provider
  *    stopped listing, is still the model this agent is running — and a picker
  *    that silently drops the selected value changes the setting by rendering.
  */

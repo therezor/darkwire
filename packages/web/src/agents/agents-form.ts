@@ -301,7 +301,7 @@ function isPromptMode(value: string): value is PromptMode {
  * The overrides that actually say something.
  *
  * The editor holds a row for every tool an operator has opened, so most of them
- * are empty most of the time. Storing those would fill `config.json` with blank
+ * are empty most of the time. Storing those would fill `config.yaml` with blank
  * descriptions that are indistinguishable, on the way back in, from a deliberate
  * one — and `''` is precisely the value that means "inherit the built-in", so a
  * stored blank is not merely noise but a lie about what was chosen.

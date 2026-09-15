@@ -1,0 +1,13 @@
+---
+schema: ghostai.extension/2
+id: hello
+version: 2.0.0
+label: Hello
+description: 'A reference extension: one tool, one prompt section, one command.'
+command:
+  - node
+  - index.mjs
+contributes:
+  - tools
+  - context
+  - commands

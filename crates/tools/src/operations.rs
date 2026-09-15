@@ -1,25 +1,25 @@
 //! A toolbox's granted operations, as the tools an agent actually calls.
 //!
-//! [`approved_operation_scope`] builds a **complete** scope rather than an
+//! [`toolbox_operation_scope`] builds a **complete** scope rather than an
 //! overlay on the built-ins, and that is the design rather than an
 //! optimisation. An agent with a toolbox can call its grants and nothing else:
 //! no `exec` to reach a program the toolbox did not grant, no `read_file`
-//! outside what an operation was approved to read. A toolbox that wants a
+//! outside what an operation was granted to read. A toolbox that wants a
 //! built-in back grants it explicitly, as a `registered` operation pinned to
 //! that tool's own definition digest, so "this agent may read files" is a line
 //! in a reviewed manifest instead of a default nobody chose.
 //!
-//! Authorisation is re-checked **during** a call, not only before it. A turn
-//! can run for minutes, and an operator who revokes a toolbox mid-run means it
-//! now, not when the process happens to exit. A 250 ms ticker re-resolves the
-//! approval beside the running command and cancels the moment the hash it was
-//! authorised under stops matching.
+//! The toolbox is re-read **during** a call, not only before it. A turn can run
+//! for minutes, and an operator who edits a toolbox mid-run means it now, not
+//! when the process happens to exit. A 250 ms ticker re-resolves the manifest
+//! beside the running command and cancels the moment its digest stops matching
+//! the one the call was prepared against.
 
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::toolbox::{OperationImplementation, ToolOperation};
 use ghostai_protocol::{ToolDefinition, ToolPermissions, ToolRisk, ToolSource};
 use ghostai_security::{
-    ApprovedToolbox, ExecGuardOptions, PolicyStore, command_argv, guard_exec, manifest_hash,
+    ExecGuardOptions, InstalledToolbox, PolicyStore, command_argv, guard_exec, manifest_hash,
     narrow_permission, toolbox::invalid, validate_input,
 };
 use serde_json::Value;
@@ -29,53 +29,57 @@ use crate::{
     AnyTool, BoxFuture, RunRequest, Tool, ToolContext, ToolExecution, ToolRegistry, ToolScope,
 };
 
-/// How long an in-flight operation may go unchecked against its approval.
-const REAUTHORIZE_INTERVAL_MS: u64 = 250;
+/// How long an in-flight operation may go unchecked against its definition.
+const DRIFT_CHECK_INTERVAL_MS: u64 = 250;
 
 /// The sandbox service, injected without giving tools an engine handle.
 ///
 /// A tool that could talk to the container engine directly would be a tool that
 /// could choose its own image and mounts. This trait is the whole of what one
-/// may ask for: a named operation in a named toolbox, at an approval hash the
-/// service verifies for itself.
+/// may ask for: a named operation in a named toolbox, at a digest the service
+/// resolves and verifies for itself.
 pub trait OperationExecutor: Send + Sync {
-    /// Execute a named approved operation. Inputs stay structured across the
+    /// Execute a named granted operation. Inputs stay structured across the
     /// boundary — nothing is ever flattened into a command string.
     fn execute<'a>(
         &'a self,
         toolbox: &'a str,
-        approval: &'a str,
+        digest: &'a str,
         operation: &'a str,
         args: Value,
         ctx: &'a ToolContext,
     ) -> BoxFuture<'a, ToolExecution>;
 }
 
-struct ApprovedOperation {
+struct ToolboxOperation {
     definition: ToolDefinition,
     operation: ToolOperation,
     toolbox: String,
-    hash: String,
+    digest: String,
     store: Arc<PolicyStore>,
     registry: Arc<ToolRegistry>,
     remote: Option<Arc<dyn OperationExecutor>>,
 }
 
-impl ApprovedOperation {
+impl ToolboxOperation {
     /// Whether the toolbox still resolves to the bytes this tool was built
     /// from.
-    fn still_authorized(&self) -> bool {
+    fn unchanged(&self) -> bool {
         self.store
             .require_toolbox(&self.toolbox)
-            .is_ok_and(|approved| approved.sha256() == self.hash)
+            .is_ok_and(|installed| installed.digest() == self.digest)
     }
 
-    fn revoked() -> ToolExecution {
-        GhostError::new(ErrorKind::Tool, "Toolbox approval revoked during execution").into()
+    fn changed_mid_run() -> ToolExecution {
+        GhostError::new(
+            ErrorKind::Tool,
+            "The toolbox definition changed while this command was running",
+        )
+        .into()
     }
 }
 
-impl Tool for ApprovedOperation {
+impl Tool for ToolboxOperation {
     fn definition(&self) -> &ToolDefinition {
         &self.definition
     }
@@ -86,7 +90,7 @@ impl Tool for ApprovedOperation {
 
     fn execute<'a>(&'a self, args: Value, ctx: &'a ToolContext) -> BoxFuture<'a, ToolExecution> {
         Box::pin(async move {
-            if !self.still_authorized() {
+            if !self.unchanged() {
                 return invalid("Toolbox changed; reload the agent before executing").into();
             }
             if let Err(error) = validate_input(&self.operation, &args) {
@@ -102,7 +106,13 @@ impl Tool for ApprovedOperation {
                 OperationImplementation::Command { .. } | OperationImplementation::Transcript => {
                     if let Some(remote) = &self.remote {
                         return remote
-                            .execute(&self.toolbox, &self.hash, &self.definition.name, args, ctx)
+                            .execute(
+                                &self.toolbox,
+                                &self.digest,
+                                &self.definition.name,
+                                args,
+                                ctx,
+                            )
                             .await;
                     }
                     self.run_locally(args, ctx).await
@@ -112,10 +122,10 @@ impl Tool for ApprovedOperation {
     }
 }
 
-impl ApprovedOperation {
+impl ToolboxOperation {
     /// A built-in, MCP or extension tool the toolbox granted by name.
     ///
-    /// The digest is re-checked here as well as at approval, because an
+    /// The digest is re-checked here as well as at resolution, because an
     /// extension can be replaced or an MCP server can re-advertise a tool of
     /// the same name with a different schema while the process is running. A
     /// grant is for the definition that was reviewed, not for the name.
@@ -141,7 +151,7 @@ impl ApprovedOperation {
             .as_deref()
             != Some(digest)
         {
-            return invalid("Registered tool identity changed; review and approve its definition")
+            return invalid("Registered tool identity changed; review the toolbox definition")
                 .into();
         }
         let token = ctx.token.child_token();
@@ -192,7 +202,7 @@ impl ApprovedOperation {
         .await
     }
 
-    /// Runs `work` while re-checking the approval beside it, cancelling the
+    /// Runs `work` while re-reading the definition beside it, cancelling the
     /// moment it stops matching.
     async fn watch(
         &self,
@@ -201,18 +211,18 @@ impl ApprovedOperation {
     ) -> ToolExecution {
         tokio::pin!(work);
         let mut interval =
-            tokio::time::interval(std::time::Duration::from_millis(REAUTHORIZE_INTERVAL_MS));
+            tokio::time::interval(std::time::Duration::from_millis(DRIFT_CHECK_INTERVAL_MS));
         loop {
             tokio::select! {
                 result = &mut work => return result,
                 _ = interval.tick() => {
-                    if !self.still_authorized() {
+                    if !self.unchanged() {
                         token.cancel();
                         // Awaited rather than dropped: the work owns a child
                         // process, and returning first would leave it running
                         // with nothing holding a handle to stop it.
                         let _ = (&mut work).await;
-                        return Self::revoked();
+                        return Self::changed_mid_run();
                     }
                 }
             }
@@ -220,7 +230,7 @@ impl ApprovedOperation {
     }
 }
 
-/// Stable approval identity of a registered tool's schema and source.
+/// Stable identity of a registered tool's schema and source.
 pub fn definition_digest(definition: &ToolDefinition) -> Result<String> {
     serde_json::to_vec(definition)
         .map(|bytes| manifest_hash(&bytes))
@@ -233,8 +243,8 @@ pub fn definition_digest(definition: &ToolDefinition) -> Result<String> {
 /// each grant's ceiling. `*` stands for every grant it does not name, so
 /// `{"*": "deny", "git_status": "allow"}` is one line rather than a denial per
 /// grant — and "allow" there cannot raise a grant the manifest marked `ask`.
-pub fn approved_operation_scope(
-    approved: &ApprovedToolbox,
+pub fn toolbox_operation_scope(
+    installed: &InstalledToolbox,
     store: &Arc<PolicyStore>,
     registry: &Arc<ToolRegistry>,
     overrides: &ToolPermissions,
@@ -242,8 +252,8 @@ pub fn approved_operation_scope(
 ) -> Result<Arc<dyn ToolScope>> {
     let scoped = Arc::new(ToolRegistry::new());
     let mut permissions = ToolPermissions::new();
-    for grant in &approved.resolved.toolbox.tools {
-        let operation = approved
+    for grant in &installed.resolved.toolbox.tools {
+        let operation = installed
             .resolved
             .operations
             .get(&grant.name)
@@ -268,13 +278,13 @@ pub fn approved_operation_scope(
                     .ok_or_else(|| invalid(format!("Tool {tool} is not installed")))?;
                 if definition_digest(&definition)? != *digest {
                     return Err(invalid(format!(
-                        "Tool {tool} identity does not match the approved definition"
+                        "Tool {tool} identity does not match the granted definition"
                     )));
                 }
                 definition.risk
             }
         };
-        let tool: AnyTool = Arc::new(ApprovedOperation {
+        let tool: AnyTool = Arc::new(ToolboxOperation {
             definition: ToolDefinition {
                 name: grant.name.clone(),
                 description: operation.description.clone(),
@@ -290,8 +300,8 @@ pub fn approved_operation_scope(
                 annotations: None,
             },
             operation,
-            toolbox: approved.resolved.toolbox.name.clone(),
-            hash: approved.sha256().to_owned(),
+            toolbox: installed.resolved.toolbox.name.clone(),
+            digest: installed.digest().to_owned(),
             store: Arc::clone(store),
             registry: Arc::clone(registry),
             remote: remote.map(Arc::clone),

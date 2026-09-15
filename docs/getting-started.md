@@ -165,12 +165,11 @@ ghostai preset install
 ```
 
 Tick the agents you want and it does the rest — including building the container images
-the ones you ticked need, which is why picking only `nano` needs no Docker at all. It
-stops short of one thing: an agent that works in a container cannot run until you
-**approve** that container, so the run prints what each box may do — its network ceiling,
-its limits, any hardening it switches off — and asks. Answering no is fine; it prints the
-`ghostai toolbox approve <name>` line and you can read the manifest first.
-[Toolboxes](toolboxes.md) explains why approval is a step of its own.
+the ones you ticked need, which is why picking only `nano` needs no Docker at all. The run
+prints what each box may do — its network ceiling, its limits, any hardening it switches
+off — so you can read a manifest before an agent uses it. `ghostai toolbox list` and
+`ghostai container list` print the same thing again at any time.
+[Toolboxes](toolboxes.md) explains what each manifest decides.
 
 ## 4. Your first conversation
 
@@ -260,13 +259,13 @@ Everything is under `~/.ghostai`, or `$GHOSTAI_HOME`:
 
 | Path                        | What                                                                                |
 | --------------------------- | ----------------------------------------------------------------------------------- |
-| `config.json`               | The settings tree. **Safe to commit** — no credentials are in it.                   |
+| `config.yaml`               | The settings tree. **Safe to commit** — no credentials are in it.                   |
 | `ghost.db`                  | Sessions, messages, turn stats, auth, notifications, approvals.                     |
 | `vault.json` + `vault.key`  | The encrypted credential vault. The key moves to the OS keychain when there is one. |
 | `workspace/`                | The only tree the agent's file tools can reach.                                     |
 | `toolboxes/`, `extensions/` | Installed manifests — beside the workspace, never inside it.                        |
 
-API keys never go in `config.json`. They go to the vault, keyed by provider instance, so
+API keys never go in `config.yaml`. They go to the vault, keyed by provider instance, so
 you can commit your settings and share them.
 
 ## 8. Adding a second model
@@ -296,7 +295,7 @@ key at all. See [Providers](providers.md).
 | Page                                      | What it covers                                       |
 | ----------------------------------------- | ---------------------------------------------------- |
 | [CLI](cli.md)                             | Every command, flag and slash command                |
-| [Configuration](configuration.md)         | Every key in `config.json`, its type and its default |
+| [Configuration](configuration.md)         | Every key in `config.yaml`, its type and its default |
 | [Tools & permissions](tools.md)           | The eight built-ins and who may call them            |
 | [Web UI](web-ui.md)                       | Every screen, and what it does                       |
 | [Security](security.md)                   | Each guard, the attack it closes, and its limits     |

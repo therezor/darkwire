@@ -187,11 +187,11 @@ fn the_manual_clock_measures_the_cache_rather_than_the_wall() {
 
 // ------------------------------------------------------------ the listing
 
-/// An install whose `config.json` is the value given.
+/// An install whose `config.yaml` is the value given.
 fn install(config: &serde_json::Value) -> (TempDir, Arc<GhostRuntime>) {
     let temp = TempDir::new().expect("a temporary home");
     std::fs::write(
-        temp.path().join("config.json"),
+        temp.path().join("config.yaml"),
         serde_json::to_string_pretty(config).expect("the fixture config serialises"),
     )
     .expect("the config is written");

@@ -5,7 +5,7 @@
  * key field's rules are pure functions, the routes accept what the screens
  * send. What only a browser can show is that they are wired to each other —
  * that one press on the editor moves *both* halves of an endpoint, the
- * connection into `config.json` and the credential into the vault, on two
+ * connection into `config.yaml` and the credential into the vault, on two
  * different routes in the order the vault requires. Before they were merged,
  * "they both work" was two separate facts.
  *

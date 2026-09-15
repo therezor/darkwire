@@ -9,7 +9,7 @@
 //!    enforce that — it is enforced by the response simply not containing one.
 //!    (What the settings tree *does* carry is `providers.<id>.extraHeaders` and
 //!    an MCP server's `headers`: those are operator-typed config that lives in
-//!    `config.json` in the clear, and the panel showing them is the panel they
+//!    `config.yaml` in the clear, and the panel showing them is the panel they
 //!    were typed into.)
 //!
 //!  - **A patch that could not be served is refused at save time.** Saving
@@ -112,7 +112,7 @@ pub async fn patch(
     Ok(Json(settings_response(&state)))
 }
 
-/// Re-read `config.json` from disk and rebuild what depends on it.
+/// Re-read `config.yaml` from disk and rebuild what depends on it.
 ///
 /// The settings tree on the way out, because that is the question the caller is
 /// really asking: not "did it work" but "what is it running now". A body of

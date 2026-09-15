@@ -263,7 +263,7 @@ async fn hands_an_extension_its_settings_block_from_the_config_tree() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn reloading_extensions_is_the_path_an_approval_takes() {
-    // Approving records a row in a table rather than editing `config.json`, so
+    // Approving records a row in a table rather than editing `config.yaml`, so
     // neither a reconfigure nor a reload — which both start from settings —
     // would ever notice it.
     let install = Install::with(&configured("llama3"));

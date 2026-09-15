@@ -42,7 +42,7 @@ use std::time::Duration;
 use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
 use ghostai_protocol::toolbox::ContainerDefinition;
 use ghostai_protocol::{ContainerNetwork, NetworkMode, SandboxInstanceSummary};
-use ghostai_security::{ApprovedContainer, PolicyStore, assert_container_network};
+use ghostai_security::{InstalledContainer, PolicyStore, assert_container_network};
 use ghostai_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerRunner, ContainerRunnerOptions,
     PlacementRequest, RunOutcome, RunRequest, WorkspaceMount, container_create_argv,
@@ -442,9 +442,9 @@ impl ContainerPool {
         Ok(())
     }
 
-    /// Periodic cleanup, plus a sweep for instances whose definition stopped
-    /// being approved. An in-flight operation revalidates on its own ticker;
-    /// this is what catches an idle warm container nothing is about to call.
+    /// Periodic cleanup, plus a sweep for instances whose definition moved out
+    /// from under them. An in-flight operation re-reads on its own ticker; this
+    /// is what catches an idle warm container nothing is about to call.
     pub fn maintain(&self) {
         self.reap_idle();
         let valid: std::collections::BTreeSet<String> = self
@@ -452,9 +452,8 @@ impl ContainerPool {
             .policies
             .list_containers()
             .into_iter()
-            .filter(|entry| entry.approved)
             .filter_map(|entry| self.options.policies.require_container(&entry.name).ok())
-            .map(|entry| entry.sha256)
+            .map(|entry| entry.digest)
             .collect();
         let invalid: Vec<String> = self
             .live
@@ -572,19 +571,16 @@ impl ContainerPool {
     /// container and so runs on the host.
     ///
     /// The toolbox is not consulted: which operations an agent may call and
-    /// where one runs are two approvals, and the pool only answers the second.
+    /// where one runs are two decisions, and the pool only answers the second.
     fn container_spec(&self, request: &PlacementRequest) -> Result<Option<ContainerSpec>> {
         if request.container.is_empty() {
             return Ok(None);
         }
-        let ApprovedContainer { definition, sha256 } = self
+        let InstalledContainer { definition, digest } = self
             .options
             .policies
             .require_container(&request.container)?;
-        Ok(Some(ContainerSpec {
-            definition,
-            digest: sha256,
-        }))
+        Ok(Some(ContainerSpec { definition, digest }))
     }
 
     /// The key this request's instance lives under, private or shared.

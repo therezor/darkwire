@@ -32,7 +32,7 @@ use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
 
 /// The file every installed extension is found by.
-pub const EXTENSION_MANIFEST_FILE: &str = "ghostai.extension.json";
+pub const EXTENSION_MANIFEST_FILE: &str = "ghostai.extension.yaml";
 
 /// How many files of an install directory the digest will walk.
 ///

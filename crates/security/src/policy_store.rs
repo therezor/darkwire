@@ -1,38 +1,30 @@
-//! Installed toolboxes and containers, and which of them an operator approved.
+//! Installed toolboxes and container definitions.
 //!
-//! Two halves that deliberately do not trust each other. A definition is a file
-//! on disk, editable by anything with write access. The approval is a second
-//! file recording the sha256 of the exact bytes that were reviewed. Neither is
-//! authority on its own: resolution asks whether *these* bytes are approved, so
-//! editing an installed definition silently revokes its approval and the next
-//! turn refuses with a sentence naming the drift. Nobody has to remember to
-//! re-approve, because they cannot avoid it.
+//! A definition is a file on disk and that file is the policy. Writing it is
+//! the decision, the same way writing `config.yaml` is: there is no second
+//! artefact recording that somebody consented to these bytes. What keeps that
+//! honest is where the directory sits rather than what is in it — the policy
+//! root is **beside** the workspace, never inside it. The jail root *is* the
+//! workspace, so a definition kept in there would be writable by `write_file`,
+//! and prompt injection would become a way to rewrite the policy the agent runs
+//! under.
 //!
-//! **The approval is a file rather than a database row**, and that is what lets
-//! the sandbox service enforce the same answer. The service owns the container
-//! engine and the app does not; both read this directory, neither writes the
-//! other's state, and the approval they check is one artefact rather than two
-//! that could disagree. A row in the app's database would have to be told to
-//! the service over the socket, which would make the app the authority on what
-//! the service is allowed to run.
-//!
-//! The policy directory sits **beside** the workspace, never inside it — the
-//! same placement, and the same reason, as the shared directory: the jail root
-//! *is* the workspace, so a definition kept in there would be writable by
-//! `write_file`, and prompt injection would become a way to rewrite the policy
-//! the agent runs under.
+//! **Every definition still carries a digest, and it is not consent.** It is
+//! identity: two container definitions that differ never share a warm instance,
+//! a definition edited while a command is running cancels that command, and an
+//! idle container whose definition changed is swept. Those are properties of
+//! *which bytes these are*, so the hash outlives the approval that used to be
+//! recorded against it.
 //!
 //! ```text
 //! <policy root>/
-//! ├── toolboxes/<name>.json                 ghostai.toolbox/1
-//! ├── toolboxes/<name>.approval.sha256      over the toolbox and its definitions
-//! ├── tool-definitions/<name>.json          ghostai.tool/1
-//! ├── containers/<name>.json                ghostai.container/1
-//! └── containers/<name>.approval.sha256     over the definition alone
+//! ├── toolboxes/<name>.yaml                 ghostai.toolbox/1
+//! ├── tool-definitions/<name>.yaml          ghostai.tool/1
+//! └── containers/<name>.yaml                ghostai.container/1
 //! ```
 //!
-//! A tool definition has no approval of its own. It is covered by the hash of
-//! every toolbox that names it, which is stricter than approving it once: a
+//! A tool definition has no digest of its own. It is covered by the digest of
+//! every toolbox that names it, which is stricter than hashing it once: a
 //! definition shared by three toolboxes cannot be edited without all three
 //! noticing.
 
@@ -75,30 +67,30 @@ impl Kind {
     }
 }
 
-/// A toolbox that parsed, resolved its operations, and matches its approval.
+/// A toolbox that parsed and resolved every operation it grants.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ApprovedToolbox {
+pub struct InstalledToolbox {
     /// The manifest and every operation it grants.
     pub resolved: ResolvedToolbox,
     /// Host path of the manifest.
     pub path: PathBuf,
 }
 
-impl ApprovedToolbox {
-    /// The hash the approval was recorded against.
+impl InstalledToolbox {
+    /// The digest over the manifest and every definition it names.
     #[must_use]
-    pub fn sha256(&self) -> &str {
-        &self.resolved.sha256
+    pub fn digest(&self) -> &str {
+        &self.resolved.digest
     }
 }
 
-/// A container definition that matches its independently recorded approval.
+/// A container definition that parsed and passed install policy.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ApprovedContainer {
+pub struct InstalledContainer {
     /// The validated definition.
     pub definition: ContainerDefinition,
-    /// SHA-256 recorded by the approval.
-    pub sha256: String,
+    /// SHA-256 of the exact bytes on disk. Identity, not consent.
+    pub digest: String,
 }
 
 /// One installed definition, usable or not.
@@ -110,8 +102,6 @@ pub struct Listing<T> {
     pub path: PathBuf,
     /// The parsed value, when it could be read and parsed.
     pub value: Option<T>,
-    /// Whether the bytes on disk are the approved ones.
-    pub approved: bool,
     /// Why it cannot be used, or `None` when it can.
     pub problem: Option<String>,
 }
@@ -121,7 +111,7 @@ pub type ToolboxListing = Listing<ResolvedToolbox>;
 /// One installed container definition.
 pub type ContainerListing = Listing<ContainerDefinition>;
 
-/// The approval ledger over one operator-controlled policy directory.
+/// The definitions in one operator-controlled policy directory.
 #[derive(Clone)]
 pub struct PolicyStore {
     root: PathBuf,
@@ -159,11 +149,7 @@ impl PolicyStore {
         Ok(self
             .root
             .join(kind.directory())
-            .join(format!("{name}.json")))
-    }
-
-    fn approval_path(&self, kind: Kind, name: &str) -> Result<PathBuf> {
-        Ok(self.path_for(kind, name)?.with_extension("approval.sha256"))
+            .join(format!("{name}.yaml")))
     }
 
     /// Where a toolbox's manifest lives, once the name is known to be a slug.
@@ -201,64 +187,6 @@ impl PolicyStore {
         }
     }
 
-    fn approved_hash(&self, kind: Kind, name: &str) -> Result<Option<String>> {
-        match std::fs::read_to_string(self.approval_path(kind, name)?) {
-            Ok(hash) => Ok(Some(hash.trim().to_owned())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(invalid(error.to_string())),
-        }
-    }
-
-    /// Writes through a temporary file so a crash cannot leave a half-written
-    /// hash that matches nothing and refuses everything.
-    fn write_approval(&self, kind: Kind, name: &str, hash: &str) -> Result<()> {
-        let path = self.approval_path(kind, name)?;
-        let temporary = path.with_extension(format!(
-            "tmp-{}",
-            crate::random::hex_lower(&rand::random::<[u8; 16]>())
-        ));
-        std::fs::write(&temporary, hash).map_err(|e| invalid(e.to_string()))?;
-        std::fs::rename(&temporary, &path).map_err(|e| invalid(e.to_string()))
-    }
-
-    fn clear_approval(&self, kind: Kind, name: &str) -> Result<()> {
-        match std::fs::remove_file(self.approval_path(kind, name)?) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(invalid(error.to_string())),
-        }
-    }
-
-    /// Every failure mode gets its own sentence. "Not installed" and "installed
-    /// but not approved" and "edited since approval" are three different things
-    /// for an operator to do next, and collapsing them into one message turns a
-    /// two-second fix into a hunt.
-    fn check_approval(&self, kind: Kind, name: &str, hash: &str) -> Result<()> {
-        let noun = kind.noun();
-        let command = kind.command();
-        let Some(approved) = self.approved_hash(kind, name)? else {
-            return Err(GhostError::new(
-                ErrorKind::Config,
-                format!(
-                    "{noun} \"{name}\" is installed but has never been approved.\n  Review what it asks for with `ghostai {command} list`, then `ghostai {command} approve {name}`."
-                ),
-            )
-            .with_detail("name", name));
-        };
-        if approved != hash {
-            return Err(GhostError::new(
-                ErrorKind::Config,
-                format!(
-                    "{noun} \"{name}\" has changed since it was approved.\n  What is on disk no longer matches what was reviewed, so it will not be used.\n  Review the change with `ghostai {command} list`, then `ghostai {command} approve {name}`."
-                ),
-            )
-            .with_detail("name", name)
-            .with_detail("approved", approved)
-            .with_detail("actual", hash.to_owned()));
-        }
-        Ok(())
-    }
-
     fn missing(kind: Kind, name: &str) -> GhostError {
         let noun = kind.noun();
         let hint = match kind {
@@ -266,7 +194,7 @@ impl PolicyStore {
                 "\n  Install one with `ghostai preset install`, or clear the agent's toolbox."
             }
             Kind::Container => {
-                "\n  Install one with `ghostai preset install`, or clear the agent's container."
+                "\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's container."
             }
         };
         GhostError::new(
@@ -302,62 +230,25 @@ impl PolicyStore {
         Ok((definition, manifest_hash(bytes)))
     }
 
-    /// The toolbox an agent named, or a refusal explaining which half is
-    /// missing.
-    pub fn require_toolbox(&self, name: &str) -> Result<ApprovedToolbox> {
+    /// The toolbox an agent named, or a refusal saying what is wrong with it.
+    pub fn require_toolbox(&self, name: &str) -> Result<InstalledToolbox> {
         let Some(bytes) = self.read(Kind::Toolbox, name)? else {
             return Err(Self::missing(Kind::Toolbox, name));
         };
         let resolved = self.resolve_toolbox(name, &bytes)?;
-        self.check_approval(Kind::Toolbox, name, &resolved.sha256)?;
-        Ok(ApprovedToolbox {
+        Ok(InstalledToolbox {
             resolved,
             path: self.toolbox_path(name)?,
         })
     }
 
-    /// The container an agent named, or a refusal explaining which half is
-    /// missing.
-    pub fn require_container(&self, name: &str) -> Result<ApprovedContainer> {
+    /// The container an agent named, or a refusal saying what is wrong with it.
+    pub fn require_container(&self, name: &str) -> Result<InstalledContainer> {
         let Some(bytes) = self.read(Kind::Container, name)? else {
             return Err(Self::missing(Kind::Container, name));
         };
-        let (definition, sha256) = Self::resolve_container(name, &bytes)?;
-        self.check_approval(Kind::Container, name, &sha256)?;
-        Ok(ApprovedContainer { definition, sha256 })
-    }
-
-    /// Records the hash of what is on disk now. This *is* the approval.
-    pub fn approve_toolbox(&self, name: &str) -> Result<ApprovedToolbox> {
-        let Some(bytes) = self.read(Kind::Toolbox, name)? else {
-            return Err(Self::missing(Kind::Toolbox, name));
-        };
-        let resolved = self.resolve_toolbox(name, &bytes)?;
-        self.write_approval(Kind::Toolbox, name, &resolved.sha256)?;
-        Ok(ApprovedToolbox {
-            resolved,
-            path: self.toolbox_path(name)?,
-        })
-    }
-
-    /// Records the hash of the definition on disk now.
-    pub fn approve_container(&self, name: &str) -> Result<ApprovedContainer> {
-        let Some(bytes) = self.read(Kind::Container, name)? else {
-            return Err(Self::missing(Kind::Container, name));
-        };
-        let (definition, sha256) = Self::resolve_container(name, &bytes)?;
-        self.write_approval(Kind::Container, name, &sha256)?;
-        Ok(ApprovedContainer { definition, sha256 })
-    }
-
-    /// Forgets an approval. The manifest stays on disk; it stops resolving.
-    pub fn revoke_toolbox(&self, name: &str) -> Result<()> {
-        self.clear_approval(Kind::Toolbox, name)
-    }
-
-    /// Forgets a container's approval without removing its definition.
-    pub fn revoke_container(&self, name: &str) -> Result<()> {
-        self.clear_approval(Kind::Container, name)
+        let (definition, digest) = Self::resolve_container(name, &bytes)?;
+        Ok(InstalledContainer { definition, digest })
     }
 
     /// Every installed toolbox, usable or not.
@@ -367,23 +258,21 @@ impl PolicyStore {
     /// installed, and the operator goes looking in the wrong place.
     pub fn list_toolboxes(&self) -> Vec<ToolboxListing> {
         self.list(Kind::Toolbox, |store, name, bytes| {
-            let resolved = store.resolve_toolbox(name, bytes)?;
-            let hash = resolved.sha256.clone();
-            Ok((resolved, hash))
+            store.resolve_toolbox(name, bytes)
         })
     }
 
     /// Every installed container definition, usable or not.
     pub fn list_containers(&self) -> Vec<ContainerListing> {
         self.list(Kind::Container, |_, name, bytes| {
-            Self::resolve_container(name, bytes)
+            Self::resolve_container(name, bytes).map(|(definition, _)| definition)
         })
     }
 
     fn list<T>(
         &self,
         kind: Kind,
-        resolve: impl Fn(&Self, &str, &[u8]) -> Result<(T, String)>,
+        resolve: impl Fn(&Self, &str, &[u8]) -> Result<T>,
     ) -> Vec<Listing<T>> {
         definition_names(&self.root.join(kind.directory()))
             .into_iter()
@@ -396,22 +285,16 @@ impl PolicyStore {
                     .and_then(|bytes| bytes.ok_or_else(|| Self::missing(kind, &name)))
                     .and_then(|bytes| resolve(self, &name, &bytes));
                 match read {
-                    Ok((value, hash)) => {
-                        let approved = self.approved_hash(kind, &name).ok().flatten() == Some(hash);
-                        Listing {
-                            name,
-                            path,
-                            value: Some(value),
-                            approved,
-                            problem: (!approved)
-                                .then(|| "not approved, or changed since approval".to_owned()),
-                        }
-                    }
+                    Ok(value) => Listing {
+                        name,
+                        path,
+                        value: Some(value),
+                        problem: None,
+                    },
                     Err(error) => Listing {
                         name,
                         path,
                         value: None,
-                        approved: false,
                         problem: Some(error.message),
                     },
                 }
@@ -420,9 +303,9 @@ impl PolicyStore {
     }
 }
 
-/// The `<name>.json` entries under `dir`, sorted the way the approvals were
-/// always listed — by UTF-16 code unit. Empty when the directory cannot be
-/// read, which is the state of an install with no policy at all.
+/// The `<name>.yaml` entries under `dir`, sorted by UTF-16 code unit. Empty
+/// when the directory cannot be read, which is the state of an install with no
+/// policy at all.
 pub(crate) fn definition_names(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -432,7 +315,7 @@ pub(crate) fn definition_names(dir: &Path) -> Vec<String> {
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .filter_map(|entry| {
             let path = entry.path();
-            (path.extension().and_then(|v| v.to_str()) == Some("json"))
+            (path.extension().and_then(|v| v.to_str()) == Some("yaml"))
                 .then(|| path.file_stem()?.to_str().map(str::to_owned))
                 .flatten()
         })

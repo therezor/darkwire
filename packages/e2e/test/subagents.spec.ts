@@ -75,7 +75,7 @@ test.use({
             // *output* type — the protocol keeps input and output identical so
             // the OpenAPI document describes what the server enforces, which
             // means a defaulted field is still required of a TypeScript literal.
-            // A hand-written `config.json` may leave it out; this cannot.
+            // A hand-written `config.yaml` may leave it out; this cannot.
             subagents: [
               {
                 id: 'researcher',

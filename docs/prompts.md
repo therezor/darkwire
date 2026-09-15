@@ -3,7 +3,7 @@
 An agent's whole system prompt is text you own. Not a persona appended below a hidden
 preamble — the heading, the workspace rules, the platform note, the toolbox
 advertisement, the guidelines and the tool-output policy are all editable, from the UI or
-from `config.json`. So is every tool description the model reads; that half is in
+from `config.yaml`. So is every tool description the model reads; that half is in
 [Tools](tools.md#rewriting-what-a-tool-says-about-itself).
 
 That is a reversal of an earlier design, and worth stating plainly. The workspace and
@@ -81,7 +81,7 @@ being sent stops being counted in the same change.
 
 ## The eight templates
 
-All eight live on the agent, in `config.json`, and all eight are edited in the agent
+All eight live on the agent, in `config.yaml`, and all eight are edited in the agent
 editor.
 
 | Config key                          | Fills                      | Default constant                                        |

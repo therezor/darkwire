@@ -1,21 +1,21 @@
 //! Container definitions: parsing, policy, and what an egress gateway needs.
 //!
-//! A container is authorised by **content hash**, not by a signature. The
-//! question asked at resolution is only ever "are these exact bytes approved?",
-//! and an operator answers it once by installing the definition. That choice is
-//! worth stating because the alternative looks stronger and is not: an Ed25519
-//! signature answers *who authored this policy*, which matters when a
-//! definition arrives from somewhere else and proves nothing when the key sits
-//! on the same disk as the file it signs. The approval check is a single
-//! predicate over bytes so a signature path can be added later as a second way
-//! to satisfy the same question, without disturbing anything that calls it.
+//! The definition file *is* the policy: installing it is the decision, the same
+//! way writing `config.yaml` is. The hash taken over its bytes is identity, not
+//! consent — two definitions that differ never share a warm instance, and one
+//! edited under a running command cancels it. What keeps the file trustworthy
+//! is that the policy directory sits outside the workspace jail, so nothing a
+//! tool can write reaches it. That is worth stating because the alternative
+//! looks stronger and is not: an Ed25519 signature answers *who authored this
+//! policy*, which matters when a definition arrives from somewhere else and
+//! proves nothing when the key sits on the same disk as the file it signs.
 //!
 //! Two refusals here are absolute, and the difference between them is the
 //! design:
 //!
 //!  - **An image must be digest-pinned.** A tag is a mutable pointer, so a
-//!    container approved once and then repointed is the approval gate defeated
-//!    while every hash still matches. Nothing in the review would show it.
+//!    container installed once and then repointed runs code nobody chose while
+//!    every hash still matches. Nothing in the definition would show it.
 //!  - **`NET_ADMIN` is never grantable.** The egress gateway's rules live in a
 //!    network namespace the container *shares*; a container holding
 //!    `NET_ADMIN` can flush them. This is refused rather than surfaced because
@@ -24,7 +24,7 @@
 //!
 //! `seccomp: unconfined` is deliberately *not* in that list. It is genuinely
 //! risky and genuinely required for rootless builds inside a container, so it
-//! is surfaced in the install review and left to the operator. The rule of
+//! is surfaced when the definition is read and left to the operator. The rule of
 //! thumb: refuse what silently breaks the machinery, surface what is merely
 //! dangerous.
 //!
@@ -81,7 +81,7 @@ const GATEWAY_INCOMPATIBLE_CAPABILITIES: &[&str] = &["NET_RAW", "SETUID", "SETGI
 ///
 /// Over the bytes, never over a re-serialisation of the parsed object: a
 /// definition that round-trips through a formatter gains and loses whitespace
-/// and key order, and an approval keyed on that would break on a formatter
+/// and key order, and an identity keyed on that would move on a formatter
 /// rather than on a change of meaning.
 pub fn manifest_hash(bytes: &[u8]) -> String {
     sha256_hex(bytes)
@@ -98,10 +98,10 @@ pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
     bytes: &[u8],
     what: &str,
 ) -> Result<T> {
-    let json: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
-        GhostError::new(ErrorKind::Config, format!("{what} is not valid JSON")).with_source(error)
+    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_slice(bytes).map_err(|error| {
+        GhostError::new(ErrorKind::Config, format!("{what} is not valid YAML")).with_source(error)
     })?;
-    let parsed: T = serde_path_to_error::deserialize(json).map_err(|error| {
+    let parsed: T = serde_path_to_error::deserialize(yaml).map_err(|error| {
         let path = error.path().to_string();
         let field = if path == "." { "(root)" } else { path.as_str() };
         GhostError::new(
@@ -150,7 +150,7 @@ pub fn assert_container_policy(container: &ContainerDefinition) -> Result<()> {
         return Err(policy_error(
             container,
             format!(
-                "Container \"{}\" must pin its image by digest, not by tag: {}\n  A tag can be repointed after approval, which would leave the recorded hash\n  matching an image nobody reviewed. Use name@sha256:<digest>.",
+                "Container \"{}\" must pin its image by digest, not by tag: {}\n  A tag can be repointed later, which would leave the recorded digest\n  matching an image nobody chose. Use name@sha256:<digest>.",
                 container.name, container.image
             ),
         )

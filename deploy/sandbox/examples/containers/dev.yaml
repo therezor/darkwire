@@ -1,0 +1,11 @@
+---
+schema: ghostai.container/1
+name: dev
+image: REPLACE_WITH_DOCKER_IMAGE_ID
+shared: true
+user: 1000:1000
+security:
+  noNewPrivileges: true
+  readOnlyRoot: true
+  tmpfs:
+    - '/tmp:rw,nosuid,size=128m'

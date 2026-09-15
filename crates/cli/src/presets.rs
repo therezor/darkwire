@@ -1,7 +1,7 @@
 //! Where agent presets are found on disk.
 //!
-//! **One kind of thing, in one shape, in one place.** A preset is a JSON file
-//! named `<id>.json` — the filename *is* the agent id — and that is true
+//! **One kind of thing, in one shape, in one place.** A preset is a YAML file
+//! named `<id>.yaml` — the filename *is* the agent id — and that is true
 //! whether it came from the catalogue or an operator wrote it this morning.
 //! There is no second location and no second format: an agent that works in a
 //! container says so in its own `toolbox.name` and is otherwise an ordinary
@@ -10,9 +10,9 @@
 //!
 //! That is the whole of the resolution order, and it is two directories:
 //!
-//!  1. `<root>/presets/<id>.json` — an operator's own. Adding one is adding a
+//!  1. `<root>/presets/<id>.yaml` — an operator's own. Adding one is adding a
 //!     file; there is no install step, because there is nothing to install.
-//!  2. `agents/<id>.json` in the catalogue — the ones `ghostai preset install`
+//!  2. `agents/<id>.yaml` in the catalogue — the ones `ghostai preset install`
 //!     offers. Where that directory *is* is [`crate::catalogue`]'s question,
 //!     and it is passed in here rather than resolved, because the answer
 //!     depends on the root and on `--from`.
@@ -28,7 +28,7 @@ use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::AgentPreset;
 
 /// The extension every preset file carries. The stem is the agent id.
-pub const PRESET_SUFFIX: &str = ".json";
+pub const PRESET_SUFFIX: &str = ".yaml";
 
 /// Every directory a preset name is searched in, nearest first.
 ///
@@ -43,16 +43,16 @@ pub fn preset_dirs(presets_dir: &Path, agents_dir: Option<&Path>) -> Vec<PathBuf
 /// Parses one preset, naming the file in every refusal.
 ///
 /// Two failures, kept apart because they send an operator to two different
-/// places: text that is not JSON at all is a typo in the file, and JSON that is
+/// places: text that is not YAML at all is a typo in the file, and YAML that is
 /// not a preset is a file written against a different shape.
 pub fn parse_preset(text: &str, source: &str) -> Result<AgentPreset> {
-    let raw: serde_json::Value = serde_json::from_str(text).map_err(|error| {
-        GhostError::new(ErrorKind::Config, format!("{source} is not valid JSON"))
+    let raw: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).map_err(|error| {
+        GhostError::new(ErrorKind::Config, format!("{source} is not valid YAML"))
             .with_detail("source", source)
             .with_source(error)
     })?;
 
-    let preset: AgentPreset = serde_json::from_value(raw).map_err(|error| {
+    let preset: AgentPreset = serde_yaml_ng::from_value(raw).map_err(|error| {
         let issues = vec![format!("  (root): {error}")];
         invalid_preset(source, &issues).with_source(error)
     })?;
@@ -131,7 +131,7 @@ pub fn list_all_presets(dirs: &[PathBuf]) -> Vec<String> {
     ids
 }
 
-/// The first directory in `dirs` holding `<id>.json`, or `None`.
+/// The first directory in `dirs` holding `<id>.yaml`, or `None`.
 pub fn find_preset(dirs: &[PathBuf], id: &str) -> Option<PathBuf> {
     dirs.iter()
         .map(|dir| dir.join(format!("{id}{PRESET_SUFFIX}")))

@@ -24,7 +24,7 @@ use std::path::Path;
 
 use ghostai::Streams;
 use ghostai::i18n::Env;
-use ghostai::program::{AgentCommand, Globals, StoreAction};
+use ghostai::program::{AgentCommand, Globals};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -123,7 +123,7 @@ impl Home {
         std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
         std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
         std::fs::write(
-            root.join("toolboxes").join(format!("{name}.json")),
+            root.join("toolboxes").join(format!("{name}.yaml")),
             json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
@@ -133,7 +133,7 @@ impl Home {
         )
         .expect("a manifest");
         std::fs::write(
-            root.join("tool-definitions").join("rg.json"),
+            root.join("tool-definitions").join("rg.yaml"),
             json!({
                 "schema": "ghostai.tool/1",
                 "description": "Search the workspace.",
@@ -149,50 +149,12 @@ impl Home {
         .expect("a definition");
     }
 
-    fn approve(&self, name: &str) {
-        let out = Sink::default();
-        let err = Sink::default();
-        let mut streams = Streams {
-            out: Box::new(out),
-            err: Box::new(err.clone()),
-        };
-        let code = ghostai::toolbox::run(
-            &self.globals(),
-            StoreAction::Approve,
-            Some(name),
-            &self.env(),
-            &mut streams,
-        )
-        .expect("the approval answers with an exit code");
-        assert_eq!(code, 0, "{}", err.text());
-    }
-
-    /// A container definition on disk, approved.
+    /// A container definition on disk.
     fn container(&self, name: &str) {
-        self.install_container(name);
-        let out = Sink::default();
-        let err = Sink::default();
-        let mut streams = Streams {
-            out: Box::new(out),
-            err: Box::new(err.clone()),
-        };
-        let code = ghostai::container::run(
-            &self.globals(),
-            StoreAction::Approve,
-            Some(name),
-            &self.env(),
-            &mut streams,
-        )
-        .expect("the container approval answers with an exit code");
-        assert_eq!(code, 0, "{}", err.text());
-    }
-
-    /// The same definition, left unapproved.
-    fn install_container(&self, name: &str) {
         let dir = self.policy().join("containers");
         std::fs::create_dir_all(&dir).expect("a containers directory");
         std::fs::write(
-            dir.join(format!("{name}.json")),
+            dir.join(format!("{name}.yaml")),
             json!({
                 "schema": "ghostai.container/1",
                 "name": name,
@@ -207,13 +169,13 @@ impl Home {
     fn preset(&self, name: &str, preset: &Value) {
         let dir = self.path().join("presets");
         std::fs::create_dir_all(&dir).expect("a presets directory");
-        std::fs::write(dir.join(format!("{name}.json")), preset.to_string()).expect("a preset");
+        std::fs::write(dir.join(format!("{name}.yaml")), preset.to_string()).expect("a preset");
     }
 
     /// The settings tree on disk, or `None` when nothing was written.
     fn config(&self) -> Option<Value> {
-        let text = std::fs::read_to_string(self.path().join("config.json")).ok()?;
-        serde_json::from_str(&text).ok()
+        let text = std::fs::read_to_string(self.path().join("config.yaml")).ok()?;
+        serde_yaml_ng::from_str(&text).ok()
     }
 
     /// One agent's entry, which must exist.
@@ -278,7 +240,7 @@ fn preset_for(id: &str, overrides: &Value) -> Value {
 #[test]
 fn installs_a_preset_from_an_explicit_path() {
     let home = Home::new();
-    let file = home.path().join("my-agent.json");
+    let file = home.path().join("my-agent.yaml");
     std::fs::write(
         &file,
         preset_for("scribe", &json!({"label": "Scribe"})).to_string(),
@@ -298,7 +260,6 @@ fn installs_a_preset_by_its_id_whether_or_not_it_names_a_toolbox() {
     // beside the manifest of the box it happens to name.
     let home = Home::new();
     home.toolbox("research");
-    home.approve("research");
     home.preset(
         "scout",
         &preset_for("scout", &json!({"toolbox": {"name": "research"}})),
@@ -311,11 +272,10 @@ fn installs_a_preset_by_its_id_whether_or_not_it_names_a_toolbox() {
 }
 
 #[test]
-fn refuses_a_preset_whose_toolbox_was_never_approved() {
-    // An enabled agent naming an unapproved toolbox is a config the server
-    // refuses to boot on, so the refusal happens here, before the write.
+fn refuses_a_preset_whose_toolbox_is_not_installed() {
+    // An enabled agent naming a toolbox that is not there is a config the
+    // server refuses to boot on, so the refusal happens here, before the write.
     let home = Home::new();
-    home.toolbox("research");
     home.preset(
         "scout",
         &preset_for("scout", &json!({"toolbox": {"name": "research"}})),
@@ -325,7 +285,7 @@ fn refuses_a_preset_whose_toolbox_was_never_approved() {
 
     assert_eq!(run.code, 1);
     assert!(
-        run.errors.contains("ghostai toolbox approve research"),
+        run.errors.contains("No toolbox is installed"),
         "{}",
         run.errors
     );
@@ -333,13 +293,11 @@ fn refuses_a_preset_whose_toolbox_was_never_approved() {
 }
 
 #[test]
-fn refuses_a_preset_whose_container_was_never_approved() {
-    // The two approvals are independent, so an approved toolbox does not carry
-    // the container in with it.
+fn refuses_a_preset_whose_container_is_not_installed() {
+    // The two are independent, so an installed toolbox does not carry a
+    // container in with it.
     let home = Home::new();
     home.toolbox("research");
-    home.approve("research");
-    home.install_container("dev");
     home.preset(
         "scout",
         &preset_for(
@@ -352,7 +310,7 @@ fn refuses_a_preset_whose_container_was_never_approved() {
 
     assert_eq!(run.code, 1);
     assert!(
-        run.errors.contains("ghostai container approve dev"),
+        run.errors.contains("No container is installed"),
         "{}",
         run.errors
     );
@@ -360,12 +318,11 @@ fn refuses_a_preset_whose_container_was_never_approved() {
 }
 
 #[test]
-fn installs_a_preset_once_both_halves_are_approved() {
+fn installs_a_preset_naming_both_halves() {
     // A toolbox decides what the agent may call and a container decides what
-    // the machine running those calls may be. Two approvals, one entry.
+    // the machine running those calls may be. Two definitions, one entry.
     let home = Home::new();
     home.toolbox("research");
-    home.approve("research");
     home.container("dev");
     home.preset(
         "scout",
@@ -383,7 +340,7 @@ fn installs_a_preset_once_both_halves_are_approved() {
 
 #[test]
 fn refuses_a_container_without_a_toolbox_before_writing_config() {
-    // A container only hosts a toolbox's approved operations, so one on its own
+    // A container only hosts a toolbox's granted operations, so one on its own
     // would run nothing.
     let home = Home::new();
     home.container("dev");
@@ -406,7 +363,6 @@ fn refuses_a_network_request_from_a_preset_that_names_no_container() {
     // saying one thing and the agent doing another.
     let home = Home::new();
     home.toolbox("research");
-    home.approve("research");
     home.preset(
         "scout",
         &preset_for(
@@ -427,7 +383,7 @@ fn refuses_a_network_request_from_a_preset_that_names_nothing_at_all() {
     // The same refusal, on a preset that names neither a toolbox nor a
     // container. This is the one the check used to be skipped for: with both
     // names empty there was nothing to look up, so the egress request went
-    // straight into `config.json` and failed the next boot instead.
+    // straight into `config.yaml` and failed the next boot instead.
     let home = Home::new();
     home.preset(
         "scout",
@@ -481,7 +437,6 @@ fn refuses_an_egress_request_nothing_could_enforce() {
     ] {
         let home = Home::new();
         home.toolbox("research");
-        home.approve("research");
         home.container("dev");
         home.preset(
             "scout",
@@ -509,7 +464,7 @@ fn refuses_an_egress_request_nothing_could_enforce() {
 fn refuses_to_overwrite_an_existing_agent_without_force() {
     // The existing entry may carry the operator's own edits.
     let home = Home::new();
-    let file = home.path().join("scribe.json");
+    let file = home.path().join("scribe.yaml");
     std::fs::write(&file, preset_for("scribe", &json!({})).to_string()).unwrap();
     let path = file.to_string_lossy().into_owned();
 
@@ -525,7 +480,7 @@ fn refuses_to_overwrite_an_existing_agent_without_force() {
 #[test]
 fn refuses_an_id_nothing_downstream_could_use() {
     let home = Home::new();
-    let file = home.path().join("bad.json");
+    let file = home.path().join("bad.yaml");
     std::fs::write(&file, preset_for("CON", &json!({})).to_string()).unwrap();
 
     let run = home.install(&file.to_string_lossy());
@@ -566,12 +521,12 @@ fn names_the_argument_when_nothing_matches() {
 
 #[test]
 fn treats_a_path_shaped_argument_as_a_path_even_when_the_file_is_missing() {
-    // `./typo.json` must not fall through to an installable preset and install
+    // `./typo.yaml` must not fall through to an installable preset and install
     // something other than what was named.
     let home = Home::new();
     home.preset("typo", &preset_for("typo", &json!({})));
 
-    let run = home.install("./typo.json");
+    let run = home.install("./typo.yaml");
 
     assert_eq!(run.code, 1);
     assert!(run.errors.contains("could not be read"), "{}", run.errors);
@@ -592,12 +547,12 @@ fn installs_a_preset_an_operator_dropped_into_the_presets_directory() {
 fn refuses_a_preset_file_that_is_not_valid_json_naming_it() {
     let home = Home::new();
     std::fs::create_dir_all(home.path().join("presets")).unwrap();
-    std::fs::write(home.path().join("presets").join("broken.json"), "{").unwrap();
+    std::fs::write(home.path().join("presets").join("broken.yaml"), "{").unwrap();
 
     let run = home.install("broken");
 
     assert_eq!(run.code, 1);
-    assert!(run.errors.contains("not valid JSON"), "{}", run.errors);
+    assert!(run.errors.contains("not valid YAML"), "{}", run.errors);
 }
 
 #[test]
@@ -724,7 +679,7 @@ fn skips_a_specialist_that_is_installed_but_disabled() {
 
     let mut saved = home.config().expect("a config was written");
     saved["agents"]["list"]["coder"]["enabled"] = json!(false);
-    std::fs::write(home.path().join("config.json"), saved.to_string()).unwrap();
+    std::fs::write(home.path().join("config.yaml"), saved.to_string()).unwrap();
 
     home.install("team-lead");
 

@@ -1245,11 +1245,11 @@ function Editor({
                     tool.permission
                   }
                   // The manifest's permission is a ceiling rather than a
-                  // default: an operator approved this toolbox at these
+                  // default: an operator wrote this toolbox at these
                   // permissions, and a screen that could widen one would make
-                  // that approval mean nothing.
+                  // the manifest mean nothing.
                   ceiling={tool.permission}
-                  // An operation's schema comes from its approved definition
+                  // An operation's schema comes from its installed definition
                   // and is not in `GET /api/tools`, so there are no argument
                   // boxes to offer — only the description, which is the part the
                   // definition's author wrote and this agent may disagree with.
@@ -1376,10 +1376,10 @@ function Editor({
           )}
         </FieldGrid>
 
-        {/* Only the states an operator has to act on. A toolbox that is
-            approved needs no line of its own. */}
-        {chosen?.approved === false && (
-          <p className="page__note">{t('agents.toolboxNotApproved')}</p>
+        {/* Only the states an operator has to act on. A manifest that parses
+            needs no line of its own. */}
+        {chosen?.problem !== undefined && (
+          <p className="page__note">{chosen.problem}</p>
         )}
 
         {chosenContainer !== undefined && (
@@ -1391,8 +1391,8 @@ function Editor({
                 })}
           </p>
         )}
-        {chosenContainer?.approved === false && (
-          <p className="page__note">{t('agents.containerNotApproved')}</p>
+        {chosenContainer?.problem !== undefined && (
+          <p className="page__note">{chosenContainer.problem}</p>
         )}
         {chosenContainer !== undefined &&
           chosenContainer.weakened.length > 0 && (

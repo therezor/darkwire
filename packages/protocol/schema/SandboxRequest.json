@@ -36,7 +36,7 @@
         "toolbox": {
           "type": "string"
         },
-        "approval": {
+        "digest": {
           "type": "string"
         },
         "container": {
@@ -95,7 +95,7 @@
       "required": [
         "op",
         "toolbox",
-        "approval",
+        "digest",
         "container",
         "operation",
         "workspace",

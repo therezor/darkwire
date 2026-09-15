@@ -4,7 +4,7 @@
  * The list is the configured servers joined to their live state, and the join
  * is the whole reason this screen needs two requests. `GET /api/settings` says
  * what an operator asked for; `GET /api/mcp` says what came of it. A server
- * that is unreachable is not something to write into `config.json`, so the row
+ * that is unreachable is not something to write into `config.yaml`, so the row
  * takes its name and its transport from the first and its badge and its reason
  * from the second.
  *

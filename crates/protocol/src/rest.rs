@@ -922,10 +922,10 @@ pub struct ToolboxToolSummary {
 ///
 /// A toolbox is a set of grants and nothing else, so there is no image,
 /// network or hardening to report here — those belong to a container, which is
-/// chosen separately and summarised by [`ContainerSummary`]. `approved` is the
-/// only field that decides whether an agent can use it; a toolbox whose
-/// manifest or any definition it names changed after approval reports
-/// `approved: false` with a `problem`.
+/// chosen separately and summarised by [`ContainerSummary`]. `problem` is the
+/// field that decides whether an agent can use it: a manifest that does not
+/// parse, or names an operation that is not installed, reports the sentence
+/// saying so and cannot be selected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -941,9 +941,7 @@ pub struct ToolboxSummary {
     /// What it grants, for the picker to show without a second request.
     #[garde(dive)]
     pub tools: Vec<ToolboxToolSummary>,
-    /// Whether an agent may use it.
-    pub approved: bool,
-    /// Why not, when `approved` is false.
+    /// Why it cannot be used, when it cannot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
@@ -1002,9 +1000,7 @@ pub struct ContainerSummary {
     /// could not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_problem: Option<String>,
-    /// Whether these exact definition bytes were approved.
-    pub approved: bool,
-    /// Why selection is unavailable.
+    /// Why selection is unavailable, when it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
@@ -1060,8 +1056,9 @@ pub enum SandboxRequest {
     Execute {
         /// Approved toolbox naming the operation.
         toolbox: String,
-        /// The approval hash the caller resolved the toolbox at.
-        approval: String,
+        /// The digest the caller resolved the toolbox at, so the service can
+        /// tell that it read the same bytes.
+        digest: String,
         /// Approved container to run it in.
         container: String,
         /// The granted operation name.

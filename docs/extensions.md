@@ -9,7 +9,7 @@ pointer.
 
 ```
 ~/.ghostai/extensions/hello/
-  ghostai.extension.json     ← the manifest
+  ghostai.extension.yaml     ← the manifest
   index.mjs                  ← whatever `command` runs
 ~/.ghostai/extension-data/hello/   ← what it writes at runtime
 ```
@@ -65,15 +65,15 @@ that ignores `_meta` is not broken — it is the tools-only case.
 
 ## The manifest
 
-```json
+```yaml
 {
-  "schema": "ghostai.extension/2",
-  "id": "hello",
-  "version": "2.0.0",
-  "label": "Hello",
-  "description": "A reference extension: one tool, one prompt section, one command.",
-  "command": ["node", "index.mjs"],
-  "contributes": ["tools", "context", "commands"]
+  'schema': 'ghostai.extension/2',
+  'id': 'hello',
+  'version': '2.0.0',
+  'label': 'Hello',
+  'description': 'A reference extension: one tool, one prompt section, one command.',
+  'command': ['node', 'index.mjs'],
+  'contributes': ['tools', 'context', 'commands'],
 }
 ```
 
@@ -238,7 +238,7 @@ an operator who mistyped it should read about it.
 **Credentials do not go there.** Put a secret in the vault under the
 `extensions` namespace keyed by extension id, and read it with
 `ghostai/secret` — the same arrangement a channel's bot token gets, for the same
-reason: `config.json` is a plain file that backups, dotfile repositories and
+reason: `config.yaml` is a plain file that backups, dotfile repositories and
 screen shares all reach.
 
 ## Writing one
@@ -369,13 +369,14 @@ is not a boundary, because the code is already running.
 
 See [Configuration](configuration.md#extensions). The short version:
 
-```json
+```yaml
 {
-  "extensions": {
-    "load": ["/opt/corp-extensions/audit"],
-    "disabled": ["hello"],
-    "settings": { "hello": { "greeting": "Ahoy" } }
-  }
+  'extensions':
+    {
+      'load': ['/opt/corp-extensions/audit'],
+      'disabled': ['hello'],
+      'settings': { 'hello': { 'greeting': 'Ahoy' } },
+    },
 }
 ```
 

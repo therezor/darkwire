@@ -152,7 +152,7 @@ fn merge_value(base: Option<&Value>, over: &Value, at: &[&str]) -> Value {
 
 /// The live config with a patch applied.
 ///
-/// Pure: the caller decides whether the result is written to `config.json`,
+/// Pure: the caller decides whether the result is written to `config.yaml`,
 /// handed to [`crate::GhostRuntime::reconfigure`], or only previewed.
 ///
 /// `patch` is the raw JSON body, for the reason the module header gives.

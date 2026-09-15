@@ -2,7 +2,7 @@
  * The Account panel: the login name and the password behind it.
  *
  * The odd one out on this screen, and worth saying why. Every other panel edits
- * `config.json` through `PATCH /api/settings` and shares `SaveBar`'s
+ * `config.yaml` through `PATCH /api/settings` and shares `SaveBar`'s
  * dirty-tracking. This one posts to `/api/setup/password`, because a credential
  * is not configuration: it lives in `auth_secrets`, it is one-way, and saving it
  * revokes every session in the install. Wiring it into the shared save bar would

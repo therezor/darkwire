@@ -151,12 +151,8 @@ async fn dispatch(
         Subcommand::Chat(args) => chat::run(&globals, *args, env, streams).await,
         Subcommand::Init => init::run(&globals, env, streams).await,
         Subcommand::Serve(args) => serve::run(&globals, *args, env, streams).await,
-        Subcommand::Toolbox(action, id) => {
-            toolbox::run(&globals, action, id.as_deref(), env, streams)
-        }
-        Subcommand::Container(action, id) => {
-            container::run(&globals, action, id.as_deref(), env, streams)
-        }
+        Subcommand::Toolbox => toolbox::run(&globals, env, streams),
+        Subcommand::Container => container::run(&globals, env, streams),
         Subcommand::Sandbox {
             action,
             id,

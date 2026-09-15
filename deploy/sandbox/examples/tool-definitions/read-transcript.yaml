@@ -1,0 +1,27 @@
+---
+schema: ghostai.tool/1
+description:
+  Read more of a command's output after it was truncated. Pass the run
+  id the truncated result named.
+parameters:
+  type: object
+  properties:
+    run:
+      type: string
+    stream:
+      type: string
+      enum:
+        - stdout
+        - stderr
+    offset:
+      type: integer
+      minimum: 0
+    limit:
+      type: integer
+      minimum: 1
+      maximum: 65536
+  required:
+    - run
+  additionalProperties: false
+implementation:
+  kind: transcript

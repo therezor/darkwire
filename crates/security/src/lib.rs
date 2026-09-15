@@ -23,9 +23,8 @@
 //!  - [`CredentialVault`] — credential theft at rest, with AES-256-GCM under a
 //!    key from the OS keychain or a `0600` keyfile.
 //!  - [`parse_toolbox`] / [`assert_toolbox_policy`] — an agent choosing its own
-//!    toolbox, by making the image and its capability set a hash-authorised
-//!    manifest an operator installs rather than a field any config patch could
-//!    reach.
+//!    toolbox, by making the operation surface a manifest an operator installs
+//!    rather than a field any config patch could reach.
 //!  - [`extension_digest`] / [`ExtensionStore`] — code loading itself into the
 //!    host, by hashing every byte of an install directory and refusing to load
 //!    one whose digest is not the one an operator approved.
@@ -86,7 +85,7 @@ pub use nonce::{
     detect_prompt_injection, tool_output_policy, tool_output_tag, wrap_tool_output,
 };
 pub use policy_store::{
-    ApprovedContainer, ApprovedToolbox, ContainerListing, PolicyStore, ToolboxListing,
+    ContainerListing, InstalledContainer, InstalledToolbox, PolicyStore, ToolboxListing,
 };
 pub use random::{OsRandom, RandomSource};
 pub use toolbox::{

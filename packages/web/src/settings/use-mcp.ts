@@ -5,7 +5,7 @@
  * questions and move at different rates. `GET /api/settings` is what an operator
  * configured and changes only when they save; `GET /api/mcp` is where each of
  * those servers actually is and changes on its own. Folding live state into the
- * settings response would mean writing "unreachable" into `config.json`.
+ * settings response would mean writing "unreachable" into `config.yaml`.
  *
  * The status query is refetched on `tools.changed`, which is the frame a server
  * connecting or dropping already produces — see `use-connection.ts`. So the row

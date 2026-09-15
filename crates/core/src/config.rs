@@ -1,4 +1,4 @@
-//! Reading and writing `config.json`.
+//! Reading and writing `config.yaml`.
 //!
 //! The mirror in `ghostai-protocol` deliberately does no normalisation on
 //! parse, so that every field stays representable as JSON Schema for the
@@ -45,7 +45,7 @@ use crate::paths::{GhostPaths, ResolveGhostPaths, ensure_dir};
 pub struct LoadConfigOptions {
     /// Where the root and, absent a config, the workspace come from.
     pub paths: ResolveGhostPaths,
-    /// Overrides `<root>/config.json`.
+    /// Overrides `<root>/config.yaml`.
     pub file: Option<PathBuf>,
 }
 
@@ -68,27 +68,42 @@ pub struct LoadedConfig {
 /// settings panel's preview) is validated by exactly the same code that
 /// validates the file, rather than by a second implementation that drifts.
 pub fn parse_config(text: &str, file: &Path) -> Result<Config> {
-    let raw: Value = serde_json::from_str(text).map_err(|error| {
+    let raw: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).map_err(|error| {
         GhostError::new(
             ErrorKind::Config,
-            format!("{} is not valid JSON: {error}", file.display()),
+            format!("{} is not valid YAML: {error}", file.display()),
         )
         .with_detail("file", file.to_string_lossy())
         .with_source(error)
     })?;
 
-    // A struct also deserialises from a JSON array, positionally, and every
+    // A struct also deserialises from a sequence, positionally, and every
     // field here has a default, so `[]` would read as a complete config. The
     // file is an object or it is malformed.
-    if !raw.is_object() {
-        let issue = format!("(root): expected an object, got {}", json_kind(&raw));
+    if !matches!(raw, serde_yaml_ng::Value::Mapping(_)) {
+        let issue = "(root): expected an object".to_owned();
         return Err(invalid_settings(file, vec![issue]));
     }
 
     let config: Config = match serde_path_to_error::deserialize(raw) {
         Ok(config) => config,
         Err(error) => {
-            let issues = vec![shape_issue(&error)];
+            let mut path = error.path().to_string();
+            if path == "." {
+                path.clear();
+            }
+            let message = error.inner().to_string();
+            if let Some(field) = message
+                .strip_prefix("missing field `")
+                .and_then(|rest| rest.strip_suffix('`'))
+            {
+                if !path.is_empty() {
+                    path.push('.');
+                }
+                path.push_str(field);
+            }
+            let label = if path.is_empty() { "(root)" } else { &path };
+            let issues = vec![format!("{label}: {message}")];
             return Err(invalid_settings(file, issues).with_source(error));
         }
     };
@@ -152,41 +167,6 @@ fn issue_line(path: &str, error: &garde::Error) -> String {
     format!("{label}: {error}")
 }
 
-fn json_kind(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "a boolean",
-        Value::Number(_) => "a number",
-        Value::String(_) => "a string",
-        Value::Array(_) => "an array",
-        Value::Object(_) => "an object",
-    }
-}
-
-/// A deserialisation failure as `path: message`.
-///
-/// A missing field is reported at the *parent* by serde, so the field's own
-/// name is appended to make the path the one an operator would search for:
-/// `providers.ollama.type`, not `providers.ollama`.
-fn shape_issue(error: &serde_path_to_error::Error<serde_json::Error>) -> String {
-    let mut path = error.path().to_string();
-    if path == "." {
-        path.clear();
-    }
-    let message = error.inner().to_string();
-    if let Some(field) = message
-        .strip_prefix("missing field `")
-        .and_then(|rest| rest.strip_suffix('`'))
-    {
-        if !path.is_empty() {
-            path.push('.');
-        }
-        path.push_str(field);
-    }
-    let label = if path.is_empty() { "(root)" } else { &path };
-    format!("{label}: {message}")
-}
-
 fn invalid_settings(file: &Path, issues: Vec<String>) -> GhostError {
     let listed: Vec<String> = issues.iter().map(|issue| format!("  {issue}")).collect();
     GhostError::new(
@@ -201,49 +181,11 @@ fn invalid_settings(file: &Path, issues: Vec<String>) -> GhostError {
     .with_detail("issues", Value::from(issues))
 }
 
-/// The exact bytes [`save_config`] writes: two-space indentation and a
-/// trailing newline, with integral numbers written bare.
-///
-/// The last rule is what keeps a Rust save byte-identical to a hand-edited
-/// file: JSON has one number type, so a `temperature` of `0` reads back as a
-/// float and would otherwise be written as `0.0`, moving a line the operator
-/// never touched.
+/// The exact bytes [`save_config`] writes: YAML with a trailing newline.
 pub fn render_config(config: &Config) -> Result<String> {
-    let value = serde_json::to_value(config).map_err(|error| {
+    serde_yaml_ng::to_string(config).map_err(|error| {
         GhostError::new(ErrorKind::Internal, "config is not serialisable").with_source(error)
-    })?;
-    let text = serde_json::to_string_pretty(&integral_numbers(value)).map_err(|error| {
-        GhostError::new(ErrorKind::Internal, "config is not serialisable").with_source(error)
-    })?;
-    Ok(format!("{text}\n"))
-}
-
-/// Integral floats below 2^53 become integers, so they print without `.0`.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "integral and below 2^53, checked on the line above"
-)]
-fn integral_numbers(value: Value) -> Value {
-    match value {
-        Value::Number(number) => match number.as_f64() {
-            Some(f) if number.is_f64() && f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0 => {
-                if f < 0.0 {
-                    Value::from(f as i64)
-                } else {
-                    Value::from(f as u64)
-                }
-            }
-            _ => Value::Number(number),
-        },
-        Value::Array(items) => Value::Array(items.into_iter().map(integral_numbers).collect()),
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .map(|(key, item)| (key, integral_numbers(item)))
-                .collect(),
-        ),
-        other => other,
-    }
+    })
 }
 
 /// Writes the settings tree back.
@@ -259,7 +201,7 @@ fn integral_numbers(value: Value) -> Value {
 ///    schema rejects is a config the next boot refuses to load, and discovering
 ///    that at the next restart is discovering it at the worst moment.
 ///  - **The replacement is atomic.** A crash mid-write leaves the previous file
-///    intact rather than a truncated one; a half-written `config.json` is an
+///    intact rather than a truncated one; a half-written `config.yaml` is an
 ///    install that will not start.
 ///  - **Two spaces and a trailing newline**, because this file is edited by
 ///    hand at least as often as it is written by a program, and a save from the

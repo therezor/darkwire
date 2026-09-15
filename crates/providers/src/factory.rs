@@ -70,7 +70,7 @@ pub enum Resilience {
 pub struct CreateProviderOptions {
     /// Which provider.
     pub provider: ProviderRef,
-    /// From the credential vault. Never read from `config.json`.
+    /// From the credential vault. Never read from `config.yaml`.
     pub api_key: Option<String>,
     /// Overrides the spec's default base URL.
     pub api_base: Option<String>,

@@ -126,7 +126,7 @@ fn prefers_the_environment_over_the_config_file() {
 #[test]
 fn reports_a_plaintext_token_as_such() {
     // What the warning is keyed on. Backups, dotfile repositories and screen
-    // shares all reach `config.json`, so the source travels with the token and
+    // shares all reach `config.yaml`, so the source travels with the token and
     // the caller says so once at startup.
     let home = TempDir::new().expect("a temporary home");
     let found = resolve_telegram_token(
@@ -340,12 +340,12 @@ fn does_not_name_a_bot_that_is_not_running() {
 
 // -------------------------------------------------------- the factory list
 
-/// An install over a temporary home, with the `config.json` given.
+/// An install over a temporary home, with the `config.yaml` given.
 fn install(config: Option<&Value>) -> (TempDir, Arc<GhostRuntime>) {
     let temp = TempDir::new().expect("a temporary home");
     if let Some(config) = config {
         std::fs::write(
-            temp.path().join("config.json"),
+            temp.path().join("config.yaml"),
             serde_json::to_string_pretty(config).expect("the fixture config serialises"),
         )
         .expect("the config is written");
@@ -409,7 +409,7 @@ fn registers_the_channel_once_a_token_resolves() {
 #[test]
 fn reads_the_token_out_of_the_live_config_rather_than_a_passed_block() {
     // The factory builder has a runtime and reads the settings off it, so a
-    // token saved into `config.json` is picked up without the caller having to
+    // token saved into `config.yaml` is picked up without the caller having to
     // find and forward the channel's block.
     let (home, runtime) = install(Some(&json!({
         "channels": {"telegram": {"token": "from-config"}}
@@ -463,6 +463,6 @@ fn only_a_token_read_off_disk_earns_the_plaintext_warning() {
 fn the_warning_names_the_file_and_where_to_move_the_token() {
     // An operator who reads it has to know what to do next without going to the
     // documentation.
-    assert!(PLAINTEXT_TOKEN_WARNING.contains("config.json"));
+    assert!(PLAINTEXT_TOKEN_WARNING.contains("config.yaml"));
     assert!(PLAINTEXT_TOKEN_WARNING.contains("channels/telegram"));
 }

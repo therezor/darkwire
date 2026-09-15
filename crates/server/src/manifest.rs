@@ -583,7 +583,7 @@ const BASE: [Route; 66] = [
     },
     // Live connection state, which `GET /api/settings` cannot carry: that
     // response is the settings tree, and the tree is what gets written back to
-    // `config.json`. `GET /api/tools` cannot carry it either — it answers with
+    // `config.yaml`. `GET /api/tools` cannot carry it either — it answers with
     // flattened names and no server, and recovering "whose is
     // `mcp_github_create-issue`?" by splitting a string in the browser is
     // ambiguous the moment a server id contains an underscore.
@@ -595,7 +595,7 @@ const BASE: [Route; 66] = [
     },
     // Extensions, and the two writes that are not settings patches. An
     // approval records the digest of the files on disk *now*; putting it in
-    // `config.json` would make it survive an edit to the very files it was
+    // `config.yaml` would make it survive an edit to the very files it was
     // about. POST for both because neither is idempotent across such an edit.
     Route {
         id: RouteId::ExtensionsList,

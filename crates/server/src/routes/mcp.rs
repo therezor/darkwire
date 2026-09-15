@@ -1,7 +1,7 @@
 //! Where each configured MCP server actually is.
 //!
 //! The settings tree says what should be connected; this says what is. They are
-//! two different questions and only one of them belongs in `config.json` — an
+//! two different questions and only one of them belongs in `config.yaml` — an
 //! operator's entry survives a laptop closing, and "unreachable since 12:04"
 //! must not.
 //!

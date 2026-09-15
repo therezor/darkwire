@@ -92,7 +92,7 @@ function seedHome() {
   // neither would come up listed, editable and refused a turn — which is a
   // correct screen and a useless recording.
   writeFileSync(
-    join(home, 'config.json'),
+    join(home, 'config.yaml'),
     JSON.stringify(
       {
         agents: {

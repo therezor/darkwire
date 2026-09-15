@@ -396,21 +396,15 @@ fn resolved(toolbox: Toolbox) -> ResolvedToolbox {
     ResolvedToolbox {
         toolbox,
         operations,
-        sha256: "0".repeat(64),
+        digest: "0".repeat(64),
     }
 }
 
-fn listing(
-    name: &str,
-    toolbox: Option<Toolbox>,
-    approved: bool,
-    problem: Option<&str>,
-) -> ToolboxListing {
+fn listing(name: &str, toolbox: Option<Toolbox>, problem: Option<&str>) -> ToolboxListing {
     ToolboxListing {
         name: name.to_owned(),
-        path: PathBuf::from(format!("/toolboxes/{name}.json")),
+        path: PathBuf::from(format!("/toolboxes/{name}.yaml")),
         value: toolbox.map(resolved),
-        approved,
         problem: problem.map(str::to_owned),
     }
 }
@@ -447,9 +441,8 @@ fn with_containers(definitions: Vec<ContainerDefinition>) -> TestServer {
                 .into_iter()
                 .map(|definition| ContainerListing {
                     name: definition.name.clone(),
-                    path: PathBuf::from(format!("/containers/{}.json", definition.name)),
+                    path: PathBuf::from(format!("/containers/{}.yaml", definition.name)),
                     value: Some(definition),
-                    approved: true,
                     problem: None,
                 })
                 .collect(),
@@ -460,7 +453,7 @@ fn with_containers(definitions: Vec<ContainerDefinition>) -> TestServer {
 }
 
 #[tokio::test]
-async fn an_approved_toolbox_reports_its_label_version_and_grants() {
+async fn an_installed_toolbox_reports_its_label_version_and_grants() {
     let test = with_toolboxes(vec![listing(
         "rust",
         Some(manifest(&json!({
@@ -470,7 +463,6 @@ async fn an_approved_toolbox_reports_its_label_version_and_grants() {
                 {"name": "cargo_fmt", "definition": "cargo-fmt", "permission": "allow"},
             ],
         }))),
-        true,
         None,
     )]);
 
@@ -481,7 +473,7 @@ async fn an_approved_toolbox_reports_its_label_version_and_grants() {
     assert_eq!(entry["label"], "Rust toolchain");
     assert_eq!(entry["version"], "1.0.0");
     assert_eq!(entry["notes"], "Builds are slow; be patient.");
-    assert_eq!(entry["approved"], true);
+    assert!(entry.get("problem").is_none());
     // The ceiling each grant carries, which an agent's own map may only
     // tighten. The picker shows it without a second request.
     assert_eq!(entry["tools"][0]["name"], "cargo_test");
@@ -503,7 +495,6 @@ async fn a_manifest_that_could_not_be_read_is_still_listed_with_its_problem() {
     let test = with_toolboxes(vec![listing(
         "broken",
         None,
-        false,
         Some("Toolbox manifest is not valid JSON"),
     )]);
 
@@ -511,7 +502,6 @@ async fn a_manifest_that_could_not_be_read_is_still_listed_with_its_problem() {
     let entry = &body["toolboxes"][0];
     assert_eq!(entry["name"], "broken");
     assert_eq!(entry["problem"], "Toolbox manifest is not valid JSON");
-    assert_eq!(entry["approved"], false);
     // Nothing parsed, so every field that comes off the manifest is empty
     // rather than invented.
     assert_eq!(entry["label"], "");
@@ -527,7 +517,6 @@ async fn container_definitions_are_listed_independently_from_toolboxes() {
     let entry = &body["containers"][0];
     assert_eq!(entry["name"], "dev");
     assert_eq!(entry["shared"], true);
-    assert_eq!(entry["approved"], true);
     // A container reports where and how, which is exactly what a toolbox does
     // not.
     assert_eq!(entry["runtime"], "runc");

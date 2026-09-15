@@ -291,7 +291,7 @@ to fill in first.
 | Appearance  | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                                      |
 | Automation  | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                               |
 | MCP servers | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                                   |
-| Channels    | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.json`.                                                                      |
+| Channels    | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.yaml`.                                                                      |
 | Extensions  | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.               |
 
 Every panel on that list is built, and a panel arrives on it once it has something to

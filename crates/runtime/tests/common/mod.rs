@@ -48,12 +48,12 @@ pub struct Install {
 }
 
 impl Install {
-    /// An install whose `config.json` is `config`.
+    /// An install whose `config.yaml` is `config`.
     pub fn with(config: &Value) -> Install {
         let temp = TempDir::new().unwrap();
         let root = temp.path().to_path_buf();
         std::fs::write(
-            root.join("config.json"),
+            root.join("config.yaml"),
             serde_json::to_string_pretty(config).unwrap(),
         )
         .unwrap();
@@ -77,10 +77,10 @@ impl Install {
         }
     }
 
-    /// Rewrites `config.json`, for the suites that prove a reload reads the file.
+    /// Rewrites `config.yaml`, for the suites that prove a reload reads the file.
     pub fn write_config(&self, config: &Value) {
         std::fs::write(
-            self.root.join("config.json"),
+            self.root.join("config.yaml"),
             serde_json::to_string_pretty(config).unwrap(),
         )
         .unwrap();
@@ -88,7 +88,7 @@ impl Install {
 
     /// The config file's path.
     pub fn config_file(&self) -> PathBuf {
-        self.root.join("config.json")
+        self.root.join("config.yaml")
     }
 
     /// Options over this install with every outward seam closed.

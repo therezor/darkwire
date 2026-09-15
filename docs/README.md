@@ -12,7 +12,7 @@ and everything else on this page is reference you can reach for afterwards.
 | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | [Getting started](getting-started.md) | Install, first run, first conversation, giving it files, letting it run commands.     |
 | [CLI](cli.md)                         | Every `ghostai` command and flag, and the slash commands inside the chat prompt.      |
-| [Configuration](configuration.md)     | Every key in `config.json`, its type and its default. Env vars. Patch semantics.      |
+| [Configuration](configuration.md)     | Every key in `config.yaml`, its type and its default. Env vars. Patch semantics.      |
 | [Prompts](prompts.md)                 | The eight editable templates, their placeholders, and the caching split behind them.  |
 | [Providers](providers.md)             | The registry, provider instances, resolution order, credentials, resilience.          |
 | [Tools & permissions](tools.md)       | The eight built-in tools, and the `allow \| ask \| deny` model that gates them.       |

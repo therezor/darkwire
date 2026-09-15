@@ -4,7 +4,7 @@
  * Four things this panel could get wrong without looking wrong, and each is a
  * case below:
  *
- *  - **The token must not reach `config.json`.** It goes to the vault through
+ *  - **The token must not reach `config.yaml`.** It goes to the vault through
  *    its own endpoint, so the assertion is not only that the `PUT` happens but
  *    that the secret appears in no other request.
  *  - **A save carries only the `channels` branch.** `ConfigPatch` is a

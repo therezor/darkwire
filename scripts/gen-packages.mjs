@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates package.json + tsconfig.json for each workspace package.
+ * Generates package.json + tsconfig.yaml for each workspace package.
  * Idempotent — safe to re-run when the package graph changes.
  *
  * The `development` export condition points at ./src/index.ts so `tsx` runs
@@ -52,7 +52,7 @@ async function writeFormatted(path, contents) {
 /**
  * Injects `//` comments above named keys of a serialized tsconfig.
  *
- * JSON has no syntax for a comment and `tsconfig.json` does, so the rationale
+ * JSON has no syntax for a comment and `tsconfig.yaml` does, so the rationale
  * for an override cannot survive `JSON.stringify`. Without this, re-running the
  * generator silently deletes the explanation for every deviation from the base
  * config — which is the half of the file worth reading.
@@ -191,12 +191,12 @@ for (const [name, cfg] of Object.entries(PACKAGES)) {
     },
     include: ['src/**/*'],
     // The file, not the directory. `tsc -b` accepts either and resolves a
-    // directory to the `tsconfig.json` inside it; Playwright's config loader
+    // directory to the `tsconfig.yaml` inside it; Playwright's config loader
     // reads these same files to find path aliases and only accepts the explicit
     // form, so a reference written the short way makes the end-to-end suite
     // fail to start with an error about a package it never imported.
     references: (cfg.internal ?? []).map((dep) => ({
-      path: `../${dep}/tsconfig.json`,
+      path: `../${dep}/tsconfig.yaml`,
     })),
   };
 
@@ -241,7 +241,7 @@ export default defineConfig({
 
   await writeFormatted(join(dir, 'package.json'), JSON.stringify(pkg, null, 2));
   await writeFormatted(
-    join(dir, 'tsconfig.json'),
+    join(dir, 'tsconfig.yaml'),
     withNotes(JSON.stringify(tsconfig, null, 2), cfg.tsconfigNotes ?? {}),
   );
   await writeFormatted(join(dir, 'tsup.config.ts'), tsup);

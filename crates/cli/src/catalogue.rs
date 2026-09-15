@@ -180,12 +180,12 @@ fn sibling_checkout(options: &CatalogueOptions) -> Option<PathBuf> {
     })
 }
 
-/// The agent presets, one `<id>.json` each, or `None`.
+/// The agent presets, one `<id>.yaml` each, or `None`.
 pub fn catalogue_agents_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "agents")
 }
 
-/// One `<name>.json` per toolbox, naming the operations it grants.
+/// One `<name>.yaml` per toolbox, naming the operations it grants.
 pub fn catalogue_toolboxes_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "toolboxes")
 }
@@ -195,7 +195,7 @@ pub fn catalogue_containers_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "containers")
 }
 
-/// One `<name>.json` per reusable operation definition.
+/// One `<name>.yaml` per reusable operation definition.
 pub fn catalogue_definitions_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "tool-definitions")
 }
@@ -220,13 +220,13 @@ fn subdir(dir: &Path, name: &str) -> Option<PathBuf> {
 /// operator's own preset, or one written against a newer catalogue — and that
 /// is a sentence to print, not a crash.
 pub fn catalogue_toolbox(dir: &Path, name: &str) -> Option<PathBuf> {
-    let file = catalogue_toolboxes_dir(dir)?.join(format!("{name}.json"));
+    let file = catalogue_toolboxes_dir(dir)?.join(format!("{name}.yaml"));
     file.exists().then_some(file)
 }
 
 /// One operation definition, or `None` when the catalogue does not carry it.
 pub fn catalogue_definition(dir: &Path, name: &str) -> Option<PathBuf> {
-    let file = catalogue_definitions_dir(dir)?.join(format!("{name}.json"));
+    let file = catalogue_definitions_dir(dir)?.join(format!("{name}.yaml"));
     file.exists().then_some(file)
 }
 
@@ -234,12 +234,12 @@ pub fn catalogue_definition(dir: &Path, name: &str) -> Option<PathBuf> {
 /// carry it.
 ///
 /// The same shape and the same argument as [`catalogue_toolbox`]. The
-/// `container.json` has to be there as well as the directory: a name with no
+/// `container.yaml` has to be there as well as the directory: a name with no
 /// definition is a half-checkout, and an image build would be the wrong error
 /// to report it with.
 pub fn catalogue_container(dir: &Path, name: &str) -> Option<PathBuf> {
     let context = catalogue_containers_dir(dir)?.join(name);
-    context.join("container.json").exists().then_some(context)
+    context.join("container.yaml").exists().then_some(context)
 }
 
 /// One skill sheet's directory, or `None` when the catalogue lacks it.

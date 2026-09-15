@@ -141,7 +141,7 @@ pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
     create_runtime(options)
 }
 
-/// Applies a settings patch and writes it to `config.json`.
+/// Applies a settings patch and writes it to `config.yaml`.
 ///
 /// The server's own port is the same two steps plus a credential sweep, and
 /// this is deliberately not a call into that: the REPL never builds a
@@ -151,7 +151,7 @@ pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
 /// do.
 ///
 /// A failure here is the operator's file, not the operator's typing: a
-/// `config.json` that is read-only, or a home directory that is not writable.
+/// `config.yaml` that is read-only, or a home directory that is not writable.
 /// A `GhostError` is what the slash-command runner already catches and renders
 /// as a warning, so the prompt says why and stays open rather than unwinding
 /// over a half-applied change. The reconfigure has already landed at that

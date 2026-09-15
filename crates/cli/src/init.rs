@@ -2,7 +2,7 @@
 //!
 //! The browser gets a wizard behind a one-time code; this is the same handful
 //! of questions for someone who never intends to open one. It writes exactly
-//! two things — `config.json`, and a credential through the vault — and reads
+//! two things — `config.yaml`, and a credential through the vault — and reads
 //! the answers back through the same schema everything else validates against,
 //! so an install configured here is indistinguishable from one configured in
 //! the UI.

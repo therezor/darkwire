@@ -127,8 +127,8 @@ async fn run_with(home: &Path, answers: &[&str], offered: &[&str], interactive: 
 
 /// The config the wizard wrote, as JSON.
 fn config_in(home: &Path) -> serde_json::Value {
-    let text = std::fs::read_to_string(home.join("config.json")).expect("a config was written");
-    serde_json::from_str(&text).expect("the config is JSON")
+    let text = std::fs::read_to_string(home.join("config.yaml")).expect("a config was written");
+    serde_yaml_ng::from_str(&text).expect("the config is YAML")
 }
 
 /// The two models every case is offered unless it says otherwise.
@@ -153,7 +153,7 @@ async fn writes_a_config_the_schema_accepts_naming_the_instance_it_created() {
 
     assert_eq!(run.code, 0, "{}", run.errors);
     let written = config_in(home.path());
-    let text = std::fs::read_to_string(home.path().join("config.json")).unwrap();
+    let text = std::fs::read_to_string(home.path().join("config.yaml")).unwrap();
     parse_config(&text, home.path()).expect("the schema accepts what the wizard wrote");
 
     assert_eq!(written["agents"]["list"]["default"]["provider"], "ollama");
@@ -255,7 +255,7 @@ async fn refuses_a_pipe_rather_than_reading_end_of_input_as_an_answer() {
 
     assert_eq!(run.code, 1);
     assert!(run.errors.contains("needs a terminal"), "{}", run.errors);
-    assert!(!home.path().join("config.json").exists());
+    assert!(!home.path().join("config.yaml").exists());
 }
 
 #[tokio::test]
@@ -289,7 +289,7 @@ async fn writes_nothing_when_the_answers_run_out() {
 
     assert_eq!(run.code, 1);
     assert!(run.output.contains("Nothing was written"), "{}", run.output);
-    assert!(!home.path().join("config.json").exists());
+    assert!(!home.path().join("config.yaml").exists());
 }
 
 // ------------------------------------------------ the real endpoint lister
@@ -401,7 +401,7 @@ async fn the_process_entry_point_refuses_a_run_with_no_terminal_behind_it() {
 
     assert_eq!(code, 1);
     assert!(err.text().contains("needs a terminal"), "{}", err.text());
-    assert!(!home.path().join("config.json").exists());
+    assert!(!home.path().join("config.yaml").exists());
 }
 
 #[test]

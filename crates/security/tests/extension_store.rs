@@ -50,7 +50,7 @@ fn install(root: &Path, id: &str, overrides: &Value) -> PathBuf {
         manifest[key] = value.clone();
     }
     write(
-        &dir.join("ghostai.extension.json"),
+        &dir.join("ghostai.extension.yaml"),
         serde_json::to_string(&manifest).unwrap(),
     );
     write(
@@ -241,7 +241,7 @@ fn resolves_an_extension_from_an_explicit_path() {
     );
 
     let bad = s.base.join("bad");
-    write(&bad.join("ghostai.extension.json"), "{");
+    write(&bad.join("ghostai.extension.yaml"), "{");
     let failed = s.store.resolve_path(&bad).unwrap().unwrap();
     assert_eq!(failed.state, ExtensionResolutionState::Failed);
     assert_eq!(failed.id, bad.to_string_lossy());

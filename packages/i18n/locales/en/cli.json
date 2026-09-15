@@ -45,15 +45,9 @@
     "queued": "queued — it runs when this turn finishes"
   },
   "container": {
-    "approve": {
-      "description": "Approve a container definition's current contents so agents may run in it."
-    },
-    "description": "List, approve and revoke container definitions.",
+    "description": "List installed container definitions.",
     "list": {
-      "description": "Show every installed container definition and whether it is approved."
-    },
-    "revoke": {
-      "description": "Withdraw approval. The definition stays installed but stops running."
+      "description": "Show every installed container definition and its hardening."
     }
   },
   "extension": {
@@ -122,10 +116,8 @@
     "install": {
       "description": "Install agent presets. With no ids, pick them from a list.",
       "options": {
-        "approve": "approve the toolboxes this installs, without asking",
         "force": "overwrite an existing agent with the same id",
         "from": "install from a checkout of the presets repository instead of fetching",
-        "noApprove": "approve nothing, and print the approve commands instead",
         "offline": "never fetch; use what is already on this machine",
         "refresh": "fetch the catalogue again before reading it",
         "workspaceId": "the workspace the presets' skill sheets are copied into (default: default)"
@@ -328,15 +320,9 @@
     }
   },
   "toolbox": {
-    "approve": {
-      "description": "Approve a toolbox's current contents so agents may work in it."
-    },
-    "description": "List, approve and revoke toolboxes.",
+    "description": "List installed toolboxes.",
     "list": {
-      "description": "Show every installed toolbox and whether it is approved."
-    },
-    "revoke": {
-      "description": "Withdraw approval. The manifest stays installed but stops running."
+      "description": "Show every installed toolbox and what it grants."
     }
   }
 }

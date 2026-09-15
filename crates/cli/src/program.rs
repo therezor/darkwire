@@ -216,12 +216,6 @@ pub enum PresetAction {
         ids: Vec<String>,
         /// `--force`.
         force: bool,
-        /// `--approve` / `--no-approve`.
-        ///
-        /// Three states, not two: `None` is "neither was passed", which is the
-        /// one that asks. Declared as a pair rather than as one negatable flag
-        /// for exactly that reason.
-        approve: Option<bool>,
         /// `-W, --workspace-id <id>`.
         workspace_id: Option<String>,
     },
@@ -257,10 +251,10 @@ pub enum Subcommand {
     Init,
     /// `serve`.
     Serve(Box<ServeArgs>),
-    /// `toolbox list|approve|revoke`.
-    Toolbox(StoreAction, Option<String>),
-    /// `container list|approve|revoke`.
-    Container(StoreAction, Option<String>),
+    /// `toolbox list`.
+    Toolbox,
+    /// `container list`.
+    Container,
     /// Manage the sandbox service through its constrained socket API.
     Sandbox {
         /// Lifecycle operation.
@@ -457,19 +451,15 @@ pub fn build_command(t: &Translations) -> Command {
         .subcommand(Command::new("init").about(t.t(keys::init::DESCRIPTION)))
         .subcommand(serve_command(t))
         .subcommand(sandbox_command(t))
-        .subcommand(store_command(
+        .subcommand(list_command(
             "toolbox",
             t.t(keys::toolbox::DESCRIPTION),
             t.t(keys::toolbox::list::DESCRIPTION),
-            t.t(keys::toolbox::approve::DESCRIPTION),
-            t.t(keys::toolbox::revoke::DESCRIPTION),
         ))
-        .subcommand(store_command(
+        .subcommand(list_command(
             "container",
             t.t(keys::container::DESCRIPTION),
             t.t(keys::container::list::DESCRIPTION),
-            t.t(keys::container::approve::DESCRIPTION),
-            t.t(keys::container::revoke::DESCRIPTION),
         ))
         .subcommand(store_command(
             "extension",
@@ -655,7 +645,17 @@ fn serve_command(t: &Translations) -> Command {
         )
 }
 
-/// `toolbox` and `extension`, which differ only in their prose.
+/// A definition directory with nothing to decide: `toolbox` and `container`.
+///
+/// Both are read-only because the file on disk *is* the policy. `extension`
+/// still has the three verbs, which is why [`store_command`] stays.
+fn list_command(name: &'static str, about: String, list: String) -> Command {
+    Command::new(name)
+        .about(about)
+        .subcommand(Command::new("list").about(list))
+}
+
+/// `extension`, whose approval is a record in a store rather than a file.
 fn store_command(
     name: &'static str,
     about: String,
@@ -752,22 +752,6 @@ fn preset_command(t: &Translations) -> Command {
                         .long("workspace-id")
                         .value_name("id")
                         .help(t.t(keys::preset::install::options::WORKSPACE_ID)),
-                )
-                // Declared as a pair rather than as one negatable flag, which
-                // is what makes "neither was passed" distinguishable from "no"
-                // — and that third state is the one that asks.
-                .arg(
-                    Arg::new("approve")
-                        .long("approve")
-                        .action(ArgAction::SetTrue)
-                        .conflicts_with("no-approve")
-                        .help(t.t(keys::preset::install::options::APPROVE)),
-                )
-                .arg(
-                    Arg::new("no-approve")
-                        .long("no-approve")
-                        .action(ArgAction::SetTrue)
-                        .help(t.t(keys::preset::install::options::NO_APPROVE)),
                 ),
         )
         .subcommand(
@@ -1004,14 +988,8 @@ where
             Ok(serve) => Subcommand::Serve(Box::new(serve)),
             Err(error) => return Parsed::Refused(format!("{}\n", describe_error(&error)), 1),
         },
-        Some(("toolbox", sub)) => {
-            let (action, id) = store_action_of(sub);
-            Subcommand::Toolbox(action, id)
-        }
-        Some(("container", sub)) => {
-            let (action, id) = store_action_of(sub);
-            Subcommand::Container(action, id)
-        }
+        Some(("toolbox", _)) => Subcommand::Toolbox,
+        Some(("container", _)) => Subcommand::Container,
         Some(("sandbox", sub)) => Subcommand::Sandbox {
             action: sandbox_action_of(sub),
             id: string_of(sub, "id"),
@@ -1041,13 +1019,6 @@ where
                         .map(|values| values.cloned().collect())
                         .unwrap_or_default(),
                     force: flag(install, "force"),
-                    approve: if flag(install, "approve") {
-                        Some(true)
-                    } else if flag(install, "no-approve") {
-                        Some(false)
-                    } else {
-                        None
-                    },
                     workspace_id: string_of(install, "workspace-id"),
                 },
             ),

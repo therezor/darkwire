@@ -217,23 +217,22 @@ impl Harness {
         }
     }
 
-    /// Installs a container definition and approves it.
+    /// Installs a container definition.
     fn install(&self, name: &str, overrides: &Value) {
         common::write(
-            &self.root.join("containers").join(format!("{name}.json")),
+            &self.root.join("containers").join(format!("{name}.yaml")),
             serde_json::to_string(&definition(name, overrides)).unwrap(),
         );
-        self.store.approve_container(name).unwrap();
     }
 
-    /// Installs a one-operation toolbox and approves it.
+    /// Installs a one-operation toolbox.
     ///
     /// Nothing the pool does reads one — placement and grants are two
     /// approvals — so this exists only for the suites that prove the two
     /// lifecycles are independent.
     fn install_toolbox(&self, name: &str) {
         common::write(
-            &self.root.join("tool-definitions/status.json"),
+            &self.root.join("tool-definitions/status.yaml"),
             json!({
                 "schema": "ghostai.tool/1",
                 "description": "Repository status",
@@ -247,7 +246,7 @@ impl Harness {
             .to_string(),
         );
         common::write(
-            &self.root.join("toolboxes").join(format!("{name}.json")),
+            &self.root.join("toolboxes").join(format!("{name}.yaml")),
             json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
@@ -255,7 +254,6 @@ impl Harness {
             })
             .to_string(),
         );
-        self.store.approve_toolbox(name).unwrap();
     }
 
     /// Deterministic container names, so a test can assert on one.
@@ -375,10 +373,10 @@ async fn shares_one_container_across_agents_and_conversations() {
     pool.release_session("one");
     assert_eq!(pool.live().len(), 1);
 
-    // Placement and grants are two approvals. The operation layer rejects the
-    // revoked writer before reaching this runner; the shared instance both
+    // Placement and grants are two decisions. The operation layer rejects the
+    // removed writer before reaching this runner; the shared instance both
     // agents were placed in is untouched.
-    h.store.revoke_toolbox("writer").unwrap();
+    std::fs::remove_file(h.root.join("toolboxes/writer.yaml")).unwrap();
     run(&first).await.unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
@@ -532,12 +530,8 @@ async fn returns_no_runner_for_an_agent_that_names_no_container() {
 }
 
 #[tokio::test]
-async fn refuses_a_container_that_was_never_approved() {
+async fn refuses_a_container_that_is_not_installed() {
     let h = Harness::new();
-    common::write(
-        &h.root.join("containers/dev.json"),
-        serde_json::to_string(&definition("dev", &json!({}))).unwrap(),
-    );
     let pool = h.pool();
     // **Never a downgrade to the host.** `Ok(None)` would mean "run it here",
     // so a container that cannot be honoured is an error rather than an absent
@@ -545,7 +539,7 @@ async fn refuses_a_container_that_was_never_approved() {
     let error = refusal(pool.resolve_turn(&request("a", "w", "s", "dev")));
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(
-        error.message.contains("never been approved"),
+        error.message.contains("No container is installed"),
         "{}",
         error.message
     );
@@ -1138,11 +1132,11 @@ mod a_container_that_disappeared {
     }
 }
 
-mod approval_is_re_checked_every_turn {
+mod the_definition_is_re_read_every_turn {
     use super::*;
 
     #[tokio::test]
-    async fn stops_reusing_a_container_once_it_is_revoked() {
+    async fn stops_reusing_a_container_once_its_definition_is_gone() {
         let h = Harness::new();
         h.install("dev", &json!({}));
         let pool = h.pool();
@@ -1152,9 +1146,9 @@ mod approval_is_re_checked_every_turn {
             .unwrap();
         run(&runner).await.unwrap();
 
-        // A revoke is another process writing a file, so nothing notifies this
-        // pool; asking every turn is what makes revocation mean something.
-        h.store.revoke_container("dev").unwrap();
+        // Removing a definition is another process touching a file, so nothing
+        // notifies this pool; asking every turn is what makes it take effect.
+        std::fs::remove_file(h.root.join("containers/dev.yaml")).unwrap();
         assert_eq!(
             refusal(pool.resolve_turn(&request("a", "w", "s", "dev"))).kind,
             ErrorKind::Config
@@ -1162,7 +1156,7 @@ mod approval_is_re_checked_every_turn {
     }
 
     #[tokio::test]
-    async fn refuses_a_command_whose_container_was_revoked_since_the_turn_opened() {
+    async fn refuses_a_command_whose_container_went_away_since_the_turn_opened() {
         let h = Harness::new();
         h.install("dev", &json!({}));
         let pool = h.pool();
@@ -1170,9 +1164,9 @@ mod approval_is_re_checked_every_turn {
             .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
-        h.store.revoke_container("dev").unwrap();
+        std::fs::remove_file(h.root.join("containers/dev.yaml")).unwrap();
         // A turn can sit between its opening and its first tool call for a long
-        // time, and a container revoked in that window must not be started.
+        // time, and a container removed in that window must not be started.
         assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Config);
         assert!(pool.live().is_empty());
     }

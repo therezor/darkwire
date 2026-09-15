@@ -2,7 +2,7 @@
 //!
 //! Locale negotiation is three lines of matching and one decision, and the
 //! decision is that a request is never refused. A browser sending `de-AT`, a
-//! shell exporting `LANG=de_DE.UTF-8` and a `config.json` written by hand all
+//! shell exporting `LANG=de_DE.UTF-8` and a `config.yaml` written by hand all
 //! name a language in a slightly different dialect of the same standard, and
 //! every one of them has to land somewhere renderable — an error here would be
 //! a blank screen over a spelling difference.
@@ -172,7 +172,7 @@ pub fn is_rtl(locale: &str) -> bool {
 /// `--help` and an argument-parse error resolve without step 2, because both
 /// run before any config has been read — and making `--help` load the config to
 /// find out what language to print in would cost every invocation the start-up
-/// budget. An install whose `config.json` disagrees with its shell therefore
+/// budget. An install whose `config.yaml` disagrees with its shell therefore
 /// gets help in the shell's language. That is the one seam, and it is a better
 /// trade than a slow `--help`.
 ///

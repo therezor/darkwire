@@ -2,7 +2,7 @@
 //!
 //! The composition itself is tested where it lives. What is here is the seam:
 //! how a global flag becomes a path resolution, and the one write a chat prompt
-//! makes to `config.json`.
+//! makes to `config.yaml`.
 
 // `allow-unwrap-in-tests` covers a `#[test]` body; the fixture helpers beside
 // them are ordinary functions, and a helper that returned `Result` would make

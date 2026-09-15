@@ -1,12 +1,12 @@
 //! `ghostai agent` — install agent presets, and list agents and presets.
 //!
-//! `install` is a config merge, not a package manager. A preset is a JSON file
+//! `install` is a config merge, not a package manager. A preset is a YAML file
 //! already on the box — laid down by the catalogue, or written by an operator —
-//! and installing it writes one entry into `agents.list` in `config.json`.
+//! and installing it writes one entry into `agents.list` in `config.yaml`.
 //! Nothing is fetched, and after the write the entry is ordinary agent config
 //! the web UI edits like any other.
 //!
-//! The argument is either a path — anything with a separator, a `.json` suffix,
+//! The argument is either a path — anything with a separator, a `.yaml` suffix,
 //! or that exists as a file — or a preset id looked up in the directories
 //! [`crate::presets::preset_dirs`] names, operator's before the catalogue's.
 //! There is one preset format and one place ids are searched; an agent that
@@ -16,7 +16,7 @@
 //!
 //! Two refusals do the real work:
 //!
-//!  - **A preset naming an unapproved toolbox does not install.** An enabled
+//!  - **A preset naming a toolbox that does not resolve is refused.** An enabled
 //!    agent whose toolbox fails to resolve makes the runtime's build fail, so
 //!    accepting the entry would write a config the server refuses to boot on.
 //!    The refusal happens here, where the message can name the fix.
@@ -83,15 +83,15 @@ pub struct PresetPaths {
 
 /// The preset one argument names: a file, or an id in the search path.
 ///
-/// A separator or a `.json` suffix is an explicit path even when the file is
-/// missing — resolving `./typo.json` to a catalogue preset would install
+/// A separator or a `.yaml` suffix is an explicit path even when the file is
+/// missing — resolving `./typo.yaml` to a catalogue preset would install
 /// something other than what was named.
 pub fn resolve_preset(arg: &str, paths: &PresetPaths) -> Result<AgentPreset> {
     let explicit = arg.contains('/')
         || arg.contains('\\')
         || Path::new(arg)
             .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("yaml"));
     if explicit || Path::new(arg).exists() {
         return read_preset(Path::new(arg));
     }
@@ -218,7 +218,7 @@ pub fn plan_install(
     // Unconditionally, not only when a name is set. A preset naming neither a
     // toolbox nor a container can still ask for egress, and skipping the check
     // for it let exactly the config this guard exists to catch reach
-    // `config.json` and fail the next boot instead.
+    // `config.yaml` and fail the next boot instead.
     if let Err(error) = check_policy(preset, paths) {
         return Ok(InstallPlan::Blocked {
             id: preset.id.clone(),

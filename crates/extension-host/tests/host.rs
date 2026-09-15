@@ -67,9 +67,9 @@ async fn the_listener_fires_once_per_change_and_not_on_a_row_that_stood_still() 
     std::fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/chatty/ghostai.extension.json"
+            "/tests/fixtures/chatty/ghostai.extension.yaml"
         ),
-        extensions.join("chatty/ghostai.extension.json"),
+        extensions.join("chatty/ghostai.extension.yaml"),
     )
     .unwrap();
     std::fs::copy(
@@ -315,7 +315,7 @@ async fn settings_that_move_restart_the_extension_and_settings_that_do_not_leave
     assert_eq!(harness.host.pid("hello"), Some(first));
 
     // An extension reads its settings once, in the handshake, so a changed
-    // block has to reach it as a restart or it would sit in `config.json`
+    // block has to reach it as a restart or it would sit in `config.yaml`
     // doing nothing until the next boot.
     let mut config = ExtensionsConfig::default();
     config.settings.insert(

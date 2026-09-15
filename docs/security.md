@@ -188,27 +188,37 @@ AES-256-GCM, one file, mode `0600`.
   not. The fallback is not a lesser mode — it is what makes this work in a container, over
   SSH, and on a headless box.
 
-Keys never appear in `config.json`, which is what makes that file safe to commit. Over
+Keys never appear in `config.yaml`, which is what makes that file safe to commit. Over
 HTTP the vault is **write-only**: a client can store a credential and nothing reads one
 back out. What a client can see is a per-instance `credentialsPresent` boolean.
 
 ---
 
-## Toolbox authorisation
+## Toolbox and container policy
 
 **Stops:** the policy an agent runs under being changed underneath the operator.
 
-A toolbox is authorised as a **dependency bundle hash, not a signature** — the manifest
-and every reusable tool definition it names are approved together, length-framed, so
-editing a shared definition revokes every toolbox that reaches it. A container definition
-has a separate approval hash over its own bytes alone. Editing either silently revokes
-that one resource. The approval is a file beside the definition rather than a database
-row, which is what lets the app and the isolated sandbox service verify the same answer
-without either being the authority on the other.
+**The definition file is the policy, and where it lives is the boundary.** Writing it is
+the decision, the same way writing `config.yaml` is. There is no second file recording
+consent, because a consent file kept beside the thing it consents to answers no question
+the first file did not: whoever can write one can write the other. What makes the
+definition trustworthy is that `policy/` sits **outside the workspace jail**, so no tool
+an agent runs — and so no prompt injection — can reach it. The only writer today is
+`ghostai preset install`, a command with a terminal behind it.
 
-Re-checked **during** a call, not only before it: a 250 ms ticker re-resolves the approval
-beside a running command and cancels the moment the hash it was authorised under stops
-matching. A revoke means it now, not when the process happens to exit.
+**Every definition still carries a digest, and it is identity rather than consent.** A
+toolbox's digest is a **dependency bundle hash**: the manifest and every reusable tool
+definition it names, length-framed and hashed together, so editing a shared definition
+moves the digest of every toolbox that reaches it. A container definition hashes its own
+bytes alone. Two container definitions that differ never share a warm instance, and an
+idle container whose definition moved is swept rather than reused.
+
+Re-checked **during** a call, not only before it: a 250 ms ticker re-resolves the
+definition beside a running command and cancels the moment its digest stops matching the
+one the call was prepared under. An operator editing a manifest means it now, not when
+the process happens to exit. The digest crosses the socket with each call, so the app and
+the isolated sandbox service agree on which bytes ran without either being the authority
+on the other.
 
 The toolbox is the complete callable surface and agent permissions may only tighten its
 ceilings. Containers require content-addressed images; `NET_ADMIN`, `SYS_ADMIN` and
@@ -232,14 +242,14 @@ Full detail in [Toolboxes](toolboxes.md).
 **Stops:** code an operator never reviewed running beside the agent.
 **Does not stop:** anything that code does once it is running.
 
-An extension is authorised by **content digest, not signature**, exactly as a
-toolbox is — the question is "are these the exact bytes approved?", not "who
-wrote them". It diverges from the toolbox in one place, and the divergence is
-what makes the analogy hold: the digest covers **every file under the install
-directory**, not the manifest alone. A container definition pins an immutable
-image, so approving the definition approves the code; an extension manifest
-names a _path_, so approving it would approve a pointer and the file behind it
-could be swapped afterwards without moving an approved byte.
+An extension is authorised by **content digest, not signature** — the question
+is "are these the exact bytes approved?", not "who wrote them". This is the one
+resource that still records consent separately, and the reason is what it points
+at: the digest covers **every file under the install directory**, not the
+manifest alone. A container definition pins an immutable image, so the
+definition names the code it runs; an extension manifest names a _path_, and a
+path is a pointer whose file can be swapped afterwards without moving a byte
+anybody looked at.
 
 Editing any file, adding one, removing one or renaming one moves the digest and
 revokes the approval, and the next reconcile refuses with a sentence naming the
@@ -383,7 +393,7 @@ Beyond the allowlist, `admins` narrows the commands that reach past one conversa
 where sessions live. Empty means every allowed sender is an admin, so a single-operator
 install pays nothing for the distinction.
 
-Bot tokens belong in the **credential vault** under `channels`, not in `config.json`; a
+Bot tokens belong in the **credential vault** under `channels`, not in `config.yaml`; a
 token found in the config file is used and warned about. Settings → Channels writes to the
 vault, and the panel can never read one back — it is told only whether one is stored, which
 is what lets it show a saved token without ever holding it. The Bot API puts the token in the

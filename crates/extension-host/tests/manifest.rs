@@ -23,7 +23,7 @@ fn install(root: &std::path::Path, id: &str, manifest: &serde_json::Value) -> st
     let dir = root.join(id);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("ghostai.extension.json"),
+        dir.join("ghostai.extension.yaml"),
         serde_json::to_string(manifest).unwrap(),
     )
     .unwrap();
@@ -50,7 +50,7 @@ fn the_schema_is_readable_from_a_manifest_that_did_not_parse() {
     let two = temp.path().join("two");
     std::fs::create_dir_all(&two).unwrap();
     std::fs::write(
-        two.join("ghostai.extension.json"),
+        two.join("ghostai.extension.yaml"),
         r#"{"schema":"ghostai.extension/1"}"#,
     )
     .unwrap();
@@ -60,10 +60,10 @@ fn the_schema_is_readable_from_a_manifest_that_did_not_parse() {
     let three = temp.path().join("three");
     std::fs::create_dir_all(&three).unwrap();
     assert_eq!(schema_on_disk(&three), None);
-    std::fs::write(three.join("ghostai.extension.json"), "not json").unwrap();
+    std::fs::write(three.join("ghostai.extension.yaml"), "not yaml").unwrap();
     assert_eq!(schema_on_disk(&three), None);
     std::fs::write(
-        three.join("ghostai.extension.json"),
+        three.join("ghostai.extension.yaml"),
         r#"{"schema":"ghostai.extension/9"}"#,
     )
     .unwrap();
@@ -80,7 +80,7 @@ fn a_v1_bundle_is_refused_whatever_the_store_thinks_of_it() {
     let one = root.join("one");
     std::fs::create_dir_all(&one).unwrap();
     std::fs::write(
-        one.join("ghostai.extension.json"),
+        one.join("ghostai.extension.yaml"),
         r#"{"schema":"ghostai.extension/1","id":"one","entry":"dist/missing.js"}"#,
     )
     .unwrap();

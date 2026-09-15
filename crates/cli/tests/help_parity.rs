@@ -93,7 +93,8 @@ fn every_command_the_page_lists_is_in_the_help() {
 #[test]
 fn every_subcommand_the_page_lists_is_in_its_parents_help() {
     for (parent, children) in [
-        ("toolbox", &["list", "approve", "revoke"][..]),
+        ("toolbox", &["list"][..]),
+        ("container", &["list"][..]),
         ("extension", &["list", "approve", "revoke"][..]),
         ("agent", &["install", "list"][..]),
         ("preset", &["list", "install", "update"][..]),

@@ -98,8 +98,7 @@ pub struct GhostPaths {
     /// The layer agents working in one folder share, keyed by workspace.
     pub shared_dir: PathBuf,
     /// Operator-installed policy: `toolboxes/`, `containers/` and
-    /// `tool-definitions/`, each holding one `<name>.json` per definition with
-    /// its `<name>.approval.sha256` beside it.
+    /// `tool-definitions/`, each holding one `<name>.yaml` per definition.
     ///
     /// Beside the workspace and never inside it: the jail root *is* the
     /// workspace, so policy kept in there would be writable by `write_file` and
@@ -184,7 +183,7 @@ impl GhostPaths {
             presets_dir: root.join("presets"),
             catalogue_dir: root.join("catalogue"),
             runs_dir: root.join("runs"),
-            config_file: root.join("config.json"),
+            config_file: root.join("config.yaml"),
             db_file: root.join("ghost.db"),
             logs_dir: root.join("logs"),
             extensions_dir: root.join("extensions"),

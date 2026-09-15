@@ -1,14 +1,13 @@
 //! The toolboxes installed on this machine.
 //!
 //! Read from disk on every request rather than from a cached list, and that is
-//! the point rather than laziness: a manifest edited after approval must stop
-//! reporting as approved the moment it changes, and a list built at boot would
-//! keep saying it was fine until a restart.
+//! the point rather than laziness: an edited manifest must report its new
+//! digest and its new operations the moment it changes, and a list built at
+//! boot would keep saying it was fine until a restart.
 //!
-//! Read-only. Installing and approving are operator actions with a terminal
-//! behind them, and exposing approval over HTTP would put the one decision that
-//! makes a toolbox mean something behind whatever session happens to be open in
-//! a browser tab.
+//! Read-only. Installing a toolbox is an operator action with a terminal behind
+//! it, and the curated operation surface is what bounds what an agent can ask
+//! for, so it is not something a browser session composes.
 
 use axum::Json;
 use axum::extract::State;
@@ -59,7 +58,6 @@ pub async fn list_toolboxes(
                             .collect()
                     })
                     .unwrap_or_default(),
-                approved: listing.approved,
                 problem: listing.problem,
             }
         })

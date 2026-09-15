@@ -37,19 +37,19 @@ async fn container_service_shares_instances_and_enforces_toolbox_grants() {
     let root = tempfile::tempdir().unwrap();
     let root_path = root.path().canonicalize().unwrap();
     let store = install_policy(&root_path, &image);
-    let writer = store.approve_toolbox("writer").unwrap().sha256().to_owned();
-    let reader = store.approve_toolbox("reader").unwrap().sha256().to_owned();
+    let writer = store.require_toolbox("writer").unwrap().digest().to_owned();
+    let reader = store.require_toolbox("reader").unwrap().digest().to_owned();
     let intruder = store
-        .approve_toolbox("intruder")
+        .require_toolbox("intruder")
         .unwrap()
-        .sha256()
+        .digest()
         .to_owned();
     let token = CancellationToken::new();
     let (_service, client) = start_service(&root_path, &token).await;
     let execute =
-        |toolbox: &str, approval: &str, operation: &str, agent: &str| SandboxRequest::Execute {
+        |toolbox: &str, digest: &str, operation: &str, agent: &str| SandboxRequest::Execute {
             toolbox: toolbox.into(),
-            approval: approval.into(),
+            digest: digest.into(),
             container: "shared".into(),
             operation: operation.into(),
             workspace: "default".into(),
@@ -108,7 +108,7 @@ async fn container_service_shares_instances_and_enforces_toolbox_grants() {
     .unwrap()
     .unwrap();
     assert_eq!(recovered["isError"], false, "{recovered}");
-    store.revoke_toolbox("writer").unwrap();
+    std::fs::remove_file(root_path.join("toolboxes/writer.yaml")).unwrap();
     assert!(
         client
             .request(execute("writer", &writer, "write", "alice"), &token)
@@ -182,7 +182,7 @@ fn install_policy(root: &std::path::Path, image: &str) -> PolicyStore {
         std::fs::Permissions::from_mode(0o777),
     )
     .unwrap();
-    std::fs::write(root.join("containers/shared.json"), json!({"schema":"ghostai.container/1","name":"shared","image":image,"shared":true,"security":{"tmpfs":["/tmp:rw,nosuid,size=16m"]}}).to_string()).unwrap();
+    std::fs::write(root.join("containers/shared.yaml"), json!({"schema":"ghostai.container/1","name":"shared","image":image,"shared":true,"security":{"tmpfs":["/tmp:rw,nosuid,size=16m"]}}).to_string()).unwrap();
     for (name, implementation) in [
         (
             "write",
@@ -197,7 +197,7 @@ fn install_policy(root: &std::path::Path, image: &str) -> PolicyStore {
             json!({"kind":"command","executable":"/bin/sh","argv":["-c","trap '' TERM; sleep 60 & wait"]}),
         ),
     ] {
-        std::fs::write(root.join("tool-definitions").join(format!("{name}.json")), json!({"schema":"ghostai.tool/1","description":name,"parameters":{"type":"object","properties":{},"additionalProperties":false},"implementation":implementation}).to_string()).unwrap();
+        std::fs::write(root.join("tool-definitions").join(format!("{name}.yaml")), json!({"schema":"ghostai.tool/1","description":name,"parameters":{"type":"object","properties":{},"additionalProperties":false},"implementation":implementation}).to_string()).unwrap();
     }
     for (name, operations) in [
         ("writer", vec!["write", "wait"]),
@@ -209,14 +209,12 @@ fn install_policy(root: &std::path::Path, image: &str) -> PolicyStore {
             .map(|name| json!({"name":name,"definition":name,"permission":"allow"}))
             .collect();
         std::fs::write(
-            root.join("toolboxes").join(format!("{name}.json")),
+            root.join("toolboxes").join(format!("{name}.yaml")),
             json!({"schema":"ghostai.toolbox/1","name":name,"tools":tools}).to_string(),
         )
         .unwrap();
     }
-    let store = PolicyStore::new(root.to_path_buf());
-    store.approve_container("shared").unwrap();
-    store
+    PolicyStore::new(root.to_path_buf())
 }
 
 /// Spawns the service over `root` as its own process and waits for it to
@@ -243,7 +241,7 @@ async fn start_service(
             },
         )]),
     };
-    let config_path = root.join("service.json");
+    let config_path = root.join("service.yaml");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let service = ServiceProcess(
         Command::new(env!("CARGO_BIN_EXE_ghostai-sandbox"))

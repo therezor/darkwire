@@ -4,12 +4,12 @@
 //! tree says which extensions an operator disabled, and this says what happened
 //! when the install tried to load them. "Never approved", "changed since
 //! approval" and "failed on activation" are three different things to do next,
-//! and none of them belongs in `config.json`.
+//! and none of them belongs in `config.yaml`.
 //!
 //! Approve and revoke are **not** settings patches, and that is the design
 //! rather than an omission. An approval is a statement about the exact bytes on
 //! disk at one moment — recorded as a digest in the database, next to the
-//! toolbox approvals it copies. Writing it into `config.json` would make it
+//! toolbox approvals it copies. Writing it into `config.yaml` would make it
 //! survive an edit to the very files it was about, which is the one thing the
 //! whole gate exists to prevent.
 //!

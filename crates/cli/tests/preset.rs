@@ -34,7 +34,7 @@ use ghostai::ask::{Ask, ScriptedReader};
 use ghostai::catalogue::{CATALOGUE_RANGE, fetched_catalogue_dir};
 use ghostai::i18n::{Env, Translations};
 use ghostai::preset::{PresetOptions, run_preset};
-use ghostai::program::{CatalogueArgs, Globals, PresetAction, StoreAction};
+use ghostai::program::{CatalogueArgs, Globals, PresetAction};
 use ghostai_core::{ErrorKind, GhostError, Result};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -144,7 +144,7 @@ impl Harness {
                 target.insert(key.clone(), value.clone());
             }
         }
-        std::fs::write(dir.join(format!("{id}.json")), preset.to_string()).expect("a preset");
+        std::fs::write(dir.join(format!("{id}.yaml")), preset.to_string()).expect("a preset");
     }
 
     /// A toolbox manifest and the definition it grants, copied verbatim by an
@@ -154,7 +154,7 @@ impl Harness {
         std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
         std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
         std::fs::write(
-            root.join("toolboxes").join(format!("{name}.json")),
+            root.join("toolboxes").join(format!("{name}.yaml")),
             json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
@@ -164,7 +164,7 @@ impl Harness {
         )
         .expect("a manifest");
         std::fs::write(
-            root.join("tool-definitions").join("rg.json"),
+            root.join("tool-definitions").join("rg.yaml"),
             json!({
                 "schema": "ghostai.tool/1",
                 "description": "Search the workspace.",
@@ -187,7 +187,7 @@ impl Harness {
         std::fs::create_dir_all(&dir).expect("a container directory");
         std::fs::write(dir.join("Dockerfile"), "FROM scratch\n").expect("a Dockerfile");
         std::fs::write(
-            dir.join("container.json"),
+            dir.join("container.yaml"),
             json!({
                 "schema": "ghostai.container/1",
                 "name": name,
@@ -236,10 +236,10 @@ impl Harness {
     /// run that installed nothing leaves the file it would have created absent
     /// rather than writing an empty one.
     fn agents(&self) -> Value {
-        let Ok(text) = std::fs::read_to_string(self.home().join("config.json")) else {
+        let Ok(text) = std::fs::read_to_string(self.home().join("config.yaml")) else {
             return json!({});
         };
-        serde_json::from_str::<Value>(&text)
+        serde_yaml_ng::from_str::<Value>(&text)
             .ok()
             .and_then(|config| config.pointer("/agents/list").cloned())
             .unwrap_or_else(|| json!({}))
@@ -248,41 +248,6 @@ impl Harness {
     /// Where an install lands what it copied and built.
     fn policy(&self) -> PathBuf {
         self.home().join("policy")
-    }
-
-    fn approve(&self, name: &str) {
-        let err = Sink::default();
-        let mut streams = Streams {
-            out: Box::new(Sink::default()),
-            err: Box::new(err.clone()),
-        };
-        let code = ghostai::toolbox::run(
-            &self.globals(),
-            StoreAction::Approve,
-            Some(name),
-            &self.env(),
-            &mut streams,
-        )
-        .expect("the approval answers with an exit code");
-        assert_eq!(code, 0, "{}", err.text());
-    }
-
-    /// The other half of the decision, approved on its own.
-    fn approve_container(&self, name: &str) {
-        let err = Sink::default();
-        let mut streams = Streams {
-            out: Box::new(Sink::default()),
-            err: Box::new(err.clone()),
-        };
-        let code = ghostai::container::run(
-            &self.globals(),
-            StoreAction::Approve,
-            Some(name),
-            &self.env(),
-            &mut streams,
-        )
-        .expect("the approval answers with an exit code");
-        assert_eq!(code, 0, "{}", err.text());
     }
 }
 
@@ -338,7 +303,6 @@ fn install(ids: &[&str]) -> PresetAction {
     PresetAction::Install {
         ids: ids.iter().map(|id| (*id).to_owned()).collect(),
         force: false,
-        approve: None,
         workspace_id: None,
     }
 }
@@ -347,32 +311,10 @@ fn install(ids: &[&str]) -> PresetAction {
 fn install_forced(ids: &[&str]) -> PresetAction {
     match install(ids) {
         PresetAction::Install {
-            ids,
-            approve,
-            workspace_id,
-            ..
+            ids, workspace_id, ..
         } => PresetAction::Install {
             ids,
             force: true,
-            approve,
-            workspace_id,
-        },
-        other => other,
-    }
-}
-
-/// The same, with the approval answered on the command line.
-fn install_approving(ids: &[&str], approve: bool) -> PresetAction {
-    match install(ids) {
-        PresetAction::Install {
-            ids,
-            force,
-            workspace_id,
-            ..
-        } => PresetAction::Install {
-            ids,
-            force,
-            approve: Some(approve),
             workspace_id,
         },
         other => other,
@@ -469,10 +411,6 @@ fn run(harness: &Harness, spec: Spec<'_>) -> Run {
     }
 }
 
-/// The question the approval prompt asks about the toolbox and the container
-/// an agent needs — two decisions, so two pending approvals.
-const APPROVE_BOTH: &str = "Approve all 2, so agents may use them?";
-
 // list
 
 #[test]
@@ -565,7 +503,7 @@ fn builds_only_the_boxes_the_chosen_agents_asked_for() {
         harness
             .policy()
             .join("toolboxes")
-            .join("coding.json")
+            .join("coding.yaml")
             .exists()
     );
     // The definition the manifest grants travels with it: the approval hash
@@ -574,21 +512,21 @@ fn builds_only_the_boxes_the_chosen_agents_asked_for() {
         harness
             .policy()
             .join("tool-definitions")
-            .join("rg.json")
+            .join("rg.yaml")
             .exists()
     );
     assert!(
         !harness
             .policy()
             .join("toolboxes")
-            .join("spare.json")
+            .join("spare.yaml")
             .exists()
     );
     assert!(
         !harness
             .policy()
             .join("containers")
-            .join("spare.json")
+            .join("spare.yaml")
             .exists()
     );
 }
@@ -621,178 +559,17 @@ fn pins_the_built_image_id_into_the_installed_definition() {
         },
     );
 
-    let definition = std::fs::read_to_string(harness.policy().join("containers").join("dev.json"))
+    let definition = std::fs::read_to_string(harness.policy().join("containers").join("dev.yaml"))
         .expect("a definition was installed");
     assert!(definition.contains(DIGEST), "{definition}");
     assert!(!definition.contains("__IMAGE_ID__"), "{definition}");
 }
 
 #[test]
-fn approves_nothing_when_there_is_nobody_to_ask() {
-    // A pipe or a scheduled job. Answering "yes" by default would approve
-    // container policy nobody read, which is the failure the gate exists to
-    // stop.
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install(&["coder"]),
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 0, "{}", installed.errors);
-    assert!(
-        installed.output.contains("ghostai toolbox approve coding"),
-        "{}",
-        installed.output
-    );
-    assert!(harness.agents().get("coder").is_none());
-}
-
-#[test]
-fn prints_each_policy_before_asking_so_a_yes_is_an_informed_one() {
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install(&["coder"]),
-            answers: &["n"],
-            ..Spec::default()
-        },
-    );
-
-    let shown = &installed.output;
-    let question = shown.find(APPROVE_BOTH).expect("the question was asked");
-    // What the operator has seen by the time the question arrives: both halves
-    // named, and the container's policy spelled out rather than summarised.
-    for expected in [
-        "toolbox coding",
-        "container dev",
-        "image      sha256:",
-        "limits     ",
-    ] {
-        let seen = shown.find(expected).unwrap_or(usize::MAX);
-        assert!(
-            seen < question,
-            "{expected} was not shown before the question"
-        );
-    }
-    assert_eq!(shown.matches(APPROVE_BOTH).count(), 1, "{shown}");
-}
-
-#[test]
-fn approves_and_installs_in_one_run_when_the_answer_is_yes() {
-    // The point of asking here rather than after: approving is what unblocks
-    // the agents, so the same run finishes the job.
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install(&["coder"]),
-            answers: &["y"],
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 0, "{}", installed.errors);
-    assert!(harness.agents().get("coder").is_some());
-    assert!(
-        installed.output.contains("Approved coding"),
-        "{}",
-        installed.output
-    );
-    assert!(
-        installed.output.contains("Approved dev"),
-        "{}",
-        installed.output
-    );
-}
-
-#[test]
-fn approve_does_it_without_asking() {
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install_approving(&["coder"], true),
-            answers: &["n"],
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 0, "{}", installed.errors);
-    assert!(
-        !installed.output.contains(APPROVE_BOTH),
-        "{}",
-        installed.output
-    );
-    assert!(harness.agents().get("coder").is_some());
-}
-
-#[test]
-fn no_approve_neither_asks_nor_prints_the_policies() {
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install_approving(&["coder"], false),
-            answers: &["y"],
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 0, "{}", installed.errors);
-    assert!(
-        !installed.output.contains(APPROVE_BOTH),
-        "{}",
-        installed.output
-    );
-    assert!(harness.agents().get("coder").is_none());
-    assert!(
-        !installed.output.contains("review this"),
-        "{}",
-        installed.output
-    );
-    assert!(
-        installed.output.contains("ghostai toolbox approve coding"),
-        "{}",
-        installed.output
-    );
-}
-
-#[test]
-fn holds_back_an_agent_whose_box_is_not_approved_yet() {
-    let harness = Harness::new();
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install(&["nano", "coder"]),
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 0, "{}", installed.errors);
-    let agents = harness.agents();
-    assert!(agents.get("nano").is_some());
-    // An enabled agent naming an unapproved toolbox is a config the server
-    // refuses to boot on, so the entry is not written at all.
-    assert!(agents.get("coder").is_none());
-    assert!(
-        installed.output.contains("Waiting on those approvals"),
-        "{}",
-        installed.output
-    );
-}
-
-#[test]
-fn installs_a_held_back_agent_once_its_box_is_approved() {
+fn does_not_rebuild_a_box_that_is_already_installed() {
+    // Rebuilding changes the image id and so the definition's digest, which
+    // restarts every warm instance of it — a re-run must not cost that for
+    // nothing.
     let harness = Harness::new();
     run(
         &harness,
@@ -801,35 +578,6 @@ fn installs_a_held_back_agent_once_its_box_is_approved() {
             ..Spec::default()
         },
     );
-    harness.approve("coding");
-    harness.approve_container("dev");
-
-    let second = run(
-        &harness,
-        Spec {
-            action: install(&["coder"]),
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(second.code, 0, "{}", second.errors);
-    assert!(harness.agents().get("coder").is_some());
-}
-
-#[test]
-fn does_not_rebuild_a_box_that_is_already_approved() {
-    // Rebuilding changes the image id, changes the manifest, and revokes the
-    // approval the operator gave — a re-run must not be a silent downgrade.
-    let harness = Harness::new();
-    run(
-        &harness,
-        Spec {
-            action: install(&["coder"]),
-            ..Spec::default()
-        },
-    );
-    harness.approve("coding");
-    harness.approve_container("dev");
 
     let second = run(
         &harness,
@@ -1015,7 +763,7 @@ fn reports_a_failed_build_without_writing_a_half_pinned_manifest() {
         !harness
             .policy()
             .join("containers")
-            .join("dev.json")
+            .join("dev.yaml")
             .exists()
     );
 }
@@ -1341,7 +1089,7 @@ fn an_empty_answer_installs_nothing_and_is_not_an_error() {
         "{}",
         installed.output
     );
-    assert!(!harness.home().join("config.json").exists());
+    assert!(!harness.home().join("config.yaml").exists());
 }
 
 #[test]

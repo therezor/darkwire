@@ -4,7 +4,7 @@
  * Two queries rather than one, for the reason `use-mcp.ts` gives: the settings
  * tree is what an operator configured and changes only when they save, and this
  * is what came of it. "Never approved" is not something to write into
- * `config.json` — an approval is a statement about the bytes on disk right now.
+ * `config.yaml` — an approval is a statement about the bytes on disk right now.
  *
  * Approve and revoke answer with the whole list rather than one row, and the
  * hook writes that answer straight into the cache. Loading an extension can

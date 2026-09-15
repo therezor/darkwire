@@ -3,7 +3,7 @@
 use ghostai_core::Result;
 use ghostai_protocol::{ToolDefinition, ToolPermission, ToolPermissions, ToolRisk, ToolSource};
 use ghostai_security::{JailOptions, PolicyStore, WorkspaceJail};
-use ghostai_tools::operations::approved_operation_scope;
+use ghostai_tools::operations::toolbox_operation_scope;
 use ghostai_tools::{
     AnyTool, BoxFuture, CommandRunner, RunOutcome, RunRequest, Tool, ToolContext, ToolExecution,
     ToolRegistry,
@@ -75,13 +75,13 @@ fn policy_root(
         std::fs::create_dir_all(root.path().join(dir)).unwrap();
     }
     std::fs::write(
-        root.path().join("toolboxes/check.json"),
+        root.path().join("toolboxes/check.yaml"),
         toolbox.to_string(),
     )
     .unwrap();
     for (name, definition) in definitions {
         std::fs::write(
-            root.path().join(format!("tool-definitions/{name}.json")),
+            root.path().join(format!("tool-definitions/{name}.yaml")),
             definition.to_string(),
         )
         .unwrap();
@@ -98,22 +98,22 @@ fn jail_context(store: &PolicyStore) -> ToolContext {
 
 #[tokio::test]
 async fn scoped_calls_cannot_enable_undeclared_tools_override_ceilings_or_add_argv() {
-    let (_root, store) = policy_root(
+    let (root, store) = policy_root(
         &json!({"schema":"ghostai.toolbox/1","name":"check","tools":[{"name":"status","definition":"status","permission":"ask"}]}),
         &[(
             "status",
             json!({"schema":"ghostai.tool/1","description":"Status","implementation":{"kind":"command","executable":"/usr/bin/git","argv":["status"]},"parameters":{"type":"object","properties":{},"additionalProperties":false}}),
         )],
     );
-    let approved = store.approve_toolbox("check").unwrap();
+    let installed = store.require_toolbox("check").unwrap();
     let overrides: ToolPermissions = [
         ("status".into(), ToolPermission::Allow),
         ("exec".into(), ToolPermission::Allow),
     ]
     .into_iter()
     .collect();
-    let scope = approved_operation_scope(
-        &approved,
+    let scope = toolbox_operation_scope(
+        &installed,
         &store,
         &Arc::new(ToolRegistry::new()),
         &overrides,
@@ -138,53 +138,63 @@ async fn scoped_calls_cannot_enable_undeclared_tools_override_ceilings_or_add_ar
     assert!(!outcome.is_error, "{}", outcome.content);
     assert_eq!(runner.0.lock()[0], ["/usr/bin/git", "status"]);
     context.runner = Arc::new(Waiting);
-    let revoker = Arc::clone(&store);
+    let manifest = root.path().join("toolboxes/check.yaml");
     let ((), cancelled) = tokio::join!(
         async move {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            revoker.revoke_toolbox("check").unwrap();
+            // An operator editing the manifest mid-run means it now, not when
+            // the process happens to exit.
+            std::fs::write(
+                &manifest,
+                json!({"schema":"ghostai.toolbox/1","name":"check","tools":[]}).to_string(),
+            )
+            .unwrap();
         },
         tool.execute(json!({}), &context)
     );
     assert!(cancelled.is_error);
-    assert!(cancelled.content.contains("approval revoked"));
+    assert!(cancelled.content.contains("definition changed"));
     assert!(tool.execute(json!({}), &context).await.is_error);
     assert_eq!(runner.0.lock().len(), 1);
 }
 
 #[tokio::test]
-async fn revocation_cancels_an_active_registered_operation() {
+async fn editing_the_manifest_cancels_an_active_registered_operation() {
     let definition: ToolDefinition = serde_json::from_value(json!({
         "name":"wait_registered", "description":"Wait", "parameters":{"type":"object","properties":{},"additionalProperties":false},
         "risk":"safe", "source":"builtin"
     })).unwrap();
     let digest = ghostai_tools::operations::definition_digest(&definition).unwrap();
-    let (_root, store) = policy_root(
+    let (root, store) = policy_root(
         &json!({"schema":"ghostai.toolbox/1","name":"check","tools":[{"name":"wait","definition":"wait","permission":"allow"}]}),
         &[(
             "wait",
             json!({"schema":"ghostai.tool/1","description":"Wait","implementation":{"kind":"registered","tool":"wait_registered","digest":digest},"parameters":{"type":"object","properties":{},"additionalProperties":false}}),
         )],
     );
-    let approved = store.approve_toolbox("check").unwrap();
+    let installed = store.require_toolbox("check").unwrap();
     let registry = Arc::new(ToolRegistry::new());
     let waiting: AnyTool = Arc::new(WaitingTool(definition));
     registry
         .register_all(vec![waiting], ToolSource::Builtin)
         .unwrap();
     let scope =
-        approved_operation_scope(&approved, &store, &registry, &ToolPermissions::new(), None)
+        toolbox_operation_scope(&installed, &store, &registry, &ToolPermissions::new(), None)
             .unwrap();
     let context = jail_context(&store);
     let tool = scope.get("wait").unwrap();
-    let revoker = Arc::clone(&store);
+    let manifest = root.path().join("toolboxes/check.yaml");
     let ((), result) = tokio::join!(
         async move {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            revoker.revoke_toolbox("check").unwrap();
+            std::fs::write(
+                &manifest,
+                json!({"schema":"ghostai.toolbox/1","name":"check","tools":[]}).to_string(),
+            )
+            .unwrap();
         },
         tool.execute(json!({}), &context)
     );
     assert!(result.is_error);
-    assert!(result.content.contains("approval revoked"));
+    assert!(result.content.contains("definition changed"));
 }

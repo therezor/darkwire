@@ -180,7 +180,7 @@ fn round_trips_tokens_through_the_store() {
 
     built.flow.save_tokens(&tokens("at", None, None)).unwrap();
     assert_eq!(built.flow.tokens().unwrap().access_token, "at");
-    // In the vault, never in `config.json`: this is a credential this process
+    // In the vault, never in `config.yaml`: this is a credential this process
     // obtained rather than a setting somebody typed.
     assert!(
         built

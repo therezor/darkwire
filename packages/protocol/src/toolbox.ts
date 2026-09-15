@@ -1,7 +1,7 @@
 /**
  * Toolboxes and containers: what an agent may call, and where it runs.
  *
- * Two manifests, approved separately, that deliberately do not know about each
+ * Two manifests, installed separately, that deliberately do not know about each
  * other:
  *
  *  - A **toolbox** is the complete set of operations one agent may call. It
@@ -10,8 +10,8 @@
  *    widen a boundary.
  *  - A **container** is where command operations run: an image, the hardening
  *    around it, its resource budget, and whether agents share one instance. It
- *    holds no tool grants, so approving a place to run commands is not
- *    approving any particular command.
+ *    holds no tool grants, so choosing a place to run commands grants no
+ *    particular command.
  *
  * Both live in an operator-installed policy directory rather than in
  * `agents.list.<id>`, because an agent's config is *editable* — through the
@@ -99,13 +99,13 @@ export const ToolGrantSchema = z
 export type ToolGrant = z.infer<typeof ToolGrantSchema>;
 
 /**
- * An approved toolbox is the complete callable surface of one agent.
+ * An installed toolbox is the complete callable surface of one agent.
  *
  * Every grant names an operation definition installed beside it rather than
  * carrying the definition inline, so one reviewed `git-status` is shared by
- * every toolbox that grants it and is reviewed once. The approval hash covers
- * the toolbox *and* every definition it names, so editing a shared definition
- * revokes each toolbox that reaches it.
+ * every toolbox that grants it and is reviewed once. The digest covers the
+ * toolbox *and* every definition it names, so editing a shared definition moves
+ * the digest of each toolbox that reaches it.
  */
 export const ToolboxSchema = z
   .object({
@@ -123,9 +123,9 @@ export type Toolbox = z.infer<typeof ToolboxSchema>;
 /**
  * A reusable, operator-installed operation.
  *
- * The JSON Schema is validated offline at approval time and enforced again
- * before every call, so it can never reference anything the validator would
- * have to fetch.
+ * The JSON Schema is validated offline when the definition is read and
+ * enforced again before every call, so it can never reference anything the
+ * validator would have to fetch.
  */
 export const ToolOperationSchema = z
   .object({
@@ -174,8 +174,8 @@ export type ToolOperation = z.infer<typeof ToolOperationSchema>;
  * the fields below are what decide whether a restricted egress gateway can be
  * built around it at all: a root or non-numeric `user`, missing
  * `noNewPrivileges` or a capability that can forge packets each make the
- * gateway refuse. So an operator approving a definition is approving the
- * *shape* an agent's network request will be honoured in, not the request.
+ * gateway refuse. So an operator writing a definition is fixing the *shape*
+ * an agent's network request will be honoured in, not the request.
  */
 export const ContainerDefinitionSchema = z
   .object({
@@ -183,8 +183,8 @@ export const ContainerDefinitionSchema = z
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     /**
      * Must be digest-pinned: an immutable image ID or a registry digest. A tag
-     * is a mutable pointer, and a container approved once and then silently
-     * repointed is the approval gate defeated.
+     * is a mutable pointer, and a container installed once and then silently
+     * repointed would run code nobody chose.
      */
     image: z.string().min(1),
     /** Share one instance across agents asking for the same egress. */

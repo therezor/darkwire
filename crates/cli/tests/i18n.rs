@@ -149,7 +149,7 @@ fn describe_error_says_nothing_about_the_structured_detail() {
     // The details map is for a log line. A person reading a refusal wants the
     // sentence, and the sentence already names the file and what to do next.
     let error = GhostError::new(ErrorKind::Config, "no provider could be resolved")
-        .with_detail("file", "/tmp/config.json");
+        .with_detail("file", "/tmp/config.yaml");
     assert_eq!(describe_error(&error), "no provider could be resolved");
 }
 

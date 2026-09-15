@@ -74,7 +74,7 @@ use ghostai_providers::{
     resolve_connection, resolve_instance,
 };
 use ghostai_security::{
-    ApprovedToolbox, CredentialVault, ExtensionStore, JailResolver, OsRandom, PolicyStore,
+    CredentialVault, ExtensionStore, InstalledToolbox, JailResolver, OsRandom, PolicyStore,
     RandomSource, WorkspaceJail, assert_gateway_compatible, narrow_permission,
 };
 use ghostai_tools::{
@@ -426,7 +426,7 @@ impl std::fmt::Debug for GhostRuntime {
 /// Builds a runtime from `options`.
 ///
 /// Fails only on settings that cannot be built at all — an unusable workspace,
-/// an agent naming an unapproved toolbox. A missing provider or model is a
+/// an agent naming a toolbox that is not installed. A missing provider or model is a
 /// *state*: the runtime comes up unconfigured.
 pub fn create_runtime(options: RuntimeOptions) -> Result<Arc<GhostRuntime>> {
     GhostRuntime::new(options)
@@ -572,7 +572,7 @@ impl GhostRuntime {
     ///
     /// `execute` is refused here rather than filtered at the route: a model's
     /// tool call reaches the service through the agent loop, which supplies the
-    /// approval hash it resolved the toolbox at. An `execute` arriving as a
+    /// digest it resolved the toolbox at. An `execute` arriving as a
     /// management call has no such provenance, whatever it claims.
     pub async fn sandbox_request(&self, value: serde_json::Value) -> Result<serde_json::Value> {
         let request: SandboxRequest = serde_json::from_value(value)
@@ -755,7 +755,7 @@ impl GhostRuntime {
     ///
     /// Live rather than configured, which is why it is a method here and not a
     /// corner of the config: "unreachable since 12:04" is not something to write
-    /// into `config.json`. Empty when the client is switched off.
+    /// into `config.yaml`. Empty when the client is switched off.
     pub fn mcp_servers(&self) -> Vec<McpServerStatus> {
         self.mcp
             .as_ref()
@@ -775,7 +775,7 @@ impl GhostRuntime {
     /// Re-reads the extensions directory and applies what changed.
     ///
     /// The path an *approval* takes, which a settings save does not: approving
-    /// is a row in a table rather than an edit to `config.json`, so nothing else
+    /// is a row in a table rather than an edit to `config.yaml`, so nothing else
     /// here would notice it.
     pub fn reload_extensions(&self) {
         let current = Arc::clone(&self.current.read());
@@ -801,7 +801,7 @@ impl GhostRuntime {
     /// was.
     ///
     /// Returns the merged config, which is what a caller persists to
-    /// `config.json` — the runtime deliberately does not write it, because
+    /// `config.yaml` — the runtime deliberately does not write it, because
     /// previewing a patch and saving one are different operations.
     pub fn reconfigure(self: &Arc<Self>, patch: &serde_json::Value) -> Result<Config> {
         let previous = Arc::clone(&self.current.read());
@@ -832,7 +832,7 @@ impl GhostRuntime {
         self.reconfigure(&value)
     }
 
-    /// Re-reads `config.json` and rebuilds everything derived from it.
+    /// Re-reads `config.yaml` and rebuilds everything derived from it.
     ///
     /// The counterpart to [`Self::reconfigure`], and the difference is where the
     /// settings come from: a patch is what a client just sent, and this is what
@@ -926,7 +926,7 @@ impl GhostRuntime {
         };
 
         // Before the mutations below, because every failure it can produce — an
-        // unapproved toolbox, a manifest edited since approval, a network
+        // toolbox that is not installed, a manifest that does not parse, a network
         // request above its ceiling — must leave the runtime serving on the
         // settings that worked a moment ago.
         let built = Self::resolve_policies(&agents, &paths)?;
@@ -1233,7 +1233,7 @@ impl GhostRuntime {
     ///
     /// Nothing here reaches a container engine, and that is the point of the
     /// split rather than an optimisation: whether a definition is installed,
-    /// approved and internally coherent is static config and belongs in an
+    /// installed and internally coherent is static config and belongs in an
     /// all-or-nothing rebuild, while whether an engine is *running* changes
     /// while the server is up. The sandbox service answers the second, on the
     /// first command that needs one.
@@ -1251,8 +1251,8 @@ impl GhostRuntime {
 
         let policies = PolicyStore::new(paths.policy_dir.clone());
 
-        // Every agent resolved *here*, so an unapproved toolbox, a definition
-        // edited since approval, or an egress request nothing could enforce is a
+        // Every agent resolved *here*, so a toolbox that is not installed, a
+        // definition that does not parse, or an egress request nothing could enforce is a
         // refusal on the save rather than a turn that dies on its first command.
         // The prompt sections fall out of the same pass, which is why this is not
         // two walks.
@@ -1274,18 +1274,18 @@ impl GhostRuntime {
             if agent.toolbox.name.is_empty() {
                 continue;
             }
-            let approved = policies.require_toolbox(&agent.toolbox.name)?;
-            let resolved = resolved_permissions(&approved, &agent.toolbox.tools);
+            let installed = policies.require_toolbox(&agent.toolbox.name)?;
+            let resolved = resolved_permissions(&installed, &agent.toolbox.tools);
             prompts.insert(
                 agent.id.clone(),
                 PromptToolbox {
-                    name: approved.resolved.toolbox.name.clone(),
+                    name: installed.resolved.toolbox.name.clone(),
                     workdir,
                     // Resolved against the same overrides the permission map is,
                     // so the prose and the tool schemas cannot list different
                     // operations. An agent given four of a toolbox's twenty-four
                     // must not be told it has the other twenty.
-                    tools: approved
+                    tools: installed
                         .resolved
                         .toolbox
                         .tools
@@ -1293,7 +1293,7 @@ impl GhostRuntime {
                         .filter(|grant| resolved.get(&grant.name) != Some(&ToolPermission::Deny))
                         .map(|grant| PromptToolboxTool {
                             name: grant.name.clone(),
-                            use_for: approved
+                            use_for: installed
                                 .resolved
                                 .operations
                                 .get(&grant.name)
@@ -1301,7 +1301,7 @@ impl GhostRuntime {
                                 .unwrap_or_default(),
                         })
                         .collect(),
-                    notes: approved.resolved.toolbox.notes.clone(),
+                    notes: installed.resolved.toolbox.notes.clone(),
                 },
             );
             permissions.insert(agent.id.clone(), resolved);
@@ -1316,10 +1316,10 @@ impl GhostRuntime {
 
 /// Each grant's permission after the agent's own map has tightened it.
 fn resolved_permissions(
-    approved: &ApprovedToolbox,
+    installed: &InstalledToolbox,
     overrides: &ToolPermissions,
 ) -> ToolPermissions {
-    approved
+    installed
         .resolved
         .toolbox
         .tools
@@ -1448,7 +1448,7 @@ impl GhostRuntime {
             self.tools.select(agent.tools.clone())
         } else {
             let store = Arc::new(PolicyStore::new(paths.policy_dir.clone()));
-            let approved = store.require_toolbox(&agent.toolbox.name)?;
+            let installed = store.require_toolbox(&agent.toolbox.name)?;
             containerized = Some(!agent.container.name.is_empty());
             // A command operation runs in a container by being *sent* to the
             // service that owns one. Without a container the same operation runs
@@ -1464,8 +1464,8 @@ impl GhostRuntime {
                 ))
                     as Arc<dyn ghostai_tools::operations::OperationExecutor>)
             };
-            ghostai_tools::operations::approved_operation_scope(
-                &approved,
+            ghostai_tools::operations::toolbox_operation_scope(
+                &installed,
                 &store,
                 &self.tools,
                 &agent.toolbox.tools,
@@ -1520,12 +1520,12 @@ impl GhostRuntime {
             id: agent.id.clone(),
             tool_prompts: Some(agent.tool_prompts.clone()),
             platform_prompt: Some(match containerized {
-                Some(true) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the approved tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
+                Some(true) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
                 Some(false) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. They run in the app environment or their configured provider, without toolbox container isolation. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
                 _ => agent.platform_prompt.clone(),
             }),
             toolbox_prompt: Some(if containerized.is_some() && agent.toolbox_prompt.is_empty() {
-                "## Toolbox: {{name}}\n\nUse only the approved operations listed in your tools. Their schemas and permission ceilings are fixed by the operator.{{tools}}{{notes}}".into()
+                "## Toolbox: {{name}}\n\nUse only the operations listed in your tools. Their schemas and permission ceilings are fixed by the operator.{{tools}}{{notes}}".into()
             } else { agent.toolbox_prompt.clone() }),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
         });

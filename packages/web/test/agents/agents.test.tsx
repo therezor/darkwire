@@ -1885,7 +1885,6 @@ describe('choosing a toolbox', () => {
       { name: 'search', description: 'Search the web.', permission: 'allow' },
       { name: 'fetch', description: 'Read a page.', permission: 'ask' },
     ],
-    approved: true,
   };
 
   const CONTAINER = {
@@ -1898,7 +1897,6 @@ describe('choosing a toolbox', () => {
     limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
     capsAdded: [],
     weakened: [],
-    approved: true,
   };
 
   const ROUTES: Record<string, StubRoute> = {
@@ -1978,7 +1976,7 @@ describe('choosing a toolbox', () => {
   });
 
   it('takes an agent back out of its container', async () => {
-    // The regression. Before the fix the only way out was editing config.json.
+    // The regression. Before the fix the only way out was editing config.yaml.
     const { user, calls } = mount('/agents/researcher', ROUTES);
 
     await choose(user, 'Toolbox', /None — no toolbox selected/);

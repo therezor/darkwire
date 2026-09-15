@@ -9,7 +9,7 @@
 //!  - **Resolving the bot token.** Vault first, then the environment, then the
 //!    config file, which is the order provider keys already use and for the
 //!    same reason: the vault is the documented home, and a token sitting in
-//!    `config.json` is plaintext on disk.
+//!    `config.yaml` is plaintext on disk.
 //!
 //!  - **Filling in [`TelegramConsole`].** The half of a chat command's world
 //!    that is not a hub frame — stores, agents, the model catalogue, memory and
@@ -49,12 +49,12 @@ pub const TELEGRAM_TOKEN_ENV_VAR: &str = "TELEGRAM_BOT_TOKEN";
 /// The channel id, which is also its `config.channels` key and its vault key.
 pub const TELEGRAM_CHANNEL_ID: &str = "telegram";
 
-/// The warning a token found in `config.json` earns.
+/// The warning a token found in `config.yaml` earns.
 ///
 /// Said out loud once at startup rather than left to be discovered: a bot token
-/// is a credential, and `config.json` is a plain file that backups, dotfile
+/// is a credential, and `config.yaml` is a plain file that backups, dotfile
 /// repositories and screen shares all reach.
-pub const PLAINTEXT_TOKEN_WARNING: &str = "the Telegram bot token is in config.json as plain text; \
+pub const PLAINTEXT_TOKEN_WARNING: &str = "the Telegram bot token is in config.yaml as plain text; \
      move it to the credential vault under channels/telegram";
 
 /// Where a resolved token came from.
@@ -366,7 +366,7 @@ impl TelegramConsole for RuntimeConsole {
 
     fn set_model(&self, id: &str) {
         // A patch rather than a save: this moves the process without rewriting
-        // `config.json`, so a restart returns to whatever the operator actually
+        // `config.yaml`, so a restart returns to whatever the operator actually
         // configured.
         //
         // Onto the default agent, because that is the one the bot's own

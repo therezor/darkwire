@@ -1084,16 +1084,14 @@ mod mcp {
 mod toolboxed_agents {
     use super::*;
 
-    use ghostai_security::PolicyStore;
-
     const DIGEST: &str = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
     /// Installs a toolbox granting two operations, and the definitions behind
     /// them. A grant list is the whole manifest: nothing here names an image.
-    fn install_toolbox(install: &Install, name: &str, approve: bool) {
+    fn install_toolbox(install: &Install, name: &str, installed: bool) {
         let policy = install.root.join("policy");
         common::write(
-            &policy.join("toolboxes").join(format!("{name}.json")),
+            &policy.join("toolboxes").join(format!("{name}.yaml")),
             serde_json::to_string(&json!({
                 "schema": "ghostai.toolbox/1",
                 "name": name,
@@ -1108,7 +1106,7 @@ mod toolboxed_agents {
             common::write(
                 &policy
                     .join("tool-definitions")
-                    .join(format!("{grant}.json")),
+                    .join(format!("{grant}.yaml")),
                 serde_json::to_string(&json!({
                     "schema": "ghostai.tool/1",
                     "description": description,
@@ -1124,13 +1122,15 @@ mod toolboxed_agents {
                 .unwrap(),
             );
         }
-        if approve {
-            PolicyStore::new(policy).approve_toolbox(name).unwrap();
+        if !installed {
+            // Named by an agent but absent from disk, which is the state the
+            // build has to refuse on.
+            std::fs::remove_file(policy.join("toolboxes").join(format!("{name}.yaml"))).unwrap();
         }
     }
 
-    /// Installs a container definition and approves it. `overrides` is merged
-    /// over the defaults, so a test can weaken exactly one field.
+    /// Installs a container definition. `overrides` is merged over the
+    /// defaults, so a test can weaken exactly one field.
     fn install_container(install: &Install, name: &str, overrides: &Value) {
         let policy = install.root.join("policy");
         let mut definition = json!({
@@ -1142,10 +1142,9 @@ mod toolboxed_agents {
             definition[key] = value.clone();
         }
         common::write(
-            &policy.join("containers").join(format!("{name}.json")),
+            &policy.join("containers").join(format!("{name}.yaml")),
             serde_json::to_string(&definition).unwrap(),
         );
-        PolicyStore::new(policy).approve_container(name).unwrap();
     }
 
     fn boxed_agent(tools: &Value) -> Value {
@@ -1191,14 +1190,15 @@ mod toolboxed_agents {
     }
 
     #[test]
-    fn refuses_to_build_at_all_when_an_agent_asks_for_an_unapproved_toolbox() {
-        // A settings save naming an unapproved toolbox is a refusal that
-        // changes nothing, rather than a turn that dies on its first command.
+    fn refuses_to_build_at_all_when_an_agent_asks_for_a_toolbox_that_is_absent() {
+        // A settings save naming a toolbox that is not installed is a refusal
+        // that changes nothing, rather than a turn that dies on its first
+        // command.
         let install = Install::with(&boxed_agent(&json!({})));
         install_toolbox(&install, "recon", false);
         let error = err(create_runtime(install.options()));
         assert_eq!(error.kind, ErrorKind::Config);
-        assert!(error.message.contains("never been approved"));
+        assert!(error.message.contains("No toolbox is installed"));
     }
 
     #[test]
@@ -1281,7 +1281,7 @@ mod toolboxed_agents {
     }
 
     #[test]
-    fn leaves_the_runtime_serving_when_a_patch_names_an_unapproved_toolbox() {
+    fn leaves_the_runtime_serving_when_a_patch_names_a_missing_toolbox() {
         let install = Install::with(&configured("llama3"));
         install_toolbox(&install, "recon", false);
         let runtime = install.runtime().unwrap();

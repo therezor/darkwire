@@ -69,7 +69,7 @@ the schema, and changing either revokes every other session.
 | GET    | `/api/settings`             | `required` | Credentials never appear — only a `credentialsPresent` boolean per instance.                 |
 | PATCH  | `/api/settings`             | `required` | Deep-partial. Also carries `renameAgents`. See [patch semantics](configuration.md#patching). |
 | PUT    | `/api/settings/credentials` | `required` | **Write-only.** Nothing reads a key back out.                                                |
-| POST   | `/api/settings/reload`      | `required` | Re-reads `config.json` from disk.                                                            |
+| POST   | `/api/settings/reload`      | `required` | Re-reads `config.yaml` from disk.                                                            |
 
 ### Providers and models
 
@@ -97,8 +97,8 @@ the schema, and changing either revokes every other session.
 | ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------- |
 | GET    | `/api/agents`                 | `required` | **Read-only.** Agents are created and edited through `PATCH /api/settings`. |
 | GET    | `/api/tools`                  | `required` | What is registered, with source and risk band.                              |
-| GET    | `/api/toolboxes`              | `required` | Installed toolbox capability policies and approval state.                   |
-| GET    | `/api/containers`             | `required` | Independently installed execution-container definitions and approval state. |
+| GET    | `/api/toolboxes`              | `required` | Installed toolbox capability policies, with each one's digest.              |
+| GET    | `/api/containers`             | `required` | Independently installed execution-container definitions and their digests.  |
 | GET    | `/api/sandboxes`              | `required` | Live container instances, sharing and busy state.                           |
 | POST   | `/api/sandboxes`              | `required` | Start, stop, restart, or health-check an instance.                          |
 | GET    | `/api/mcp`                    | `required` | Each configured MCP server's live state. See below.                         |
@@ -110,7 +110,7 @@ the schema, and changing either revokes every other session.
 
 **The two extension writes are `POST`, not a settings patch, and not idempotent.** An
 approval records the digest of the bytes on disk at that moment; putting it in
-`config.json` would make it survive an edit to the very files it was about. Nothing about
+`config.yaml` would make it survive an edit to the very files it was about. Nothing about
 either is safe to replay across such an edit, which is what rules out `PUT`.
 
 `GET /api/mcp` is read-only, like `/api/toolboxes`: a server is created, edited and

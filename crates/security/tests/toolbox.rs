@@ -46,12 +46,12 @@ fn policy_root() -> tempfile::TempDir {
     std::fs::create_dir_all(root.path().join("toolboxes")).unwrap();
     std::fs::create_dir_all(root.path().join("tool-definitions")).unwrap();
     std::fs::write(
-        root.path().join("toolboxes/research.json"),
+        root.path().join("toolboxes/research.yaml"),
         manifest().to_string(),
     )
     .unwrap();
     std::fs::write(
-        root.path().join("tool-definitions/status.json"),
+        root.path().join("tool-definitions/status.yaml"),
         operation().to_string(),
     )
     .unwrap();
@@ -98,19 +98,19 @@ fn a_bundle_hashes_the_toolbox_and_every_definition_it_names() {
     let root = policy_root();
     let first = resolve(&root, &manifest()).unwrap();
     assert_eq!(first.operations.len(), 1);
-    assert_eq!(first.sha256.len(), 64);
+    assert_eq!(first.digest.len(), 64);
 
     // Editing a shared definition changes the bundle hash, which is what
     // revokes every toolbox that reaches it.
     let mut changed = operation();
     changed["implementation"]["argv"] = json!(["push"]);
     std::fs::write(
-        root.path().join("tool-definitions/status.json"),
+        root.path().join("tool-definitions/status.yaml"),
         changed.to_string(),
     )
     .unwrap();
     let second = resolve(&root, &manifest()).unwrap();
-    assert_ne!(first.sha256, second.sha256);
+    assert_ne!(first.digest, second.digest);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn operation_schemas_must_be_self_contained() {
         remote["parameters"]["properties"][reference] = json!("https://example.com/s");
         remote["parameters"][reference] = json!("https://example.com/s");
         std::fs::write(
-            root.path().join("tool-definitions/status.json"),
+            root.path().join("tool-definitions/status.yaml"),
             remote.to_string(),
         )
         .unwrap();

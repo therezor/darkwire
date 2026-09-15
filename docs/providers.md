@@ -54,7 +54,7 @@ The instance id is also the vault key for that instance's credential, so the two
 above can hold different tokens. A local endpoint may carry one too — for a model server
 behind an authenticating proxy.
 
-A `config.json` written before instances existed is migrated on load and rewritten in
+A `config.yaml` written before instances existed is migrated on load and rewritten in
 place: each key keeps its name and gains the matching `type`, so credentials already in
 the vault keep resolving.
 
@@ -79,7 +79,7 @@ Disabled instances are skipped by both resolution and model listing, but kept in
 
 ## Credentials
 
-Keys never appear in `config.json`. They live in the encrypted vault under the namespace
+Keys never appear in `config.yaml`. They live in the encrypted vault under the namespace
 `providers`, keyed by instance id.
 
 **The vault wins over the environment.** An env var is consulted only when the vault has

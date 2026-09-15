@@ -67,9 +67,6 @@
     "gatewayProblem": {
       "type": "string"
     },
-    "approved": {
-      "type": "boolean"
-    },
     "problem": {
       "type": "string"
     }
@@ -83,7 +80,6 @@
     "user",
     "limits",
     "capsAdded",
-    "weakened",
-    "approved"
+    "weakened"
   ]
 }

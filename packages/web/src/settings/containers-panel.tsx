@@ -9,10 +9,9 @@ import { useTranslation } from 'react-i18next';
 /**
  * The containers the sandbox service is holding open, and their lifecycle.
  *
- * Operator lifecycle only. Nothing here approves a definition or changes what
- * an agent may run: stopping an instance gets a fresh one on the next command,
- * under the same approval. That is what makes it safe to expose in a browser
- * where approval is deliberately not.
+ * Operator lifecycle only. Nothing here changes a definition or what an agent
+ * may run: stopping an instance gets a fresh one on the next command, from the
+ * same definition on disk.
  *
  * **Only shared containers can be warmed.** A private instance is keyed on the
  * agent and conversation that will use it, so one started from here would be
@@ -30,13 +29,12 @@ export function ContainersPanel(): JSX.Element {
     queryKey: queryKeys.containers,
     queryFn: ({ signal }) => api.containers(signal),
   });
-  const approved =
-    installed.data?.containers.filter((entry) => entry.approved) ?? [];
-  const warmable = approved.filter((entry) => entry.shared);
+  const definitions = installed.data?.containers ?? [];
+  const warmable = definitions.filter((entry) => entry.shared);
   const instances = useQuery({
     queryKey: queryKeys.containerInstances,
     queryFn: ({ signal }) => api.sandboxes(signal),
-    enabled: approved.length > 0,
+    enabled: definitions.length > 0,
     refetchInterval: 5000,
     retry: false,
   });
@@ -49,7 +47,7 @@ export function ContainersPanel(): JSX.Element {
       });
     },
   });
-  if (installed.isPending || approved.length === 0) return <></>;
+  if (installed.isPending || definitions.length === 0) return <></>;
   return (
     <Section
       title={t('settings.tools.containers.title')}

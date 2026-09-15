@@ -59,14 +59,14 @@ fn globals(home: &Path) -> Globals {
     }
 }
 
-fn run_toolbox(home: &Path, action: StoreAction, id: Option<&str>) -> Run {
+fn run_toolbox(home: &Path) -> Run {
     let out = Sink::default();
     let err = Sink::default();
     let mut streams = Streams {
         out: Box::new(out.clone()),
         err: Box::new(err.clone()),
     };
-    let code = toolbox::run(&globals(home), action, id, &Env::empty(), &mut streams).unwrap();
+    let code = toolbox::run(&globals(home), &Env::empty(), &mut streams).unwrap();
     Run {
         code,
         out: out.text(),
@@ -74,14 +74,14 @@ fn run_toolbox(home: &Path, action: StoreAction, id: Option<&str>) -> Run {
     }
 }
 
-fn run_container(home: &Path, action: StoreAction, id: Option<&str>) -> Run {
+fn run_container(home: &Path) -> Run {
     let out = Sink::default();
     let err = Sink::default();
     let mut streams = Streams {
         out: Box::new(out.clone()),
         err: Box::new(err.clone()),
     };
-    let code = container::run(&globals(home), action, id, &Env::empty(), &mut streams).unwrap();
+    let code = container::run(&globals(home), &Env::empty(), &mut streams).unwrap();
     Run {
         code,
         out: out.text(),
@@ -106,22 +106,17 @@ fn run_extension(home: &Path, action: StoreAction, id: Option<&str>) -> Run {
 
 /// A digest-pinned image, which the security layer requires.
 ///
-/// A tag can be repointed after an approval, which would leave the recorded
-/// hash matching an image nobody reviewed.
+/// A tag can be repointed later, which would leave the recorded digest
+/// matching an image nobody chose.
 const IMAGE: &str =
     "ghcr.io/example/box@sha256:0000000000000000000000000000000000000000000000000000000000000001";
-
-/// The same image with one byte moved, for the case that proves an edit revokes.
-const OTHER_IMAGE: &str =
-    "ghcr.io/example/box@sha256:0000000000000000000000000000000000000000000000000000000000000002";
 
 /// The operator's policy directory, which sits beside the workspace.
 fn policy(home: &Path) -> std::path::PathBuf {
     home.join("policy")
 }
 
-/// A toolbox manifest and the one definition it grants, installed but not
-/// approved.
+/// A toolbox manifest and the one definition it grants, installed.
 ///
 /// The definition travels with it because the approval hash covers both: a
 /// manifest whose definition was missing would resolve to a refusal rather than
@@ -131,7 +126,7 @@ fn install_toolbox(home: &Path, name: &str) {
     std::fs::create_dir_all(root.join("toolboxes")).unwrap();
     std::fs::create_dir_all(root.join("tool-definitions")).unwrap();
     std::fs::write(
-        root.join("toolboxes").join(format!("{name}.json")),
+        root.join("toolboxes").join(format!("{name}.yaml")),
         serde_json::to_vec_pretty(&serde_json::json!({
             "schema": "ghostai.toolbox/1",
             "name": name,
@@ -141,7 +136,7 @@ fn install_toolbox(home: &Path, name: &str) {
     )
     .unwrap();
     std::fs::write(
-        root.join("tool-definitions").join("rg.json"),
+        root.join("tool-definitions").join("rg.yaml"),
         serde_json::to_vec_pretty(&definition("Search the workspace.")).unwrap(),
     )
     .unwrap();
@@ -165,7 +160,7 @@ fn install_container(home: &Path, name: &str) {
     let dir = policy(home).join("containers");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join(format!("{name}.json")),
+        dir.join(format!("{name}.yaml")),
         serde_json::to_vec_pretty(&serde_json::json!({
             "schema": "ghostai.container/1",
             "name": name,
@@ -182,7 +177,7 @@ fn install_extension(home: &Path, id: &str) {
     let dir = home.join("extensions").join(id);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("ghostai.extension.json"),
+        dir.join("ghostai.extension.yaml"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "schema": "ghostai.extension/2",
             "id": id,
@@ -202,7 +197,7 @@ fn install_extension(home: &Path, id: &str) {
 #[test]
 fn container_list_says_where_it_looked_when_nothing_is_installed() {
     let home = tempfile::tempdir().unwrap();
-    let run = run_container(home.path(), StoreAction::List, None);
+    let run = run_container(home.path());
     assert_eq!(run.code, 0);
     assert!(
         run.out.contains("No containers installed under"),
@@ -212,60 +207,29 @@ fn container_list_says_where_it_looked_when_nothing_is_installed() {
 }
 
 #[test]
-fn container_approval_is_independent_and_reports_sharing() {
+fn container_list_reports_sharing_and_the_rest_of_the_placement() {
     let home = tempfile::tempdir().unwrap();
     install_container(home.path(), "dev");
-    let before = run_container(home.path(), StoreAction::List, None);
-    assert!(before.out.contains("dev  [NOT APPROVED]"), "{}", before.out);
+    let listed = run_container(home.path());
+    assert!(listed.out.contains("dev"), "{}", listed.out);
     assert!(
-        before
+        listed
             .out
             .contains("sharing    shared across agents and sessions in a workspace"),
         "{}",
-        before.out
+        listed.out
     );
     // What an image, a user and a limit are is the container's half of the
     // review — none of it appears in a toolbox listing.
-    assert!(before.out.contains("image      "), "{}", before.out);
-    assert!(before.out.contains("user       "), "{}", before.out);
-    assert!(before.out.contains("limits     "), "{}", before.out);
-
-    let approved = run_container(home.path(), StoreAction::Approve, Some("dev"));
-    assert_eq!(approved.code, 0);
-    assert!(approved.out.contains("Approved dev:"), "{}", approved.out);
-    assert!(
-        approved.out.contains("definition sha256:"),
-        "{}",
-        approved.out
-    );
-    let after = run_container(home.path(), StoreAction::List, None);
-    assert!(after.out.contains("dev  [approved]"), "{}", after.out);
-
-    let revoked = run_container(home.path(), StoreAction::Revoke, Some("dev"));
-    assert_eq!(revoked.code, 0);
-    assert!(policy(home.path()).join("containers/dev.json").exists());
-}
-
-#[test]
-fn editing_the_definition_revokes_the_container_approval_by_itself() {
-    // The same rule as a toolbox's, over the other half of the decision: what
-    // is on disk is no longer what was reviewed, so it stops resolving.
-    let home = tempfile::tempdir().unwrap();
-    install_container(home.path(), "dev");
-    run_container(home.path(), StoreAction::Approve, Some("dev"));
-
-    let file = policy(home.path()).join("containers/dev.json");
-    let text = std::fs::read_to_string(&file).unwrap();
-    std::fs::write(&file, text.replace(IMAGE, OTHER_IMAGE)).unwrap();
-
-    let listed = run_container(home.path(), StoreAction::List, None);
-    assert!(listed.out.contains("NOT APPROVED"), "{}", listed.out);
+    assert!(listed.out.contains("image      "), "{}", listed.out);
+    assert!(listed.out.contains("user       "), "{}", listed.out);
+    assert!(listed.out.contains("limits     "), "{}", listed.out);
 }
 
 #[test]
 fn toolbox_list_says_where_it_looked_when_nothing_is_installed() {
     let home = tempfile::tempdir().unwrap();
-    let run = run_toolbox(home.path(), StoreAction::List, None);
+    let run = run_toolbox(home.path());
     assert_eq!(run.code, 0);
     assert!(
         run.out.contains("No toolboxes installed under"),
@@ -282,13 +246,12 @@ fn toolbox_list_shows_what_an_operator_has_to_weigh() {
     // A review that shows only a name is a rubber stamp with extra steps.
     let home = tempfile::tempdir().unwrap();
     install_toolbox(home.path(), "sandbox");
-    let run = run_toolbox(home.path(), StoreAction::List, None);
+    let run = run_toolbox(home.path());
 
     assert_eq!(run.code, 0);
     assert!(run.out.contains("sandbox"), "{}", run.out);
-    assert!(run.out.contains("NOT APPROVED"), "{}", run.out);
     // The grant, its ceiling and the definition behind it — two toolboxes can
-    // both grant `rg`, and what is being approved is the program that runs.
+    // both grant `rg`, and what is being chosen is the program that runs.
     assert!(
         run.out.contains("tool       rg  [ask]  from rg"),
         "{}",
@@ -299,99 +262,30 @@ fn toolbox_list_shows_what_an_operator_has_to_weigh() {
 }
 
 #[test]
-fn toolbox_approve_records_the_manifest_hash_and_says_what_that_means() {
-    // Not a flag being set: a statement about specific content. Editing the
-    // manifest afterwards changes the hash and revokes the approval, which is
-    // why nothing here needs a `--force`.
+fn editing_a_definition_the_manifest_names_moves_the_toolbox_digest() {
+    // The digest covers the manifest *and* every definition it grants, which is
+    // what makes a shared definition impossible to edit quietly: every toolbox
+    // that reaches it is visibly a different toolbox afterwards.
     let home = tempfile::tempdir().unwrap();
     install_toolbox(home.path(), "sandbox");
-
-    let approved = run_toolbox(home.path(), StoreAction::Approve, Some("sandbox"));
-    assert_eq!(approved.code, 0);
-    assert!(
-        approved.out.contains("Approved sandbox"),
-        "{}",
-        approved.out
-    );
-    assert!(
-        approved.out.contains("bundle     sha256:"),
-        "{}",
-        approved.out
-    );
-    assert!(
-        approved.out.contains("revokes the approval"),
-        "{}",
-        approved.out
-    );
-
-    let listed = run_toolbox(home.path(), StoreAction::List, None);
-    assert!(listed.out.contains("[approved]"), "{}", listed.out);
-}
-
-#[test]
-fn editing_the_manifest_revokes_the_approval_by_itself() {
-    let home = tempfile::tempdir().unwrap();
-    install_toolbox(home.path(), "sandbox");
-    run_toolbox(home.path(), StoreAction::Approve, Some("sandbox"));
-
-    let manifest = policy(home.path()).join("toolboxes/sandbox.json");
-    let text = std::fs::read_to_string(&manifest).unwrap();
-    std::fs::write(&manifest, text.replace("\"ask\"", "\"allow\"")).unwrap();
-
-    let listed = run_toolbox(home.path(), StoreAction::List, None);
-    assert!(listed.out.contains("NOT APPROVED"), "{}", listed.out);
-}
-
-#[test]
-fn editing_a_definition_the_manifest_names_revokes_it_too() {
-    // The approval hash covers the manifest *and* every definition it grants,
-    // which is stricter than approving a definition once: a definition shared
-    // by three toolboxes cannot be edited without all three noticing.
-    let home = tempfile::tempdir().unwrap();
-    install_toolbox(home.path(), "sandbox");
-    run_toolbox(home.path(), StoreAction::Approve, Some("sandbox"));
+    let before = digest_line(&run_toolbox(home.path()).out);
 
     std::fs::write(
-        policy(home.path()).join("tool-definitions/rg.json"),
+        policy(home.path()).join("tool-definitions/rg.yaml"),
         serde_json::to_vec_pretty(&definition("Something else entirely.")).unwrap(),
     )
     .unwrap();
 
-    let listed = run_toolbox(home.path(), StoreAction::List, None);
-    assert!(listed.out.contains("NOT APPROVED"), "{}", listed.out);
+    assert_ne!(digest_line(&run_toolbox(home.path()).out), before);
 }
 
-#[test]
-fn toolbox_revoke_leaves_the_manifest_installed() {
-    let home = tempfile::tempdir().unwrap();
-    install_toolbox(home.path(), "sandbox");
-    run_toolbox(home.path(), StoreAction::Approve, Some("sandbox"));
-
-    let revoked = run_toolbox(home.path(), StoreAction::Revoke, Some("sandbox"));
-    assert_eq!(revoked.code, 0);
-    assert!(revoked.out.contains("still installed"), "{}", revoked.out);
-    assert!(
-        policy(home.path()).join("toolboxes/sandbox.json").exists(),
-        "the files are not touched by a revocation"
-    );
-}
-
-#[test]
-fn approving_without_an_id_is_a_usage_error_rather_than_a_failure() {
-    // Exit 2, which is what a shell script distinguishes from "it ran and said
-    // no" — and the message names the command that lists the ids.
-    let home = tempfile::tempdir().unwrap();
-    let run = run_toolbox(home.path(), StoreAction::Approve, None);
-    assert_eq!(run.code, 2);
-    assert!(run.err.contains("ghostai toolbox list"), "{}", run.err);
-}
-
-#[test]
-fn approving_something_that_is_not_installed_is_a_refusal_with_a_sentence() {
-    let home = tempfile::tempdir().unwrap();
-    let run = run_toolbox(home.path(), StoreAction::Approve, Some("nope"));
-    assert_eq!(run.code, 1);
-    assert!(!run.err.is_empty(), "a refusal says why");
+/// The `digest` line out of a `toolbox list`, which is what pins a running
+/// command to the bytes it started under.
+fn digest_line(out: &str) -> String {
+    out.lines()
+        .find(|line| line.trim_start().starts_with("digest"))
+        .unwrap_or_default()
+        .to_owned()
 }
 
 // extension
@@ -501,10 +395,6 @@ fn an_empty_id_is_the_same_as_none() {
     let home = tempfile::tempdir().unwrap();
     assert_eq!(
         run_extension(home.path(), StoreAction::Approve, Some("")).code,
-        2
-    );
-    assert_eq!(
-        run_toolbox(home.path(), StoreAction::Approve, Some("")).code,
         2
     );
 }

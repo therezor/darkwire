@@ -120,7 +120,7 @@ function PanelBody({ panelId }: { readonly panelId: string }): JSX.Element {
   const panel = panelById(panelId);
 
   // Before the settings gate, and the only panel that goes before it: a
-  // credential is not in `config.json`, so this panel has nothing to wait for —
+  // credential is not in `config.yaml`, so this panel has nothing to wait for —
   // and an install whose settings request is failing is exactly the one whose
   // owner may be trying to fix their password.
   if (panel.id === 'account') return <AccountPanel />;

@@ -31,7 +31,7 @@ fn preset_json(id: &str) -> String {
 
 fn write_preset(dir: &Path, id: &str) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
-    let path = dir.join(format!("{id}.json"));
+    let path = dir.join(format!("{id}.yaml"));
     std::fs::write(&path, preset_json(id)).unwrap();
     path
 }
@@ -70,7 +70,7 @@ fn answers_with_nothing_for_a_name_no_directory_holds() {
 }
 
 #[test]
-fn lists_the_stems_of_the_json_files_sorted() {
+fn lists_the_stems_of_the_yaml_files_sorted() {
     let root = TempDir::new().unwrap();
     let dir = root.path().join("presets");
     write_preset(&dir, "writer");
@@ -105,17 +105,17 @@ fn deduplicates_across_directories() {
 }
 
 #[test]
-fn names_the_file_when_the_text_is_not_json() {
-    let error = parse_preset("{ not json", "/tmp/coder.json").unwrap_err();
+fn names_the_file_when_the_text_is_not_yaml() {
+    let error = parse_preset("{ not yaml", "/tmp/coder.yaml").unwrap_err();
 
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(
-        error.message.contains("/tmp/coder.json"),
+        error.message.contains("/tmp/coder.yaml"),
         "{}",
         error.message
     );
     assert!(
-        error.message.contains("not valid JSON"),
+        error.message.contains("not valid YAML"),
         "{}",
         error.message
     );
@@ -123,7 +123,7 @@ fn names_the_file_when_the_text_is_not_json() {
 
 #[test]
 fn names_the_file_when_the_json_is_not_a_preset() {
-    let error = parse_preset(r#"{"id":"coder"}"#, "/tmp/coder.json").unwrap_err();
+    let error = parse_preset(r#"{"id":"coder"}"#, "/tmp/coder.yaml").unwrap_err();
 
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(
@@ -140,10 +140,10 @@ fn refuses_an_id_the_schema_would_refuse() {
     // `ghostai agent install`, which is where the rule belongs: it is the same
     // rule a settings save applies, and the message it writes names the command
     // that was run. `tests/agent.rs` covers that half.
-    assert!(parse_preset(&preset_json("Not An Id"), "/tmp/x.json").is_ok());
+    assert!(parse_preset(&preset_json("Not An Id"), "/tmp/x.yaml").is_ok());
 
     let too_long = "a".repeat(41);
-    let error = parse_preset(&preset_json(&too_long), "/tmp/x.json").unwrap_err();
+    let error = parse_preset(&preset_json(&too_long), "/tmp/x.yaml").unwrap_err();
 
     assert!(error.message.contains("id:"), "{}", error.message);
 }
@@ -154,7 +154,7 @@ fn refuses_a_skill_name_that_is_not_a_directory_name() {
     // traversal waiting for a join, so it never reaches the copier.
     let text = r#"{"schema":"ghostai.agent-preset/1","id":"coder","skills":["../escape"]}"#;
 
-    let error = parse_preset(text, "/tmp/coder.json").unwrap_err();
+    let error = parse_preset(text, "/tmp/coder.yaml").unwrap_err();
 
     // The validator's own path spelling, not a second one written here: the
     // issue list is what an operator reads, and a path this file invented would
@@ -164,7 +164,7 @@ fn refuses_a_skill_name_that_is_not_a_directory_name() {
 
 #[test]
 fn accepts_a_preset_that_names_only_what_it_must() {
-    let preset = parse_preset(&preset_json("coder"), "/tmp/coder.json").unwrap();
+    let preset = parse_preset(&preset_json("coder"), "/tmp/coder.yaml").unwrap();
 
     assert_eq!(preset.id, "coder");
     assert!(preset.skills.is_empty());
@@ -177,7 +177,7 @@ fn reads_one_from_disk_and_names_the_path_when_it_cannot() {
 
     assert_eq!(read_preset(&path).unwrap().id, "coder");
 
-    let missing = root.path().join("presets").join("nowhere.json");
+    let missing = root.path().join("presets").join("nowhere.yaml");
     let error = read_preset(&missing).unwrap_err();
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(

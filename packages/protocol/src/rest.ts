@@ -670,10 +670,9 @@ export type ToolboxToolSummary = z.infer<typeof ToolboxToolSummarySchema>;
  * or hardening to report here — those belong to a container, which is chosen
  * separately and summarised by `ContainerSummary`.
  *
- * `approved` is the only field that decides whether an agent can use it. A
- * toolbox whose manifest, or any definition it names, changed after approval
- * reports `approved: false` with a `problem`, because from the runtime's point
- * of view those are the same state.
+ * `problem` is the field that decides whether an agent can use it: a manifest
+ * that does not parse, or that names an operation which is not installed,
+ * carries the sentence saying so and cannot be selected.
  */
 export const ToolboxSummarySchema = z.object({
   name: z.string(),
@@ -683,7 +682,6 @@ export const ToolboxSummarySchema = z.object({
   notes: z.string(),
   /** What it grants, for the picker to show without a second request. */
   tools: z.array(ToolboxToolSummarySchema),
-  approved: z.boolean(),
   problem: z.string().optional(),
 });
 export type ToolboxSummary = z.infer<typeof ToolboxSummarySchema>;
@@ -694,7 +692,8 @@ export type ToolboxSummary = z.infer<typeof ToolboxSummarySchema>;
  * Carries everything an operator weighs before selecting one for an agent: the
  * image, who it runs as, what it is allowed to spend, and whether any hardening
  * was switched off. A picker that shows names alone makes selection a rubber
- * stamp, and the whole model rests on that approval meaning something.
+ * stamp, and choosing where an agent's commands run is not a rubber-stamp
+ * decision.
  *
  * `gatewayProblem` is the sentence a restricted egress request would fail with,
  * resolved once here so the editor can warn while the network is still being
@@ -712,7 +711,6 @@ export const ContainerSummarySchema = z.object({
   /** Non-default hardening, named so it can be shown as a warning. */
   weakened: z.array(z.string()),
   gatewayProblem: z.string().optional(),
-  approved: z.boolean(),
   problem: z.string().optional(),
 });
 export type ContainerSummary = z.infer<typeof ContainerSummarySchema>;
@@ -765,7 +763,7 @@ export const SandboxRequestSchema = z.discriminatedUnion('op', [
     .object({
       op: z.literal('execute'),
       toolbox: z.string(),
-      approval: z.string(),
+      digest: z.string(),
       container: z.string(),
       operation: z.string(),
       workspace: z.string(),
@@ -810,7 +808,7 @@ export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
  * A *live* state, which is why it is here and not in the settings tree: an
  * operator's `tools.mcpServers.<id>` entry says what should be connected, and
  * this says what is. Folding the second into the first would mean writing
- * "unreachable" into `config.json`.
+ * "unreachable" into `config.yaml`.
  *
  * Declared in `@ghostwire/protocol` rather than in `ghostai-mcp` so that the
  * server and the browser can name it without either of them depending on the

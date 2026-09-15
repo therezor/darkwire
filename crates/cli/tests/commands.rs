@@ -48,14 +48,14 @@ struct Install {
 }
 
 impl Install {
-    /// An install whose `config.json` is `config`, or a bare one for `None`.
+    /// An install whose `config.yaml` is `config`, or a bare one for `None`.
     fn new(config: Option<&Value>) -> Install {
         let temp = TempDir::new().unwrap();
         let root = temp.path().to_path_buf();
         std::fs::create_dir_all(root.join("workspace")).unwrap();
         if let Some(config) = config {
             std::fs::write(
-                root.join("config.json"),
+                root.join("config.yaml"),
                 serde_json::to_string_pretty(config).unwrap(),
             )
             .unwrap();
@@ -101,8 +101,8 @@ impl Install {
 
     /// The config as it was written to disk, which is not the same question.
     fn saved(&self) -> Config {
-        let text = std::fs::read_to_string(self.root().join("config.json")).unwrap();
-        serde_json::from_str(&text).unwrap()
+        let text = std::fs::read_to_string(self.root().join("config.yaml")).unwrap();
+        serde_yaml_ng::from_str(&text).unwrap()
     }
 }
 

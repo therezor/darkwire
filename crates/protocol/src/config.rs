@@ -203,7 +203,7 @@ impl Default for AgentSettings {
 
 /// One configured endpoint. API keys are deliberately absent: they live in the
 /// encrypted vault under the `providers` namespace, keyed by the *instance*
-/// id, so a `config.json` is safe to commit or paste into a bug report.
+/// id, so a `config.yaml` is safe to commit or paste into a bug report.
 ///
 /// `type` is what makes an instance distinct from a provider. Two Ollama
 /// servers — a laptop and a GPU box — are two entries with the same type and
@@ -701,7 +701,7 @@ pub struct AgentToolbox {
 /// refused rather than ignored. A named container routes them through the
 /// sandbox service instead.
 ///
-/// The image, capabilities, hardening and sharing live in the approved
+/// The image, capabilities, hardening and sharing live in the installed
 /// definition and have no representation here. The network *does* live here:
 /// egress is the one thing an operator configures per agent rather than per
 /// image, and a single place to configure it is worth more than a second
@@ -710,7 +710,7 @@ pub struct AgentToolbox {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct AgentContainer {
-    /// An approved container name, or empty to run on the host.
+    /// An installed container name, or empty to run on the host.
     #[serde(default)]
     pub name: String,
     /// What this agent's container may reach.
@@ -834,7 +834,7 @@ pub struct AgentEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub exec: Option<ExecToolConfigPatch>,
-    /// Which approved operation surface this agent can call.
+    /// Which curated operation surface this agent can call.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]

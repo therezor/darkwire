@@ -34,7 +34,7 @@ file _is_ the path `MEMORY.md` resolves to, so the first save renames it to
 
 There is no `memoryEnabled` config key, deliberately. A tool already carries `allow`,
 `ask` or `deny` per agent, already appears in the settings UI, and already lives in
-`config.json` — which is exactly "this capability is on, off, or gated". A boolean beside
+`config.yaml` — which is exactly "this capability is on, off, or gated". A boolean beside
 it would be a second way to say the same thing, and two switches for one thing is how
 they come to disagree.
 

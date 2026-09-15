@@ -45,9 +45,6 @@
               ]
             }
           },
-          "approved": {
-            "type": "boolean"
-          },
           "problem": {
             "type": "string"
           }
@@ -57,8 +54,7 @@
           "label",
           "version",
           "notes",
-          "tools",
-          "approved"
+          "tools"
         ]
       }
     }

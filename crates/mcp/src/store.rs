@@ -3,7 +3,7 @@
 //! `mcp_servers` is a legal `CredentialVault` namespace beside `providers`, and
 //! this is the module that uses it. The split it enforces:
 //!
-//! - **`headers` stays in `config.json`, in the clear.** It is operator-typed
+//! - **`headers` stays in `config.yaml`, in the clear.** It is operator-typed
 //!   configuration, the panel showing it is the panel it was typed into, and
 //!   pretending otherwise would be security theatre over a file the operator
 //!   can open.

@@ -1,6 +1,6 @@
 # Toolboxes and containers
 
-Two manifests, approved separately, that deliberately do not know about each other.
+Two manifests, installed separately, that deliberately do not know about each other.
 
 A **toolbox** is the complete set of operations one agent may call. It names reusable
 operation definitions and a permission ceiling for each. It holds no image, no
@@ -8,7 +8,7 @@ capabilities and no network, so nothing in it can widen a boundary.
 
 A **container** is where command operations run: an image, the hardening around it, its
 resource budget, and whether agents share one instance. It holds no tool grants, so
-approving a place to run commands is not approving any particular command.
+choosing a place to run commands grants no particular command.
 
 An agent selects each independently. The same toolbox runs on the host or in different
 containers, and several agents can reuse one shared container in a workspace.
@@ -19,37 +19,41 @@ container is the boundary.
 
 ## The policy directory
 
-Three flat directories under `~/.ghostai/policy/`, plus one approval file beside each
-definition:
+Three flat directories under `~/.ghostai/policy/`, one file per definition:
 
 ```text
 policy/
-├── toolboxes/coding.json                 ghostai.toolbox/1
-├── toolboxes/coding.approval.sha256
-├── tool-definitions/git-status.json      ghostai.tool/1
-├── containers/dev.json                   ghostai.container/1
-└── containers/dev.approval.sha256
+├── toolboxes/coding.yaml                 ghostai.toolbox/1
+├── tool-definitions/git-status.yaml      ghostai.tool/1
+└── containers/dev.yaml                   ghostai.container/1
 ```
 
-It sits **beside** the workspace, never inside it. The jail root _is_ the workspace, so a
+**Each file is the policy, and where the directory lives is the boundary.** It sits
+**beside** the workspace, never inside it. The jail root _is_ the workspace, so a
 definition kept in there would be writable by `write_file`, and prompt injection would
-become a way to rewrite the policy the agent runs under.
+become a way to rewrite the policy the agent runs under. Writing one of these files is the
+decision, the same way writing `config.yaml` is.
 
 ## The toolbox
 
 A grant list, and nothing else:
 
-```json
+```yaml
 {
-  "schema": "ghostai.toolbox/1",
-  "name": "coding",
-  "label": "Repository inspection",
-  "version": "1.0.0",
-  "notes": "Builds are slow. Prefer a targeted test over the whole suite.",
-  "tools": [
-    { "name": "git_status", "definition": "git-status", "permission": "allow" },
-    { "name": "cargo_test", "definition": "cargo-test", "permission": "ask" }
-  ]
+  'schema': 'ghostai.toolbox/1',
+  'name': 'coding',
+  'label': 'Repository inspection',
+  'version': '1.0.0',
+  'notes': 'Builds are slow. Prefer a targeted test over the whole suite.',
+  'tools':
+    [
+      {
+        'name': 'git_status',
+        'definition': 'git-status',
+        'permission': 'allow',
+      },
+      { 'name': 'cargo_test', 'definition': 'cargo-test', 'permission': 'ask' },
+    ],
 }
 ```
 
@@ -70,20 +74,18 @@ A grant list, and nothing else:
 
 One reviewed operation, reusable by every toolbox that names it:
 
-```json
+```yaml
 {
-  "schema": "ghostai.tool/1",
-  "description": "Show repository status",
-  "parameters": {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": false
-  },
-  "implementation": {
-    "kind": "command",
-    "executable": "/usr/bin/git",
-    "argv": ["-c", "core.fsmonitor=false", "status", "--porcelain=v1"]
-  }
+  'schema': 'ghostai.tool/1',
+  'description': 'Show repository status',
+  'parameters':
+    { 'type': 'object', 'properties': {}, 'additionalProperties': false },
+  'implementation':
+    {
+      'kind': 'command',
+      'executable': '/usr/bin/git',
+      'argv': ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1'],
+    },
 }
 ```
 
@@ -105,42 +107,43 @@ Three implementation kinds:
 - **`transcript`** — reads a bounded portion of output from the agent's current container
   instance.
 
-Four rules are enforced at approval and again at every call:
+Four rules are enforced when a definition is read and again at every call:
 
 - The schema must be self-contained. `$ref`, `$dynamicRef` and `$recursiveRef` are
   refused, because validation must never fetch anything.
 - `type: object` with `additionalProperties: false`, so an extra argument is refused
   rather than ignored.
 - The executable is absolute, contains no `..`, and is not under `/workspace` — a file
-  `write_file` could replace between approval and call.
+  `write_file` could replace between resolution and call.
 - Every argv input is a **required scalar** property. Optional means the argv has a hole
   at a position the operator counted on being filled; non-scalar means one input becomes
   several arguments.
 
-A tool definition has no approval of its own. It is covered by the hash of every toolbox
-that names it, which is stricter than approving it once: a definition shared by three
-toolboxes cannot be edited without all three noticing.
+A tool definition has no digest of its own. It is covered by the digest of every toolbox
+that names it: a definition shared by three toolboxes cannot be edited without all three
+noticing.
 
 ## The container definition
 
-```json
+```yaml
 {
-  "schema": "ghostai.container/1",
-  "name": "dev",
-  "image": "sha256:…",
-  "shared": true,
-  "runtime": "runc",
-  "workdir": "/workspace",
-  "user": "1000:1000",
-  "caps": { "drop": ["ALL"], "add": [] },
-  "security": {
-    "noNewPrivileges": true,
-    "seccomp": "default",
-    "readOnlyRoot": true,
-    "tmpfs": ["/tmp:rw,nosuid,size=256m"]
-  },
-  "limits": { "memoryMb": 2048, "cpus": 2, "pidsMax": 512, "shmSizeMb": 256 },
-  "env": ["LANG", "TZ"]
+  'schema': 'ghostai.container/1',
+  'name': 'dev',
+  'image': 'sha256:…',
+  'shared': true,
+  'runtime': 'runc',
+  'workdir': '/workspace',
+  'user': '1000:1000',
+  'caps': { 'drop': ['ALL'], 'add': [] },
+  'security':
+    {
+      'noNewPrivileges': true,
+      'seccomp': 'default',
+      'readOnlyRoot': true,
+      'tmpfs': ['/tmp:rw,nosuid,size=256m'],
+    },
+  'limits': { 'memoryMb': 2048, 'cpus': 2, 'pidsMax': 512, 'shmSizeMb': 256 },
+  'env': ['LANG', 'TZ'],
 }
 ```
 
@@ -165,8 +168,8 @@ toolboxes cannot be edited without all three noticing.
 | `limits.shmSizeMb`           | int                     | `256`          |                                                                            |
 | `env`                        | string[]                | `[]`           | Host variables passed through. Everything else is scrubbed.                |
 
-**The image must be digest-pinned.** A tag is a mutable pointer, so a container approved
-once and then repointed is the approval gate defeated while every hash still matches. The
+**The image must be digest-pinned.** A tag is a mutable pointer, so a container installed
+once and then repointed runs code nobody chose while every hash still matches. The
 pattern is anchored at both ends: an end-only anchor would accept something like
 `-v/:/hostfs@sha256:…`, and the image is pushed to the engine as a bare argv token.
 
@@ -199,7 +202,7 @@ entirely. `/tmp` is for what a program does behind your back.
 
 ## Binding an agent
 
-```json
+```yaml
 "toolbox": {
   "name": "recon",
   "tools": { "*": "deny", "nmap": "allow", "dnsx": "allow" }
@@ -232,10 +235,10 @@ Delegation is the one exception, and it is not an exception to the scope: a suba
 delegate tool comes from the agent's own `subagents` bindings and is appended after the
 scope, so a toolboxed agent can still delegate.
 
-Authorisation is re-checked **during** a call, not only before it. A turn can run for
-minutes, and an operator who revokes a toolbox mid-run means it now. A 250 ms ticker
-re-resolves the approval beside the running command and cancels the moment the hash it was
-authorised under stops matching.
+Drift is checked **during** a call, not only before it. A turn can run for minutes, and an
+operator who edits a toolbox mid-run means it now. A 250 ms ticker re-resolves the
+definition beside the running command and cancels the moment its digest stops matching the
+one the call was prepared under.
 
 ## Network
 
@@ -279,7 +282,7 @@ so the choice is visible before a save fails.
 
 **Egress is agent configuration, so a settings save can set `open`.** That is a deliberate
 change from having it capped by the manifest: one configuration point was worth more than
-a second ceiling. The hardening that remains operator-only is everything in the approved
+a second ceiling. The hardening that remains operator-only is everything in the
 container definition — the image digest, the capabilities, the seccomp profile, the uid,
 `noNewPrivileges` and the shared flag — and a gateway refuses to start for a container
 whose hardening cannot support restricted egress.
@@ -329,40 +332,38 @@ not running.
   through the jail. What they call `notes/todo.md` is `<workdir>/notes/todo.md` to a
   command.
 
-## Approval
+## Digests, and what they are for
 
-An approval is a file recording the sha256 of the exact bytes that were reviewed:
+There is no second file recording consent. What each definition carries is a **digest**,
+and it is identity rather than consent:
 
 ```bash
 ghostai toolbox list
-ghostai toolbox approve coding
-ghostai toolbox revoke coding
-
 ghostai container list
-ghostai container approve dev
-ghostai container revoke dev
 ```
 
-A toolbox's hash covers the manifest **and every definition it names**, length-framed so
+A toolbox's digest covers the manifest **and every definition it names**, length-framed so
 two definitions whose bytes could be split differently cannot hash alike. A container's
-hash covers its definition alone. The two are independent: editing a container does not
-revoke a toolbox.
+digest covers its definition alone. The two are independent: editing a container does not
+move a toolbox's digest.
 
-The definition is a file on disk and the approval is a second file, and neither is
-authority on its own. Resolution asks whether _these_ bytes are approved, so **editing an
-installed definition silently revokes its approval** and the next turn refuses with a
-sentence naming the drift. There is no `--force`: re-approving is reviewing the new bytes.
+That digest does three jobs. It is part of a container instance's identity, so two
+definitions that differ never share a warm instance. It travels with each call, so a
+definition edited while a command is running cancels that command with a sentence naming
+the drift. And it is what the idle sweep compares, so a warm container whose definition
+moved is torn down rather than reused.
 
-Three failure modes get three different sentences, because "not installed", "installed but
-never approved" and "edited since approval" are three different things to do next.
+Two failure modes get two different sentences, because "not installed" and "installed but
+it does not parse" are different things to do next.
 
-The approval is a file rather than a database row so the sandbox service can enforce the
+The definitions are files rather than database rows so the sandbox service can reach the
 same answer. It owns the container engine and the app does not; both read this directory
 and neither writes the other's state. A row in the app's database would have to be told to
 the service over the socket, which would make the app the authority on what the service is
-allowed to run. Mount the policy directory read-only into both processes after approval.
+allowed to run. Mount the policy directory read-only into both processes.
 
-Revocation cancels active operations. Stopped or revoked calls are never replayed.
+A definition that changes under a running call cancels it. Stopped calls are never
+replayed.
 
 ## Building and installing
 
@@ -374,33 +375,34 @@ never do this by hand — picking an agent builds what it needs:
 ghostai preset install
 ```
 
-A catalogue entry carries `containers/<name>/{Dockerfile, container.json}`, the toolbox at
-`toolboxes/<name>.json`, and every `tool-definitions/<def>.json` the toolbox references.
+A catalogue entry carries `containers/<name>/{Dockerfile, container.yaml}`, the toolbox at
+`toolboxes/<name>.yaml`, and every `tool-definitions/<def>.yaml` the toolbox references.
 Installing runs `docker build --iidfile`, checks the result is a real `sha256:` image id,
-substitutes that id into the definition, and writes it to `containers/<name>.json`. The
-toolbox and its definitions are copied verbatim — their bytes are what the approval hash
-covers, so rewriting them would break it.
+substitutes that id into the definition, and writes it to `containers/<name>.yaml`. The
+toolbox and its definitions are copied verbatim — their bytes are what the digest covers,
+so rewriting them would move it.
 
 **The image is referenced by its image ID, not a registry digest.** An image ID is the
 content hash `docker build` produces: a content address, exactly as unrepointable as a
 registry digest, and available on a machine with no internet. That is what makes this work
 on an air-gapped install.
 
-Installing is only half of it. Nothing runs until both hashes are approved, and
-approving is a separate decision: the run prints what each definition asks for and then
-asks. A run with nobody to ask, a pipe or a CI job, approves nothing and prints the
-`ghostai toolbox approve` and `ghostai container approve` lines instead. `--approve` is how
-a script says yes.
+Installing is the decision. The run prints what each definition asks for — its network
+ceiling, its limits, any hardening it switches off — so the manifest is visible as it
+lands, and `ghostai toolbox list` and `ghostai container list` print it again afterwards.
+A second install of an unchanged definition rebuilds nothing, because rebuilding would
+move the image id and so the digest, restarting every warm instance of it for no reason;
+`--force` rebuilds anyway.
 
 ## Agent presets
 
 A toolbox is a capability surface; the agent that uses it is config. That config is a
-preset, a JSON file named for the agent id it installs, from `~/.ghostai/presets/` or the
+preset, a YAML file named for the agent id it installs, from `~/.ghostai/presets/` or the
 catalogue's `agents/`:
 
 ```bash
 ghostai preset install researcher   # builds what it needs
-ghostai agent install researcher    # config merge only; definitions must be approved
+ghostai agent install researcher    # config merge only; definitions must be installed
 ```
 
 Every preset lives in that one directory whether or not it names a container, because an
@@ -413,8 +415,8 @@ from a manifest's side of the boundary: the shape is a strict subset of an `agen
 entry, so a preset can express nothing a settings save could not. See
 [CLI](cli.md#ghost-agent) for the full resolution order.
 
-Install refuses a preset whose toolbox is not approved, because the server would refuse to
-boot on the result, and refuses to overwrite an existing agent without `--force`.
+Install refuses a preset whose toolbox does not resolve, because the server would refuse
+to boot on the result, and refuses to overwrite an existing agent without `--force`.
 
 ## Why the exec guard relaxes inside a container
 

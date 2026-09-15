@@ -1,13 +1,11 @@
 //! The container definitions installed on this machine.
 //!
 //! Read from disk on every request, for the same reason the toolbox list is:
-//! a definition edited after approval must stop reporting as approved the
-//! moment it changes.
+//! an edited definition must report its new digest, its new capabilities and
+//! its new gateway verdict the moment it changes.
 //!
-//! Read-only, and the same argument applies more strongly than it does next
-//! door. Approving a container is approving an image, a capability set and a
-//! uid; putting it behind a browser session would make the one decision that
-//! bounds every command an agent runs reachable from a tab.
+//! Read-only for now. A definition names an image, a capability set and a uid,
+//! and writing one is what bounds every command an agent runs.
 
 use axum::Json;
 use axum::extract::State;
@@ -61,7 +59,6 @@ pub async fn list_containers(
                     .as_ref()
                     .and_then(|d| assert_gateway_compatible(d).err())
                     .map(|error| error.message),
-                approved: listing.approved,
                 problem: listing.problem,
             }
         })

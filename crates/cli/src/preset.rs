@@ -27,12 +27,11 @@ use ghostai_core::{
     save_config,
 };
 use ghostai_i18n::{args, keys};
-use ghostai_protocol::toolbox::ContainerDefinition;
 use ghostai_protocol::{
     AgentEntry, AgentPreset, Config, DEFAULT_WORKSPACE_ID, TOOLBOX_DEFAULT_KEY, ToolPermission,
 };
 use ghostai_sandbox::container_pool::{DockerEngineOptions, docker_engine};
-use ghostai_security::{PolicyStore, assert_gateway_compatible, parse_toolbox, weakened_in};
+use ghostai_security::{PolicyStore, parse_toolbox};
 
 use crate::Streams;
 use crate::agent::{InstallPlan, PresetPaths, plan_install};
@@ -122,14 +121,6 @@ fn force_of(action: &PresetAction) -> bool {
     }
 }
 
-/// The three-state approval answer, which only `install` carries.
-fn approve_of(action: &PresetAction) -> Option<bool> {
-    match action {
-        PresetAction::Install { approve, .. } => *approve,
-        PresetAction::List | PresetAction::Update => None,
-    }
-}
-
 /// The ids named on the command line, which only `install` carries.
 fn ids_of(action: &PresetAction) -> &[String] {
     match action {
@@ -201,41 +192,6 @@ fn is_pinned_image(id: &str) -> bool {
 
 /// Everything an operator has to weigh before approving a container.
 ///
-/// The same lines `ghostai container list` prints, because they are answering
-/// the same question in the same words — and the person reading one has often
-/// just read the other.
-fn describe(container: &ContainerDefinition) -> Vec<String> {
-    let mut lines = vec![
-        format!("    image      {}", container.image),
-        format!(
-            "    sharing    {}",
-            if container.shared {
-                "shared"
-            } else {
-                "private"
-            }
-        ),
-        format!("    user       {}", container.user),
-        format!(
-            "    limits     {} MB, {} cpu",
-            container.limits.memory_mb, container.limits.cpus
-        ),
-    ];
-    if !container.caps.add.is_empty() {
-        lines.push(format!("    caps       +{}", container.caps.add.join(" +")));
-    }
-    if let Err(error) = assert_gateway_compatible(container) {
-        lines.push(format!(
-            "    egress     restricted mode unavailable — {}",
-            error.message
-        ));
-    }
-    for warning in weakened_in(container) {
-        lines.push(format!("    {warning}  <-- review this"));
-    }
-    lines
-}
-
 fn copy_policy_file(source: &Path, target: &Path) -> Result<()> {
     ensure_dir(target.parent().unwrap_or(target))?;
     std::fs::copy(source, target).map(|_| ()).map_err(|error| {
@@ -286,12 +242,12 @@ fn install_toolbox(name: &str, catalogue: &Path, policy_dir: &Path) -> Result<()
             &definition,
             &policy_dir
                 .join("tool-definitions")
-                .join(format!("{}.json", grant.definition)),
+                .join(format!("{}.yaml", grant.definition)),
         )?;
     }
     copy_policy_file(
         &source,
-        &policy_dir.join("toolboxes").join(format!("{name}.json")),
+        &policy_dir.join("toolboxes").join(format!("{name}.yaml")),
     )
 }
 
@@ -307,7 +263,7 @@ fn install_container(
     // The placeholder is replaced rather than the file generated, so the
     // definition an operator reviews in the catalogue is the definition that
     // gets installed apart from one field.
-    let source = context.join("container.json");
+    let source = context.join("container.yaml");
     let definition = std::fs::read_to_string(&source)
         .map_err(|error| {
             GhostError::new(
@@ -317,7 +273,7 @@ fn install_container(
             .with_source(error)
         })?
         .replace(IMAGE_PLACEHOLDER, &image_id);
-    let target = policy_dir.join("containers").join(format!("{name}.json"));
+    let target = policy_dir.join("containers").join(format!("{name}.yaml"));
     ensure_dir(target.parent().unwrap_or(&target))?;
     std::fs::write(&target, definition).map_err(|error| {
         GhostError::new(
@@ -720,12 +676,12 @@ fn install(
 
     let missing: Vec<String> = toolboxes
         .iter()
-        .filter(|name| !is_toolbox_approved(paths, name))
+        .filter(|name| !is_toolbox_installed(paths, name))
         .filter(|name| catalogue_toolbox(catalogue, name).is_none())
         .chain(
             containers
                 .iter()
-                .filter(|name| !is_container_approved(paths, name))
+                .filter(|name| !is_container_installed(paths, name))
                 .filter(|name| catalogue_container(catalogue, name).is_none()),
         )
         .cloned()
@@ -744,26 +700,19 @@ fn install(
         .with_detail("missing", missing));
     }
 
-    // Already approved and unedited? Then there is nothing to install:
-    // rebuilding would change the image id, change the definition, and revoke
-    // the approval the operator gave — turning a re-run into a silent
-    // downgrade.
+    // Already installed and usable? Then there is nothing to do: rebuilding
+    // would change the image id and so the definition's digest, restarting
+    // every warm instance of it for no reason.
     for name in &toolboxes {
-        if !is_toolbox_approved(paths, name) {
+        if !is_toolbox_installed(paths, name) {
             install_toolbox(name, catalogue, &paths.policy_dir)?;
         }
     }
     let to_build: Vec<&String> = containers
         .iter()
-        .filter(|name| !is_container_approved(paths, name))
+        .filter(|name| !is_container_installed(paths, name))
         .collect();
     build_containers(options, paths, catalogue, &to_build, streams)?;
-    let wanted: Vec<String> = toolboxes.iter().chain(containers.iter()).cloned().collect();
-
-    // Approval, before the presets rather than after — because approving is
-    // what unblocks them, and a run that approved and then made the operator
-    // run the same command again would be doing half its job.
-    settle_approvals(options, paths, &wanted, streams)?;
 
     let mut config = loaded.config.clone();
     let mut installed: Vec<String> = Vec::new();
@@ -821,9 +770,7 @@ fn install(
     // the same edit by another route.
     let sheets = install_sheets(paths, &ordered, &installed, force);
 
-    report(
-        paths, &config, &wanted, &blocked, &stale, &sheets, force, streams,
-    )?;
+    report(paths, &config, &blocked, &stale, &sheets, force, streams)?;
     Ok(0)
 }
 
@@ -860,7 +807,7 @@ fn build_containers(
                 paths
                     .policy_dir
                     .join("containers")
-                    .join(format!("{name}.json"))
+                    .join(format!("{name}.yaml"))
                     .display()
             ),
         )?;
@@ -985,7 +932,6 @@ fn report_sheets(
 fn report(
     paths: &PresetPaths,
     config: &Config,
-    wanted: &[String],
     blocked: &[Blocked],
     stale: &[String],
     sheets: &SkillInstallResult,
@@ -995,42 +941,17 @@ fn report(
     let out = &mut streams.out;
     report_sheets(paths, sheets, out)?;
 
-    let pending = pending_approvals(paths, wanted);
-    if !pending.is_empty() {
-        line(out, "")?;
-        line(
-            out,
-            "Still unapproved. An agent cannot use a toolbox or a container until",
-        )?;
-        line(out, "you approve it:")?;
-        for entry in &pending {
-            line(out, &format!("    {}", entry.command()))?;
-        }
-    }
-
     let waiting: Vec<&Blocked> = blocked
         .iter()
         .filter(|entry| !config.agents.list.contains_key(&entry.id))
         .collect();
     if !waiting.is_empty() {
         line(out, "")?;
-        if pending.is_empty() {
-            // Not an approval problem, so the reason is worth printing: a
-            // network request above the box's ceiling, say.
-            for entry in &waiting {
-                line(out, &format!("Could not install {}:", entry.id))?;
-                for text in entry.reason.lines() {
-                    line(out, &format!("  {text}"))?;
-                }
+        for entry in &waiting {
+            line(out, &format!("Could not install {}:", entry.id))?;
+            for text in entry.reason.lines() {
+                line(out, &format!("  {text}"))?;
             }
-        } else {
-            line(out, "Waiting on those approvals:")?;
-            for entry in &waiting {
-                line(out, &format!("    {}", entry.id))?;
-            }
-            line(out, "")?;
-            line(out, "Approve them, then re-run — or do both at once with")?;
-            line(out, "`ghostai preset install --approve`.")?;
         }
     }
 
@@ -1075,102 +996,6 @@ fn report(
     Ok(())
 }
 
-/// Approves the toolboxes this run installed, if the operator says so.
-///
-/// **The policy is printed before the question, not after it.** That is what
-/// separates one keystroke from a rubber stamp: approving a toolbox is a
-/// statement that somebody read what the container may do, and a prompt that
-/// showed only names would make the sentence false. What it costs is a screen
-/// of text before a `y`, which is the right trade for the one action in this
-/// command that cannot be undone by re-running it.
-///
-/// Three ways to answer, and the flag exists so a script has one:
-///
-///  - `--approve` — yes, without asking.
-///  - `--no-approve` — no, without asking.
-///  - Neither — ask, when there is a terminal to ask. With none, approve
-///    nothing: a pipe that answered "yes" by default would approve container
-///    policy nobody read, which is the failure this whole gate exists to stop.
-fn settle_approvals(
-    options: &mut PresetOptions<'_>,
-    paths: &PresetPaths,
-    names: &[String],
-    streams: &mut Streams,
-) -> Result<()> {
-    let pending = pending_approvals(paths, names);
-    if pending.is_empty() {
-        return Ok(());
-    }
-
-    let asked = approve_of(&options.action);
-    if asked != Some(false) {
-        line(
-            &mut streams.out,
-            "These are installed but not approved yet. A toolbox decides what an",
-        )?;
-        line(
-            &mut streams.out,
-            "agent may call; a container decides what the machine running those",
-        )?;
-        line(&mut streams.out, "calls is allowed to be:")?;
-        for entry in &pending {
-            line(&mut streams.out, "")?;
-            match entry {
-                Pending::Toolbox(name) => {
-                    line(&mut streams.out, &format!("  toolbox {name}"))?;
-                    line(
-                        &mut streams.out,
-                        "    review its operations with `ghostai toolbox list`",
-                    )?;
-                }
-                Pending::Container(name, definition) => {
-                    line(&mut streams.out, &format!("  container {name}"))?;
-                    for text in describe(definition) {
-                        line(&mut streams.out, &text)?;
-                    }
-                }
-            }
-        }
-        line(&mut streams.out, "")?;
-    }
-
-    let approve = if let Some(answer) = asked {
-        answer
-    } else {
-        let question = if pending.len() == 1 {
-            "Approve it, so agents may use it?".to_owned()
-        } else {
-            format!("Approve all {}, so agents may use them?", pending.len())
-        };
-        match options.ask.as_mut() {
-            Some(ask) => ask.confirm(&mut streams.out, &question, false)?,
-            None => false,
-        }
-    };
-    if !approve {
-        return Ok(());
-    }
-
-    let store = open_store(paths);
-    for entry in &pending {
-        let hash = match entry {
-            Pending::Toolbox(name) => store.approve_toolbox(name)?.sha256().to_owned(),
-            Pending::Container(name, _) => store.approve_container(name)?.sha256,
-        };
-        line(
-            &mut streams.out,
-            &format!("Approved {} — sha256:{hash}", entry.name()),
-        )?;
-    }
-    line(&mut streams.out, "")?;
-    line(
-        &mut streams.out,
-        "Editing any of those files changes its hash and revokes this.",
-    )?;
-    line(&mut streams.out, "")?;
-    Ok(())
-}
-
 /// Whether a preset's delegation roster would now name specialists the
 /// installed entry does not.
 ///
@@ -1188,76 +1013,19 @@ fn roster_is_stale(preset: &AgentPreset, entry: &AgentEntry, config: &Config) ->
     })
 }
 
-/// The approval ledger over this run's paths.
+/// The definitions over this run's paths.
 fn open_store(paths: &PresetPaths) -> PolicyStore {
     PolicyStore::new(paths.policy_dir.clone())
 }
 
-/// Whether this toolbox is installed, approved, and unedited since.
-fn is_toolbox_approved(paths: &PresetPaths, name: &str) -> bool {
+/// Whether this toolbox is installed and usable as it stands.
+fn is_toolbox_installed(paths: &PresetPaths, name: &str) -> bool {
     open_store(paths).require_toolbox(name).is_ok()
 }
 
-/// Whether this container is installed, approved, and unedited since.
-fn is_container_approved(paths: &PresetPaths, name: &str) -> bool {
+/// Whether this container is installed and usable as it stands.
+fn is_container_installed(paths: &PresetPaths, name: &str) -> bool {
     open_store(paths).require_container(name).is_ok()
-}
-
-/// One definition still waiting for an operator's approval.
-///
-/// The container carries what an operator reads before approving; a toolbox is
-/// named alone, because its own review is a list of operations and belongs in
-/// `ghostai toolbox list` rather than folded into an install summary.
-enum Pending {
-    /// A toolbox, named only.
-    Toolbox(String),
-    /// A container, with the policy an operator has to weigh.
-    Container(String, Box<ContainerDefinition>),
-}
-
-impl Pending {
-    fn name(&self) -> &str {
-        match self {
-            Pending::Toolbox(name) | Pending::Container(name, _) => name,
-        }
-    }
-
-    /// The command that approves it, printed when an operator declines.
-    fn command(&self) -> String {
-        match self {
-            Pending::Toolbox(name) => format!("ghostai toolbox approve {name}"),
-            Pending::Container(name, _) => format!("ghostai container approve {name}"),
-        }
-    }
-}
-
-/// Installed-but-unapproved definitions among `names`.
-///
-/// **An empty `names` is an empty answer, not "everything".** The list is what
-/// this run's chosen agents named, so empty means nothing chosen needs one —
-/// and a definition left unapproved from some earlier run is not this run's
-/// business to ask about. The commands that report on those are
-/// `ghostai toolbox list` and `ghostai container list`.
-fn pending_approvals(paths: &PresetPaths, names: &[String]) -> Vec<Pending> {
-    if names.is_empty() {
-        return Vec::new();
-    }
-    let store = open_store(paths);
-    let toolboxes = store
-        .list_toolboxes()
-        .into_iter()
-        .filter(|entry| !entry.approved && names.contains(&entry.name))
-        .map(|entry| Pending::Toolbox(entry.name));
-    let containers = store
-        .list_containers()
-        .into_iter()
-        .filter(|entry| !entry.approved && names.contains(&entry.name))
-        .filter_map(|entry| {
-            entry
-                .value
-                .map(|definition| Pending::Container(entry.name, Box::new(definition)))
-        });
-    toolboxes.chain(containers).collect()
 }
 
 /// Runs one `ghostai preset` invocation, with the real world wired in.

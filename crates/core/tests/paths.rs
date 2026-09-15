@@ -148,7 +148,7 @@ mod resolve_ghost_paths {
                 presets_dir: root.join("presets"),
                 catalogue_dir: root.join("catalogue"),
                 runs_dir: root.join("runs"),
-                config_file: root.join("config.json"),
+                config_file: root.join("config.yaml"),
                 db_file: root.join("ghost.db"),
                 logs_dir: root.join("logs"),
                 extensions_dir: root.join("extensions"),

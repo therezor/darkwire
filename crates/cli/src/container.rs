@@ -1,12 +1,11 @@
-//! `ghostai container` — list, approve and revoke container definitions.
+//! `ghostai container list` — where an agent's commands would run.
 //!
-//! The same content-hash approval as a toolbox next door, over a different
-//! question. A toolbox decides *what* an agent may call; a container decides
-//! what the machine running those calls is allowed to be — its image, its
-//! capabilities, who it runs as. Two approvals because they are two decisions:
-//! an operator handing an agent one more operation should not have to re-review
-//! an image, and an operator changing an image should not have to re-review
-//! every toolbox that might run in it.
+//! A different question from the toolbox next door. A toolbox decides *what* an
+//! agent may call; a container decides what the machine running those calls is
+//! allowed to be — its image, its capabilities, who it runs as. They are two
+//! files because they are two decisions: handing an agent one more operation
+//! should not mean re-reading an image, and changing an image should not mean
+//! re-reading every toolbox that might run in it.
 //!
 //! The listing names anything the definition weakened, and whether a restricted
 //! egress allow-list could be enforced in it at all. Both are the difference
@@ -21,7 +20,7 @@ use ghostai_security::{PolicyStore, assert_gateway_compatible, weakened_in};
 
 use crate::Streams;
 use crate::i18n::Env;
-use crate::program::{Globals, StoreAction};
+use crate::program::Globals;
 use crate::runtime::load_options;
 
 /// Everything about a definition that bears on whether it is safe to approve.
@@ -63,19 +62,13 @@ fn describe(container: &ContainerDefinition) -> Vec<String> {
 }
 
 /// Runs one `ghostai container` invocation and answers with its exit code.
-pub fn run(
-    globals: &Globals,
-    action: StoreAction,
-    id: Option<&str>,
-    env: &Env,
-    streams: &mut Streams,
-) -> Result<u8> {
+pub fn run(globals: &Globals, env: &Env, streams: &mut Streams) -> Result<u8> {
     let loaded = load_config(LoadConfigOptions {
         paths: load_options(globals, None, env),
         file: None,
     })?;
     let store = PolicyStore::new(loaded.paths.policy_dir.clone());
-    match act(&store, action, id, streams) {
+    match act(&store, streams) {
         Ok(code) => Ok(code),
         Err(error) => {
             let _ = writeln!(streams.err, "{}", error.message);
@@ -84,73 +77,28 @@ pub fn run(
     }
 }
 
-fn act(
-    store: &PolicyStore,
-    action: StoreAction,
-    id: Option<&str>,
-    streams: &mut Streams,
-) -> Result<u8> {
-    if action == StoreAction::List {
-        let listing = store.list_containers();
-        if listing.is_empty() {
-            writeln!(
-                streams.out,
-                "No containers installed under {}",
-                store.root().join("containers").display()
-            )
-            .map_err(GhostError::from)?;
-            return Ok(0);
-        }
-        for entry in listing {
-            let state = if entry.approved {
-                "approved"
-            } else {
-                "NOT APPROVED"
-            };
-            writeln!(streams.out, "{}  [{state}]", entry.name).map_err(GhostError::from)?;
-            if let Some(container) = entry.value.as_ref() {
-                for line in describe(container) {
-                    writeln!(streams.out, "{line}").map_err(GhostError::from)?;
-                }
-            }
-            if let Some(problem) = entry.problem.as_deref() {
-                writeln!(streams.out, "    problem    {problem}").map_err(GhostError::from)?;
-            }
-            writeln!(streams.out).map_err(GhostError::from)?;
-        }
-        return Ok(0);
-    }
-
-    let Some(id) = id.filter(|value| !value.is_empty()) else {
-        writeln!(
-            streams.err,
-            "Which container? Pass an id — see `ghostai container list`."
-        )
-        .map_err(GhostError::from)?;
-        return Ok(2);
-    };
-
-    if action == StoreAction::Revoke {
-        store.revoke_container(id)?;
+fn act(store: &PolicyStore, streams: &mut Streams) -> Result<u8> {
+    let listing = store.list_containers();
+    if listing.is_empty() {
         writeln!(
             streams.out,
-            "Revoked {id}. The definition is still installed; it will no longer run."
+            "No containers installed under {}",
+            store.root().join("containers").display()
         )
         .map_err(GhostError::from)?;
         return Ok(0);
     }
-
-    let approved = store.approve_container(id)?;
-    writeln!(streams.out, "Approved {id}:").map_err(GhostError::from)?;
-    for line in describe(&approved.definition) {
-        writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+    for entry in listing {
+        writeln!(streams.out, "{}", entry.name).map_err(GhostError::from)?;
+        if let Some(container) = entry.value.as_ref() {
+            for line in describe(container) {
+                writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+            }
+        }
+        if let Some(problem) = entry.problem.as_deref() {
+            writeln!(streams.out, "    problem    {problem}").map_err(GhostError::from)?;
+        }
+        writeln!(streams.out).map_err(GhostError::from)?;
     }
-    writeln!(streams.out, "    definition sha256:{}", approved.sha256).map_err(GhostError::from)?;
-    writeln!(streams.out).map_err(GhostError::from)?;
-    writeln!(
-        streams.out,
-        "Editing the definition changes its hash and revokes this approval."
-    )
-    .map_err(GhostError::from)?;
     Ok(0)
 }

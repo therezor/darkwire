@@ -481,7 +481,7 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
     },
     RouteDoc {
         id: RouteId::SettingsReload,
-        summary: "Re-read config.json from disk and rebuild what depends on it",
+        summary: "Re-read config.yaml from disk and rebuild what depends on it",
         body: None,
         query: None,
         params: None,

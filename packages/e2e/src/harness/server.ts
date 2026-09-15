@@ -145,7 +145,7 @@ export interface Harness {
   /** The one-time code, on an unclaimed harness. `undefined` once claimed. */
   readonly setupCode: string | undefined;
   /**
-   * Writes `config.json` behind the server's back, the way a hand edit does.
+   * Writes `config.yaml` behind the server's back, the way a hand edit does.
    *
    * The settings route validates and heals what it is given — that is its job —
    * so a spec about a file nobody validated cannot go through it. This is the
@@ -326,7 +326,7 @@ export async function startHarness(
 
   const provider = await startFakeProvider(ROUTES);
 
-  const configFile = join(home, 'config.json');
+  const configFile = join(home, 'config.yaml');
   let config = harnessConfig(options, workspace, provider.url);
   writeFileSync(configFile, JSON.stringify(config, null, 2));
 

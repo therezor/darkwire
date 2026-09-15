@@ -18,8 +18,8 @@ ghostai init                     configure this install, in a wizard
 ghostai serve                    serve the web UI and the API on one port
 ghostai preset    list | install [ids...] | update
 ghostai agent     install <name-or-path> [--force] | list
-ghostai toolbox   list | approve <id> | revoke <id>
-ghostai container list | approve <id> | revoke <id>
+ghostai toolbox   list
+ghostai container list
 ghostai sandbox   health | list | start | stop | restart
 ghostai extension list | approve <id> | revoke <id>
 ghostai help [command]
@@ -264,8 +264,6 @@ otherwise.
 | `--refresh`    | Fetch again before reading, even when a copy is here.            |
 | `--offline`    | Never fetch. Fails rather than reaching a registry.              |
 | `--force`      | Overwrite agents of the same id, which may carry your edits.     |
-| `--approve`    | Approve the toolboxes this installs, without asking.             |
-| `--no-approve` | Approve nothing, and print the `ghostai toolbox approve` lines.  |
 
 `install` also takes `-W, --workspace-id <id>`, which says where a preset's skill sheets
 are copied. It defaults to `default`, and a named workspace has to exist already. Note
@@ -282,12 +280,9 @@ Toolbox capability and container placement are separate selections. A preset may
 both, either, or neither; several agents and toolboxes may select the same shared
 container definition.
 
-**Approving is a separate decision, and the policy is printed before the question.**
-Building an image and installing a definition are reversible; approving one is a statement
-that you read what it may do — the grants a toolbox carries, and for a container the
-capabilities it adds back and the hardening it switches off. So the run prints all of that
-and then asks, and a run with nobody to ask — a pipe, a CI job — approves nothing and
-prints the commands instead. Passing `--approve` is how a script says yes.
+**A definition that is already installed and usable is left alone.** Rebuilding its image
+would change the image id, and so the definition's digest, restarting every warm container
+of it for nothing. `--force` is how you ask for the rebuild anyway.
 
 `--from` is what a preset author uses:
 
@@ -307,14 +302,14 @@ built on, and what a script wants when it knows the name. It never touches Docke
 never fetches: use `ghostai preset install` when the agent needs a container that is not
 built yet.
 
-A preset is a JSON file holding a system prompt, tool permissions, independent toolbox
+A preset is a YAML file holding a system prompt, tool permissions, independent toolbox
 and container references, and a delegation roster. Installing it writes one entry in
 `agents.list`:
 
 ```bash
 ghostai agent list                      # configured agents, and presets not yet installed
 ghostai agent install researcher        # a catalogue preset, by its id
-ghostai agent install ./my-agent.json   # a preset you wrote, by path
+ghostai agent install ./my-agent.yaml   # a preset you wrote, by path
 ghostai agent install nano --force      # overwrite an existing agent of the same id
 ghostai agent install coder -W acme     # put its skill sheets in the acme workspace
 ```
@@ -323,15 +318,15 @@ It copies a preset's skill sheets too, when a catalogue is already on the machin
 never fetches one, so on a box that has not run `ghostai preset update` every sheet a
 preset names is reported as missing and the agent installs regardless.
 
-**There is one kind of preset.** A preset is `<id>.json` — the filename is the agent id
+**There is one kind of preset.** A preset is `<id>.yaml` — the filename is the agent id
 — whether or not the agent works in a container; one that does sets `container.name`
 independently of `toolbox.name`. So there is one lookup, and the argument is either a path or an id
 searched in two directories:
 
 | Searched                       | Holds                                              |
 | ------------------------------ | -------------------------------------------------- |
-| `~/.ghostai/presets/<id>.json` | Yours. Drop a file in; that is the install.        |
-| `<catalogue>/agents/<id>.json` | The catalogue's, once `ghostai preset` fetched it. |
+| `~/.ghostai/presets/<id>.yaml` | Yours. Drop a file in; that is the install.        |
+| `<catalogue>/agents/<id>.yaml` | The catalogue's, once `ghostai preset` fetched it. |
 
 Yours first, so a local preset wins over a catalogue one of the same name. Nothing is
 fetched _here_: both are files already on the box by the time this command runs, and a
@@ -340,7 +335,7 @@ machine with no catalogue installs only your own presets rather than failing.
 Installing is a config merge and nothing more: afterwards the agent is ordinary config,
 edited in the web UI like any other. Three rules do the real work:
 
-- A preset naming a toolbox that is not installed and approved is **refused**, with the
+- A preset naming a toolbox that is not installed is **refused**, with the
   command that fixes it — the server would refuse to boot on the result.
 - An id that already exists is **refused without `--force`**, because the existing entry
   may carry your own edits.
@@ -354,27 +349,23 @@ manifest's side of the security boundary. See
 
 ## `ghostai toolbox`, `ghostai container`, and `ghostai extension`
 
-All three are the same verbs over a digest-based approval:
+The first two are read-only, because the file on disk **is** the policy — writing it is
+the decision, the same way writing `config.yaml` is:
 
 ```bash
-ghostai toolbox list            # every installed toolbox, and whether it is approved
-ghostai toolbox approve <id>    # approve its current contents
-ghostai toolbox revoke <id>     # stays installed, stops running
-ghostai container list          # installed container definitions and approval state
-ghostai container approve <id>  # approve the exact current definition
-ghostai container revoke <id>   # leave it installed but unusable
+ghostai toolbox list            # every installed toolbox and what it grants
+ghostai container list          # every installed container definition and its hardening
 ```
 
-Approval records the sha256 of the exact bytes you reviewed, so **editing an installed
-definition revokes its own approval** — the next turn refuses and names the drift rather
-than running something nobody looked at. There is no `--force`: re-approving is reviewing
-the new bytes.
+Each entry still carries a digest, and it is identity rather than consent. Two container
+definitions that differ never share a warm instance; editing a definition while a command
+is running cancels that command and names the drift; an idle container whose definition
+moved is swept. A toolbox's digest covers the manifest **and every tool definition it
+names**, so editing a definition three toolboxes share is visible in all three.
 
-A toolbox's hash covers the manifest **and every tool definition it names**, so editing a
-definition three toolboxes share revokes all three. A container's hash covers its own
-bytes alone, so the two approvals are independent. `extension` differs in one way that
-matters: its digest covers every byte of the install directory rather than the manifest,
-because an extension manifest names a path where a container definition pins an image.
+`extension` is the one that still has three verbs — `list`, `approve <id>`, `revoke <id>`
+— because its approval is a record in a store rather than a file an operator edits, and
+its digest covers every byte of the install directory rather than a manifest.
 
 See [Toolboxes](toolboxes.md) and [Extensions](extensions.md).
 

@@ -1,7 +1,7 @@
 # Configuration
 
-One JSON file: `~/.ghostai/config.json`, or `$GHOSTAI_HOME/config.json`, or
-`--home <dir>/config.json`. No YAML, no TOML, no XDG.
+One YAML file: `~/.ghostai/config.yaml`, or `$GHOSTAI_HOME/config.yaml`, or
+`--home <dir>/config.yaml`. No JSON, no TOML, no XDG.
 
 **A missing file is normal.** The schema produces a complete tree from `{}`, so every key
 below has a default and an install with no config file runs. A _malformed_ file is a hard
@@ -9,7 +9,7 @@ error listing the dotted paths that failed — it will not silently fall back to
 
 **It is safe to commit.** Credentials are never in it; they live in the encrypted vault.
 
-Writes are atomic: validate, write `config.json.tmp` at mode `0600`, rename.
+Writes are atomic: validate, write `config.yaml.tmp` at mode `0600`, rename.
 
 ## Conventions in this tree
 
@@ -28,8 +28,8 @@ Writes are atomic: validate, write `config.json.tmp` at mode `0600`, rename.
 
 The folder every agent works in, as a single root-level string.
 
-```json
-{ "workspace": "projects/alpha" }
+```yaml
+{ 'workspace': 'projects/alpha' }
 ```
 
 Root-level rather than on an agent, because an agent _works in_ a workspace and does not
@@ -89,11 +89,11 @@ on. They save, so a choice made at a prompt is the same choice on the next launc
 There is no key here for skills. Every sheet the workspace holds is indexed in the prompt
 and the agent opens the one it needs; see [Skills](skills.md). `pinnedSkills` and
 `maxPinnedSkills` used to live in this table and are the worked example of the paragraph
-below — a `config.json` still carrying them parses, and loses them the next time it is
+below — a `config.yaml` still carrying them parses, and loses them the next time it is
 written.
 
 An agent entry carries no catch-all field, so it drops what it does
-not know: a `config.json` carrying a key this table does not list parses without error and
+not know: a `config.yaml` carrying a key this table does not list parses without error and
 loses it on the next write. There is no migration and no error, which is the whole of
 the upgrade path — a declared key nothing reads is worse than a missing one, because it
 reads as a setting that does nothing and the file gives no way to find that out.
@@ -135,7 +135,7 @@ got here, it is edited the same way afterwards.
 | `enabled`          | boolean                              | `true`            |                                                                                                              |
 | `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
 | `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `toolbox`          | `{ name, tools }`                    | `{ name: '', … }` | The approved operation surface; empty means no toolbox-defined operations.                                   |
+| `toolbox`          | `{ name, tools }`                    | `{ name: '', … }` | The curated operation surface; empty means no toolbox-defined operations.                                    |
 | `container`        | `{ name, network }`                  | `{ name: '', … }` | Independent command placement; empty means the app environment. See [Toolboxes](toolboxes.md).               |
 | `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
@@ -161,15 +161,15 @@ accept.
 
 A new agent is seeded with:
 
-```json
+```yaml
 {
-  "read_file": "allow",
-  "list_dir": "allow",
-  "write_file": "allow",
-  "edit_file": "allow",
-  "exec": "ask",
-  "memory": "allow",
-  "skill": "allow"
+  'read_file': 'allow',
+  'list_dir': 'allow',
+  'write_file': 'allow',
+  'edit_file': 'allow',
+  'exec': 'ask',
+  'memory': 'allow',
+  'skill': 'allow',
 }
 ```
 
@@ -184,16 +184,16 @@ at call time.
 
 ### `agents.list.<id>.toolbox`
 
-| Key     | Type                               | Default | Notes                                                      |
-| ------- | ---------------------------------- | ------- | ---------------------------------------------------------- |
-| `name`  | string                             | `''`    | An approved toolbox name, or empty for the built-in tools. |
-| `tools` | `Record<string, allow\|ask\|deny>` | `{}`    | Per-grant narrowing; `*` is the fallback. Never widens.    |
+| Key     | Type                               | Default | Notes                                                       |
+| ------- | ---------------------------------- | ------- | ----------------------------------------------------------- |
+| `name`  | string                             | `''`    | An installed toolbox name, or empty for the built-in tools. |
+| `tools` | `Record<string, allow\|ask\|deny>` | `{}`    | Per-grant narrowing; `*` is the fallback. Never widens.     |
 
 ### `agents.list.<id>.container`
 
 | Key             | Type                    | Default  | Notes                                                                   |
 | --------------- | ----------------------- | -------- | ----------------------------------------------------------------------- |
-| `name`          | string                  | `''`     | An independently approved container name, or empty to run on the host.  |
+| `name`          | string                  | `''`     | An independently installed container name, or empty to run on the host. |
 | `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless a container is named: egress is enforced by its gateway. |
 | `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry.   |
 | `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.      |
@@ -203,10 +203,10 @@ at call time.
 or the container definition, so what an agent may reach is one value in one file.
 
 There is no `image`, `runtime`, `caps` or `limits` in either agent selection,
-deliberately. Those live in the independently installed container definition, which an
-operator approves by hash. A value with no representation in this schema cannot be
-reached by a config patch — which is what keeps the hardening operator-only while the
-egress request is not.
+deliberately. Those live in the independently installed container definition, a file an
+operator writes. A value with no representation in this schema cannot be reached by a
+config patch — which is what keeps the hardening operator-only while the egress request
+is not.
 
 ### `agents.list.<id>.subagents[]`
 
@@ -236,17 +236,19 @@ servers become two entries.
 same instance id — so the two entries below can hold different tokens, and this file can
 be committed.
 
-```json
+```yaml
 {
-  "agents": { "defaults": { "provider": "ollama-gpu", "model": "qwen3:8b" } },
-  "providers": {
-    "ollama": { "type": "ollama" },
-    "ollama-gpu": {
-      "type": "ollama",
-      "label": "GPU box",
-      "apiBase": "http://gpu.lan:11434/v1"
-    }
-  }
+  'agents': { 'defaults': { 'provider': 'ollama-gpu', 'model': 'qwen3:8b' } },
+  'providers':
+    {
+      'ollama': { 'type': 'ollama' },
+      'ollama-gpu':
+        {
+          'type': 'ollama',
+          'label': 'GPU box',
+          'apiBase': 'http://gpu.lan:11434/v1',
+        },
+    },
 }
 ```
 
@@ -435,7 +437,7 @@ conversation.
 
 **The bot token does not go here.** Put it in the credential vault under
 `channels`/`telegram`, or in `TELEGRAM_BOT_TOKEN`. A `token` key in this block is read as
-a last resort and logs a warning at startup, because `config.json` is a plain file that
+a last resort and logs a warning at startup, because `config.yaml` is a plain file that
 backups, dotfile repositories and screen shares all reach.
 
 An `allowlist` entry is `<telegram id>` or `<telegram id>|<label>`; the label is for

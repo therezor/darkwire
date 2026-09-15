@@ -68,7 +68,7 @@ fn patch(value: serde_json::Value) -> ConfigPatch {
 
 #[test]
 fn a_settings_save_persists_rather_than_only_taking_effect() {
-    // The runtime deliberately does not write `config.json` — previewing a
+    // The runtime deliberately does not write `config.yaml` — previewing a
     // patch and saving one are different operations — so this is the step that
     // makes a reload see the change.
     let dir = tempfile::tempdir().unwrap();
@@ -81,7 +81,7 @@ fn a_settings_save_persists_rather_than_only_taking_effect() {
         .unwrap();
     assert_eq!(merged.ui.timezone, "Europe/Berlin");
 
-    let file = dir.path().join("config.json");
+    let file = dir.path().join("config.yaml");
     let reread = parse_config(&std::fs::read_to_string(&file).unwrap(), &file).unwrap();
     assert_eq!(reread.ui.timezone, "Europe/Berlin");
 }
@@ -102,7 +102,7 @@ fn a_patch_that_cannot_be_built_moves_neither_the_server_nor_the_file() {
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(port.config().agents.list.len(), before.agents.list.len());
     assert!(
-        !dir.path().join("config.json").exists(),
+        !dir.path().join("config.yaml").exists(),
         "a patch that could not be built still wrote the file"
     );
 }
@@ -274,7 +274,7 @@ fn a_reload_reads_the_file_and_does_not_write_it_back() {
     let dir = tempfile::tempdir().unwrap();
     let port = adapter(&dir, ServerRuntimeOptions::default());
 
-    let file = dir.path().join("config.json");
+    let file = dir.path().join("config.yaml");
     let hand_written = "{\n  \"ui\": { \"timezone\": \"Asia/Tokyo\" }\n}\n";
     std::fs::write(&file, hand_written).unwrap();
 

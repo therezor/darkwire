@@ -240,7 +240,7 @@ export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
 /**
  * One configured endpoint. API keys are deliberately absent: they live in the
  * encrypted `CredentialVault` under the `providers` namespace, keyed by the
- * *instance* id, so a `config.json` is safe to commit or paste into a bug
+ * *instance* id, so a `config.yaml` is safe to commit or paste into a bug
  * report.
  *
  * `type` is what makes an instance distinct from a provider. Two Ollama servers
@@ -593,8 +593,8 @@ export const AgentToolboxSchema = z.object({
    * enumerating twenty-three denials.
    *
    * **Each entry is intersected with the grant's own permission and can only
-   * tighten it.** The manifest is what an operator approved; a config that
-   * could widen it would make approving a toolbox meaningless.
+   * tighten it.** The manifest is what an operator installed; a config that
+   * could widen it would make choosing a toolbox meaningless.
    */
   tools: ToolPermissionsSchema.default({}),
 });
@@ -608,14 +608,14 @@ export type AgentToolbox = z.infer<typeof AgentToolboxSchema>;
  * request means nothing and is refused rather than ignored. A named container
  * routes command operations through the sandbox service instead.
  *
- * The image, capabilities, hardening and sharing live in the approved
+ * The image, capabilities, hardening and sharing live in the installed
  * definition and have no representation here. The network *does* live here:
  * egress is the one thing an operator configures per agent rather than per
  * image, and a single place to configure it is worth more than a second ceiling
  * nobody could locate.
  */
 export const AgentContainerSchema = z.object({
-  /** An approved container name, or empty to run on the host. */
+  /** An installed container name, or empty to run on the host. */
   name: z.string().default(''),
   /** What this agent's container may reach. */
   network: ContainerNetworkSchema.prefault({}),

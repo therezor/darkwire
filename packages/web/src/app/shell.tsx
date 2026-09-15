@@ -146,7 +146,7 @@ const CONNECTION_LABELS = {
  *
  * The server first, and the page only if it answered. A tab that reloaded
  * itself and came back on the same stale config would look like the button did
- * nothing — and the reason (a `config.json` that does not parse) would have
+ * nothing — and the reason (a `config.yaml` that does not parse) would have
  * been on screen for the length of a navigation. So a failure keeps the page
  * and says what happened; the operator can fix the file and press again.
  *

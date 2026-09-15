@@ -84,17 +84,13 @@ impl Harness {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let policy = root.join("policy");
-        write(&policy.join("toolboxes/coding.json"), toolbox().to_string());
+        write(&policy.join("toolboxes/coding.yaml"), toolbox().to_string());
         write(
-            &policy.join("tool-definitions/git-status.json"),
+            &policy.join("tool-definitions/git-status.yaml"),
             definition().to_string(),
         );
-        write(&policy.join("containers/dev.json"), container().to_string());
+        write(&policy.join("containers/dev.yaml"), container().to_string());
         std::fs::create_dir_all(root.join("workspaces/default")).unwrap();
-
-        let store = PolicyStore::new(policy.clone());
-        store.approve_toolbox("coding").unwrap();
-        store.approve_container("dev").unwrap();
 
         let socket = root.join("sandbox.sock");
         let token = CancellationToken::new();
@@ -163,7 +159,7 @@ fn no_network() -> ContainerNetwork {
 fn execute() -> SandboxRequest {
     SandboxRequest::Execute {
         toolbox: "coding".to_owned(),
-        approval: String::new(),
+        digest: String::new(),
         container: "dev".to_owned(),
         operation: "git_status".to_owned(),
         workspace: "default".to_owned(),
@@ -174,13 +170,13 @@ fn execute() -> SandboxRequest {
     }
 }
 
-/// `Execute` with the approval hash the toolbox currently resolves to.
-fn approved_execute(harness: &Harness) -> SandboxRequest {
-    let hash = harness
+/// `Execute` carrying the digest the toolbox currently resolves to.
+fn resolved_execute(harness: &Harness) -> SandboxRequest {
+    let digest = harness
         .policy()
         .require_toolbox("coding")
         .unwrap()
-        .sha256()
+        .digest()
         .to_owned();
     match execute() {
         SandboxRequest::Execute {
@@ -195,7 +191,7 @@ fn approved_execute(harness: &Harness) -> SandboxRequest {
             ..
         } => SandboxRequest::Execute {
             toolbox,
-            approval: hash,
+            digest,
             container,
             operation,
             workspace,
@@ -249,7 +245,7 @@ async fn refuses_a_workspace_it_was_never_told_about() {
     let harness = Harness::start().await;
     let SandboxRequest::Execute {
         toolbox,
-        approval,
+        digest,
         container,
         operation,
         agent,
@@ -264,7 +260,7 @@ async fn refuses_a_workspace_it_was_never_told_about() {
     let refusal = harness
         .ask(SandboxRequest::Execute {
             toolbox,
-            approval,
+            digest,
             container,
             operation,
             workspace: "elsewhere".to_owned(),
@@ -280,15 +276,14 @@ async fn refuses_a_workspace_it_was_never_told_about() {
 #[tokio::test]
 async fn refuses_a_toolbox_this_workspace_was_not_given() {
     let harness = Harness::start().await;
-    // Installed and approved, but not in this workspace's registration.
+    // Installed, but not in this workspace's registration.
     write(
-        &harness.root.join("policy/toolboxes/other.json"),
+        &harness.root.join("policy/toolboxes/other.yaml"),
         json!({"schema": "ghostai.toolbox/1", "name": "other", "tools": []}).to_string(),
     );
-    harness.policy().approve_toolbox("other").unwrap();
 
     let SandboxRequest::Execute {
-        approval,
+        digest,
         container,
         operation,
         workspace,
@@ -304,7 +299,7 @@ async fn refuses_a_toolbox_this_workspace_was_not_given() {
     let refusal = harness
         .ask(SandboxRequest::Execute {
             toolbox: "other".to_owned(),
-            approval,
+            digest,
             container,
             operation,
             workspace,
@@ -318,21 +313,21 @@ async fn refuses_a_toolbox_this_workspace_was_not_given() {
 }
 
 #[tokio::test]
-async fn refuses_an_approval_hash_that_is_not_the_one_on_disk() {
-    // The caller resolved the toolbox at some hash and says so. If the bytes
+async fn refuses_a_digest_that_is_not_the_one_on_disk() {
+    // The caller resolved the toolbox at some digest and says so. If the bytes
     // changed between then and now, the call is refused rather than run under
-    // a policy nobody reviewed.
+    // a definition the caller never read.
     let harness = Harness::start().await;
     assert!(
-        message(harness.ask(execute()).await).contains("approval changed"),
-        "an empty hash is not the approved one"
+        message(harness.ask(execute()).await).contains("definition changed"),
+        "an empty digest is not the one on disk"
     );
     assert!(
         harness
-            .ask(approved_execute(&harness))
+            .ask(resolved_execute(&harness))
             .await
-            .is_err_and(|error| !error.message.contains("approval changed")),
-        "the real hash gets past the approval check"
+            .is_err_and(|error| !error.message.contains("definition changed")),
+        "the real digest gets past the drift check"
     );
 }
 
@@ -342,7 +337,7 @@ async fn refuses_an_operation_the_toolbox_does_not_grant() {
     for operation in ["not_granted", "never"] {
         let SandboxRequest::Execute {
             toolbox,
-            approval,
+            digest,
             container,
             workspace,
             agent,
@@ -350,14 +345,14 @@ async fn refuses_an_operation_the_toolbox_does_not_grant() {
             network,
             args,
             ..
-        } = approved_execute(&harness)
+        } = resolved_execute(&harness)
         else {
-            unreachable!("approved_execute is an Execute")
+            unreachable!("resolved_execute is an Execute")
         };
         let refusal = harness
             .ask(SandboxRequest::Execute {
                 toolbox,
-                approval,
+                digest,
                 container,
                 operation: operation.to_owned(),
                 workspace,
@@ -377,10 +372,9 @@ async fn refuses_an_operation_the_toolbox_does_not_grant() {
 async fn refuses_a_container_this_workspace_was_not_given() {
     let harness = Harness::start().await;
     write(
-        &harness.root.join("policy/containers/other.json"),
+        &harness.root.join("policy/containers/other.yaml"),
         json!({"schema": "ghostai.container/1", "name": "other", "image": DIGEST}).to_string(),
     );
-    harness.policy().approve_container("other").unwrap();
 
     let refusal = harness
         .ask(SandboxRequest::Start {
@@ -395,9 +389,9 @@ async fn refuses_a_container_this_workspace_was_not_given() {
 }
 
 #[tokio::test]
-async fn refuses_a_container_whose_approval_was_revoked() {
+async fn refuses_a_container_whose_definition_was_removed() {
     let harness = Harness::start().await;
-    harness.policy().revoke_container("dev").unwrap();
+    std::fs::remove_file(harness.root.join("policy/containers/dev.yaml")).unwrap();
     let refusal = harness
         .ask(SandboxRequest::Start {
             container: "dev".to_owned(),
@@ -407,7 +401,7 @@ async fn refuses_a_container_whose_approval_was_revoked() {
             network: no_network(),
         })
         .await;
-    assert!(message(refusal).contains("never been approved"));
+    assert!(message(refusal).contains("No container is installed"));
 }
 
 #[tokio::test]

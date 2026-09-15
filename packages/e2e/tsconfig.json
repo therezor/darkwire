@@ -21,7 +21,7 @@
   // No `references`, for the same reason `@ghostwire/web` has none: everything
   // here is imported by package name and resolves to built declarations, and
   // Playwright's own config loader reads this file and rejects a reference it
-  // cannot resolve. The root `tsconfig.json` lists this project last, which is
+  // cannot resolve. The root `tsconfig.yaml` lists this project last, which is
   // what orders the build.
   "include": ["src/**/*", "test/**/*", "playwright.config.ts"]
 }
