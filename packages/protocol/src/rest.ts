@@ -775,6 +775,19 @@ export const SandboxRequestSchema = z.discriminatedUnion('op', [
     .strict(),
   z
     .object({
+      op: z.literal('exec'),
+      container: z.string(),
+      workspace: z.string(),
+      agent: z.string(),
+      session: z.string(),
+      argv: z.array(z.string()),
+      timeoutMs: z.number().int().nonnegative().default(0),
+      maxOutputBytes: z.number().int().nonnegative().default(0),
+      network: ContainerNetworkSchema.prefault({}),
+    })
+    .strict(),
+  z
+    .object({
       op: z.literal('start'),
       container: z.string(),
       workspace: z.string(),

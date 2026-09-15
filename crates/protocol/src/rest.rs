@@ -1076,6 +1076,37 @@ pub enum SandboxRequest {
         /// Validated against the operation's own schema, service-side.
         args: serde_json::Value,
     },
+    /// Run one guarded command. Refused over HTTP for the same reason
+    /// `Execute` is, and it carries argv rather than a plan: `cwd` and the
+    /// resolved environment of the caller's process mean nothing inside a
+    /// container, and the service re-guards regardless. The caller guards
+    /// first so a refusal reaches the model quickly; the service guards again
+    /// and its answer is the one that counts.
+    #[serde(rename_all = "camelCase")]
+    Exec {
+        /// Installed container to run it in.
+        container: String,
+        /// Registered workspace ID.
+        workspace: String,
+        /// The calling agent.
+        agent: String,
+        /// The conversation.
+        session: String,
+        /// Program and arguments, already split. Never a shell string.
+        argv: Vec<String>,
+        /// Requested wall-clock ceiling, clamped service-side. 0 is no limit.
+        #[serde(default)]
+        #[garde(range(max = MAX_SAFE_INTEGER))]
+        timeout_ms: u64,
+        /// Requested output ceiling, clamped service-side.
+        #[serde(default)]
+        #[garde(range(max = MAX_SAFE_INTEGER))]
+        max_output_bytes: u64,
+        /// What the agent's container may reach.
+        #[serde(default)]
+        #[schemars(transform = crate::json::prefault)]
+        network: ContainerNetwork,
+    },
     /// Warm an approved container.
     Start {
         /// Approved container name.

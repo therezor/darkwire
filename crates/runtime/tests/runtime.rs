@@ -1202,18 +1202,28 @@ mod toolboxed_agents {
     }
 
     #[test]
-    fn refuses_a_container_that_hosts_no_toolbox() {
+    fn builds_an_agent_that_names_a_container_and_no_toolbox() {
+        // The refusal this replaces existed because a container only hosted a
+        // toolbox's operations. An environment hosts commands, and the built-in
+        // `exec` is one, so the pair is now a legitimate configuration.
         let mut tree = boxed_agent_with_container(&json!({"name": "dev"}));
         tree["agents"]["list"]["scanner"]["toolbox"] = json!({"name": ""});
         let install = Install::with(&tree);
         install_container(&install, "dev", &json!({}));
+        let runtime = create_runtime(install.options()).unwrap();
+        assert!(runtime.loop_for(Some("scanner")).unwrap().is_some());
+    }
+
+    #[test]
+    fn refuses_a_container_name_that_is_not_installed() {
+        // Without the old refusal this is the check that catches a typo: it
+        // would otherwise resolve to nothing and quietly run on the host.
+        let mut tree = boxed_agent_with_container(&json!({"name": "absent"}));
+        tree["agents"]["list"]["scanner"]["toolbox"] = json!({"name": ""});
+        let install = Install::with(&tree);
         let error = err(create_runtime(install.options()));
         assert_eq!(error.kind, ErrorKind::Config);
-        assert!(
-            error.message.contains("but no toolbox"),
-            "{}",
-            error.message
-        );
+        assert!(error.message.contains("absent"), "{}", error.message);
     }
 
     #[test]

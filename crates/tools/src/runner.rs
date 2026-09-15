@@ -90,7 +90,12 @@ impl std::fmt::Debug for RunRequest {
 }
 
 /// What a command did. Identical whether it ran on the host or elsewhere.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// Serialisable because a backend that runs commands in another process has to
+/// send one back over a socket. Every field defaults, so an older service that
+/// has not learned a new one is a missing value rather than a failed parse.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct RunOutcome {
     /// Standard output, within the budget.
     pub stdout: String,

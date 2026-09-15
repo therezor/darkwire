@@ -176,13 +176,16 @@ mod resolve_agent {
     }
 
     #[test]
-    fn refuses_a_container_without_a_toolbox_capability_surface() {
+    fn accepts_a_container_without_a_toolbox() {
+        // A container used to be refused without one, on the grounds that it
+        // only hosted a toolbox's operations. It no longer does: a container is
+        // where an agent's commands run, and the built-in `exec` is a command.
         let tree = json!({"agents": {"list": {"boxed": {
             "container": {"name": "dev"},
         }}}});
-        let error = resolve_agent(&config(&tree), Some("boxed")).unwrap_err();
-        assert_eq!(error.kind, ErrorKind::Config);
-        assert!(error.message.contains("no toolbox"), "{}", error.message);
+        let agent = resolve_agent(&config(&tree), Some("boxed")).unwrap();
+        assert_eq!(agent.container.name, "dev");
+        assert!(agent.toolbox.name.is_empty());
     }
 
     #[test]

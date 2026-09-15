@@ -51,7 +51,10 @@ pub async fn manage(
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let Json(raw) = body.map_err(|error| HttpError::bad_request(error.body_text()))?;
     let request: SandboxRequest = parse_body("sandbox request", raw)?;
-    if matches!(request, SandboxRequest::Execute { .. }) {
+    if matches!(
+        request,
+        SandboxRequest::Execute { .. } | SandboxRequest::Exec { .. }
+    ) {
         return Err(GhostError::new(
             ErrorKind::PermissionDenied,
             "Tool execution is not a management operation",

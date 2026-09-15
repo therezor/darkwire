@@ -110,6 +110,90 @@
       "properties": {
         "op": {
           "type": "string",
+          "const": "exec"
+        },
+        "container": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeoutMs": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxOutputBytes": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "network": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "open"
+              ]
+            },
+            "allow": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hosts": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dns": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "op",
+        "container",
+        "workspace",
+        "agent",
+        "session",
+        "argv"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
           "const": "start"
         },
         "container": {

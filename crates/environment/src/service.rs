@@ -12,7 +12,8 @@ use ghostai_security::{
 };
 use ghostai_tools::operations::OperationExecutor;
 use ghostai_tools::{
-    BoxFuture, OutputStream, OutputTee, PlacementRequest, RunRequest, ToolContext, ToolExecution,
+    BoxFuture, CommandRunner, Environment, OutputStream, OutputTee, PlacementRequest, RunOutcome,
+    RunRequest, ToolContext, ToolExecution,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -237,6 +238,59 @@ impl SandboxClient {
         }
     }
 }
+/// Commands run in an installed container, through the service.
+///
+/// Holds the placement because [`CommandRunner::run`] carries only a plan:
+/// which container, workspace and session a command belongs to is a property
+/// of the turn, resolved once when the environment is, not re-derived per
+/// call. The plan's own `cwd` and environment are dropped on the way out —
+/// they describe this machine, and the service composes the container's.
+pub struct ContainerEnvironment {
+    client: SandboxClient,
+    placement: PlacementRequest,
+}
+
+impl ContainerEnvironment {
+    /// An environment for one turn's placement.
+    #[must_use]
+    pub fn new(client: SandboxClient, placement: PlacementRequest) -> Self {
+        Self { client, placement }
+    }
+}
+
+impl CommandRunner for ContainerEnvironment {
+    fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
+        Box::pin(async move {
+            let mut argv = Vec::with_capacity(request.plan.args.len() + 1);
+            argv.push(request.plan.file.clone());
+            argv.extend(request.plan.args.iter().cloned());
+            let value = self
+                .client
+                .request(
+                    SandboxRequest::Exec {
+                        container: self.placement.container.clone(),
+                        workspace: self.placement.workspace_id.clone(),
+                        agent: self.placement.agent_id.clone(),
+                        session: self.placement.session_key.clone(),
+                        argv,
+                        timeout_ms: request.timeout_ms,
+                        max_output_bytes: request.plan.max_output_bytes,
+                        network: self.placement.network.clone(),
+                    },
+                    &request.token,
+                )
+                .await?;
+            serde_json::from_value(value).map_err(|e| invalid(e.to_string()))
+        })
+    }
+}
+
+impl Environment for ContainerEnvironment {
+    fn confined(&self) -> bool {
+        true
+    }
+}
+
 impl OperationExecutor for SandboxClient {
     fn execute<'a>(
         &'a self,
@@ -502,9 +556,61 @@ impl Service {
         }
         let jail = Arc::new(WorkspaceJail::new(JailOptions::new(&spec.workspace_root))?);
         let command = command_argv(definition, &args, &jail)?;
+        let toolbox_digest = installed.digest().to_owned();
+        let outcome = self
+            .run_guarded(
+                &spec,
+                &command,
+                Bounds::default(),
+                Drift {
+                    toolbox: Some((toolbox.clone(), toolbox_digest)),
+                    container: (container.clone(), installed_container.digest.clone()),
+                },
+                token,
+                progress,
+            )
+            .await?;
+        let content = format!(
+            "{}\n{}\nExit code: {:?}{}",
+            outcome.stdout,
+            outcome.stderr,
+            outcome.code,
+            if outcome.timed_out {
+                " (timed out)"
+            } else {
+                ""
+            }
+        );
+        let run_id = outcome
+            .transcript_dir
+            .as_ref()
+            .and_then(|dir| dir.rsplit('/').next())
+            .map(str::to_owned);
+        Ok(
+            json!({"content":content,"isError":outcome.timed_out || outcome.code != Some(0), "details":{"transcriptDir":outcome.transcript_dir,"run":run_id,"truncated":outcome.truncated}}),
+        )
+    }
+
+    /// Guards one argv and runs it in the caller's container.
+    ///
+    /// The half both entry points share. `Execute` reaches it with an argv a
+    /// toolbox definition composed; `Exec` reaches it with one the agent's own
+    /// guard already refused to shell out. Either way the guard here is the one
+    /// that counts, because the caller is the app and the service owns the
+    /// engine.
+    async fn run_guarded(
+        &self,
+        spec: &PlacementRequest,
+        command: &[String],
+        bounds: Bounds,
+        drift: Drift,
+        token: CancellationToken,
+        progress: Option<tokio::sync::mpsc::Sender<Value>>,
+    ) -> Result<RunOutcome> {
+        let jail = Arc::new(WorkspaceJail::new(JailOptions::new(&spec.workspace_root))?);
         let env = std::env::vars().collect();
         let mut plan = guard_exec(
-            &command,
+            command,
             &ExecGuardOptions {
                 jail: &jail,
                 config: None,
@@ -512,15 +618,14 @@ impl Service {
                 sandboxed: true,
             },
         )?;
-        plan.max_output_bytes = plan.max_output_bytes.min(128 * 1024);
-        plan.timeout_ms = if plan.timeout_ms == 0 {
-            300_000
-        } else {
-            plan.timeout_ms.min(300_000)
+        plan.max_output_bytes = bounds.output().min(MAX_OUTPUT_BYTES);
+        plan.timeout_ms = match bounds.timeout() {
+            0 => MAX_TIMEOUT_MS,
+            asked => asked.min(MAX_TIMEOUT_MS),
         };
         let runner = self
             .pool
-            .resolve_turn(&spec)?
+            .resolve_turn(spec)?
             .ok_or_else(|| invalid("Container runner unavailable"))?;
         let run_token = token.child_token();
         let run = runner.run(RunRequest {
@@ -534,16 +639,9 @@ impl Service {
         let mut interval = tokio::time::interval(REVALIDATE_EVERY);
         loop {
             tokio::select! {
-                outcome = &mut run => {
-                    let outcome = outcome?;
-                    let content = format!("{}\n{}\nExit code: {:?}{}", outcome.stdout, outcome.stderr, outcome.code, if outcome.timed_out { " (timed out)" } else { "" });
-                    let run_id = outcome.transcript_dir.as_ref().and_then(|dir| dir.rsplit('/').next()).map(str::to_owned);
-                    return Ok(json!({"content":content,"isError":outcome.timed_out || outcome.code != Some(0), "details":{"transcriptDir":outcome.transcript_dir,"run":run_id,"truncated":outcome.truncated}}));
-                },
+                outcome = &mut run => return outcome,
                 _ = interval.tick() => {
-                    let toolbox_current = self.store.require_toolbox(&toolbox).is_ok_and(|a| a.digest() == installed.digest());
-                    let container_current = self.store.require_container(&container).is_ok_and(|a| a.digest == installed_container.digest);
-                    if token.is_cancelled() || !toolbox_current || !container_current {
+                    if token.is_cancelled() || !self.definitions_unchanged(&drift) {
                         run_token.cancel();
                         let _ = (&mut run).await;
                         return Err(invalid("Cancelled, or a definition changed while this ran"));
@@ -552,7 +650,56 @@ impl Service {
             }
         }
     }
+
+    /// Whether both definitions still hash to what the call was prepared at.
+    fn definitions_unchanged(&self, drift: &Drift) -> bool {
+        let toolbox = drift.toolbox.as_ref().is_none_or(|(name, digest)| {
+            self.store
+                .require_toolbox(name)
+                .is_ok_and(|current| current.digest() == digest)
+        });
+        let (container, digest) = &drift.container;
+        toolbox
+            && self
+                .store
+                .require_container(container)
+                .is_ok_and(|current| &current.digest == digest)
+    }
 }
+
+/// What a caller asked for, before the service clamps it.
+#[derive(Debug, Clone, Copy, Default)]
+struct Bounds {
+    timeout_ms: u64,
+    max_output_bytes: u64,
+}
+
+impl Bounds {
+    fn timeout(self) -> u64 {
+        self.timeout_ms
+    }
+
+    fn output(self) -> u64 {
+        if self.max_output_bytes == 0 {
+            MAX_OUTPUT_BYTES
+        } else {
+            self.max_output_bytes
+        }
+    }
+}
+
+/// The definitions a running command is pinned to.
+///
+/// A toolbox operation is pinned to both; a plain command has no toolbox to
+/// drift, so that half is absent rather than empty.
+struct Drift {
+    toolbox: Option<(String, String)>,
+    container: (String, String),
+}
+
+/// The ceilings the service imposes whatever a caller asks for.
+const MAX_OUTPUT_BYTES: u64 = 128 * 1024;
+const MAX_TIMEOUT_MS: u64 = 300_000;
 
 /// How often a running command's two definitions are re-read from disk.
 ///
@@ -595,6 +742,36 @@ impl Service {
                 let spec = self.spec(&container, &workspace, &agent, &session, &network)?;
                 self.pool.warm(&spec)?;
                 Ok(json!({"instances":self.pool.status()}))
+            }
+            SandboxRequest::Exec {
+                container,
+                workspace,
+                agent,
+                session,
+                argv,
+                timeout_ms,
+                max_output_bytes,
+                network,
+            } => {
+                let spec = self.spec(&container, &workspace, &agent, &session, &network)?;
+                let installed = self.store.require_container(&container)?;
+                let outcome = self
+                    .run_guarded(
+                        &spec,
+                        &argv,
+                        Bounds {
+                            timeout_ms,
+                            max_output_bytes,
+                        },
+                        Drift {
+                            toolbox: None,
+                            container: (container.clone(), installed.digest.clone()),
+                        },
+                        token,
+                        progress,
+                    )
+                    .await?;
+                serde_json::to_value(&outcome).map_err(|e| invalid(e.to_string()))
             }
             SandboxRequest::Execute {
                 toolbox,

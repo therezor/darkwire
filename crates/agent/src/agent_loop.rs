@@ -70,7 +70,10 @@ use ghostai_protocol::{
 };
 use ghostai_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
 use ghostai_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
-use ghostai_tools::{AutomationResolver, PlacementRequest, ToolContext, ToolScope};
+use ghostai_tools::{
+    AutomationResolver, Environment, EnvironmentResolver, HostEnvironment, PlacementRequest,
+    ToolContext, ToolScope,
+};
 use indexmap::IndexMap;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -225,6 +228,10 @@ pub struct AgentLoopOptions {
     /// and the session, so a job records who asked for it and an agent cannot
     /// reach another's.
     pub automation: Option<Arc<dyn AutomationResolver>>,
+    /// Supplies the place this agent's commands run, keyed the same way. A
+    /// loop with none runs them on the host, which is what an install with no
+    /// container service configured does.
+    pub environment: Option<Arc<dyn EnvironmentResolver>>,
     /// Which toolbox defines this agent's operations.
     pub toolbox: AgentToolbox,
     /// Where command operations run, independently of the toolbox.
@@ -306,6 +313,7 @@ impl AgentLoopOptions {
             store,
             jails,
             automation: None,
+            environment: None,
             toolbox: AgentToolbox::default(),
             container: AgentContainer::default(),
             toolbox_prompt: None,
@@ -371,6 +379,16 @@ pub struct TurnInput {
     /// Absent means this turn *is* that session. It reaches the approval
     /// request, and nothing else reads it.
     pub root_session_key: Option<String>,
+    /// Where the calling agent's commands run, when this turn is a subagent's.
+    ///
+    /// Carried on the input for the same reason `chain` is: loops are one per
+    /// agent and shared through a cache, so anything that depends on *who
+    /// called* would be wrong the moment the same agent appeared under two
+    /// callers. An agent that names its own container runs there; one that
+    /// names none runs where its caller does, which is what makes delegation
+    /// stay inside the boundary the operator chose rather than falling back to
+    /// the host halfway down a chain.
+    pub inherited_container: Option<AgentContainer>,
 }
 
 impl TurnInput {
@@ -385,6 +403,7 @@ impl TurnInput {
             turn_id: None,
             chain: Vec::new(),
             root_session_key: None,
+            inherited_container: None,
         }
     }
 }
@@ -669,6 +688,7 @@ struct LoopInner {
     store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
+    environment: Option<Arc<dyn EnvironmentResolver>>,
     toolbox: AgentToolbox,
     container: AgentContainer,
     toolbox_prompt: Option<PromptToolbox>,
@@ -750,6 +770,7 @@ impl AgentLoop {
                 store: options.store,
                 jails: options.jails,
                 automation: options.automation,
+                environment: options.environment,
                 toolbox: options.toolbox,
                 container: options.container,
                 toolbox_prompt: options.toolbox_prompt,
@@ -1117,6 +1138,17 @@ impl AgentLoop {
         // over this jail, so a workspace switch mid-turn cannot move it.
         let jail = inner.jails.for_workspace(&session.workspace_id);
 
+        // An agent that names no container of its own runs where its caller
+        // does. At the top of a chain there is no caller, so that is the host.
+        let placement = if inner.container.name.is_empty() {
+            input
+                .inherited_container
+                .clone()
+                .unwrap_or_else(|| inner.container.clone())
+        } else {
+            inner.container.clone()
+        };
+
         // Resolved once per turn, beside the jail and for the same reason: a
         // sandbox is a property of (agent, workspace, session), and re-deriving
         // it per tool call would let a mid-turn config change move it.
@@ -1128,11 +1160,18 @@ impl AgentLoop {
             workspace_id: session.workspace_id.clone(),
             session_key: input.session_key.clone(),
             toolbox: inner.toolbox.name.clone(),
-            container: inner.container.name.clone(),
-            network: inner.container.network.clone(),
+            container: placement.name.clone(),
+            network: placement.network.clone(),
             workspace_root: jail.root().to_string_lossy().into_owned(),
         };
         let automation = inner.automation.as_ref().and_then(|a| a.for_turn(&sandbox));
+        // The place, resolved from the same key. `sandboxed` is derived from it
+        // rather than set beside it, so the guard's host-shaped refusals lift
+        // exactly when the command stops starting on this machine.
+        let environment: Arc<dyn Environment> = inner.environment.as_ref().map_or_else(
+            || Arc::new(HostEnvironment::new()) as Arc<dyn Environment>,
+            |r| r.for_turn(&sandbox),
+        );
 
         let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.tools_config));
         tool_context.placement = Some(sandbox.clone());
@@ -1140,6 +1179,8 @@ impl AgentLoop {
         tool_context.clock = Arc::clone(&inner.clock);
         tool_context.env = Arc::clone(&inner.env);
         tool_context.automation = automation;
+        tool_context.sandboxed = environment.confined();
+        tool_context.runner = environment;
         // Deliberately left unset: `dispatch` is the one place a result is
         // truncated and fenced, and a registry that fenced too would produce an
         // envelope inside an envelope. See the dispatch module header.
@@ -1975,6 +2016,12 @@ impl AgentLoop {
                     chain
                 },
                 root_session_key: Some(turn.root_session_key.clone()),
+                inherited_container: turn.tool_context.placement.as_ref().map(|placement| {
+                    AgentContainer {
+                        name: placement.container.clone(),
+                        network: placement.network.clone(),
+                    }
+                }),
                 ..TurnInput::new(session_key.clone(), task)
             },
             &cap,

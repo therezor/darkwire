@@ -388,19 +388,6 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
     }
 
     let network = &agent.container.network;
-    if !agent.container.name.is_empty() && agent.toolbox.name.is_empty() {
-        return Err(GhostError::new(
-            ErrorKind::Config,
-            format!(
-                "Agent \"{}\" selects container \"{}\" but no toolbox.\n  A container only \
-                 hosts a toolbox's approved operations, so one on its own would run\n  nothing. \
-                 Select a toolbox, or clear the container.",
-                agent.id, agent.container.name
-            ),
-        )
-        .with_detail("agentId", agent.id.clone())
-        .with_detail("container", agent.container.name.clone()));
-    }
     if agent.container.name.is_empty() && network.mode != NetworkMode::None {
         return Err(GhostError::new(
             ErrorKind::Config,

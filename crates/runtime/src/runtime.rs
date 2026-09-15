@@ -577,7 +577,10 @@ impl GhostRuntime {
     pub async fn sandbox_request(&self, value: serde_json::Value) -> Result<serde_json::Value> {
         let request: SandboxRequest = serde_json::from_value(value)
             .map_err(|e| GhostError::new(ErrorKind::InvalidInput, e.to_string()))?;
-        if matches!(request, SandboxRequest::Execute { .. }) {
+        if matches!(
+            request,
+            SandboxRequest::Execute { .. } | SandboxRequest::Exec { .. }
+        ) {
             return Err(GhostError::new(
                 ErrorKind::PermissionDenied,
                 "Tool execution is not a management operation",
@@ -1354,6 +1357,32 @@ impl CacheResolver {
     }
 }
 
+/// The host, or a container reached through the isolated service.
+///
+/// The composition root's half of [`EnvironmentResolver`]: the loop declares
+/// what it needs and this decides which backend answers, so no agent and no
+/// tool is written against one. A turn naming no container runs here, which is
+/// what an install with no container engine does for every agent.
+struct ServiceEnvironments {
+    socket: std::path::PathBuf,
+}
+
+impl ghostai_tools::EnvironmentResolver for ServiceEnvironments {
+    fn for_turn(
+        &self,
+        request: &ghostai_tools::PlacementRequest,
+    ) -> Arc<dyn ghostai_tools::Environment> {
+        if request.container.is_empty() {
+            Arc::new(ghostai_tools::HostEnvironment::new())
+        } else {
+            Arc::new(ghostai_environment::service::ContainerEnvironment::new(
+                ghostai_environment::service::SandboxClient::new(self.socket.clone()),
+                request.clone(),
+            ))
+        }
+    }
+}
+
 impl LoopResolver for CacheResolver {
     fn loop_for(&self, agent_id: &str) -> Option<AgentLoop> {
         let cache = self.loops.lock().as_ref()?.upgrade()?;
@@ -1443,13 +1472,23 @@ impl GhostRuntime {
         // A view of the one shared registry rather than a registry of its own in
         // both cases: an MCP server is one connection however many agents are
         // configured.
-        let mut containerized = None;
+        // Checked here rather than only on the toolbox branch below, because an
+        // agent may now name a container without one: a name that resolves to
+        // nothing would otherwise be a typo that silently ran on the host.
+        if !agent.container.name.is_empty() {
+            PolicyStore::new(paths.policy_dir.clone()).require_container(&agent.container.name)?;
+        }
+        // Two independent facts, not one tri-state. They used to be the same
+        // question because a container without a toolbox was refused; now that
+        // an agent may name either alone, the prompt has four cases and reading
+        // them off one `Option<bool>` would collapse two of them.
+        let toolboxed = !agent.toolbox.name.is_empty();
+        let containerized = !agent.container.name.is_empty();
         let scope = if agent.toolbox.name.is_empty() {
             self.tools.select(agent.tools.clone())
         } else {
             let store = Arc::new(PolicyStore::new(paths.policy_dir.clone()));
             let installed = store.require_toolbox(&agent.toolbox.name)?;
-            containerized = Some(!agent.container.name.is_empty());
             // A command operation runs in a container by being *sent* to the
             // service that owns one. Without a container the same operation runs
             // here, as a guarded child process in the workspace jail — which is
@@ -1497,6 +1536,9 @@ impl GhostRuntime {
         options.host = Host::default();
         options.approvals.clone_from(&self.options.approvals);
         options.automation.clone_from(&self.options.automation);
+        options.environment = Some(Arc::new(ServiceEnvironments {
+            socket: self.sandbox_socket(),
+        }));
         // Read per turn, so the clock the model is given is the same one the
         // scheduler reads cron expressions against and the UI renders timestamps
         // in — one zone, and no conversion asked of anybody. Read off the *live*
@@ -1519,12 +1561,18 @@ impl GhostRuntime {
             },
             id: agent.id.clone(),
             tool_prompts: Some(agent.tool_prompts.clone()),
-            platform_prompt: Some(match containerized {
-                Some(true) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
-                Some(false) if agent.platform_prompt.is_empty() => "## Tool execution\n\nOnly the advertised toolbox operations are callable. They run in the app environment or their configured provider, without toolbox container isolation. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
-                _ => agent.platform_prompt.clone(),
+            platform_prompt: Some(match (toolboxed, containerized) {
+                _ if !agent.platform_prompt.is_empty() => agent.platform_prompt.clone(),
+                (true, true) => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
+                (true, false) => "## Tool execution\n\nOnly the advertised toolbox operations are callable. They run in the app environment or their configured provider, without toolbox container isolation. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
+                // The cell the removed refusal used to make unreachable. Worth
+                // its own wording because the split is surprising: commands
+                // cross into the container, while the file tools stay here and
+                // act on the workspace on this machine.
+                (false, true) => "## Tool execution\n\nCommands you run with `exec` run inside a container, not on the host: a shell is available there, and what it can reach is fixed by the container's definition. File tools act on the workspace on this machine, so a path you write is not the path a command sees.".into(),
+                (false, false) => String::new(),
             }),
-            toolbox_prompt: Some(if containerized.is_some() && agent.toolbox_prompt.is_empty() {
+            toolbox_prompt: Some(if toolboxed && agent.toolbox_prompt.is_empty() {
                 "## Toolbox: {{name}}\n\nUse only the operations listed in your tools. Their schemas and permission ceilings are fixed by the operator.{{tools}}{{notes}}".into()
             } else { agent.toolbox_prompt.clone() }),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
