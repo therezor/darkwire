@@ -650,6 +650,7 @@
       "noSuchEnvironment": "There is no environment called “{{name}}”.",
       "numberInvalid": "Enter a number of zero or more.",
       "pidsMax": "Max processes",
+      "privilegesAllowed": "privileges may be gained",
       "readOnlyRoot": "Read-only root filesystem",
       "resources": "Resources",
       "resourcesDesc": "What one container may spend. Zero means no limit.",
@@ -667,7 +668,6 @@
       "weakened": "Hardening weakened: {{what}}",
       "workdir": "Workspace mounted at",
       "workspace": "Workspace ID",
-      "privilegesAllowed": "privileges may be gained",
       "writableRoot": "writable root"
     },
     "extensions": {
