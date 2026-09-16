@@ -355,30 +355,25 @@ impl ContainerPool {
             .collect()
     }
 
-    /// Stop an exact managed instance. Busy instances require explicit force.
-    pub fn stop_instance(&self, name: &str, force: bool) -> Result<()> {
+    /// Stop an exact managed instance, whatever it is in the middle of.
+    ///
+    /// A busy instance is stopped rather than refused. A command already inside
+    /// the container dies with the container; anything queued behind it comes
+    /// back aborted through the epoch bump below, and the next command starts a
+    /// fresh instance from the same definition. There is nothing an operator
+    /// could lose here that a refusal would have saved, which is why there is no
+    /// longer a flag to get past one.
+    pub fn stop_instance(&self, name: &str) -> Result<()> {
         let _starting = self.starting.lock();
         let key = {
             let live = self.live.lock();
-            let (key, entry) = live
+            let (key, _) = live
                 .entries
                 .iter()
                 .find(|(_, entry)| entry.name == name)
                 .ok_or_else(|| {
                     GhostError::new(ErrorKind::InvalidInput, "Unknown managed container")
                 })?;
-            if (entry.busy > 0
-                || live
-                    .serial
-                    .get(key)
-                    .is_some_and(|lock| lock.try_lock().is_err()))
-                && !force
-            {
-                return Err(GhostError::new(
-                    ErrorKind::InvalidInput,
-                    "Container is busy or has queued work; force is required",
-                ));
-            }
             key.clone()
         };
         *self.live.lock().epochs.entry(key.clone()).or_default() += 1;
@@ -387,7 +382,7 @@ impl ContainerPool {
     }
 
     /// Restart an exact managed instance using its registered policy.
-    pub fn restart_instance(&self, name: &str, force: bool) -> Result<()> {
+    pub fn restart_instance(&self, name: &str) -> Result<()> {
         let (key, spec) = {
             let live = self.live.lock();
             let (key, entry) = live
@@ -399,7 +394,7 @@ impl ContainerPool {
                 })?;
             (key.clone(), entry.request.clone())
         };
-        self.stop_instance(name, force)?;
+        self.stop_instance(name)?;
         self.ensure(&key, &spec)
     }
 

@@ -212,7 +212,7 @@ async fn sandbox_management_rejects_tool_execution_and_unknown_fields_at_http_bo
     let test = server(TestServerOptions::default());
     for body in [
         json!({"op":"exec","argv":["true"]}),
-        json!({"op":"stop","instance":"one","force":false,"image":"untrusted"}),
+        json!({"op":"stop","instance":"one","image":"untrusted"}),
     ] {
         let (status, _) = send(&test, Method::POST, "/api/sandboxes", Some(body)).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);

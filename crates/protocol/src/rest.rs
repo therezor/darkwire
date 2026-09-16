@@ -1058,17 +1058,11 @@ pub enum SandboxRequest {
     Stop {
         /// Opaque instance ID.
         instance: String,
-        /// Cancel active or queued work.
-        #[serde(default)]
-        force: bool,
     },
     /// Restart an instance.
     Restart {
         /// Opaque instance ID.
         instance: String,
-        /// Cancel active or queued work.
-        #[serde(default)]
-        force: bool,
     },
 }
 

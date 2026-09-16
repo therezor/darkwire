@@ -172,9 +172,6 @@
     "environment": {
       "description": "Environment definition to warm an instance from."
     },
-    "force": {
-      "description": "Cancel active and queued work instead of refusing a busy instance."
-    },
     "id": {
       "description": "The instance to stop or restart."
     },

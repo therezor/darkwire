@@ -16,6 +16,7 @@ mod common;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ghostai_core::testkit::ManualClock;
@@ -30,6 +31,7 @@ use ghostai_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunR
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use tokio::sync::Notify;
 
 const DIGEST: &str = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
@@ -133,6 +135,10 @@ struct FakeRunner {
     runs: Arc<Mutex<Vec<String>>>,
     outcomes: Arc<Mutex<Vec<RunOutcome>>>,
     name: String,
+    /// Parks every command until a test releases it, so an instance can be
+    /// observed while it is genuinely busy rather than after the fact.
+    hold: Arc<Notify>,
+    parked: Arc<AtomicBool>,
 }
 
 impl CommandRunner for FakeRunner {
@@ -147,7 +153,14 @@ impl CommandRunner for FakeRunner {
             }
         };
         let _ = request;
-        Box::pin(async move { Ok(scripted.unwrap_or_else(ok_outcome)) })
+        let hold = Arc::clone(&self.hold);
+        let parked = Arc::clone(&self.parked);
+        Box::pin(async move {
+            if parked.load(Ordering::SeqCst) {
+                hold.notified().await;
+            }
+            Ok(scripted.unwrap_or_else(ok_outcome))
+        })
     }
 }
 
@@ -185,6 +198,9 @@ struct Harness {
     /// them. Empty means every command succeeds.
     scripted: Arc<Mutex<Vec<RunOutcome>>>,
     counter: Arc<Mutex<u64>>,
+    /// Set by `hold_commands`; released by `release_commands`.
+    hold: Arc<Notify>,
+    parked: Arc<AtomicBool>,
 }
 
 /// A container definition with the fields a test cares about patched in.
@@ -214,7 +230,20 @@ impl Harness {
             ran_in: Arc::new(Mutex::new(Vec::new())),
             scripted: Arc::new(Mutex::new(Vec::new())),
             counter: Arc::new(Mutex::new(0)),
+            hold: Arc::new(Notify::new()),
+            parked: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Makes every command park until `release_commands`, so a test can hold an
+    /// instance at `busy > 0`.
+    fn hold_commands(&self) {
+        self.parked.store(true, Ordering::SeqCst);
+    }
+
+    fn release_commands(&self) {
+        self.parked.store(false, Ordering::SeqCst);
+        self.hold.notify_waiters();
     }
 
     /// Installs a container definition.
@@ -239,11 +268,15 @@ impl Harness {
     fn runners(&self) -> RunnerFactory {
         let runs = Arc::clone(&self.ran_in);
         let scripted = Arc::clone(&self.scripted);
+        let hold = Arc::clone(&self.hold);
+        let parked = Arc::clone(&self.parked);
         Arc::new(move |name: &str, _container| {
             Arc::new(FakeRunner {
                 runs: Arc::clone(&runs),
                 outcomes: Arc::clone(&scripted),
                 name: name.to_owned(),
+                hold: Arc::clone(&hold),
+                parked: Arc::clone(&parked),
             }) as Arc<dyn CommandRunner>
         })
     }
@@ -384,7 +417,49 @@ async fn explicit_stop_invalidates_queued_handles_without_replaying_commands() {
     let spec = request("alice", "work", "one", "shared");
     let runner = pool.resolve_turn(&spec).unwrap().unwrap();
     run(&runner).await.unwrap();
-    pool.stop_instance(&pool.live()[0], false).unwrap();
+    pool.stop_instance(&pool.live()[0]).unwrap();
+    assert!(run(&runner).await.is_err());
+    let fresh = pool.resolve_turn(&spec).unwrap().unwrap();
+    run(&fresh).await.unwrap();
+    assert_eq!(pool.live().len(), 1);
+}
+
+/// A busy instance stops rather than refusing.
+///
+/// The refusal that used to stand here needed `--force` to get past it, and the
+/// checkbox supplying that flag was the whole reason a busy container could not
+/// be stopped from Settings. What a stop costs is bounded: the engine is told to
+/// stop the container and the handle stops working, so the next command starts a
+/// fresh one from the same definition.
+///
+/// The command already inside `run` is not cancelled by the pool. It dies
+/// because the container goes away underneath it, which a fake engine cannot
+/// show; `explicit_stop_invalidates_queued_handles_without_replaying_commands`
+/// covers the half that is observable here.
+#[tokio::test]
+async fn stops_an_instance_that_is_in_the_middle_of_a_command() {
+    let h = Harness::new();
+    h.install("shared", &json!({"shared": true}));
+    let pool = h.pool();
+    let spec = request("alice", "work", "one", "shared");
+    let runner = pool.resolve_turn(&spec).unwrap().unwrap();
+
+    h.hold_commands();
+    let busy = Arc::clone(&runner);
+    let inflight = tokio::spawn(async move { run(&busy).await });
+    // Parked inside the runner, so the entry is marked busy rather than merely
+    // queued behind the serial lock.
+    while pool.status().iter().all(|instance| instance.busy == 0) {
+        tokio::task::yield_now().await;
+    }
+
+    let name = pool.live()[0].clone();
+    pool.stop_instance(&name).unwrap();
+    assert!(h.engine.stops().contains(&name));
+    h.release_commands();
+    inflight.await.unwrap().unwrap();
+
+    // The handle is dead, and a fresh resolve gets a new container.
     assert!(run(&runner).await.is_err());
     let fresh = pool.resolve_turn(&spec).unwrap().unwrap();
     run(&fresh).await.unwrap();
@@ -1055,7 +1130,7 @@ mod a_container_that_disappeared {
         // The two causes are told apart by the epoch, which a stop bumps and a
         // daemon restart does not. Rebuilding here would make the stop look
         // like it did nothing.
-        pool.stop_instance(&pool.live()[0], false).unwrap();
+        pool.stop_instance(&pool.live()[0]).unwrap();
         assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Aborted);
         assert_eq!(h.engine.starts().len(), 1);
         assert!(pool.live().is_empty());

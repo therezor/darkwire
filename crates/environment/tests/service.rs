@@ -234,7 +234,6 @@ async fn refuses_to_stop_an_instance_that_does_not_exist() {
     let refusal = harness
         .ask(SandboxRequest::Stop {
             instance: "ghost-sbx-nope".to_owned(),
-            force: false,
         })
         .await;
     assert!(message(refusal).contains("Unknown managed container"));
@@ -242,7 +241,6 @@ async fn refuses_to_stop_an_instance_that_does_not_exist() {
     let restart = harness
         .ask(SandboxRequest::Restart {
             instance: "ghost-sbx-nope".to_owned(),
-            force: false,
         })
         .await;
     assert!(message(restart).contains("Unknown managed container"));

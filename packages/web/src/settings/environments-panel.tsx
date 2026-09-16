@@ -30,7 +30,6 @@ export function EnvironmentsPanel(): JSX.Element {
   const client = useQueryClient();
   const [environment, setEnvironment] = useState('');
   const [workspace, setWorkspace] = useState('default');
-  const [force, setForce] = useState(false);
   const installed = useQuery({
     queryKey: queryKeys.environments,
     queryFn: ({ signal }) => api.environments(signal),
@@ -47,7 +46,6 @@ export function EnvironmentsPanel(): JSX.Element {
   const mutation = useMutation({
     mutationFn: api.manageSandbox,
     onSuccess: async () => {
-      setForce(false);
       await client.invalidateQueries({
         queryKey: queryKeys.environmentInstances,
       });
@@ -177,16 +175,6 @@ export function EnvironmentsPanel(): JSX.Element {
               </Button>
             </>
           )}
-          <label>
-            <input
-              type="checkbox"
-              checked={force}
-              onChange={(event) => {
-                setForce(event.target.checked);
-              }}
-            />{' '}
-            {t('settings.environments.force')}
-          </label>
           {instances.data?.instances.length === 0 && (
             <p>{t('settings.environments.noneRunning')}</p>
           )}
@@ -212,25 +200,17 @@ export function EnvironmentsPanel(): JSX.Element {
                   </p>
                 )}
                 <Button
-                  disabled={mutation.isPending || (instance.busy > 0 && !force)}
+                  disabled={mutation.isPending}
                   onClick={() => {
-                    mutation.mutate({
-                      op: 'stop',
-                      instance: instance.id,
-                      force,
-                    });
+                    mutation.mutate({ op: 'stop', instance: instance.id });
                   }}
                 >
                   {t('settings.environments.stop')}
                 </Button>
                 <Button
-                  disabled={mutation.isPending || (instance.busy > 0 && !force)}
+                  disabled={mutation.isPending}
                   onClick={() => {
-                    mutation.mutate({
-                      op: 'restart',
-                      instance: instance.id,
-                      force,
-                    });
+                    mutation.mutate({ op: 'restart', instance: instance.id });
                   }}
                 >
                   {t('settings.environments.restart')}

@@ -477,12 +477,12 @@ impl Service {
                 ),
             },
             SandboxRequest::List => Ok(json!({"instances":self.pool.status()})),
-            SandboxRequest::Stop { instance, force } => {
-                self.pool.stop_instance(&instance, force)?;
+            SandboxRequest::Stop { instance } => {
+                self.pool.stop_instance(&instance)?;
                 Ok(json!({"stopped":instance}))
             }
-            SandboxRequest::Restart { instance, force } => {
-                self.pool.restart_instance(&instance, force)?;
+            SandboxRequest::Restart { instance } => {
+                self.pool.restart_instance(&instance)?;
                 Ok(json!({"restarted":instance}))
             }
             SandboxRequest::Start {

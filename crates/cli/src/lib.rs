@@ -157,7 +157,6 @@ async fn dispatch(
             environment,
             workspace,
             socket,
-            force,
         } => {
             use ghostai_environment::service::{SandboxClient, socket_path};
             use ghostai_protocol::SandboxRequest;
@@ -186,11 +185,9 @@ async fn dispatch(
                 },
                 SandboxAction::Stop => SandboxRequest::Stop {
                     instance: required(id, "instance id")?,
-                    force,
                 },
                 SandboxAction::Restart => SandboxRequest::Restart {
                     instance: required(id, "instance id")?,
-                    force,
                 },
             };
             let loaded = ghostai_core::load_config(ghostai_core::LoadConfigOptions {

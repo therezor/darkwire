@@ -761,14 +761,12 @@ export const SandboxRequestSchema = z.discriminatedUnion('op', [
     .object({
       op: z.literal('stop'),
       instance: z.string(),
-      force: z.boolean().default(false),
     })
     .strict(),
   z
     .object({
       op: z.literal('restart'),
       instance: z.string(),
-      force: z.boolean().default(false),
     })
     .strict(),
 ]);

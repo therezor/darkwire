@@ -610,7 +610,6 @@
       "agents": "Agents: {{agents}}",
       "capsAdded": "Capabilities added: {{caps}}",
       "environment": "Environment",
-      "force": "Force stop and restart, cancelling active commands",
       "gatewayProblem": "Cannot enforce an allow-list: {{why}}",
       "installedDescription": "The environments an agent may select. The definition file on disk is the policy, so these are read-only here. An agent with none named runs on the host.",
       "installedTitle": "Installed environments",

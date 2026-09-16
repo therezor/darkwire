@@ -368,12 +368,13 @@ Environment instances are managed through the isolated service:
 ghostai sandbox health
 ghostai sandbox list
 ghostai sandbox start --environment <id> --workspace <id>
-ghostai sandbox stop <instance> [--force]
-ghostai sandbox restart <instance> [--force]
+ghostai sandbox stop <instance>
+ghostai sandbox restart <instance>
 ```
 
-`--socket` overrides the service socket. Normal stop/restart refuses an active or queued
-environment; `--force` cancels its work. See [Sandbox service](sandbox-service.md).
+`--socket` overrides the service socket. Stop and restart never refuse a busy instance:
+the container goes away under whatever it was running and the next command starts a fresh
+one. See [Sandbox service](sandbox-service.md).
 
 ## Environment
 

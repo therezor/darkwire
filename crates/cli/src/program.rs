@@ -265,8 +265,6 @@ pub enum Subcommand {
         workspace: Option<String>,
         /// Service socket override.
         socket: Option<String>,
-        /// Cancel active and queued work during stop/restart.
-        force: bool,
     },
     /// `extension list|approve|revoke`.
     Extension(StoreAction, Option<String>),
@@ -372,12 +370,6 @@ fn sandbox_command(t: &Translations) -> Command {
             Arg::new("socket")
                 .long("socket")
                 .help(t.t(keys::sandbox::socket::DESCRIPTION)),
-        )
-        .arg(
-            Arg::new("force")
-                .long("force")
-                .action(ArgAction::SetTrue)
-                .help(t.t(keys::sandbox::force::DESCRIPTION)),
         )
 }
 
@@ -988,7 +980,6 @@ where
             environment: string_of(sub, "environment"),
             workspace: string_of(sub, "workspace"),
             socket: string_of(sub, "socket"),
-            force: flag(sub, "force"),
         },
         Some(("extension", sub)) => {
             let (action, id) = store_action_of(sub);

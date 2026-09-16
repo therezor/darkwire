@@ -98,7 +98,7 @@ read its own output back with `exec`.
 
 ## Management
 
-The CLI and Settings → Tools use the same management protocol:
+The CLI and Settings → Environments use the same management protocol:
 
 ```bash
 ghostai sandbox health
@@ -106,13 +106,14 @@ ghostai sandbox list
 ghostai sandbox start --environment dev --workspace default
 ghostai sandbox stop INSTANCE
 ghostai sandbox restart INSTANCE
-ghostai sandbox stop INSTANCE --force
 ```
 
-A normal stop or restart refuses a busy instance. `--force` cancels active commands and is
-an operator action. A shared container is not released when one session ends; idle reaping
-and explicit lifecycle operations manage it.
+Stop and restart do not refuse a busy instance. The container goes away under whatever it
+was running, queued work comes back aborted, and the next command starts a fresh container
+from the same definition. A shared container is not released when one session ends; idle
+reaping and explicit lifecycle operations manage it.
 
-Only `shared` definitions are offered for warming, in the CLI and in Settings → Tools. A
+Only `shared` definitions are offered for warming, in the CLI and in Settings →
+Environments. A
 private instance is keyed to an agent, a workspace and a session, so one warmed ahead of
 time would never be the one a turn asks for.
