@@ -7,7 +7,7 @@
     "workspace": {
       "type": "string"
     },
-    "container": {
+    "environment": {
       "type": "string"
     },
     "shared": {
@@ -34,7 +34,7 @@
   "required": [
     "id",
     "workspace",
-    "container",
+    "environment",
     "shared",
     "busy",
     "lastUsedMs"

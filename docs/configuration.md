@@ -119,25 +119,26 @@ editor, editing this file by hand, and `ghostai agent install`, which merges a p
 a shipped agent definition — into this map ([CLI](cli.md#ghost-agent)). However an entry
 got here, it is edited the same way afterwards.
 
-| Key                | Type                                 | Default           | Notes                                                                                                        |
-| ------------------ | ------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `label`            | string                               | `''`              | Falls back to the id.                                                                                        |
-| `systemPrompt`     | string                               | `''`              | The agent's **whole** identity prompt as a template. Empty inherits the built-in. See [Prompts](prompts.md). |
-| `livePrompt`       | string                               | `''`              | The per-iteration live-state block. Empty inherits; a single space deletes the section.                      |
-| `wrapUpPrompt`     | string                               | `''`              | Appended in the last few iterations. Empty inherits; a single space silences it.                             |
-| `platformPrompt`   | string                               | `''`              | Fills `{{platformPolicy}}` — the `## Running commands` section. Two built-ins, host and container.           |
-| `toolPolicyPrompt` | string                               | `''`              | The tool-output policy. A template naming neither `{{tag}}` nor `{{nonce}}` saves with a warning.            |
-| `memoryPrompt`     | string                               | `''`              | The memory section. Only rendered while the `memory` tool is granted. See [Memory](memory.md).               |
-| `skillsPrompt`     | string                               | `''`              | The skills section. Only rendered while the `skill` tool is granted. See [Skills](skills.md).                |
-| `promptMode`       | `template\|raw`                      | `'template'`      | `raw` makes `systemPrompt` the entire system message — nothing is placed around it.                          |
-| `toolPrompts`      | `Record<string, ToolPromptOverride>` | `{}`              | Per-tool replacements for the description and the argument descriptions. See [Tools](tools.md).              |
-| `enabled`          | boolean                              | `true`            |                                                                                                              |
-| `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
-| `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `container`        | `{ name, network }`                  | `{ name: '', … }` | Independent command placement; empty means the app environment. See [Containers](containers.md).             |
-| `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
+| Key                 | Type                                 | Default           | Notes                                                                                                        |
+| ------------------- | ------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `label`             | string                               | `''`              | Falls back to the id.                                                                                        |
+| `systemPrompt`      | string                               | `''`              | The agent's **whole** identity prompt as a template. Empty inherits the built-in. See [Prompts](prompts.md). |
+| `livePrompt`        | string                               | `''`              | The per-iteration live-state block. Empty inherits; a single space deletes the section.                      |
+| `wrapUpPrompt`      | string                               | `''`              | Appended in the last few iterations. Empty inherits; a single space silences it.                             |
+| `platformPrompt`    | string                               | `''`              | Fills `{{platformPolicy}}`, the `## Running commands` section. Two built-ins, host and confined.             |
+| `environmentPrompt` | string                               | `''`              | Fills `{{environment}}`: what the environment says about itself. Empty inherits the definition's `prompt`.   |
+| `toolPolicyPrompt`  | string                               | `''`              | The tool-output policy. A template naming neither `{{tag}}` nor `{{nonce}}` saves with a warning.            |
+| `memoryPrompt`      | string                               | `''`              | The memory section. Only rendered while the `memory` tool is granted. See [Memory](memory.md).               |
+| `skillsPrompt`      | string                               | `''`              | The skills section. Only rendered while the `skill` tool is granted. See [Skills](skills.md).                |
+| `promptMode`        | `template\|raw`                      | `'template'`      | `raw` makes `systemPrompt` the entire system message — nothing is placed around it.                          |
+| `toolPrompts`       | `Record<string, ToolPromptOverride>` | `{}`              | Per-tool replacements for the description and the argument descriptions. See [Tools](tools.md).              |
+| `enabled`           | boolean                              | `true`            |                                                                                                              |
+| `tools`             | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
+| `exec`              | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
+| `environment`       | `{ name, network }`                  | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
+| `subagents`         | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
-The eight prompt templates share one rule: **`''` inherits the built-in, and a single space
+The nine prompt templates share one rule: **`''` inherits the built-in, and a single space
 deletes the section.** Empty has to keep meaning "I have not chosen" or an install would
 freeze on the wording that shipped the day each agent was made, which leaves a space as
 the only way to say "I want this gone". `systemPrompt` is the exception — whitespace-only
@@ -180,21 +181,21 @@ That seeding is the one place a tool's risk band turns into a permission, and it
 at creation where the operator can see the result and change it. Nothing reads a risk band
 at call time.
 
-### `agents.list.<id>.container`
+### `agents.list.<id>.environment`
 
-| Key             | Type                    | Default  | Notes                                                                   |
-| --------------- | ----------------------- | -------- | ----------------------------------------------------------------------- |
-| `name`          | string                  | `''`     | An independently installed container name, or empty to run on the host. |
-| `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless a container is named: egress is enforced by its gateway. |
-| `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry.   |
-| `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.      |
-| `network.dns`   | string[]                | `[]`     | Resolvers, as non-loopback IP literals.                                 |
+| Key             | Type                    | Default  | Notes                                                                 |
+| --------------- | ----------------------- | -------- | --------------------------------------------------------------------- |
+| `name`          | string                  | `''`     | An installed environment name, or empty to run on the host.           |
+| `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless one is named: egress is enforced by its gateway.       |
+| `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry. |
+| `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.    |
+| `network.dns`   | string[]                | `[]`     | Resolvers, as non-loopback IP literals.                               |
 
 **This is the only place egress is configured.** There is no second ceiling in the
-container definition, so what an agent may reach is one value in one file.
+environment definition, so what an agent may reach is one value in one file.
 
 There is no `image`, `runtime`, `caps` or `limits` here, deliberately. Those live in the
-container definition, a file an operator writes. A value with no representation in this schema cannot be reached by a
+environment definition, a file an operator writes. A value with no representation in this schema cannot be reached by a
 config patch — which is what keeps the hardening operator-only while the egress request
 is not.
 

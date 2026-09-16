@@ -255,6 +255,14 @@ plain relative form — `notes/todo.md`.
 pub const PLATFORM_PROMPT_PLACEHOLDERS: &[&str] =
     &["runtime", "platform", "workspaceId", "shellPolicy"];
 
+/// What an *environment* template may ask for.
+///
+/// Short on purpose. The image, the workdir and the user are facts about the
+/// definition the operator is already looking at while writing this, so
+/// offering them would be offering to retype what is on the screen. The
+/// workspace id is the one thing the definition cannot know.
+pub const ENVIRONMENT_PROMPT_PLACEHOLDERS: &[&str] = &["workspaceId"];
+
 /// What a *tool-output policy* template may ask for.
 ///
 /// `tag` is what the envelopes actually carry; `nonce` is the random half of
@@ -387,9 +395,9 @@ pub const RAW_PROMPT_PLACEHOLDERS: &[&str] = &[
     "sessionKey",
     "tag",
     "platformPolicy",
+    "environment",
     "toolPolicy",
     "nonce",
-    "tag",
     "contributors",
     "runtimeSections",
     "correction",

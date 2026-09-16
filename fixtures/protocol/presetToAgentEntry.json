@@ -26,6 +26,7 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -40,7 +41,7 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "none",
@@ -79,6 +80,7 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -93,7 +95,7 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "none",
@@ -131,6 +133,7 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -145,7 +148,7 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "none",
@@ -185,6 +188,7 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -199,7 +203,7 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "none",
@@ -212,12 +216,12 @@
       }
     },
     {
-      "name": "a container and subagents carry over",
+      "name": "an environment and subagents carry over",
       "input": {
         "preset": {
           "schema": "ghostai.agent-preset/1",
           "id": "researcher",
-          "container": {
+          "environment": {
             "network": {
               "mode": "open"
             }
@@ -250,6 +254,7 @@
         "wrapUpPrompt": "",
         "promptMode": "raw",
         "platformPrompt": "",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -258,7 +263,7 @@
         "tools": {
           "exec": "deny"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "open",
@@ -307,6 +312,7 @@
         "wrapUpPrompt": "W",
         "promptMode": "template",
         "platformPrompt": "P",
+        "environmentPrompt": "",
         "toolPolicyPrompt": "O",
         "memoryPrompt": "M",
         "skillsPrompt": "S 😀\r\n",
@@ -321,7 +327,7 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "container": {
+        "environment": {
           "name": "",
           "network": {
             "mode": "none",

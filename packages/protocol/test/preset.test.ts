@@ -16,7 +16,7 @@ describe('AgentPresetSchema', () => {
     expect(preset.label).toBe('');
     expect(preset.promptMode).toBe('template');
     expect(preset.tools).toEqual(DEFAULT_AGENT_TOOLS);
-    expect(preset.container).toEqual({
+    expect(preset.environment).toEqual({
       name: '',
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
@@ -52,16 +52,16 @@ describe('AgentPresetSchema', () => {
   });
 
   it('cannot name an image, caps or limits', () => {
-    // A preset may choose a container but cannot widen its image or limits.
+    // A preset may choose an environment but cannot widen its image or limits.
     const preset = AgentPresetSchema.parse({
       ...MINIMAL,
-      container: { name: 'dev', network: { mode: 'open' }, image: 'ignored' },
+      environment: { name: 'dev', network: { mode: 'open' }, image: 'ignored' },
     });
-    expect(preset.container).toEqual({
+    expect(preset.environment).toEqual({
       name: 'dev',
       network: { mode: 'open', allow: [], hosts: [], dns: [] },
     });
-    expect('image' in preset.container).toBe(false);
+    expect('image' in preset.environment).toBe(false);
   });
 });
 

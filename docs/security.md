@@ -1,7 +1,7 @@
 # Security
 
 Everything that decides whether an agent may touch a path, reach a host, spawn a process,
-run in a container or read a credential is in `crates/security` and nowhere else.
+run in an environment or read a credential is in `crates/security` and nowhere else.
 Reviewing the security surface means reading one crate — that is why it is a crate.
 
 It carries the strictest coverage bar in the repo, 95% lines **and** branches, because an
@@ -23,7 +23,7 @@ credentials. The attacks worth defending against come from three directions:
    install.
 
 What is explicitly _not_ claimed: this does not defend against a model that is
-deliberately hostile and has host `exec`. That is what [containers](containers.md) are for,
+deliberately hostile and has host `exec`. That is what [environments](environments.md) are for,
 and the limit is stated in the jail section below rather than papered over.
 
 ---
@@ -58,7 +58,7 @@ enabled on the host.** A spawned child process does not honour the jail's clampi
 is why the exec guard _refuses_ out-of-workspace path arguments rather than resolving them
 inside — refusal is the only honest answer when the thing being constrained can walk out.
 
-An agent that must be genuinely confined gets a [container](containers.md).
+An agent that must be genuinely confined gets an [environment](environments.md).
 
 ---
 
@@ -89,8 +89,8 @@ What actually constrains the child:
 - **An output budget enforced while the child writes**, not after it exits, so a runaway
   process cannot fill memory before the cap notices.
 
-Inside a container the shell ban and the path ban lift together; see
-[Containers](containers.md#why-the-exec-guard-relaxes-inside-one) for why that is not a
+Inside a confined environment the shell ban and the path ban lift together; see
+[Environments](environments.md) for why that is not a
 weakening.
 
 ---
@@ -194,7 +194,7 @@ back out. What a client can see is a per-instance `credentialsPresent` boolean.
 
 ---
 
-## Container policy
+## Environment policy
 
 **Stops:** the policy an agent runs under being changed underneath the operator.
 
@@ -218,20 +218,20 @@ one the call was prepared under. An operator editing a manifest means it now, no
 the process happens to exit. No digest crosses the socket: the sandbox service reads the
 policy directory itself, so a caller cannot name the bytes it would like to have run.
 
-A container decides where `exec` runs, not what an agent may call: the agent's `tools`
-permission map is the whole authority for that. Containers require content-addressed
+An environment decides where `exec` runs, not what an agent may call: the agent's `tools`
+permission map is the whole authority for that. Environments require content-addressed
 images; `NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are refused. Restricted egress uses a separate default-deny gateway whose
-namespace the tool container shares. Definitions live beside the workspace, never inside
+namespace the container shares. Definitions live beside the workspace, never inside
 it, so file tools cannot rewrite the policy the agent runs under.
 
 **Egress is agent configuration, and that is a deliberate narrowing of this boundary.**
 A settings save can set `network.mode` to `open`; it cannot change an image digest, a
 capability, a seccomp profile, a uid, `noNewPrivileges` or the shared flag, because none
 of those has any representation in the config tree. A gateway also refuses to start for a
-container whose hardening could not enforce a restricted allow-list, so the two halves
+environment whose hardening could not enforce a restricted allow-list, so the two halves
 cannot silently disagree.
 
-Full detail in [Containers](containers.md).
+Full detail in [Environments](environments.md).
 
 ---
 
@@ -244,7 +244,7 @@ An extension is authorised by **content digest, not signature** — the question
 is "are these the exact bytes approved?", not "who wrote them". This is the one
 resource that still records consent separately, and the reason is what it points
 at: the digest covers **every file under the install directory**, not the
-manifest alone. A container definition pins an immutable image, so the
+manifest alone. An environment definition pins an immutable image, so the
 definition names the code it runs; an extension manifest names a _path_, and a
 path is a pointer whose file can be swapped afterwards without moving a byte
 anybody looked at.
@@ -265,7 +265,7 @@ the operator's account, with the operator's filesystem and the operator's
 network. It can open `~/.ghostai/vault.json` itself, spawn a program and open a
 socket, and nothing in this repository stops it. **The trust class is unchanged
 from the in-process design** — what the boundary narrows is the reach of a
-mistake, not the reach of an attack. That is the same trust level as a container
+mistake, not the reach of an attack. That is the same trust level as an environment
 with host `exec`, and it is why approving one asks a question in the UI rather
 than being a toggle.
 

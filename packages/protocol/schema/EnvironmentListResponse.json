@@ -1,12 +1,23 @@
 {
   "type": "object",
   "properties": {
-    "containers": {
+    "environments": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "name": {
+            "type": "string"
+          },
+          "kind": {
+            "default": "container",
+            "type": "string",
+            "enum": [
+              "container"
+            ]
+          },
+          "prompt": {
+            "default": "",
             "type": "string"
           },
           "image": {
@@ -91,6 +102,6 @@
     }
   },
   "required": [
-    "containers"
+    "environments"
   ]
 }

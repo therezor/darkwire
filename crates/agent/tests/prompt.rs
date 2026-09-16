@@ -125,6 +125,123 @@ async fn windows_gets_its_own_shell_advice_byte_for_byte() {
     assert!(prompt.contains("Do not assume GNU tools"));
 }
 
+/// The environment section, which is the one with no built-in below it.
+mod the_environment_section {
+    use super::*;
+
+    async fn rendered(tools: &PromptTools) -> String {
+        let context = context();
+        build_static_prompt(BuildStaticPrompt {
+            tools: Some(tools),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn is_not_placed_when_the_environment_says_nothing() {
+        // The host, and a container whose definition carries no `prompt`, are
+        // the same case here: there is no wording to place and nothing to fall
+        // back on, so the section does not exist rather than rendering empty.
+        let prompt = rendered(&PromptTools::default()).await;
+        assert!(!prompt.contains("## Environment"), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn carries_the_definitions_wording_when_the_agent_overrode_nothing() {
+        let prompt = rendered(&PromptTools {
+            environment_prompt: Some("## Environment\n\nNode 22 is installed.".to_owned()),
+            ..PromptTools::default()
+        })
+        .await;
+        assert!(prompt.contains("Node 22 is installed."), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn a_single_space_removes_it() {
+        // The same contract every other section keeps, even though "inherit"
+        // here resolves to the definition rather than to a built-in.
+        let prompt = rendered(&PromptTools {
+            environment_prompt: Some(" ".to_owned()),
+            ..PromptTools::default()
+        })
+        .await;
+        assert!(!prompt.contains("## Environment"), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn fills_the_workspace_id_the_definition_cannot_know() {
+        let prompt = rendered(&PromptTools {
+            environment_prompt: Some("Workspace {{workspaceId}} is mounted.".to_owned()),
+            ..PromptTools::default()
+        })
+        .await;
+        assert!(prompt.contains("Workspace default is mounted."), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn is_withheld_with_every_other_tool_shaped_section_when_there_are_no_tools() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(!prompt.contains("## Environment"), "{prompt}");
+    }
+}
+
+/// Which built-in command policy an empty override inherits.
+mod the_command_policy_default {
+    use super::*;
+
+    /// The bug this covers: the choice used to be made once per agent, while
+    /// inheritance is per turn. So a subagent that named no environment and
+    /// inherited its caller's container was told its commands ran on this
+    /// machine while they ran in a container.
+    #[tokio::test]
+    async fn follows_the_turn_rather_than_the_agent() {
+        let context = context();
+        let confined = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                confined: true,
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(confined.contains("run inside a container, not on the host"));
+        assert!(!confined.contains("as a real process on the real"));
+
+        let unconfined = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools::default()),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(unconfined.contains("as a real process on the real"));
+    }
+
+    #[tokio::test]
+    async fn an_operators_own_wording_wins_over_both() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                confined: true,
+                platform_prompt: Some("## Running commands\n\nMine.".to_owned()),
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(prompt.contains("Mine."));
+        assert!(!prompt.contains("run inside a container"));
+    }
+}
+
 #[tokio::test]
 async fn a_turn_with_no_tools_places_no_tool_shaped_section() {
     let context = context();
@@ -335,10 +452,12 @@ async fn a_single_space_deletes_a_section_and_empty_inherits_the_default() {
     let silenced = PromptTools {
         platform_prompt: Some(" ".to_owned()),
         policy_prompt: Some(" ".to_owned()),
+        ..PromptTools::default()
     };
     let defaulted = PromptTools {
         platform_prompt: Some(String::new()),
         policy_prompt: Some(String::new()),
+        ..PromptTools::default()
     };
 
     let gone = build_static_prompt(BuildStaticPrompt {

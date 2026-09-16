@@ -1,4 +1,10 @@
-//! Container policy: where an agent's built-in `exec` calls run.
+//! Environment policy: where an agent's built-in `exec` calls run.
+//!
+//! An environment is the place; a container is one kind of place. `kind` is
+//! what says which, and today it has one arm, so every other field below
+//! still describes a container and sits flat rather than inside the variant.
+//! Folding them in is a second migration, and it buys nothing until there is a
+//! second kind to fold them away from.
 
 use garde::Validate;
 use schemars::JsonSchema;
@@ -152,22 +158,35 @@ impl Default for ContainerLimits {
 }
 
 literal! {
-    /// The container definition format tag.
-    pub struct ContainerDefinitionTag = "ghostai.container/1";
+    /// The environment definition format tag.
+    pub struct EnvironmentDefinitionTag = "ghostai.environment/1";
+}
+
+/// What kind of place an environment is.
+///
+/// One arm, and a closed set rather than a string, so adding a remote
+/// environment is a variant and a match arm the compiler points at rather than
+/// a comparison somebody has to remember to write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EnvironmentKind {
+    /// An OCI container, described by the fields below.
+    #[default]
+    Container,
 }
 
 fn default_workdir() -> String {
     "/workspace".to_owned()
 }
 
-fn container_user() -> String {
+fn environment_user() -> String {
     "1000:1000".to_owned()
 }
 
 /// Where built-in command execution runs.
 ///
 /// **There is no network here, deliberately.** Egress is the agent's own
-/// request, configured in one place (`agents.list.<id>.container.network`),
+/// request, configured in one place (`agents.list.<id>.environment.network`),
 /// and the fields below are what decide whether a restricted egress gateway
 /// can be built around it at all: a root or non-numeric `user`, missing
 /// `noNewPrivileges` or a capability that can forge packets each make the
@@ -176,12 +195,24 @@ fn container_user() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ContainerDefinition {
-    /// Always `ghostai.container/1`.
-    pub schema: ContainerDefinitionTag,
+pub struct EnvironmentDefinition {
+    /// Always `ghostai.environment/1`.
+    pub schema: EnvironmentDefinitionTag,
+    /// What kind of place this is. Omitting it means a container.
+    #[serde(default)]
+    pub kind: EnvironmentKind,
     /// The name agents select, which is also its filename.
     #[schemars(regex(pattern = "^[a-z0-9][a-z0-9-]{0,63}$"))]
     pub name: String,
+    /// What the model is told about this place, as its own prompt section.
+    ///
+    /// Empty places no section. There is no built-in wording to fall back on,
+    /// because nobody but the operator knows what is installed in an image.
+    /// a default here would be the repo guessing, and a wrong guess about the
+    /// toolchain is worse than silence. An agent may override it; see
+    /// `agents.list.<id>.environmentPrompt`.
+    #[serde(default)]
+    pub prompt: String,
     /// Must be digest-pinned: an immutable image ID or a registry digest. A
     /// tag is a mutable pointer, and a container installed once and then
     /// silently repointed would run code nobody chose.
@@ -201,7 +232,7 @@ pub struct ContainerDefinition {
     /// user is what keeps artefacts written into the workspace editable by the
     /// host's own tools — root-owned output is the most common complaint about
     /// this pattern.
-    #[serde(default = "container_user")]
+    #[serde(default = "environment_user")]
     pub user: String,
     /// Capabilities.
     #[serde(default)]

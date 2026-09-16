@@ -25,9 +25,9 @@ use std::path::PathBuf;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use ghostai_protocol::config::Config;
-use ghostai_protocol::container::ContainerDefinition;
+use ghostai_protocol::environment::EnvironmentDefinition;
 use ghostai_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
-use ghostai_security::ContainerListing;
+use ghostai_security::EnvironmentListing;
 use ghostai_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
@@ -342,9 +342,9 @@ async fn a_command_body_that_is_not_json_is_a_400() {
 // Containers, as an operator reviews them
 
 /// A container definition, likewise built from JSON.
-fn definition(overrides: &Value) -> ContainerDefinition {
+fn definition(overrides: &Value) -> EnvironmentDefinition {
     let mut value = json!({
-        "schema": "ghostai.container/1",
+        "schema": "ghostai.environment/1",
         "name": "dev",
         "image": format!("sha256:{}", "0".repeat(64)),
     });
@@ -356,12 +356,12 @@ fn definition(overrides: &Value) -> ContainerDefinition {
     serde_json::from_value(value).expect("a definition the schema accepts")
 }
 
-fn with_containers(definitions: Vec<ContainerDefinition>) -> TestServer {
+fn with_containers(definitions: Vec<EnvironmentDefinition>) -> TestServer {
     server(TestServerOptions {
         runtime: FakeRuntimeOptions {
-            containers: definitions
+            environments: definitions
                 .into_iter()
-                .map(|definition| ContainerListing {
+                .map(|definition| EnvironmentListing {
                     name: definition.name.clone(),
                     path: PathBuf::from(format!("/containers/{}.yaml", definition.name)),
                     value: Some(definition),
@@ -378,7 +378,7 @@ fn with_containers(definitions: Vec<ContainerDefinition>) -> TestServer {
 async fn container_definitions_are_listed() {
     let test = with_containers(vec![definition(&json!({"shared": true}))]);
     let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
-    let entry = &body["containers"][0];
+    let entry = &body["environments"][0];
     assert_eq!(entry["name"], "dev");
     assert_eq!(entry["shared"], true);
     // A container reports where and how commands run.
@@ -405,7 +405,7 @@ async fn a_definition_that_weakens_the_container_says_which_defences_it_drops() 
     }))]);
 
     let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
-    let entry = &body["containers"][0];
+    let entry = &body["environments"][0];
     let weakened = entry["weakened"].as_array().expect("a weakened list");
     // The same list the terminal's review prints, so a browser and a terminal
     // cannot disagree about what a container is asking for.
@@ -421,7 +421,7 @@ async fn a_definition_that_names_no_user_is_itself_a_weakening() {
     let test = with_containers(vec![definition(&json!({"user": ""}))]);
 
     let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
-    let weakened = body["containers"][0]["weakened"]
+    let weakened = body["environments"][0]["weakened"]
         .as_array()
         .expect("a weakened list");
     assert_eq!(weakened.len(), 1, "{weakened:?}");
@@ -438,7 +438,7 @@ async fn a_container_that_could_not_host_a_restricted_allow_list_says_so_in_adva
     let test = with_containers(vec![definition(&json!({"user": "0:0"}))]);
 
     let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
-    let problem = body["containers"][0]["gatewayProblem"]
+    let problem = body["environments"][0]["gatewayProblem"]
         .as_str()
         .expect("a gateway problem");
     assert!(problem.contains("restricted allow-list"), "{problem}");

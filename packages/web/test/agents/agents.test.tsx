@@ -96,7 +96,7 @@ function mount(
     '/api/providers': [200, { types: [], instances: [] }],
     '/api/models': [200, { models: [], errors: {} }],
     '/api/tools': [200, { tools: [] }],
-    '/api/containers': [200, { containers: [] }],
+    '/api/environments': [200, { environments: [] }],
     ...overrides,
   });
 
@@ -880,21 +880,23 @@ describe('the default agent', () => {
 
     await user.click(screen.getByRole('switch', { name: 'Tool calling' }));
 
-    // Every tool-shaped section on screen, which is four here: Running commands,
-    // Tool output policy, Memory and Skills. The container placement is separate.
-    // for an agent that has one, and this agent runs on the host.
+    // Every tool-shaped section on screen, which is five here: Running
+    // commands, Environment, Tool output policy, Memory and Skills.
     //
     // `Running commands` is the one worth pinning, because it is not obviously
     // about tools until you notice every line of it describes `exec` landing
-    // somewhere. Memory and Skills joined the count when they started being
-    // gated on `toolsEnabled` too: with no tool list there is nothing to open a
-    // memory or a skill with, so an index of paths is cost nothing can act on.
+    // somewhere. `Environment` is tool-shaped for the same reason one step
+    // further on: it describes the place that `exec` lands in, so with no
+    // commands to run there is nothing for it to be about. Memory and Skills
+    // joined the count when they started being gated on `toolsEnabled` too:
+    // with no tool list there is nothing to open a memory or a skill with, so
+    // an index of paths is cost nothing can act on.
     //
     // The count is the assertion: a bare plural query would pass while silently
     // leaving a section unmarked.
     expect(
       await screen.findAllByText(/This section isn’t sent to the model/),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     // Still editable, and the stored wording still on screen.
     expect(screen.getByLabelText(/^Tool output policy for/)).toBeEnabled();
     expect(screen.getByLabelText(/^Running commands for/)).toBeEnabled();
@@ -1832,15 +1834,15 @@ describe('a named agent', () => {
 });
 
 /**
- * The container picker.
+ * The environment picker.
  *
  * Untested until a one-way door shipped: a `SelectItem` may not carry an empty
  * value — Radix reserves it for "nothing chosen" — so "None" existed only as the
  * placeholder, which shows while the field is empty and is unreachable once it is
- * not. An agent could be put in a container and never taken out of one without
+ * not. An agent could be put in an environment and never taken out of one without
  * hand-editing the config file.
  */
-describe('choosing a container', () => {
+describe('choosing an environment', () => {
   const BOXED = ConfigSchema.parse({
     agents: {
       list: {
@@ -1849,7 +1851,7 @@ describe('choosing a container', () => {
           label: 'Researcher',
           provider: 'ollama',
           model: 'llama3',
-          container: {
+          environment: {
             name: 'development',
             network: { mode: 'open', allow: [] },
           },
@@ -1859,8 +1861,10 @@ describe('choosing a container', () => {
     providers: { ollama: { type: 'ollama' } },
   });
 
-  const CONTAINER = {
+  const ENVIRONMENT = {
     name: 'development',
+    kind: 'container',
+    prompt: '',
     image: `sha256:${'b'.repeat(64)}`,
     shared: true,
     runtime: 'runc',
@@ -1899,7 +1903,7 @@ describe('choosing a container', () => {
         ],
       },
     ],
-    '/api/containers': [200, { containers: [CONTAINER] }],
+    '/api/environments': [200, { environments: [ENVIRONMENT] }],
   };
 
   async function choose(
@@ -1911,53 +1915,53 @@ describe('choosing a container', () => {
     await user.click(await screen.findByRole('option', { name: option }));
   }
 
-  it('offers installed containers and the host', async () => {
+  it('offers installed environments and the host', async () => {
     const { user } = mount('/agents/researcher', {
       ...ROUTES,
-      '/api/containers': [200, { containers: [CONTAINER] }],
+      '/api/environments': [200, { environments: [ENVIRONMENT] }],
     });
 
     await user.click(
-      await screen.findByRole('combobox', { name: 'Container' }),
+      await screen.findByRole('combobox', { name: 'Environment' }),
     );
 
     expect(
       await screen.findByRole('option', {
-        name: /development — shared in this workspace/,
+        name: /development \(shared in this workspace\)/,
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('option', {
-        name: /None — run commands on this machine/,
+        name: /Host \(commands run on this machine\)/,
       }),
     ).toBeInTheDocument();
   });
 
-  it('takes an agent back out of its container', async () => {
+  it('takes an agent back out of its environment', async () => {
     // The regression. Before the fix the only way out was editing config.yaml.
     const { user, calls } = mount('/agents/researcher', ROUTES);
 
-    await choose(user, 'Container', /None — run commands on this machine/);
+    await choose(user, 'Environment', /Host \(commands run on this machine\)/);
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
-    expect(patchesOf(calls)[0]?.agents?.list?.researcher?.container?.name).toBe(
-      '',
-    );
+    expect(
+      patchesOf(calls)[0]?.agents?.list?.researcher?.environment?.name,
+    ).toBe('');
   });
 
-  it('hides the network field once there is no container to scope', async () => {
-    // Egress is enforced by the container's gateway: taking the container away leaves nothing to
-    // scope, and offering the control anyway would offer a setting the save
-    // refuses.
+  it('hides the network field once there is no environment to scope', async () => {
+    // Egress is enforced by the environment's gateway: taking the environment
+    // away leaves nothing to scope, and offering the control anyway would offer
+    // a setting the save refuses.
     const { user } = mount('/agents/researcher', ROUTES);
 
     expect(
       await screen.findByRole('combobox', { name: 'Network' }),
     ).toBeInTheDocument();
-    await choose(user, 'Container', /None — run commands on this machine/);
+    await choose(user, 'Environment', /Host \(commands run on this machine\)/);
 
     expect(
       screen.queryByRole('combobox', { name: 'Network' }),
@@ -1968,7 +1972,7 @@ describe('choosing a container', () => {
     // Three lists, enforced in three different places — CIDRs by the packet
     // filter, names by the egress proxy, resolvers by whatever the container
     // asks for a name. None of them means anything under `open` or `none`, and
-    // `toContainer` drops all three there, so a box left on screen would be one
+    // `toEnvironment` drops all three there, so a box left on screen would be one
     // the save silently empties.
     const { user } = mount('/agents/researcher', ROUTES);
 
@@ -1992,19 +1996,19 @@ describe('choosing a container', () => {
     ).toBeInTheDocument();
   });
 
-  it('saves the selected container without the display sentinel', async () => {
+  it('saves the selected environment without the display sentinel', async () => {
     const { user, calls } = mount('/agents/researcher', ROUTES);
 
-    await choose(user, 'Container', /None — run commands on this machine/);
-    await choose(user, 'Container', /development — shared/);
+    await choose(user, 'Environment', /Host \(commands run on this machine\)/);
+    await choose(user, 'Environment', /development \(shared/);
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
-    expect(patchesOf(calls)[0]?.agents?.list?.researcher?.container?.name).toBe(
-      'development',
-    );
+    expect(
+      patchesOf(calls)[0]?.agents?.list?.researcher?.environment?.name,
+    ).toBe('development');
   });
 });
 

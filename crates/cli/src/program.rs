@@ -167,7 +167,7 @@ pub struct ServeArgs {
     pub json: bool,
 }
 
-/// The three verbs `container` and `extension` share.
+/// The three verbs `environment` and `extension` share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreAction {
     /// Show what is installed and the state each is in.
@@ -251,16 +251,16 @@ pub enum Subcommand {
     Init,
     /// `serve`.
     Serve(Box<ServeArgs>),
-    /// `container list`.
-    Container,
+    /// `environment list`.
+    Environment,
     /// Manage the sandbox service through its constrained socket API.
     Sandbox {
         /// Lifecycle operation.
         action: SandboxAction,
         /// Exact managed instance identifier.
         id: Option<String>,
-        /// Container definition used when warming an instance.
-        container: Option<String>,
+        /// Environment definition used when warming an instance.
+        environment: Option<String>,
         /// Registered workspace identifier.
         workspace: Option<String>,
         /// Service socket override.
@@ -346,7 +346,7 @@ fn global_option(name: &'static str, long: &'static str, t: &Translations) -> Ar
 ///
 /// Its own builder rather than a [`store_command`], because the service is not
 /// an approval ledger: these verbs manage *running* instances, and each takes
-/// options — a container to warm, a workspace to warm it in, the socket to
+/// options: an environment to warm, a workspace to warm it in, the socket to
 /// reach — that approving a definition has no use for.
 fn sandbox_command(t: &Translations) -> Command {
     Command::new("sandbox")
@@ -359,9 +359,9 @@ fn sandbox_command(t: &Translations) -> Command {
         )
         .arg(Arg::new("id").help(t.t(keys::sandbox::id::DESCRIPTION)))
         .arg(
-            Arg::new("container")
-                .long("container")
-                .help(t.t(keys::sandbox::container::DESCRIPTION)),
+            Arg::new("environment")
+                .long("environment")
+                .help(t.t(keys::sandbox::environment::DESCRIPTION)),
         )
         .arg(
             Arg::new("workspace")
@@ -450,9 +450,9 @@ pub fn build_command(t: &Translations) -> Command {
         .subcommand(serve_command(t))
         .subcommand(sandbox_command(t))
         .subcommand(list_command(
-            "container",
-            t.t(keys::container::DESCRIPTION),
-            t.t(keys::container::list::DESCRIPTION),
+            "environment",
+            t.t(keys::environment::DESCRIPTION),
+            t.t(keys::environment::list::DESCRIPTION),
         ))
         .subcommand(store_command(
             "extension",
@@ -638,7 +638,7 @@ fn serve_command(t: &Translations) -> Command {
         )
 }
 
-/// A definition directory with nothing to decide: `container` and `container`.
+/// A definition directory with nothing to decide: `environment`.
 ///
 /// Both are read-only because the file on disk *is* the policy. `extension`
 /// still has the three verbs, which is why [`store_command`] stays.
@@ -843,9 +843,9 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
     })
 }
 
-/// The verb and the id a `container` or `extension` invocation named.
+/// The verb and the id an `environment` or `extension` invocation named.
 ///
-/// A bare `ghostai container` lists, which is the one an operator means by it —
+/// A bare `ghostai environment` lists, which is the one an operator means by it,
 /// so there is no "no verb" answer to give back.
 /// The verb clap already restricted to this set.
 fn sandbox_action_of(matches: &ArgMatches) -> SandboxAction {
@@ -981,11 +981,11 @@ where
             Ok(serve) => Subcommand::Serve(Box::new(serve)),
             Err(error) => return Parsed::Refused(format!("{}\n", describe_error(&error)), 1),
         },
-        Some(("container", _)) => Subcommand::Container,
+        Some(("environment", _)) => Subcommand::Environment,
         Some(("sandbox", sub)) => Subcommand::Sandbox {
             action: sandbox_action_of(sub),
             id: string_of(sub, "id"),
-            container: string_of(sub, "container"),
+            environment: string_of(sub, "environment"),
             workspace: string_of(sub, "workspace"),
             socket: string_of(sub, "socket"),
             force: flag(sub, "force"),

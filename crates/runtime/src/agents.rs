@@ -18,18 +18,18 @@
 //!    an operator fix one from the screen that shows it rather than from a
 //!    server that will not boot.
 //!  - **Resolution is where an unbuildable agent is refused.** Invalid
-//!    container network policy fails during an all-or-nothing reconfigure.
+//!    environment network policy fails during an all-or-nothing reconfigure.
 
 use ghostai_agent::SubagentBinding;
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::rest::ConfigWarning;
 use ghostai_protocol::{
-    AgentContainer, AgentEntry, AgentSettings, Config, DEFAULT_AGENT_ID,
+    AgentEntry, AgentEnvironment, AgentSettings, Config, DEFAULT_AGENT_ID,
     DEFAULT_LIVE_STATE_TEMPLATE, NetworkMode, PromptMode, RESERVED_AGENT_IDS, ToolPermission,
     ToolPermissions, ToolPromptOverrides, ToolsConfig, default_agent_tools, is_agent_id,
     names_delimiter, subagent_tool_name,
 };
-use ghostai_security::assert_container_network;
+use ghostai_security::assert_environment_network;
 use indexmap::IndexMap;
 
 /// One agent, resolved.
@@ -50,6 +50,8 @@ pub struct EffectiveAgent {
     pub wrap_up_prompt: String,
     /// The `## Running commands` section.
     pub platform_prompt: String,
+    /// The `## Environment` section. Empty inherits the definition's own.
+    pub environment_prompt: String,
     /// The `## Tool output policy` section.
     pub tool_policy_prompt: String,
     /// The `## Memory` section. Empty means the built-in; a space removes it.
@@ -67,7 +69,7 @@ pub struct EffectiveAgent {
     /// `config.tools` with this agent's exec overrides applied.
     pub tools_config: ToolsConfig,
     /// Where built-in command execution runs.
-    pub container: AgentContainer,
+    pub environment: AgentEnvironment,
     /// The agents this one may delegate to, in the operator's order.
     ///
     /// Resolved to the shape the loop is constructed with rather than left as
@@ -336,10 +338,10 @@ fn mode_name(mode: NetworkMode) -> &'static str {
 
 /// What can be decided from the config alone.
 ///
-/// Whether the named container and container *exist and are approved* is not here,
+/// Whether the named environment *exists and is approved* is not here,
 /// deliberately: that needs the policy store, which is disk, and this is the
 /// pure inheritance rule. It is checked in the runtime's build, which is equally
-/// all-or-nothing, so a settings save naming an unapproved container is still a
+/// all-or-nothing, so a settings save naming an unapproved environment is still a
 /// refusal that changes nothing rather than a turn that dies later.
 fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarning>) -> Result<()> {
     // A warning rather than a refusal, and the distinction is the whole design
@@ -380,13 +382,13 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
         });
     }
 
-    let network = &agent.container.network;
-    if agent.container.name.is_empty() && network.mode != NetworkMode::None {
+    let network = &agent.environment.network;
+    if agent.environment.name.is_empty() && network.mode != NetworkMode::None {
         return Err(GhostError::new(
             ErrorKind::Config,
             format!(
-                "Agent \"{}\" asks for network \"{}\" but names no container.\n  Egress scoping \
-                 is enforced by the container's gateway, so it means nothing\n  on the host.",
+                "Agent \"{}\" asks for network \"{}\" but names no environment.\n  Egress scoping \
+                 is enforced by the environment's gateway, so it means nothing\n  on the host.",
                 agent.id,
                 mode_name(network.mode)
             ),
@@ -394,7 +396,7 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
         .with_detail("agentId", agent.id.clone())
         .with_detail("mode", mode_name(network.mode)));
     }
-    assert_container_network(network, &agent.id)?;
+    assert_environment_network(network, &agent.id)?;
     Ok(())
 }
 
@@ -418,6 +420,7 @@ fn build(
         live_prompt: source.live_prompt.clone(),
         wrap_up_prompt: source.wrap_up_prompt.clone(),
         platform_prompt: source.platform_prompt.clone(),
+        environment_prompt: source.environment_prompt.clone(),
         tool_policy_prompt: source.tool_policy_prompt.clone(),
         memory_prompt: source.memory_prompt.clone(),
         skills_prompt: source.skills_prompt.clone(),
@@ -433,7 +436,7 @@ fn build(
             source.tools.clone()
         },
         tools_config: merge_tools_config(&config.tools, entry),
-        container: source.container.clone(),
+        environment: source.environment.clone(),
         subagents: resolve_subagents(config, id, entry, warnings)?,
     };
     assert_buildable(&agent, warnings)?;
@@ -536,8 +539,8 @@ pub fn resolve_agent(config: &Config, id: Option<&str>) -> Result<EffectiveAgent
 /// them is a place where "this install is broken" is a true thing to say.
 ///
 /// It degrades on **absence**, never on **fault**: an agent that exists but
-/// cannot be built — an egress rule that is not a CIDR, a container network with
-/// no container — still fails. Those are settings that were never going to work,
+/// cannot be built, such as an egress rule that is not a CIDR or a network
+/// policy with no environment, still fails. Those were never going to work,
 /// and silently substituting a different agent for them would hide the one thing
 /// the operator needs to see.
 ///

@@ -520,12 +520,12 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         responses: &[],
     },
     RouteDoc {
-        id: RouteId::ContainersList,
+        id: RouteId::EnvironmentsList,
         summary: "Container definitions installed on this machine",
         body: None,
         query: None,
         params: None,
-        responses: &[(200, "ContainerListResponse")],
+        responses: &[(200, "EnvironmentListResponse")],
     },
     RouteDoc {
         id: RouteId::SandboxesList,

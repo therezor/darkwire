@@ -1,4 +1,4 @@
-//! Installed container definitions.
+//! Installed environment definitions.
 //!
 //! A definition is a file on disk and that file is the policy. Writing it is
 //! the decision, the same way writing `config.yaml` is: there is no second
@@ -10,7 +10,7 @@
 //! under.
 //!
 //! **Every definition still carries a digest, and it is not consent.** It is
-//! identity: two container definitions that differ never share a warm instance,
+//! identity: two environment definitions that differ never share a warm instance,
 //! a definition edited while a command is running cancels that command, and an
 //! idle container whose definition changed is swept. Those are properties of
 //! *which bytes these are*, so the hash outlives the approval that used to be
@@ -18,23 +18,23 @@
 //!
 //! ```text
 //! <policy root>/
-//! └── containers/<name>.yaml                ghostai.container/1
+//! └── environments/<name>.yaml              ghostai.environment/1
 //! ```
 
 use std::path::{Path, PathBuf};
 
 use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::container::ContainerDefinition;
+use ghostai_protocol::environment::EnvironmentDefinition;
 
-use crate::container::{
-    assert_container_policy, assert_slug, invalid, manifest_hash, parse_container,
+use crate::environment::{
+    assert_environment_policy, assert_slug, invalid, manifest_hash, parse_environment,
 };
 
-/// A container definition that parsed and passed install policy.
+/// An environment definition that parsed and passed install policy.
 #[derive(Debug, Clone, PartialEq)]
-pub struct InstalledContainer {
+pub struct InstalledEnvironment {
     /// The validated definition.
-    pub definition: ContainerDefinition,
+    pub definition: EnvironmentDefinition,
     /// SHA-256 of the exact bytes on disk. Identity, not consent.
     pub digest: String,
 }
@@ -52,8 +52,8 @@ pub struct Listing<T> {
     pub problem: Option<String>,
 }
 
-/// One installed container definition.
-pub type ContainerListing = Listing<ContainerDefinition>;
+/// One installed environment definition.
+pub type EnvironmentListing = Listing<EnvironmentDefinition>;
 
 /// The definitions in one operator-controlled policy directory.
 #[derive(Clone)]
@@ -70,7 +70,7 @@ impl std::fmt::Debug for PolicyStore {
 }
 
 impl PolicyStore {
-    /// Opens the store over `<root>`, which holds `containers/`.
+    /// Opens the store over `<root>`, which holds `environments/`.
     pub fn new(root: impl Into<PathBuf>) -> PolicyStore {
         PolicyStore { root: root.into() }
     }
@@ -85,16 +85,16 @@ impl PolicyStore {
         assert_slug(name).map_err(|_| {
             GhostError::new(
                 ErrorKind::InvalidInput,
-                format!("Not a container name: {name}"),
+                format!("Not an environment name: {name}"),
             )
             .with_detail("name", name)
         })?;
-        Ok(self.root.join("containers").join(format!("{name}.yaml")))
+        Ok(self.root.join("environments").join(format!("{name}.yaml")))
     }
 
-    /// Where a container's definition lives, once the name is known to be a
+    /// Where an environment's definition lives, once the name is known to be a
     /// slug.
-    pub fn container_path(&self, name: &str) -> Result<PathBuf> {
+    pub fn environment_path(&self, name: &str) -> Result<PathBuf> {
         self.path_for(name)
     }
 
@@ -115,7 +115,7 @@ impl PolicyStore {
             }
             Err(error) => Err(GhostError::new(
                 ErrorKind::Config,
-                format!("Container \"{name}\" could not be read"),
+                format!("Environment \"{name}\" could not be read"),
             )
             .with_detail("name", name)
             .with_source(error)),
@@ -126,42 +126,42 @@ impl PolicyStore {
         GhostError::new(
             ErrorKind::Config,
             format!(
-                "No container is installed under \"{name}\".\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's container."
+                "No environment is installed under \"{name}\".\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's environment."
             ),
         )
         .with_detail("name", name)
     }
 
-    fn resolve_container(name: &str, bytes: &[u8]) -> Result<(ContainerDefinition, String)> {
-        let definition = parse_container(bytes)?;
+    fn resolve_environment(name: &str, bytes: &[u8]) -> Result<(EnvironmentDefinition, String)> {
+        let definition = parse_environment(bytes)?;
         if definition.name != name {
             return Err(invalid(format!(
-                "Container \"{name}\" names itself \"{}\"; a definition's name is its filename.",
+                "Environment \"{name}\" names itself \"{}\"; a definition's name is its filename.",
                 definition.name
             )));
         }
-        assert_container_policy(&definition)?;
+        assert_environment_policy(&definition)?;
         Ok((definition, manifest_hash(bytes)))
     }
 
-    /// The container an agent named, or a refusal saying what is wrong with it.
-    pub fn require_container(&self, name: &str) -> Result<InstalledContainer> {
+    /// The environment an agent named, or a refusal saying what is wrong with it.
+    pub fn require_environment(&self, name: &str) -> Result<InstalledEnvironment> {
         let Some(bytes) = self.read(name)? else {
             return Err(Self::missing(name));
         };
-        let (definition, digest) = Self::resolve_container(name, &bytes)?;
-        Ok(InstalledContainer { definition, digest })
+        let (definition, digest) = Self::resolve_environment(name, &bytes)?;
+        Ok(InstalledEnvironment { definition, digest })
     }
 
-    /// Every installed container definition, usable or not.
-    pub fn list_containers(&self) -> Vec<ContainerListing> {
+    /// Every installed environment definition, usable or not.
+    pub fn list_environments(&self) -> Vec<EnvironmentListing> {
         self.list(|name, bytes| {
-            Self::resolve_container(name, bytes).map(|(definition, _)| definition)
+            Self::resolve_environment(name, bytes).map(|(definition, _)| definition)
         })
     }
 
     fn list<T>(&self, resolve: impl Fn(&str, &[u8]) -> Result<T>) -> Vec<Listing<T>> {
-        definition_names(&self.root.join("containers"))
+        definition_names(&self.root.join("environments"))
             .into_iter()
             .map(|name| {
                 let path = self

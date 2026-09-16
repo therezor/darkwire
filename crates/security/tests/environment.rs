@@ -10,9 +10,10 @@
 mod common;
 
 use ghostai_core::ErrorKind;
-use ghostai_protocol::container::ContainerDefinition;
+use ghostai_protocol::environment::EnvironmentDefinition;
 use ghostai_security::{
-    assert_container_policy, assert_gateway_compatible, manifest_hash, parse_container, weakened_in,
+    assert_environment_policy, assert_gateway_compatible, manifest_hash, parse_environment,
+    weakened_in,
 };
 use serde_json::{Value, json};
 
@@ -22,7 +23,7 @@ const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 fn definition_bytes(overrides: &Value) -> Vec<u8> {
     let mut base = json!({
-        "schema": "ghostai.container/1",
+        "schema": "ghostai.environment/1",
         "name": "kali-pentest",
         "image": format!("docker.io/kalilinux/kali-rolling@{DIGEST}"),
     });
@@ -32,8 +33,8 @@ fn definition_bytes(overrides: &Value) -> Vec<u8> {
     serde_json::to_vec(&base).unwrap()
 }
 
-fn container(overrides: &Value) -> ContainerDefinition {
-    parse_container(&definition_bytes(overrides)).unwrap()
+fn container(overrides: &Value) -> EnvironmentDefinition {
+    parse_environment(&definition_bytes(overrides)).unwrap()
 }
 
 #[test]
@@ -65,30 +66,30 @@ fn parses_a_minimal_definition_with_every_default() {
 
 #[test]
 fn parse_errors_name_the_problem() {
-    let malformed = parse_container(b"{").unwrap_err();
+    let malformed = parse_environment(b"{").unwrap_err();
     assert_eq!(malformed.kind, ErrorKind::Config);
     assert!(malformed.message.contains("not valid YAML"));
 
-    let schema = message_of(&parse_container(&definition_bytes(
+    let schema = message_of(&parse_environment(&definition_bytes(
         &json!({"schema": "ghostai.container/2"}),
     )));
     assert!(schema.contains("not valid"));
     assert!(schema.contains("schema"));
 
-    let runtime = message_of(&parse_container(&definition_bytes(
+    let runtime = message_of(&parse_environment(&definition_bytes(
         &json!({"runtime": "containerd"}),
     )));
     assert!(runtime.contains("runtime"));
 
-    let root = message_of(&parse_container(b"\"a string\""));
+    let root = message_of(&parse_environment(b"\"a string\""));
     assert!(root.contains("(root)"));
 
-    let empty_image = message_of(&parse_container(&definition_bytes(&json!({"image": ""}))));
+    let empty_image = message_of(&parse_environment(&definition_bytes(&json!({"image": ""}))));
     assert!(empty_image.contains("image"), "{empty_image}");
 
     // A tool grant belongs to the agent permission map. Naming one here is refused rather
     // than ignored, so the two manifests cannot drift into one.
-    let grants = message_of(&parse_container(&definition_bytes(
+    let grants = message_of(&parse_environment(&definition_bytes(
         &json!({"tools": [{"name": "git_status", "definition": "git-status"}]}),
     )));
     assert!(grants.contains("not valid"), "{grants}");
@@ -96,7 +97,7 @@ fn parse_errors_name_the_problem() {
 
 #[test]
 fn accepts_digest_pinned_images_and_refuses_tags() {
-    assert!(assert_container_policy(&container(&json!({}))).is_ok());
+    assert!(assert_environment_policy(&container(&json!({}))).is_ok());
     for image in [
         "kalilinux/kali-rolling:latest",
         "kali@sha256:abc",
@@ -105,10 +106,10 @@ fn accepts_digest_pinned_images_and_refuses_tags() {
         format!(" alpine@{DIGEST}").as_str(),
         format!("alpine@{DIGEST} --privileged").as_str(),
     ] {
-        let error = assert_container_policy(&container(&json!({"image": image}))).unwrap_err();
+        let error = assert_environment_policy(&container(&json!({"image": image}))).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config, "{image}");
         assert!(error.message.contains("digest"), "{image}");
-        assert_eq!(error.details["container"], json!("kali-pentest"));
+        assert_eq!(error.details["environment"], json!("kali-pentest"));
     }
     for image in [
         DIGEST.to_owned(),
@@ -117,7 +118,7 @@ fn accepts_digest_pinned_images_and_refuses_tags() {
         format!("registry.example.com:5000/team/img@{DIGEST}"),
     ] {
         assert!(
-            assert_container_policy(&container(&json!({"image": image}))).is_ok(),
+            assert_environment_policy(&container(&json!({"image": image}))).is_ok(),
             "{image}"
         );
     }
@@ -132,16 +133,16 @@ fn refuses_forbidden_capabilities_however_spelled() {
         "SYS_ADMIN",
         "SYS_MODULE",
     ] {
-        let error = assert_container_policy(&container(&json!({"caps": {"add": [capability]}})))
+        let error = assert_environment_policy(&container(&json!({"caps": {"add": [capability]}})))
             .unwrap_err();
         assert_eq!(error.details["capability"], json!(capability));
     }
     // Legitimate for a container with no network, so refused only by the
     // gateway check.
-    assert!(assert_container_policy(&container(&json!({"caps": {"add": ["NET_RAW"]}}))).is_ok());
+    assert!(assert_environment_policy(&container(&json!({"caps": {"add": ["NET_RAW"]}}))).is_ok());
     // Surfaced in the review rather than refused.
     assert!(
-        assert_container_policy(&container(&json!({"security": {"seccomp": "unconfined"}})))
+        assert_environment_policy(&container(&json!({"security": {"seccomp": "unconfined"}})))
             .is_ok()
     );
 }
@@ -149,11 +150,12 @@ fn refuses_forbidden_capabilities_however_spelled() {
 #[test]
 fn refuses_a_workdir_that_would_bury_the_image() {
     for workdir in ["/", "workspace", "relative/path", ""] {
-        let error = assert_container_policy(&container(&json!({"workdir": workdir}))).unwrap_err();
+        let error =
+            assert_environment_policy(&container(&json!({"workdir": workdir}))).unwrap_err();
         assert!(error.message.contains("absolute path"), "{workdir}");
         assert_eq!(error.details["workdir"], json!(workdir));
     }
-    assert!(assert_container_policy(&container(&json!({"workdir": "/srv/work"}))).is_ok());
+    assert!(assert_environment_policy(&container(&json!({"workdir": "/srv/work"}))).is_ok());
 }
 
 #[test]

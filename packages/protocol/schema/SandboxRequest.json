@@ -33,7 +33,7 @@
           "type": "string",
           "const": "exec"
         },
-        "container": {
+        "environment": {
           "type": "string"
         },
         "workspace": {
@@ -102,7 +102,7 @@
       },
       "required": [
         "op",
-        "container",
+        "environment",
         "workspace",
         "agent",
         "session",
@@ -117,7 +117,7 @@
           "type": "string",
           "const": "start"
         },
-        "container": {
+        "environment": {
           "type": "string"
         },
         "workspace": {
@@ -168,7 +168,7 @@
       },
       "required": [
         "op",
-        "container",
+        "environment",
         "workspace",
         "agent",
         "session"

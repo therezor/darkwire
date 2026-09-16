@@ -4,7 +4,7 @@
 //! daemon anywhere. That is not a limitation — every check under test happens
 //! *before* the engine is touched, and a suite that needed Docker to assert a
 //! refusal would be a suite CI could not run. The one end-to-end path that does
-//! need a daemon lives in `containers.rs`, behind `#[ignore]`.
+//! need a daemon lives in `docker_engine.rs`, behind `#[ignore]`.
 //!
 //! What is asserted here is the half of the contract the app cannot enforce for
 //! itself: the service owns the engine, so it re-checks the workspace
@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use ghostai_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
 use ghostai_protocol::rest::SandboxRequest;
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -50,7 +50,7 @@ impl Drop for Harness {
 }
 
 fn container() -> Value {
-    json!({"schema": "ghostai.container/1", "name": "dev", "image": DIGEST})
+    json!({"schema": "ghostai.environment/1", "name": "dev", "image": DIGEST})
 }
 
 impl Harness {
@@ -58,7 +58,10 @@ impl Harness {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let policy = root.join("policy");
-        write(&policy.join("containers/dev.yaml"), container().to_string());
+        write(
+            &policy.join("environments/dev.yaml"),
+            container().to_string(),
+        );
         std::fs::create_dir_all(root.join("workspaces/default")).unwrap();
 
         let socket = root.join("sandbox.sock");
@@ -80,7 +83,7 @@ impl Harness {
                 WorkspaceRegistration {
                     path: root.join("workspaces/default"),
                     daemon_path: root.join("workspaces/default"),
-                    containers: vec!["dev".to_owned()],
+                    environments: vec!["dev".to_owned()],
                 },
             )]),
         };
@@ -114,8 +117,8 @@ impl Harness {
     }
 }
 
-fn no_network() -> ContainerNetwork {
-    ContainerNetwork::default()
+fn no_network() -> EnvironmentNetwork {
+    EnvironmentNetwork::default()
 }
 
 fn message(result: ghostai_core::Result<Value>) -> String {
@@ -159,7 +162,7 @@ async fn refuses_a_workspace_it_was_never_told_about() {
     let harness = Harness::start().await;
     let refusal = harness
         .ask(SandboxRequest::Start {
-            container: "dev".to_owned(),
+            environment: "dev".to_owned(),
             workspace: "elsewhere".to_owned(),
             agent: "scanner".to_owned(),
             session: "s1".to_owned(),
@@ -173,13 +176,13 @@ async fn refuses_a_workspace_it_was_never_told_about() {
 async fn refuses_a_container_this_workspace_was_not_given() {
     let harness = Harness::start().await;
     write(
-        &harness.root.join("policy/containers/other.yaml"),
-        json!({"schema": "ghostai.container/1", "name": "other", "image": DIGEST}).to_string(),
+        &harness.root.join("policy/environments/other.yaml"),
+        json!({"schema": "ghostai.environment/1", "name": "other", "image": DIGEST}).to_string(),
     );
 
     let refusal = harness
         .ask(SandboxRequest::Start {
-            container: "other".to_owned(),
+            environment: "other".to_owned(),
             workspace: "default".to_owned(),
             agent: "scanner".to_owned(),
             session: "s1".to_owned(),
@@ -190,19 +193,19 @@ async fn refuses_a_container_this_workspace_was_not_given() {
 }
 
 #[tokio::test]
-async fn refuses_a_container_whose_definition_was_removed() {
+async fn refuses_an_environment_whose_definition_was_removed() {
     let harness = Harness::start().await;
-    std::fs::remove_file(harness.root.join("policy/containers/dev.yaml")).unwrap();
+    std::fs::remove_file(harness.root.join("policy/environments/dev.yaml")).unwrap();
     let refusal = harness
         .ask(SandboxRequest::Start {
-            container: "dev".to_owned(),
+            environment: "dev".to_owned(),
             workspace: "default".to_owned(),
             agent: "scanner".to_owned(),
             session: "s1".to_owned(),
             network: no_network(),
         })
         .await;
-    assert!(message(refusal).contains("No container is installed"));
+    assert!(message(refusal).contains("No environment is installed"));
 }
 
 #[tokio::test]
@@ -215,7 +218,7 @@ async fn refuses_an_egress_request_nothing_could_enforce() {
     network.mode = NetworkMode::Allowlist;
     let refusal = harness
         .ask(SandboxRequest::Start {
-            container: "dev".to_owned(),
+            environment: "dev".to_owned(),
             workspace: "default".to_owned(),
             agent: "scanner".to_owned(),
             session: "s1".to_owned(),

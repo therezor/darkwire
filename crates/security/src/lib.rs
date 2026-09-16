@@ -31,8 +31,8 @@
 //! way to reach either without coming through here first.
 #![forbid(unsafe_code)]
 
-pub mod container;
 pub mod egress;
+pub mod environment;
 pub mod exec_guard;
 pub mod extension;
 pub mod extension_store;
@@ -48,9 +48,9 @@ pub mod vault;
 #[cfg(feature = "testkit")]
 pub mod testkit;
 
-pub use container::{
-    BUILTIN_TOOL_NAMES, assert_container_network, assert_container_policy,
-    assert_gateway_compatible, assert_slug, invalid, manifest_hash, parse_container, weakened_in,
+pub use environment::{
+    BUILTIN_TOOL_NAMES, assert_environment_network, assert_environment_policy,
+    assert_gateway_compatible, assert_slug, invalid, manifest_hash, parse_environment, weakened_in,
 };
 pub use exec_guard::{
     ExecGuardOptions, ExecPlan, OutputCap, OutputCapResult, SHELL_BINARIES, binary_name, guard_exec,
@@ -80,7 +80,7 @@ pub use nonce::{
     WrappedToolOutput, create_tool_output_nonce, describe_injection_findings,
     detect_prompt_injection, tool_output_policy, tool_output_tag, wrap_tool_output,
 };
-pub use policy_store::{ContainerListing, InstalledContainer, PolicyStore};
+pub use policy_store::{EnvironmentListing, InstalledEnvironment, PolicyStore};
 pub use random::{OsRandom, RandomSource};
 pub use vault::{
     CredentialVault, KeyFileStore, KeyStore, ResolvedVaultKey, VAULT_KEY_BYTES, resolve_vault_key,

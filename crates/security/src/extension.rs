@@ -26,7 +26,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::container::{parse_manifest, sha256_hex};
+use crate::environment::{parse_manifest, sha256_hex};
 use crate::exec_guard::{SHELL_BINARIES, binary_name};
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
@@ -72,7 +72,7 @@ fn contains(root: &Path, candidate: &Path) -> bool {
 
 /// Refuses an extension the host cannot load safely.
 ///
-/// Separate from parsing for the reason [`crate::assert_container_policy`] is: a
+/// Separate from parsing for the reason [`crate::assert_environment_policy`] is: a
 /// manifest can be perfectly well-formed and still name something that would put
 /// the code that runs outside the bytes that were approved.
 ///

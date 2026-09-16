@@ -109,6 +109,10 @@
             "default": "",
             "type": "string"
           },
+          "environmentPrompt": {
+            "default": "",
+            "type": "string"
+          },
           "toolPolicyPrompt": {
             "default": "",
             "type": "string"
@@ -214,7 +218,7 @@
               }
             }
           },
-          "container": {
+          "environment": {
             "default": {},
             "type": "object",
             "properties": {

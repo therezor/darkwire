@@ -77,8 +77,8 @@ use ghostai_security::{
     WorkspaceJail, assert_gateway_compatible,
 };
 use ghostai_tools::{
-    AnyTool, AutomationResolver, BuiltinOptions, ToolRegistry, ToolRegistryOptions, ToolSink,
-    register_builtins,
+    AnyTool, AutomationResolver, BuiltinOptions, Placed, ToolRegistry, ToolRegistryOptions,
+    ToolSink, register_builtins,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
@@ -1202,16 +1202,16 @@ impl GhostRuntime {
         }
     }
 
-    /// Resolve every container an enabled agent names.
+    /// Resolve every environment an enabled agent names.
     fn resolve_policies(agents: &[EffectiveAgent], paths: &GhostPaths) -> Result<()> {
         let policies = PolicyStore::new(paths.policy_dir.clone());
         for agent in agents
             .iter()
-            .filter(|agent| !agent.container.name.is_empty())
+            .filter(|agent| !agent.environment.name.is_empty())
         {
-            let container = policies.require_container(&agent.container.name)?;
-            if agent.container.network.mode == NetworkMode::Allowlist {
-                assert_gateway_compatible(&container.definition)?;
+            let environment = policies.require_environment(&agent.environment.name)?;
+            if agent.environment.network.mode == NetworkMode::Allowlist {
+                assert_gateway_compatible(&environment.definition)?;
             }
         }
         Ok(())
@@ -1240,24 +1240,39 @@ impl CacheResolver {
 ///
 /// The composition root's half of [`EnvironmentResolver`]: the loop declares
 /// what it needs and this decides which backend answers, so no agent and no
-/// tool is written against one. A turn naming no container runs here, which is
-/// what an install with no container engine does for every agent.
+/// tool is written against one. A turn naming no environment runs here, which
+/// is what an install with no container engine does for every agent.
+///
+/// It also reads the definition's prompt, which is why it holds a store. That
+/// read belongs here rather than in the loop for the same reason the backend
+/// choice does: opening a policy file is composition-root work, and a loop that
+/// could do it would be a loop that knows where the policy directory is.
 struct ServiceEnvironments {
     socket: std::path::PathBuf,
+    policies: PolicyStore,
 }
 
 impl ghostai_tools::EnvironmentResolver for ServiceEnvironments {
-    fn for_turn(
-        &self,
-        request: &ghostai_tools::PlacementRequest,
-    ) -> Arc<dyn ghostai_tools::Environment> {
-        if request.container.is_empty() {
-            Arc::new(ghostai_tools::HostEnvironment::new())
-        } else {
-            Arc::new(ghostai_environment::service::ContainerEnvironment::new(
+    fn for_turn(&self, request: &ghostai_tools::PlacementRequest) -> Placed {
+        if request.environment.is_empty() {
+            return Placed::host();
+        }
+        // A definition that has gone missing or stopped parsing since boot is
+        // not this function's to refuse. The command itself is still guarded,
+        // and the service re-reads the definition before it runs anything. What
+        // is lost is the prompt section, which is the right thing to lose: an
+        // unreadable definition should not cost the turn its tools.
+        let prompt = self
+            .policies
+            .require_environment(&request.environment)
+            .map(|installed| installed.definition.prompt)
+            .unwrap_or_default();
+        Placed {
+            environment: Arc::new(ghostai_environment::service::ContainerEnvironment::new(
                 ghostai_environment::service::SandboxClient::new(self.socket.clone()),
                 request.clone(),
-            ))
+            )),
+            prompt,
         }
     }
 }
@@ -1336,10 +1351,10 @@ impl GhostRuntime {
         // Every agent gets a permission-filtered view of the one shared
         // registry. Built-ins, MCP and extension tools retain their source
         // identities and lifecycle on that registry.
-        if !agent.container.name.is_empty() {
-            PolicyStore::new(paths.policy_dir.clone()).require_container(&agent.container.name)?;
+        if !agent.environment.name.is_empty() {
+            PolicyStore::new(paths.policy_dir.clone())
+                .require_environment(&agent.environment.name)?;
         }
-        let containerized = !agent.container.name.is_empty();
         let scope = self.tools.select(agent.tools.clone());
 
         let mut options = AgentLoopOptions::new(
@@ -1351,7 +1366,7 @@ impl GhostRuntime {
         options.model = Some(endpoint.model);
         options.config = agent.settings.clone();
         options.tools_config = Arc::new(agent.tools_config.clone());
-        options.container = agent.container.clone();
+        options.environment = agent.environment.clone();
         // The delegation half of what this agent may do. Beside the tools and
         // for the same reason: both are resolved once, here, so a turn never asks
         // the config who it is allowed to call.
@@ -1364,8 +1379,9 @@ impl GhostRuntime {
         options.host = Host::default();
         options.approvals.clone_from(&self.options.approvals);
         options.automation.clone_from(&self.options.automation);
-        options.environment = Some(Arc::new(ServiceEnvironments {
+        options.environments = Some(Arc::new(ServiceEnvironments {
             socket: self.sandbox_socket(),
+            policies: PolicyStore::new(paths.policy_dir.clone()),
         }));
         // Read per turn, so the clock the model is given is the same one the
         // scheduler reads cron expressions against and the UI renders timestamps
@@ -1389,11 +1405,12 @@ impl GhostRuntime {
             },
             id: agent.id.clone(),
             tool_prompts: Some(agent.tool_prompts.clone()),
-            platform_prompt: Some(match containerized {
-                _ if !agent.platform_prompt.is_empty() => agent.platform_prompt.clone(),
-                true => ghostai_protocol::DEFAULT_PLATFORM_CONTAINER_TEMPLATE.into(),
-                false => String::new(),
-            }),
+            // Passed through as the operator wrote it. Which built-in an
+            // empty override inherits is decided per turn, in the loop, because
+            // a subagent inherits its caller's environment and this value is
+            // resolved once per agent.
+            platform_prompt: Some(agent.platform_prompt.clone()),
+            environment_prompt: Some(agent.environment_prompt.clone()),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
         });
 

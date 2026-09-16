@@ -91,13 +91,13 @@ fn prints_the_bare_version() {
 }
 
 #[test]
-fn offers_extension_and_container_commands() {
+fn offers_extension_and_environment_commands() {
     // Approving code the agent will run is the one operator action that cannot
     // be delegated to the agent, and an install driven from a terminal needs a
     // way to do it without opening a browser.
     let (root, _) = printed(&["--help"]);
     assert!(root.contains("extension"));
-    assert!(root.contains("container"));
+    assert!(root.contains("environment"));
 
     let (help, code) = printed(&["extension", "--help"]);
     assert_eq!(code, 0);
@@ -107,16 +107,16 @@ fn offers_extension_and_container_commands() {
 }
 
 #[test]
-fn container_is_a_listing_with_nothing_to_decide() {
+fn environment_is_a_listing_with_nothing_to_decide() {
     // The definition file is the policy, so there is no verb here that changes
-    // one. A bare `container` and `container list` are the same request.
-    for argv in [vec!["container"], vec!["container", "list"]] {
+    // one. A bare `environment` and `environment list` are the same request.
+    for argv in [vec!["environment"], vec!["environment", "list"]] {
         match invocation(&argv).command {
-            Subcommand::Container => {}
-            other => panic!("expected a container listing, got {other:?}"),
+            Subcommand::Environment => {}
+            other => panic!("expected an environment listing, got {other:?}"),
         }
     }
-    match run(&["container", "approve", "dev"]) {
+    match run(&["environment", "approve", "dev"]) {
         Parsed::Refused(_, code) => assert_ne!(code, 0),
         other => panic!("expected approve to be gone, got {other:?}"),
     }

@@ -18,11 +18,15 @@ import { z } from 'zod';
 import {
   ConfigPatchSchema,
   ConfigSchema,
-  ContainerNetworkSchema,
+  EnvironmentNetworkSchema,
   McpTransportSchema,
   ReasoningEffortSchema,
 } from './config.js';
-import { ContainerLimitsSchema, ContainerRuntimeSchema } from './container.js';
+import {
+  ContainerLimitsSchema,
+  ContainerRuntimeSchema,
+  EnvironmentKindSchema,
+} from './environment.js';
 import {
   StopReasonSchema,
   StoredMessageSchema,
@@ -652,10 +656,10 @@ export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
  * Three fields rather than a bare name, because the editor renders a permission
  * row per grant: it needs something to label the row with and the manifest's own
  * ceiling to show beside what the agent chose. Fetching that separately would
- * mean a second request per container to render one list.
+ * mean a second request per environment to render one list.
  */
 /**
- * One installed container definition.
+ * One installed environment definition.
  *
  * Carries everything an operator weighs before selecting one for an agent: the
  * image, who it runs as, what it is allowed to spend, and whether any hardening
@@ -667,8 +671,14 @@ export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
  * resolved once here so the editor can warn while the network is still being
  * chosen rather than on save.
  */
-export const ContainerSummarySchema = z.object({
+export const EnvironmentSummarySchema = z.object({
   name: z.string(),
+  kind: EnvironmentKindSchema.default('container'),
+  /**
+   * The definition's prompt section, so the agent editor can show what an
+   * agent inherits before it decides whether to override it.
+   */
+  prompt: z.string().default(''),
   image: z.string(),
   shared: z.boolean(),
   runtime: ContainerRuntimeSchema,
@@ -681,19 +691,21 @@ export const ContainerSummarySchema = z.object({
   gatewayProblem: z.string().optional(),
   problem: z.string().optional(),
 });
-export type ContainerSummary = z.infer<typeof ContainerSummarySchema>;
+export type EnvironmentSummary = z.infer<typeof EnvironmentSummarySchema>;
 
-export const ContainerListResponseSchema = z.object({
-  containers: z.array(ContainerSummarySchema),
+export const EnvironmentListResponseSchema = z.object({
+  environments: z.array(EnvironmentSummarySchema),
 });
-export type ContainerListResponse = z.infer<typeof ContainerListResponseSchema>;
+export type EnvironmentListResponse = z.infer<
+  typeof EnvironmentListResponseSchema
+>;
 
-/** One container the sandbox service is holding open. */
+/** One container the environment service is holding open. */
 export const SandboxInstanceSummarySchema = z
   .object({
     id: z.string(),
     workspace: z.string(),
-    container: z.string(),
+    environment: z.string(),
     shared: z.boolean(),
     busy: z.number().int().nonnegative(),
     lastUsedMs: z.number().int().nonnegative(),
@@ -725,24 +737,24 @@ export const SandboxRequestSchema = z.discriminatedUnion('op', [
   z
     .object({
       op: z.literal('exec'),
-      container: z.string(),
+      environment: z.string(),
       workspace: z.string(),
       agent: z.string(),
       session: z.string(),
       argv: z.array(z.string()),
       timeoutMs: z.number().int().nonnegative().default(0),
       maxOutputBytes: z.number().int().nonnegative().default(0),
-      network: ContainerNetworkSchema.prefault({}),
+      network: EnvironmentNetworkSchema.prefault({}),
     })
     .strict(),
   z
     .object({
       op: z.literal('start'),
-      container: z.string(),
+      environment: z.string(),
       workspace: z.string(),
       agent: z.string(),
       session: z.string(),
-      network: ContainerNetworkSchema.prefault({}),
+      network: EnvironmentNetworkSchema.prefault({}),
     })
     .strict(),
   z
@@ -932,7 +944,7 @@ export const RunCommandResponseSchema = z.object({
    * What to show the operator, verbatim.
    *
    * Not a resource key: an extension's copy ships with the extension, so the
-   * translation layer has never seen it. The same rule a container's `notes`
+   * translation layer has never seen it. The same rule an environment's `notes`
    * follows.
    */
   message: z.string().default(''),

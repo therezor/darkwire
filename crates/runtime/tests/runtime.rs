@@ -179,7 +179,7 @@ mod construction {
         // An unbuildable agent is refused outright rather than surviving as a
         // warning: an egress rule that is not a CIDR was never going to work.
         let install = Install::with(&json!({"agents": {"list": {"net": {
-            "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
+            "environment": {"network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}}));
         assert_eq!(err(install.runtime()).kind, ErrorKind::Config);
     }
@@ -441,7 +441,7 @@ mod reconfigure {
         let runtime = install.runtime().unwrap();
         let error = err(
             runtime.reconfigure(&patch(json!({"agents": {"list": {"net": {
-                "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
+                "environment": {"network": {"mode": "allowlist", "allow": ["nope"]}},
             }}}}))),
         );
         assert_eq!(error.kind, ErrorKind::Config);
@@ -563,7 +563,7 @@ mod reload {
         let install = Install::with(&configured("llama3"));
         let runtime = install.runtime().unwrap();
         install.write_config(&json!({"agents": {"list": {"net": {
-            "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
+            "environment": {"network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}}));
         assert_eq!(err(runtime.reload()).kind, ErrorKind::Config);
         assert_eq!(runtime.model(), "llama3");
@@ -752,7 +752,7 @@ mod multiple_agents {
         let runtime = install.runtime().unwrap();
         let error = err(
             runtime.reconfigure(&patch(json!({"agents": {"list": {"net": {
-                "container": {"network": {"mode": "allowlist", "allow": ["nope"]}},
+                "environment": {"network": {"mode": "allowlist", "allow": ["nope"]}},
             }}}}))),
         );
         assert_eq!(error.kind, ErrorKind::Config);

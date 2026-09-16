@@ -18,7 +18,7 @@ import * as config from './config.js';
 import * as extension from './extension.js';
 import * as messages from './messages.js';
 import * as preset from './preset.js';
-import * as container from './container.js';
+import * as environment from './environment.js';
 import * as rest from './rest.js';
 import * as tools from './tools.js';
 import * as subagent from './subagent.js';
@@ -67,9 +67,9 @@ export const PROTOCOL_SCHEMAS = {
   McpTransport: config.McpTransportSchema,
   McpServerConfig: config.McpServerConfigSchema,
   ToolsConfig: config.ToolsConfigSchema,
-  ContainerNetwork: config.ContainerNetworkSchema,
+  EnvironmentNetwork: config.EnvironmentNetworkSchema,
   NetworkMode: config.NetworkModeSchema,
-  AgentContainer: config.AgentContainerSchema,
+  AgentEnvironment: config.AgentEnvironmentSchema,
   SubagentRef: config.SubagentRefSchema,
   SubagentRunRef: subagent.SubagentRunRefSchema,
   AgentEntry: config.AgentEntrySchema,
@@ -80,12 +80,13 @@ export const PROTOCOL_SCHEMAS = {
   Config: config.ConfigSchema,
   ConfigPatch: config.ConfigPatchSchema,
 
-  // container
-  ContainerDefinition: container.ContainerDefinitionSchema,
-  ContainerRuntime: container.ContainerRuntimeSchema,
-  ContainerCaps: container.ContainerCapsSchema,
-  ContainerSecurity: container.ContainerSecuritySchema,
-  ContainerLimits: container.ContainerLimitsSchema,
+  // environment
+  EnvironmentDefinition: environment.EnvironmentDefinitionSchema,
+  EnvironmentKind: environment.EnvironmentKindSchema,
+  ContainerRuntime: environment.ContainerRuntimeSchema,
+  ContainerCaps: environment.ContainerCapsSchema,
+  ContainerSecurity: environment.ContainerSecuritySchema,
+  ContainerLimits: environment.ContainerLimitsSchema,
 
   // extension
   ExtensionContribution: extension.ExtensionContributionSchema,
@@ -187,8 +188,8 @@ export const PROTOCOL_SCHEMAS = {
   AgentSummary: rest.AgentSummarySchema,
   AgentListResponse: rest.AgentListResponseSchema,
   ToolListResponse: rest.ToolListResponseSchema,
-  ContainerSummary: rest.ContainerSummarySchema,
-  ContainerListResponse: rest.ContainerListResponseSchema,
+  EnvironmentSummary: rest.EnvironmentSummarySchema,
+  EnvironmentListResponse: rest.EnvironmentListResponseSchema,
   SandboxInstanceSummary: rest.SandboxInstanceSummarySchema,
   SandboxListResponse: rest.SandboxListResponseSchema,
   SandboxRequest: rest.SandboxRequestSchema,

@@ -9,7 +9,7 @@
 //! naming the drift. Nobody has to remember to re-approve, because they cannot
 //! avoid it.
 //!
-//! Unlike [`crate::PolicyStore::require_container`], nothing here errors to describe an
+//! Unlike [`crate::PolicyStore::require_environment`], nothing here errors to describe an
 //! extension that is not loadable. The host reconciles a whole directory at boot
 //! and after every settings save, and one unapproved extension must not take the
 //! other four down with it — so a refusal is a state on a row, and the sentence

@@ -12,7 +12,7 @@ Budget about ten minutes, most of which is a model download.
 | ----------- | ---------------------------------------------------------------------------------------- |
 | **64-bit**  | macOS or Linux, Intel or ARM. There is a build for each of the four.                     |
 | **A model** | Either [Ollama](https://ollama.com) running locally, or an API key for a cloud provider. |
-| **Docker**  | Optional. Only for [containers](containers.md).                                          |
+| **Docker**  | Optional. Only for [containers](environments.md).                                        |
 
 That is the whole list. GhostAI is a single binary with the browser UI compiled into
 it: no runtime to install, no database, no compiler, no second service.
@@ -166,9 +166,9 @@ ghostai preset install
 
 Tick the agents you want and it does the rest — including building the container images
 the ones you ticked need, which is why picking only `nano` needs no Docker at all. The run
-`ghostai container list` then prints what each installed container may do — its limits,
+`ghostai environment list` then prints what each installed container may do — its limits,
 its capabilities, any hardening it switches off — so you can read a definition before an
-agent uses it. [Containers](containers.md) explains what each definition decides.
+agent uses it. [Environments](environments.md) explains what each definition decides.
 
 ## 4. Your first conversation
 
@@ -249,7 +249,7 @@ See [Tools & permissions](tools.md).
 > **Worth reading once before you turn `exec` to `allow`.** The workspace is an
 > organisational boundary, not a security boundary, wherever host `exec` is enabled — a
 > command it spawns is a normal process on your machine and does not honour the jail.
-> [Containers](containers.md) are the answer to that: `exec` inside a digest-pinned
+> [Environments](environments.md) are the answer to that: `exec` inside a digest-pinned
 > container with caps dropped and a read-only root.
 
 ## 7. Where your things live
@@ -298,7 +298,7 @@ key at all. See [Providers](providers.md).
 | [Tools & permissions](tools.md)           | The eight built-ins and who may call them            |
 | [Web UI](web-ui.md)                       | Every screen, and what it does                       |
 | [Security](security.md)                   | Each guard, the attack it closes, and its limits     |
-| [Prompts](prompts.md)                     | The eight templates you own, and the caching split   |
+| [Prompts](prompts.md)                     | The nine templates you own, and the caching split    |
 | [Memory](memory.md) · [Skills](skills.md) | What it remembers, and the sheets it can read        |
 
 Not working? Two things account for most of it:

@@ -16,6 +16,7 @@ pub mod ask;
 pub mod catalogue;
 pub mod chat;
 pub mod commands;
+pub mod environment;
 pub mod extension;
 pub mod header;
 pub mod i18n;
@@ -30,14 +31,13 @@ pub mod presets;
 pub mod program;
 pub mod render;
 pub mod runtime;
+pub mod sandbox_service;
 pub mod serve;
 pub mod server_runtime;
 pub mod skill_install;
 pub mod telegram;
 // Compiled only into a `test-hooks` build, and armed only by the environment on
 // top of that. See the module for the two-switch rule.
-pub mod container;
-pub mod sandbox_service;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
@@ -150,11 +150,11 @@ async fn dispatch(
         Subcommand::Chat(args) => chat::run(&globals, *args, env, streams).await,
         Subcommand::Init => init::run(&globals, env, streams).await,
         Subcommand::Serve(args) => serve::run(&globals, *args, env, streams).await,
-        Subcommand::Container => container::run(&globals, env, streams),
+        Subcommand::Environment => environment::run(&globals, env, streams),
         Subcommand::Sandbox {
             action,
             id,
-            container,
+            environment,
             workspace,
             socket,
             force,
@@ -178,11 +178,11 @@ async fn dispatch(
                 // Warming with none and then running with an allow-list starts
                 // a second container rather than reusing this one.
                 SandboxAction::Start => SandboxRequest::Start {
-                    container: required(container, "--container")?,
+                    environment: required(environment, "--environment")?,
                     workspace: required(workspace, "--workspace")?,
                     agent: "operator".into(),
                     session: "operator".into(),
-                    network: ghostai_protocol::ContainerNetwork::default(),
+                    network: ghostai_protocol::EnvironmentNetwork::default(),
                 },
                 SandboxAction::Stop => SandboxRequest::Stop {
                     instance: required(id, "instance id")?,

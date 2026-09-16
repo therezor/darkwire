@@ -18,7 +18,7 @@ and everything else on this page is reference you can reach for afterwards.
 | [Tools & permissions](tools.md)       | The eight built-in tools, and the `allow \| ask \| deny` model that gates them.       |
 | [Skills](skills.md)                   | Instruction sheets in `<workspace>/skills/`, indexed or named on a message.           |
 | [Memory](memory.md)                   | What an agent remembers between sessions, one file per fact in `<workspace>/memory/`. |
-| [Containers](containers.md)           | Where `exec` runs: digest-pinned execution containers and their network policy.       |
+| [Environments](environments.md)       | Where `exec` runs: digest-pinned execution containers and their network policy.       |
 | [Sandbox service](sandbox-service.md) | Isolated container service, Compose deployment, lifecycle management.                 |
 | [Extensions](extensions.md)           | Third-party code an operator installs and approves, and the five things it may add.   |
 | [Web UI](web-ui.md)                   | The screens, and what each one lets you do.                                           |

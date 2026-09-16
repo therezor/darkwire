@@ -41,10 +41,37 @@ pub trait Environment: CommandRunner {
     fn confined(&self) -> bool;
 }
 
+/// Where a turn's commands run, and what the model is told about it.
+///
+/// The prompt rides along rather than hanging off [`Environment`] because it is
+/// not a property of the *place*. It is operator wording read from the
+/// definition on disk, and the trait above is deliberately one method. Reading
+/// it here also keeps the disk access in the composition root, where the rest
+/// of the policy I/O already lives; a loop cannot open a definition and should
+/// not learn how.
+#[derive(Clone)]
+pub struct Placed {
+    /// Where commands run.
+    pub environment: Arc<dyn Environment>,
+    /// The definition's prompt section, empty when there is none to place.
+    pub prompt: String,
+}
+
+impl Placed {
+    /// This machine, with nothing to say about itself.
+    #[must_use]
+    pub fn host() -> Placed {
+        Placed {
+            environment: Arc::new(HostEnvironment::new()),
+            prompt: String::new(),
+        }
+    }
+}
+
 /// The environment for one turn.
 pub trait EnvironmentResolver: Send + Sync {
     /// Where this turn's commands run.
-    fn for_turn(&self, request: &PlacementRequest) -> Arc<dyn Environment>;
+    fn for_turn(&self, request: &PlacementRequest) -> Placed;
 }
 
 /// Commands run as child processes of this one.

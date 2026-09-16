@@ -37,7 +37,7 @@ pub mod agents;
 pub mod auth;
 pub mod automation;
 pub mod commands;
-pub mod containers;
+pub mod environments;
 pub mod extensions;
 pub mod files;
 pub mod mcp;
@@ -222,7 +222,7 @@ fn mount(
 
         RouteId::AgentsList => handler!(agents::list),
         RouteId::ToolsList => handler!(tools::list),
-        RouteId::ContainersList => handler!(containers::list_containers),
+        RouteId::EnvironmentsList => handler!(environments::list_environments),
         RouteId::SandboxesList => handler!(sandboxes::list_sandboxes),
         RouteId::SandboxesManage => handler!(sandboxes::manage),
         RouteId::McpList => handler!(mcp::list),

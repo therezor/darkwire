@@ -132,26 +132,6 @@ const TOOLS = {
   ],
 };
 
-/**
- * One shared container definition, as the wire carries it.
- *
- * Stated in full rather than trimmed to the fields under test: `api.containers`
- * parses the response, so a summary missing `runtime`, `workdir`, `user` or
- * `limits` is not a smaller fixture but a failed query — and the panel renders
- * nothing at all when its list is empty, which reads as a broken screen.
- */
-const CONTAINER = {
-  name: 'dev',
-  image: `sha256:${'a'.repeat(64)}`,
-  shared: true,
-  runtime: 'runc',
-  workdir: '/work',
-  user: '1000:1000',
-  limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
-  capsAdded: [],
-  weakened: [],
-};
-
 const SHELL_ROUTES: Record<string, StubRoute> = {
   '/api/auth/me': [200, { authenticated: true, authEnabled: false }],
   // Claimed: the setup overlay mounts above the login one and would
@@ -181,7 +161,7 @@ function mount(
       { models: [{ id: 'llama3', providerId: 'ollama' }], errors: {} },
     ],
     '/api/tools': [200, TOOLS],
-    '/api/containers': [200, { containers: [] }],
+    '/api/environments': [200, { environments: [] }],
     ...overrides,
   });
 
@@ -393,49 +373,6 @@ describe('the providers panel', () => {
 });
 
 describe('the tools panel', () => {
-  it('starts a shared tool container with a structured request', async () => {
-    const instances = {
-      instances: [
-        {
-          id: 'ghost-sbx-1',
-          workspace: 'default',
-          container: 'dev',
-          shared: true,
-          busy: 0,
-          lastUsedMs: 1,
-          agents: ['operator'],
-        },
-      ],
-    };
-    const { user, calls } = mount('/settings?panel=tools', {
-      '/api/containers': [200, { containers: [CONTAINER] }],
-      '/api/sandboxes': [200, instances],
-      'POST /api/sandboxes': [200, instances],
-    });
-
-    await user.selectOptions(await screen.findByLabelText('Container'), 'dev');
-    await user.click(screen.getByRole('button', { name: 'Start it now' }));
-
-    await waitFor(() => {
-      expect(
-        calls.find(
-          (call) => call.method === 'POST' && call.path === '/api/sandboxes',
-        )?.body,
-      ).toEqual({
-        op: 'start',
-        container: 'dev',
-        workspace: 'default',
-        agent: 'operator',
-        session: 'operator',
-        // Warmed with no egress, which is also an agent's default: an
-        // instance's network is part of its identity, so one warmed with a
-        // network nobody asked for is a container nothing ever reuses.
-        network: { mode: 'none', allow: [], hosts: [], dns: [] },
-      });
-    });
-    expect(await screen.findByText(/Agents: operator/)).toBeInTheDocument();
-  });
-
   it('is install-wide settings only — no tool list, no permissions', async () => {
     // Both were here when this screen decided what happened to a tool. The
     // matrix could not say which agent it bound, and the inventory below it was

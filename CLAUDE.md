@@ -1,5 +1,27 @@
 # Working in this repo
 
+## Write plain English, and never use an em dash
+
+This applies to everything you write: code comments, doc pages, commit messages,
+test names and what you say back to the user.
+
+- **No em dashes.** Not `—`, not `-` standing in for one. Use a full stop, a
+  comma, a colon, or brackets. Two short sentences beat one long one with a
+  dash in the middle.
+- **Say it once.** No restating the request, no summarising what you just wrote,
+  no closing paragraph that repeats the opening one.
+- **Short words and short sentences.** Prefer "use" to "utilise", "so" to
+  "therefore", "about" to "with regard to". If a sentence runs past about 25
+  words, split it.
+- **Cut hedging.** "This is probably the cleanest approach" says less than
+  "This is the cleanest approach". Drop "just", "simply", "basically" and
+  "essentially".
+- **A comment says why, not what.** The code already says what it does.
+
+Much of the existing prose in this repo was written before this rule and is full
+of em dashes. Do not sweep them up as a side quest. Fix the lines you were
+already editing, and leave the rest alone.
+
 ## Run the tests before you call a task finished — every time
 
 Not "when the change looks risky", not "when it touched tests". Every task, before

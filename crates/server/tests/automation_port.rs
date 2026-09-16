@@ -18,7 +18,7 @@ use ghostai_protocol::automation::{
     CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, ScheduledKind,
     ScheduledPayload,
 };
-use ghostai_protocol::config::ContainerNetwork;
+use ghostai_protocol::config::EnvironmentNetwork;
 use ghostai_server::automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
 use ghostai_server::automation_store::AutomationStore;
 use ghostai_tools::automation::{AutomationRefusal, AutomationResolver};
@@ -71,8 +71,8 @@ fn request(agent_id: &str, session_key: &str, workspace_id: &str) -> PlacementRe
         agent_id: agent_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         session_key: session_key.to_owned(),
-        container: String::new(),
-        network: ContainerNetwork::default(),
+        environment: String::new(),
+        network: EnvironmentNetwork::default(),
         workspace_root: "/tmp".to_owned(),
     }
 }

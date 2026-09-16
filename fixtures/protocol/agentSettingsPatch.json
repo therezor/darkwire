@@ -31,6 +31,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -45,7 +46,7 @@
                 "memory": "allow",
                 "skill": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -106,6 +107,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -114,7 +116,7 @@
               "tools": {
                 "read_file": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -173,6 +175,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -181,7 +184,7 @@
               "tools": {
                 "read_file": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -241,6 +244,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -249,7 +253,7 @@
               "tools": {
                 "read_file": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -301,6 +305,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -315,7 +320,7 @@
                 "memory": "allow",
                 "skill": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -375,6 +380,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -383,7 +389,7 @@
               "tools": {
                 "read_file": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -443,6 +449,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -457,7 +464,7 @@
                 "memory": "allow",
                 "skill": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",
@@ -515,6 +522,7 @@
               "wrapUpPrompt": "",
               "promptMode": "template",
               "platformPrompt": "",
+              "environmentPrompt": "",
               "toolPolicyPrompt": "",
               "memoryPrompt": "",
               "skillsPrompt": "",
@@ -523,7 +531,7 @@
               "tools": {
                 "read_file": "allow"
               },
-              "container": {
+              "environment": {
                 "name": "",
                 "network": {
                   "mode": "none",

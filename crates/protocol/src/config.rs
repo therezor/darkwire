@@ -616,9 +616,9 @@ pub fn default_agent_tools() -> ToolPermissions {
         .collect()
 }
 
-/// How much of the network an agent's container reaches.
+/// How much of the network an agent's environment reaches.
 ///
-/// The one place egress is configured. A container definition decides whether
+/// The one place egress is configured. An environment definition decides whether
 /// a restricted gateway *can* be built — a non-root numeric uid, no-new-privs,
 /// no packet-forging capability — and this decides what that gateway permits.
 /// Splitting the two across both files is what produced a "ceiling" nobody
@@ -633,7 +633,7 @@ pub fn default_agent_tools() -> ToolPermissions {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct ContainerNetwork {
+pub struct EnvironmentNetwork {
     /// How much network to permit at all.
     #[serde(default)]
     pub mode: NetworkMode,
@@ -646,8 +646,8 @@ pub struct ContainerNetwork {
     /// Resolvers the gateway permits on port 53, as IP literals.
     ///
     /// Empty is correct for a host allow-list, where the proxy resolves names
-    /// on the container's behalf, and wrong for a CIDR allow-list, where
-    /// nothing in the container can resolve a name without one.
+    /// on the environment's behalf, and wrong for a CIDR allow-list, where
+    /// nothing in the environment can resolve a name without one.
     #[serde(default)]
     pub dns: Vec<String>,
 }
@@ -669,7 +669,7 @@ pub enum NetworkMode {
 ///
 /// An empty name runs command operations on the machine running GhostAI,
 /// inside the workspace jail, where a network request means nothing and is
-/// refused rather than ignored. A named container routes them through the
+/// refused rather than ignored. A named environment routes them through the
 /// sandbox service instead.
 ///
 /// The image, capabilities, hardening and sharing live in the installed
@@ -680,15 +680,15 @@ pub enum NetworkMode {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct AgentContainer {
-    /// An installed container name, or empty to run on the host.
+pub struct AgentEnvironment {
+    /// An installed environment name, or empty to run on the host.
     #[serde(default)]
     pub name: String,
-    /// What this agent's container may reach.
+    /// What this agent's environment may reach.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
-    pub network: ContainerNetwork,
+    pub network: EnvironmentNetwork,
 }
 
 /// Another agent this one may hand a task to.
@@ -763,11 +763,21 @@ pub struct AgentEntry {
     #[serde(default)]
     pub prompt_mode: PromptMode,
     /// The `## Running commands` section. Empty means the built-in for this
-    /// agent's placement — host or container — decided by `container.name`. Editing
-    /// it does not widen anything: where a command may reach is decided by the
-    /// exec guard and the jail, neither of which reads the prompt.
+    /// agent's placement, host or environment, decided per turn because a
+    /// subagent inherits its caller's. Editing it does not widen anything:
+    /// where a command may reach is decided by the exec guard and the jail,
+    /// neither of which reads the prompt.
     #[serde(default)]
     pub platform_prompt: String,
+    /// The `## Environment` section. Empty inherits the environment
+    /// definition's own `prompt`; a single space removes it.
+    ///
+    /// Unlike every other template here there is no built-in below the
+    /// inheritance, so "inherit" can still resolve to nothing. An agent on the
+    /// host, or in an environment whose definition says nothing about itself,
+    /// places no section at all.
+    #[serde(default)]
+    pub environment_prompt: String,
     /// The `## Tool output policy` section. The envelopes are emitted and the
     /// nonce regenerated whatever this says — this is the *explanation* of a
     /// defence, not the defence.
@@ -805,7 +815,7 @@ pub struct AgentEntry {
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
-    pub container: AgentContainer,
+    pub environment: AgentEnvironment,
     /// Agents this one may delegate to. Order is the order the model sees
     /// them, which is why this is a list and not a map.
     #[serde(default)]
@@ -823,6 +833,7 @@ impl Default for AgentEntry {
             wrap_up_prompt: String::new(),
             prompt_mode: PromptMode::Template,
             platform_prompt: String::new(),
+            environment_prompt: String::new(),
             tool_policy_prompt: String::new(),
             memory_prompt: String::new(),
             skills_prompt: String::new(),
@@ -830,7 +841,7 @@ impl Default for AgentEntry {
             enabled: true,
             tools: default_agent_tools(),
             exec: None,
-            container: AgentContainer::default(),
+            environment: AgentEnvironment::default(),
             subagents: Vec::new(),
         }
     }
@@ -1187,39 +1198,39 @@ pub struct ExecToolConfigPatch {
     pub max_output_bytes: Option<u64>,
 }
 
-/// A patch over [`ContainerNetwork`].
+/// A patch over [`EnvironmentNetwork`].
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct ContainerNetworkPatch {
-    /// See [`ContainerNetwork::mode`].
+pub struct EnvironmentNetworkPatch {
+    /// See [`EnvironmentNetwork::mode`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<NetworkMode>,
-    /// See [`ContainerNetwork::allow`].
+    /// See [`EnvironmentNetwork::allow`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow: Option<Vec<String>>,
-    /// See [`ContainerNetwork::hosts`].
+    /// See [`EnvironmentNetwork::hosts`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosts: Option<Vec<String>>,
-    /// See [`ContainerNetwork::dns`].
+    /// See [`EnvironmentNetwork::dns`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dns: Option<Vec<String>>,
 }
 
-/// A patch over [`AgentContainer`]. `network` is itself a patch, so a save
+/// A patch over [`AgentEnvironment`]. `network` is itself a patch, so a save
 /// that only changes the mode does not have to resend `allow` — which is how a
 /// settings panel silently clears the allow-list it never rendered.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct AgentContainerPatch {
-    /// See [`AgentContainer::name`].
+pub struct AgentEnvironmentPatch {
+    /// See [`AgentEnvironment::name`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// See [`AgentContainer::network`].
+    /// See [`AgentEnvironment::network`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
-    pub network: Option<ContainerNetworkPatch>,
+    pub network: Option<EnvironmentNetworkPatch>,
 }
 
 /// A patch over [`AgentEntry`].
@@ -1253,6 +1264,9 @@ pub struct AgentEntryPatch {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_prompt: Option<String>,
+    /// See [`AgentEntry::environment_prompt`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_prompt: Option<String>,
     /// See [`AgentEntry::tool_policy_prompt`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_policy_prompt: Option<String>,
@@ -1275,10 +1289,10 @@ pub struct AgentEntryPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub exec: Option<ExecToolConfigPatch>,
-    /// See [`AgentEntry::container`].
+    /// See [`AgentEntry::environment`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
-    pub container: Option<AgentContainerPatch>,
+    pub environment: Option<AgentEnvironmentPatch>,
     /// See [`AgentEntry::subagents`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
@@ -1295,6 +1309,7 @@ impl From<AgentEntry> for AgentEntryPatch {
             wrap_up_prompt: Some(entry.wrap_up_prompt),
             prompt_mode: Some(entry.prompt_mode),
             platform_prompt: Some(entry.platform_prompt),
+            environment_prompt: Some(entry.environment_prompt),
             tool_policy_prompt: Some(entry.tool_policy_prompt),
             memory_prompt: Some(entry.memory_prompt),
             skills_prompt: Some(entry.skills_prompt),
@@ -1302,13 +1317,13 @@ impl From<AgentEntry> for AgentEntryPatch {
             enabled: Some(entry.enabled),
             tools: Some(entry.tools),
             exec: entry.exec,
-            container: Some(AgentContainerPatch {
-                name: Some(entry.container.name),
-                network: Some(ContainerNetworkPatch {
-                    mode: Some(entry.container.network.mode),
-                    allow: Some(entry.container.network.allow),
-                    hosts: Some(entry.container.network.hosts),
-                    dns: Some(entry.container.network.dns),
+            environment: Some(AgentEnvironmentPatch {
+                name: Some(entry.environment.name),
+                network: Some(EnvironmentNetworkPatch {
+                    mode: Some(entry.environment.network.mode),
+                    allow: Some(entry.environment.network.allow),
+                    hosts: Some(entry.environment.network.hosts),
+                    dns: Some(entry.environment.network.dns),
                 }),
             }),
             subagents: Some(entry.subagents),
@@ -1656,7 +1671,7 @@ pub struct AgentSettingsChange {
 /// Written once because of the rule it encodes: **`agents.list.*` replaces
 /// wholesale, so the patch *is* the agent.** A patch naming `model` alone does
 /// not set one field — it replaces the entry and takes the label, the system
-/// prompt, the tools, the container and the subagent roster with it. So the
+/// prompt, the tools, the environment and the subagent roster with it. So the
 /// stored entry is read and sent back whole, and clearing a field means
 /// omitting the key rather than nulling it, since a `null` would reach the
 /// entry as a value and be rejected.

@@ -1,6 +1,6 @@
 //! An agent preset: an installable agent definition.
 //!
-//! A preset is a JSON file — beside a catalogue's container
+//! A preset is a JSON file, beside a catalogue's environment
 //! definitions, or bundled with the CLI — that `ghostai agent install` turns
 //! into an entry in `agents.list`.
 //! After install it is ordinary agent config: the operator edits it in the UI,
@@ -12,8 +12,8 @@
 //! point: no model, provider, temperature or token caps, because those describe
 //! an install and a preset describes a role; no `exec` patch and no `enabled`
 //! flag, because installing a disabled agent is a contradiction; and the
-//! container references are the same names an agent carries, with
-//! everything that could widen a boundary living in the approved container
+//! environment references are the same names an agent carries, with
+//! everything that could widen a boundary living in the approved environment
 //! definition, so a preset can express nothing a settings save could not. `tools_enabled` is
 //! the one settings knob a preset may set, because one preset exists to switch
 //! it off. `skills` is an install instruction rather than agent config, so
@@ -23,7 +23,7 @@ use garde::Validate;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AgentContainer, AgentEntry, PromptMode, SubagentRef, default_agent_tools};
+use crate::config::{AgentEntry, AgentEnvironment, PromptMode, SubagentRef, default_agent_tools};
 use crate::ids::SLUG_ID_PATTERN;
 use crate::json::{literal, prefault};
 use crate::tools::ToolPermissions;
@@ -61,6 +61,9 @@ pub struct AgentPreset {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default)]
     pub platform_prompt: String,
+    /// See [`AgentEntry::environment_prompt`].
+    #[serde(default)]
+    pub environment_prompt: String,
     /// See [`AgentEntry::tool_policy_prompt`].
     #[serde(default)]
     pub tool_policy_prompt: String,
@@ -83,7 +86,7 @@ pub struct AgentPreset {
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
-    pub container: AgentContainer,
+    pub environment: AgentEnvironment,
     /// Agents this one may delegate to.
     #[serde(default)]
     #[garde(dive)]
@@ -114,13 +117,14 @@ pub fn preset_to_agent_entry(preset: &AgentPreset) -> AgentEntry {
         live_prompt: preset.live_prompt.clone(),
         wrap_up_prompt: preset.wrap_up_prompt.clone(),
         platform_prompt: preset.platform_prompt.clone(),
+        environment_prompt: preset.environment_prompt.clone(),
         tool_policy_prompt: preset.tool_policy_prompt.clone(),
         memory_prompt: preset.memory_prompt.clone(),
         skills_prompt: preset.skills_prompt.clone(),
         prompt_mode: preset.prompt_mode,
         enabled: true,
         tools: preset.tools.clone(),
-        container: preset.container.clone(),
+        environment: preset.environment.clone(),
         subagents: preset.subagents.clone(),
         ..AgentEntry::default()
     };

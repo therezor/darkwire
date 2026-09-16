@@ -930,11 +930,11 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: { preset: { ...PRESET, skills: ['code-review'] } },
       },
       {
-        name: 'a container and subagents carry over',
+        name: 'an environment and subagents carry over',
         input: {
           preset: {
             ...PRESET,
-            container: { network: { mode: 'open' } },
+            environment: { network: { mode: 'open' } },
             subagents: [{ id: 'writer' }],
             tools: { exec: 'deny' },
             promptMode: 'raw',

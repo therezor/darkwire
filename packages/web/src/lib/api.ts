@@ -55,7 +55,7 @@ import {
   WorkspaceSummarySchema,
   StatusResponseSchema,
   AgentListResponseSchema,
-  ContainerListResponseSchema,
+  EnvironmentListResponseSchema,
   ToolListResponseSchema,
   UploadResponseSchema,
   type AuthSessionResponse,
@@ -95,7 +95,7 @@ import {
   type WorkspaceSummary,
   type StatusResponse,
   type AgentListResponse,
-  type ContainerListResponse,
+  type EnvironmentListResponse,
   type ToolListResponse,
   type UploadResponse,
 } from '@ghostwire/protocol';
@@ -532,9 +532,9 @@ export const api = {
       body: operation,
     }),
 
-  /** The container definitions an operator installed. */
-  containers: (signal?: AbortSignal): Promise<ContainerListResponse> =>
-    request('/api/containers', ContainerListResponseSchema, {
+  /** The environment definitions an operator installed. */
+  environments: (signal?: AbortSignal): Promise<EnvironmentListResponse> =>
+    request('/api/environments', EnvironmentListResponseSchema, {
       ...(signal ? { signal } : {}),
     }),
 
@@ -594,7 +594,7 @@ export const api = {
    * Runs one, and answers with the extension's own words.
    *
    * Not a resource key: an extension's copy ships with the extension and the
-   * translation layer has never seen it. The same rule a container's `notes`
+   * translation layer has never seen it. The same rule an environment's `notes`
    * follows.
    */
   runCommand: (

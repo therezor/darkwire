@@ -18,7 +18,7 @@ ghostai init                     configure this install, in a wizard
 ghostai serve                    serve the web UI and the API on one port
 ghostai preset    list | install [ids...] | update
 ghostai agent     install <name-or-path> [--force] | list
-ghostai container list
+ghostai environment list
 ghostai sandbox   health | list | start | stop | restart
 ghostai extension list | approve <id> | revoke <id>
 ghostai help [command]
@@ -239,7 +239,7 @@ serving nothing at a URL it just printed.
 
 ## `ghostai preset`
 
-Picks agents out of the catalogue, and builds the containers those particular agents
+Picks agents out of the catalogue, and builds the environments those particular agents
 need. This is the command that puts a working team on a fresh machine:
 
 ```bash
@@ -275,8 +275,8 @@ wrote, what it left alone because you may have edited it, and anything a preset 
 this catalogue does not carry. Nothing there refuses: a missing sheet costs one index line
 in that agent's prompt. See [Skills](skills.md#sheets-a-preset-brings).
 
-A preset may optionally select a container. Several agents may select the same shared
-container definition.
+A preset may optionally select an environment. Several agents may select the same shared
+environment definition.
 
 **A definition that is already installed and usable is left alone.** Rebuilding its image
 would change the image id, and so the definition's digest, restarting every warm container
@@ -297,10 +297,10 @@ is a preset you have not tested.
 
 Installs one agent preset by id or by path — the single-shot `ghostai preset install` is
 built on, and what a script wants when it knows the name. It never touches Docker and
-never fetches: use `ghostai preset install` when the agent needs a container that is not
+never fetches: use `ghostai preset install` when the agent needs an environment that is not
 built yet.
 
-A preset is a YAML file holding a system prompt, tool permissions, an optional container
+A preset is a YAML file holding a system prompt, tool permissions, an optional environment
 reference, and a delegation roster. Installing it writes one entry in
 `agents.list`:
 
@@ -317,7 +317,7 @@ never fetches one, so on a box that has not run `ghostai preset update` every sh
 preset names is reported as missing and the agent installs regardless.
 
 **There is one kind of preset.** A preset is `<id>.yaml` — the filename is the agent id
-— whether or not the agent works in a container; one that does sets `container.name`.
+whether or not the agent works in an environment. One that does sets `environment.name`.
 So there is one lookup, and the argument is either a path or an id
 searched in two directories:
 
@@ -333,7 +333,7 @@ machine with no catalogue installs only your own presets rather than failing.
 Installing is a config merge and nothing more: afterwards the agent is ordinary config,
 edited in the web UI like any other. Three rules do the real work:
 
-- A preset naming a container that is not installed is **refused**, with the
+- A preset naming an environment that is not installed is **refused**, with the
   command that fixes it — the server would refuse to boot on the result.
 - An id that already exists is **refused without `--force`**, because the existing entry
   may carry your own edits.
@@ -341,17 +341,17 @@ edited in the web UI like any other. Three rules do the real work:
   that moment**. Install `team-lead` last — or re-run it with `--force` after adding
   specialists — and its delegation roster matches what can actually answer.
 
-A preset deliberately cannot name a model or provider. See [Containers](containers.md).
+A preset deliberately cannot name a model or provider. See [Environments](environments.md).
 
-## `ghostai container` and `ghostai extension`
+## `ghostai environment` and `ghostai extension`
 
-Container definitions are read-only from the CLI because the file on disk **is** the policy:
+Environment definitions are read-only from the CLI because the file on disk **is** the policy:
 
 ```bash
-ghostai container list          # every installed container definition and its hardening
+ghostai environment list        # every installed environment definition and its hardening
 ```
 
-Each entry still carries a digest, and it is identity rather than consent. Two container
+Each entry still carries a digest, and it is identity rather than consent. Two environment
 definitions that differ never share a warm instance; editing a definition while a command
 is running cancels that command and names the drift; an idle container whose definition
 moved is swept.
@@ -360,36 +360,36 @@ moved is swept.
 — because its approval is a record in a store rather than a file an operator edits, and
 its digest covers every byte of the install directory rather than a manifest.
 
-See [Containers](containers.md) and [Extensions](extensions.md).
+See [Environments](environments.md) and [Extensions](extensions.md).
 
-Container instances are managed through the isolated service:
+Environment instances are managed through the isolated service:
 
 ```bash
 ghostai sandbox health
 ghostai sandbox list
-ghostai sandbox start --container <id> --workspace <id>
+ghostai sandbox start --environment <id> --workspace <id>
 ghostai sandbox stop <instance> [--force]
 ghostai sandbox restart <instance> [--force]
 ```
 
 `--socket` overrides the service socket. Normal stop/restart refuses an active or queued
-container; `--force` cancels its work. See [Sandbox service](sandbox-service.md).
+environment; `--force` cancels its work. See [Sandbox service](sandbox-service.md).
 
 ## Environment
 
-| Variable                     | Does                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| `GHOSTAI_HOME`               | The root. Beaten by `--home`, beats `~/.ghostai`.                        |
-| `GHOSTAI_PASSWORD`           | Fallback for `serve --password`.                                         |
-| `GHOSTAI_USERNAME`           | Fallback for `serve --username`.                                         |
-| `GHOSTAI_LANG`               | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.        |
-| `GHOSTAI_LOG_LEVEL`          | Then `LOG_LEVEL`, then `info`.                                           |
-| `GHOSTAI_DEBUG`              | Any non-empty value prints stack traces instead of the sentence.         |
-| `GHOSTAI_SANDBOX_SOCKET`     | The sandbox service socket. Naming one stops `serve` starting its own.   |
-| `GHOSTAI_DATA_DIR`           | `ghostai-environment serve-env`: the absolute host path the daemon sees. |
-| `GHOSTAI_CONTAINER_ENGINE`   | `docker` or `podman`. Defaults to `docker`.                              |
-| `GHOSTAI_GATEWAY_IMAGE`      | The egress gateway image, needed for `allowlist` egress.                 |
-| `GHOSTAI_SANDBOX_CONTAINERS` | `serve-env`: containers to register. Defaults to `dev`.                  |
+| Variable                   | Does                                                                     |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `GHOSTAI_HOME`             | The root. Beaten by `--home`, beats `~/.ghostai`.                        |
+| `GHOSTAI_PASSWORD`         | Fallback for `serve --password`.                                         |
+| `GHOSTAI_USERNAME`         | Fallback for `serve --username`.                                         |
+| `GHOSTAI_LANG`             | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.        |
+| `GHOSTAI_LOG_LEVEL`        | Then `LOG_LEVEL`, then `info`.                                           |
+| `GHOSTAI_DEBUG`            | Any non-empty value prints stack traces instead of the sentence.         |
+| `GHOSTAI_SANDBOX_SOCKET`   | The sandbox service socket. Naming one stops `serve` starting its own.   |
+| `GHOSTAI_DATA_DIR`         | `ghostai-environment serve-env`: the absolute host path the daemon sees. |
+| `GHOSTAI_CONTAINER_ENGINE` | `docker` or `podman`. Defaults to `docker`.                              |
+| `GHOSTAI_GATEWAY_IMAGE`    | The egress gateway image, needed for `allowlist` egress.                 |
+| `GHOSTAI_ENVIRONMENTS`     | `serve-env`: environments to register. Defaults to `dev`.                |
 
 Provider API keys are read from the environment **only when the vault has no entry** for
 that instance — the vault wins. [Configuration](configuration.md#environment-variables)

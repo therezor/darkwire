@@ -86,7 +86,7 @@ impl Harness {
             "coder",
             &json!({
                 "label": "Coder",
-                "container": {"name": "dev", "network": {"mode": "none", "allow": []}},
+                "environment": {"name": "dev", "network": {"mode": "none", "allow": []}},
             }),
         );
         harness.agent(
@@ -153,7 +153,7 @@ impl Harness {
         std::fs::write(
             dir.join("container.yaml"),
             json!({
-                "schema": "ghostai.container/1",
+                "schema": "ghostai.environment/1",
                 "name": name,
                 // The placeholder the build replaces. A definition that shipped
                 // a real image id would be one nobody could have built.
@@ -433,7 +433,7 @@ fn builds_only_the_containers_the_chosen_agents_asked_for() {
     assert!(
         !harness
             .policy()
-            .join("containers")
+            .join("environments")
             .join("spare.yaml")
             .exists()
     );
@@ -467,8 +467,9 @@ fn pins_the_built_image_id_into_the_installed_definition() {
         },
     );
 
-    let definition = std::fs::read_to_string(harness.policy().join("containers").join("dev.yaml"))
-        .expect("a definition was installed");
+    let definition =
+        std::fs::read_to_string(harness.policy().join("environments").join("dev.yaml"))
+            .expect("a definition was installed");
     assert!(definition.contains(DIGEST), "{definition}");
     assert!(!definition.contains("__IMAGE_ID__"), "{definition}");
 }
@@ -670,7 +671,7 @@ fn reports_a_failed_build_without_writing_a_half_pinned_manifest() {
     assert!(
         !harness
             .policy()
-            .join("containers")
+            .join("environments")
             .join("dev.yaml")
             .exists()
     );

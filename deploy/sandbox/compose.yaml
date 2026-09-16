@@ -7,7 +7,7 @@ services:
       target: service
     environment:
       GHOSTAI_DATA_DIR: ${GHOSTAI_DATA_DIR:?Set an absolute host data directory}
-      GHOSTAI_SANDBOX_CONTAINERS: ${GHOSTAI_SANDBOX_CONTAINERS:-dev}
+      GHOSTAI_ENVIRONMENTS: ${GHOSTAI_ENVIRONMENTS:-dev}
       GHOSTAI_GATEWAY_IMAGE: ${GHOSTAI_GATEWAY_IMAGE:-}
     volumes:
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock

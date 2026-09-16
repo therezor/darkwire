@@ -1,4 +1,4 @@
-//! `ghostai extension` approvals and `ghostai container` listings.
+//! `ghostai extension` approvals and `ghostai environment` listings.
 //!
 //! One file for both, because they are one command written twice: the same
 //! three verbs, the same exit codes, the same rule that an approval is a
@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use ghostai::i18n::Env;
 use ghostai::program::{Globals, StoreAction};
-use ghostai::{Streams, container, extension};
+use ghostai::{Streams, environment, extension};
 
 /// A pair of buffers a command writes into, read back as text.
 #[derive(Clone, Default)]
@@ -59,14 +59,14 @@ fn globals(home: &Path) -> Globals {
     }
 }
 
-fn run_container(home: &Path) -> Run {
+fn run_environment(home: &Path) -> Run {
     let out = Sink::default();
     let err = Sink::default();
     let mut streams = Streams {
         out: Box::new(out.clone()),
         err: Box::new(err.clone()),
     };
-    let code = container::run(&globals(home), &Env::empty(), &mut streams).unwrap();
+    let code = environment::run(&globals(home), &Env::empty(), &mut streams).unwrap();
     Run {
         code,
         out: out.text(),
@@ -101,13 +101,13 @@ fn policy(home: &Path) -> std::path::PathBuf {
     home.join("policy")
 }
 
-fn install_container(home: &Path, name: &str) {
-    let dir = policy(home).join("containers");
+fn install_environment(home: &Path, name: &str) {
+    let dir = policy(home).join("environments");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join(format!("{name}.yaml")),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema": "ghostai.container/1",
+            "schema": "ghostai.environment/1",
             "name": name,
             "image": IMAGE,
             "shared": true,
@@ -137,25 +137,44 @@ fn install_extension(home: &Path, id: &str) {
     std::fs::write(dir.join("index.mjs"), "// nothing").unwrap();
 }
 
-// container
+// environment
 
 #[test]
-fn container_list_says_where_it_looked_when_nothing_is_installed() {
+fn environment_list_says_where_it_looked_when_nothing_is_installed() {
     let home = tempfile::tempdir().unwrap();
-    let run = run_container(home.path());
+    let run = run_environment(home.path());
     assert_eq!(run.code, 0);
     assert!(
-        run.out.contains("No containers installed under"),
+        run.out.contains("No environments installed under"),
         "{}",
         run.out
     );
 }
 
 #[test]
-fn container_list_reports_sharing_and_the_rest_of_the_placement() {
+fn environment_list_points_at_the_old_directory_when_one_is_left_behind() {
+    // An install that has not migrated reports nothing installed while its
+    // definitions are still on disk, one directory over. Without this line the
+    // operator has no reason to suspect a rename.
     let home = tempfile::tempdir().unwrap();
-    install_container(home.path(), "dev");
-    let listed = run_container(home.path());
+    std::fs::create_dir_all(policy(home.path()).join("containers")).unwrap();
+
+    let run = run_environment(home.path());
+
+    assert_eq!(run.code, 0);
+    assert!(
+        run.out.contains("No environments installed under"),
+        "{}",
+        run.out
+    );
+    assert!(run.out.contains("ghostai.environment/1"), "{}", run.out);
+}
+
+#[test]
+fn environment_list_reports_sharing_and_the_rest_of_the_placement() {
+    let home = tempfile::tempdir().unwrap();
+    install_environment(home.path(), "dev");
+    let listed = run_environment(home.path());
     assert!(listed.out.contains("dev"), "{}", listed.out);
     assert!(
         listed

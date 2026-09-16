@@ -1,5 +1,9 @@
 /**
- * Container policy: where an agent's built-in `exec` calls run.
+ * Environment policy: where an agent's built-in `exec` calls run.
+ *
+ * An environment is the place; a container is one kind of place. `kind` is what
+ * says which, and today it has one arm, so every other field below still
+ * describes a container and sits flat rather than inside the variant.
  *
  * A container definition is an image, the hardening around it, its resource
  * budget, and whether agents share one instance. It grants nothing: an agent's
@@ -10,7 +14,7 @@
  * It lives in an operator-installed policy directory rather than in
  * `agents.list.<id>`, because an agent's config is *editable* — through the
  * settings route, through a hand-edited file, and through anything that later
- * gains the ability to propose a patch. An agent carries a container name and
+ * gains the ability to propose a patch. An agent carries an environment name and
  * its own egress request; every value that decides what an image is or what
  * privileges it holds has no representation in the config tree at all.
  */
@@ -66,17 +70,32 @@ export type ContainerLimits = z.infer<typeof ContainerLimitsSchema>;
  * Where an agent's commands run.
  *
  * **There is no network here, deliberately.** Egress is the agent's own
- * request, configured in one place (`agents.list.<id>.container.network`), and
+ * request, configured in one place (`agents.list.<id>.environment.network`), and
  * the fields below are what decide whether a restricted egress gateway can be
  * built around it at all: a root or non-numeric `user`, missing
  * `noNewPrivileges` or a capability that can forge packets each make the
  * gateway refuse. So an operator writing a definition is fixing the *shape*
  * an agent's network request will be honoured in, not the request.
  */
-export const ContainerDefinitionSchema = z
+export const EnvironmentKindSchema = z.enum(['container']);
+export type EnvironmentKind = z.infer<typeof EnvironmentKindSchema>;
+
+export const EnvironmentDefinitionSchema = z
   .object({
-    schema: z.literal('ghostai.container/1'),
+    schema: z.literal('ghostai.environment/1'),
+    /** What kind of place this is. Omitting it means a container. */
+    kind: EnvironmentKindSchema.default('container'),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    /**
+     * What the model is told about this place, as its own prompt section.
+     *
+     * Empty places no section. There is no built-in wording to fall back on,
+     * because nobody but the operator knows what is installed in an image. A
+     * default here would be the repo guessing, and a wrong guess about the
+     * toolchain is worse than silence. An agent may override it; see
+     * `agents.list.<id>.environmentPrompt`.
+     */
+    prompt: z.string().default(''),
     /**
      * Must be digest-pinned: an immutable image ID or a registry digest. A tag
      * is a mutable pointer, and a container installed once and then silently
@@ -102,4 +121,4 @@ export const ContainerDefinitionSchema = z
     env: z.array(z.string()).default([]),
   })
   .strict();
-export type ContainerDefinition = z.infer<typeof ContainerDefinitionSchema>;
+export type EnvironmentDefinition = z.infer<typeof EnvironmentDefinitionSchema>;

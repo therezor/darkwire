@@ -1,4 +1,4 @@
-//! The container definitions installed on this machine.
+//! The environment definitions installed on this machine.
 //!
 //! Read from disk on every request, for the same reason the container list is:
 //! an edited definition must report its new digest, its new capabilities and
@@ -9,24 +9,29 @@
 
 use axum::Json;
 use axum::extract::State;
-use ghostai_protocol::rest::{ContainerListResponse, ContainerSummary};
+use ghostai_protocol::rest::{EnvironmentListResponse, EnvironmentSummary};
 use ghostai_security::{assert_gateway_compatible, weakened_in};
 
 use crate::errors::HttpError;
 use crate::routes::AppState;
 
-/// Container definitions installed on this machine.
-pub async fn list_containers(
+/// Environment definitions installed on this machine.
+pub async fn list_environments(
     State(state): State<AppState>,
-) -> Result<Json<ContainerListResponse>, HttpError> {
-    let containers = state
+) -> Result<Json<EnvironmentListResponse>, HttpError> {
+    let environments = state
         .runtime
-        .containers()
+        .environments()
         .into_iter()
         .map(|listing| {
             let definition = listing.value;
-            ContainerSummary {
+            EnvironmentSummary {
                 name: listing.name,
+                kind: definition.as_ref().map(|d| d.kind).unwrap_or_default(),
+                prompt: definition
+                    .as_ref()
+                    .map(|d| d.prompt.clone())
+                    .unwrap_or_default(),
                 image: definition
                     .as_ref()
                     .map(|d| d.image.clone())
@@ -63,5 +68,5 @@ pub async fn list_containers(
             }
         })
         .collect();
-    Ok(Json(ContainerListResponse { containers }))
+    Ok(Json(EnvironmentListResponse { environments }))
 }

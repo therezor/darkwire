@@ -273,7 +273,7 @@ Four things about it, each of them a decision rather than an omission:
 - **There is no hash.** A container definition carries one because its bytes decide a
   boundary; a sheet is prose, and the preset's own `systemPrompt` — from the same
   catalogue, over the same network — already sets the bar. Running the command at a
-  terminal is the operator action. See [Containers](containers.md).
+  terminal is the operator action. See [Environments](environments.md).
 - **Nothing refuses.** A sheet that is missing, symlinked, or over the copier's bounds
   costs that sheet and a line in the report. A missing _container_ refuses, because the
   server would refuse to boot on an agent whose placement does not exist; an agent with

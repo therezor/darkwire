@@ -29,7 +29,6 @@
     },
     "interrupted": "interrupted — the prompt is yours again",
     "noProvider": "no provider",
-    "noWorkspace": "no workspace",
     "options": {
       "agent": "agent this session runs on",
       "json": "emit one agent event per line as JSON",
@@ -41,13 +40,12 @@
       "session": "session to continue",
       "workspace": "workspace root, overriding the configured default",
       "workspaceId": "workspace new sessions land in"
-    },
-    "queued": "queued — it runs when this turn finishes"
+    }
   },
-  "container": {
-    "description": "List installed container definitions.",
+  "environment": {
+    "description": "List installed environment definitions.",
     "list": {
-      "description": "Show every installed container definition and its hardening."
+      "description": "Show every installed environment definition and its hardening."
     }
   },
   "extension": {
@@ -129,8 +127,6 @@
     },
     "notAnOption": "“{{name}}” is not one of these — enter numbers or names.",
     "nothingChosen": "Nothing chosen. Nothing was installed.",
-    "tools_one": "{{count}} tool",
-    "tools_other": "{{count}} tools",
     "update": {
       "description": "Fetch the catalogue again."
     },
@@ -172,10 +168,10 @@
     "action": {
       "description": "What to do: list, health, start, stop or restart."
     },
-    "container": {
-      "description": "Container definition to warm an instance from."
+    "description": "Inspect and manage the containers the environment service is holding open.",
+    "environment": {
+      "description": "Environment definition to warm an instance from."
     },
-    "description": "Inspect and manage the containers the sandbox service is holding open.",
     "force": {
       "description": "Cancel active and queued work instead of refusing a busy instance."
     },
@@ -225,8 +221,8 @@
       "noModel": "No model {{id}}",
       "noOutputField": "Nothing called {{field}} to show or hide",
       "noSession": "No session {{key}}",
-      "notYours": "Message {{seq}} is not one of yours",
       "noWorkspace": "No workspace {{id}}",
+      "notYours": "Message {{seq}} is not one of yours",
       "usageEdit": "usage: /edit <ref> <text>",
       "usageEffort": "no such level — pick one of {{levels}}, or default",
       "usageMemory": "usage: /memory, /memory on, or /memory off",
@@ -282,15 +278,15 @@
       "memoryEnabled": "{{agent}} can remember again — this changes the agent, so every session on it is affected",
       "memoryOff": "{{agent}} does not have the memory tool, so nothing is remembered and no memory reaches the prompt — /memory on grants it",
       "modelSet": "{{agent}} now runs {{model}}, saved to your config",
-      "moved_one": "moved {{count}} session from {{from}} to {{to}}",
-      "moved_other": "moved {{count}} sessions from {{from}} to {{to}}",
       "movedAgent": "this session now runs on {{agent}}",
       "movedSession": "moved this session to {{workspace}}",
+      "moved_one": "moved {{count}} session from {{from}} to {{to}}",
+      "moved_other": "moved {{count}} sessions from {{from}} to {{to}}",
       "noModels": "no endpoint published a model list",
       "noSessions": "no sessions yet",
+      "noTurns": "no turns recorded for this session yet",
       "nothingSaid": "nothing said in this session yet",
       "nothingToMeasure": "nothing to measure yet — this session has not started",
-      "noTurns": "no turns recorded for this session yet",
       "outputHidden": "hidden: {{field}}",
       "outputShown": "shown: {{field}}",
       "providerQuiet": "{{id}} did not answer: {{message}}",

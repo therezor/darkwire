@@ -314,7 +314,7 @@ what bounds the gap.
 ## Approval
 
 **The digest covers every byte of the install directory**, not the manifest. A
-container definition pins an immutable image, so hashing the definition hashes
+environment definition pins an immutable image, so hashing the definition hashes
 the code; an extension manifest names a _path_, so hashing it would approve a
 pointer. Editing any file — including the one `command` runs, adding one,
 removing one, renaming one — moves the digest and revokes the approval

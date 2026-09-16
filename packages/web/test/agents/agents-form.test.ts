@@ -118,7 +118,7 @@ describe('toAgentEntryForm', () => {
     // was saved from this screen.
     const shown = toAgentEntryForm(
       AgentEntrySchema.parse({
-        container: {
+        environment: {
           name: 'dev',
           network: {
             mode: 'allowlist',
@@ -130,11 +130,11 @@ describe('toAgentEntryForm', () => {
       }),
     );
 
-    expect(shown.containerName).toBe('dev');
-    expect(shown.containerNetworkMode).toBe('allowlist');
-    expect(shown.containerAllow).toBe('10.0.0.0/8, 192.168.1.0/24');
-    expect(shown.containerHosts).toBe('api.example.com');
-    expect(shown.containerDns).toBe('10.0.0.53, 10.0.0.54');
+    expect(shown.environmentName).toBe('dev');
+    expect(shown.environmentNetworkMode).toBe('allowlist');
+    expect(shown.environmentAllow).toBe('10.0.0.0/8, 192.168.1.0/24');
+    expect(shown.environmentHosts).toBe('api.example.com');
+    expect(shown.environmentDns).toBe('10.0.0.53, 10.0.0.54');
   });
 });
 
@@ -228,7 +228,7 @@ describe('toAgentEntryPatch', () => {
     const stored = AgentEntrySchema.parse({
       provider: 'ollama',
       model: 'llama3',
-      container: {
+      environment: {
         name: 'dev',
         network: { mode: 'allowlist', allow: ['10.0.0.0/8'] },
       },
@@ -238,20 +238,20 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          containerName: 'dev',
-          containerNetworkMode: 'open',
+          environmentName: 'dev',
+          environmentNetworkMode: 'open',
         }),
         stored,
         t,
       ),
     );
 
-    expect((entry as { container: Record<string, unknown> }).container).toEqual(
-      {
-        name: 'dev',
-        network: { mode: 'open', allow: [], hosts: [], dns: [] },
-      },
-    );
+    expect(
+      (entry as { environment: Record<string, unknown> }).environment,
+    ).toEqual({
+      name: 'dev',
+      network: { mode: 'open', allow: [], hosts: [], dns: [] },
+    });
   });
 
   it('keeps all three egress lists while the mode is an allow-list', () => {
@@ -263,11 +263,11 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          containerName: 'dev',
-          containerNetworkMode: 'allowlist',
-          containerAllow: '10.0.0.0/8, 192.168.1.0/24',
-          containerHosts: 'api.example.com , , docs.example.com',
-          containerDns: '10.0.0.53',
+          environmentName: 'dev',
+          environmentNetworkMode: 'allowlist',
+          environmentAllow: '10.0.0.0/8, 192.168.1.0/24',
+          environmentHosts: 'api.example.com , , docs.example.com',
+          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -275,7 +275,7 @@ describe('toAgentEntryPatch', () => {
     );
 
     expect(
-      (entry as { container: Record<string, unknown> }).container.network,
+      (entry as { environment: Record<string, unknown> }).environment.network,
     ).toEqual({
       mode: 'allowlist',
       allow: ['10.0.0.0/8', '192.168.1.0/24'],
@@ -292,11 +292,11 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          containerName: 'dev',
-          containerNetworkMode: 'none',
-          containerAllow: '10.0.0.0/8',
-          containerHosts: 'api.example.com',
-          containerDns: '10.0.0.53',
+          environmentName: 'dev',
+          environmentNetworkMode: 'none',
+          environmentAllow: '10.0.0.0/8',
+          environmentHosts: 'api.example.com',
+          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -304,7 +304,7 @@ describe('toAgentEntryPatch', () => {
     );
 
     expect(
-      (entry as { container: Record<string, unknown> }).container.network,
+      (entry as { environment: Record<string, unknown> }).environment.network,
     ).toEqual({
       mode: 'none',
       allow: [],
@@ -320,11 +320,11 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          containerName: 'dev',
-          containerNetworkMode: 'open',
-          containerAllow: '10.0.0.0/8',
-          containerHosts: 'api.example.com',
-          containerDns: '10.0.0.53',
+          environmentName: 'dev',
+          environmentNetworkMode: 'open',
+          environmentAllow: '10.0.0.0/8',
+          environmentHosts: 'api.example.com',
+          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -332,7 +332,7 @@ describe('toAgentEntryPatch', () => {
     );
 
     expect(
-      (entry as { container: Record<string, unknown> }).container.network,
+      (entry as { environment: Record<string, unknown> }).environment.network,
     ).toEqual({
       mode: 'open',
       allow: [],
@@ -350,23 +350,23 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          containerName: '',
-          containerNetworkMode: 'allowlist',
-          containerAllow: '10.0.0.0/8',
-          containerHosts: 'api.example.com',
-          containerDns: '10.0.0.53',
+          environmentName: '',
+          environmentNetworkMode: 'allowlist',
+          environmentAllow: '10.0.0.0/8',
+          environmentHosts: 'api.example.com',
+          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
       ),
     );
 
-    expect((entry as { container: Record<string, unknown> }).container).toEqual(
-      {
-        name: '',
-        network: { mode: 'none', allow: [], hosts: [], dns: [] },
-      },
-    );
+    expect(
+      (entry as { environment: Record<string, unknown> }).environment,
+    ).toEqual({
+      name: '',
+      network: { mode: 'none', allow: [], hosts: [], dns: [] },
+    });
   });
 
   it('reports every bad field at once, not the first', () => {

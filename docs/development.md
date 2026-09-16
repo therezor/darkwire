@@ -191,7 +191,7 @@ published tarball, and a silently wrong version is worse than a missing one. A c
 binary has no such ambiguity: `env!("CARGO_PKG_VERSION")` is fixed at build time and is
 what both `ghostai --version` and `GET /api/status` report.
 
-The agent presets and containers are no longer part of this repository — they live in the
+The agent presets and environments are no longer part of this repository. They live in the
 separately versioned [`GhostAI-presets`](https://github.com/therezor/GhostAI-presets)
 repository and are released on their own cadence.
 

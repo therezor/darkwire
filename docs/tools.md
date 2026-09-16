@@ -20,16 +20,16 @@ per-agent permission, so being a tool is what makes each feature switchable with
 config flag beside it that could disagree. Denying either removes its prompt section too.
 See [Memory](memory.md) and [Skills](skills.md).
 
-| Tool         | Args                                        | Risk band | Does                                                                                      |
-| ------------ | ------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
-| `read_file`  | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                            |
-| `list_dir`   | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                        |
-| `write_file` | `path`, `content`                           | `write`   | Creates or overwrites.                                                                    |
-| `edit_file`  | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                  |
-| `exec`       | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](containers.md) when the agent names one. |
-| `automation` | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                    |
-| `memory`     | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                        |
-| `skill`      | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                         |
+| Tool         | Args                                        | Risk band | Does                                                                                        |
+| ------------ | ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `read_file`  | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                              |
+| `list_dir`   | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                          |
+| `write_file` | `path`, `content`                           | `write`   | Creates or overwrites.                                                                      |
+| `edit_file`  | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                    |
+| `exec`       | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `automation` | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                      |
+| `memory`     | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                          |
+| `skill`      | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
 takes an argv array, never a command string.
@@ -85,7 +85,7 @@ to the session that caused it.
 More tools arrive two ways: from a subagent, which appears as `ask_<id>` (see
 [Architecture](architecture.md#subagents)), and from an MCP server.
 
-**A [container](containers.md) adds no tools.** It decides _where_ `exec` runs, not what
+**A [container](environments.md) adds no tools.** It decides _where_ `exec` runs, not what
 an agent may call — the agent's `tools` permission map stays the whole authority, with or
 without one. So an agent gains nothing by being given a container and loses nothing by
 having one taken away, beyond where its commands land.

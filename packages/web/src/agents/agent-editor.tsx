@@ -42,6 +42,7 @@ import {
   DEFAULT_MEMORY_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
   DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
+  ENVIRONMENT_PROMPT_PLACEHOLDERS,
   DEFAULT_PLATFORM_HOST_TEMPLATE,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
@@ -206,9 +207,9 @@ const VOLATILE: readonly string[] = [
  * The tool pinned to the top of the list.
  *
  * A name rather than a risk band: `exec` is the specific tool that runs a
- * program on the host, and pinning the whole `exec` band would float every
- * container program with it — which is the second list, in its own group, where
- * manifest order is the useful order.
+ * program, and pinning the whole `exec` band would float every MCP tool that
+ * shares it, which is the second list, in its own group, where source order is
+ * the useful order.
  */
 const EXEC_TOOL = 'exec';
 
@@ -244,13 +245,19 @@ const FEATURE_TOOLS: ReadonlySet<string> = new Set(['memory', 'skill']);
 const MCP_TOOL_PREFIX = 'mcp_';
 
 /**
- * The dropdown's stand-in for "no container".
+ * The dropdown's value for the host.
+ *
+ * **The host is an environment, not the absence of one.** It is where commands
+ * run when no definition is named, and the prompt says so in its own words. The
+ * config spells it as an empty name because there is no definition file to
+ * point at, but nothing above that layer should read it as "none chosen".
  *
  * A `SelectItem` may not carry an empty value — Radix reserves it for "nothing
- * chosen" — so the option that clears the field needs a value of its own. It
- * begins with `-`, which cannot collide with an installed container name.
+ * chosen", which is exactly the meaning to avoid here, so this option needs a
+ * value of its own. It begins with `-`, which cannot collide with an installed
+ * environment name.
  */
-const NO_CONTAINER = '-none-';
+const HOST_ENVIRONMENT = '-host-';
 
 /**
  * Creating an agent, on the page that edits one.
@@ -409,30 +416,30 @@ function Editor({
     queryFn: ({ signal }) => api.tools(signal),
   });
 
-  const containers = useQuery({
-    queryKey: queryKeys.containers,
-    queryFn: ({ signal }) => api.containers(signal),
+  const environments = useQuery({
+    queryKey: queryKeys.environments,
+    queryFn: ({ signal }) => api.environments(signal),
   });
 
   const resolved = agents.data?.agents.find((agent) => agent.id === agentId);
 
-  const containerOptions = [
-    { value: NO_CONTAINER, label: t('agents.containerSystem') },
-    ...(containers.data?.containers ?? []).map((container) => ({
-      value: container.name,
-      label: container.shared
-        ? t('agents.containerOptionShared', { name: container.name })
-        : t('agents.containerOptionPrivate', { name: container.name }),
+  const environmentOptions = [
+    { value: HOST_ENVIRONMENT, label: t('agents.environmentHost') },
+    ...(environments.data?.environments ?? []).map((environment) => ({
+      value: environment.name,
+      label: environment.shared
+        ? t('agents.environmentOptionShared', { name: environment.name })
+        : t('agents.environmentOptionPrivate', { name: environment.name }),
     })),
   ];
-  const chosenContainer = containers.data?.containers.find(
-    (container) => container.name === form.containerName,
+  const chosenEnvironment = environments.data?.environments.find(
+    (environment) => environment.name === form.environmentName,
   );
 
   const networkOptions = [
-    { value: 'none', label: t('agents.containerNetworkNone') },
-    { value: 'allowlist', label: t('agents.containerNetworkAllowlist') },
-    { value: 'open', label: t('agents.containerNetworkOpen') },
+    { value: 'none', label: t('agents.environmentNetworkNone') },
+    { value: 'allowlist', label: t('agents.environmentNetworkAllowlist') },
+    { value: 'open', label: t('agents.environmentNetworkOpen') },
   ] as const;
 
   const update = <K extends keyof AgentEntryForm>(
@@ -1131,7 +1138,7 @@ function Editor({
         )}
 
         {/* Below the action tools rather than above them, and under the same
-            kind of heading the container group uses. An operator scanning for
+            kind of heading the environment group uses. An operator scanning for
             "what may this agent do in a turn" reads the list above; these two
             are read when the question is "does this agent have memory at all",
             which is the question the switches near the top answer. */}
@@ -1213,38 +1220,43 @@ function Editor({
         )}
       </Section>
 
-      {/* After the tools, because a container decides where built-in exec runs. */}
+      {/* After the tools, because an environment decides where exec runs. */}
       <Section
-        title={t('agents.containerSection')}
-        description={t('agents.containerDesc')}
+        title={t('agents.environmentSection')}
+        description={t('agents.environmentDesc')}
       >
-        {containers.isPending && (
-          <p className="page__note">{t('agents.containerLoading')}</p>
+        {environments.isPending && (
+          <p className="page__note">{t('agents.environmentLoading')}</p>
         )}
-        {containers.data?.containers.length === 0 && (
-          <p className="page__note">{t('agents.containerNoProfiles')}</p>
+        {environments.data?.environments.length === 0 && (
+          <p className="page__note">{t('agents.environmentNoProfiles')}</p>
         )}
 
         <FieldGrid>
           <SelectField
-            label={t('agents.containerProfile')}
+            label={t('agents.environmentProfile')}
             value={
-              form.containerName === '' ? NO_CONTAINER : form.containerName
+              form.environmentName === ''
+                ? HOST_ENVIRONMENT
+                : form.environmentName
             }
             onValueChange={(value) => {
-              update('containerName', value === NO_CONTAINER ? '' : value);
+              update(
+                'environmentName',
+                value === HOST_ENVIRONMENT ? '' : value,
+              );
             }}
-            options={containerOptions}
+            options={environmentOptions}
           />
-          {/* Only with a container. Egress is enforced by the container's
+          {/* Only with an environment. Egress is enforced by its
               gateway, so offering the control without one would be offering a
               setting the save refuses. */}
-          {chosenContainer !== undefined && (
+          {chosenEnvironment !== undefined && (
             <SelectField
-              label={t('agents.containerNetwork')}
-              value={form.containerNetworkMode}
+              label={t('agents.environmentNetwork')}
+              value={form.environmentNetworkMode}
               onValueChange={(value) => {
-                update('containerNetworkMode', value);
+                update('environmentNetworkMode', value);
               }}
               options={networkOptions}
             />
@@ -1253,63 +1265,63 @@ function Editor({
 
         {/* Only the states an operator has to act on. A manifest that parses
             needs no line of its own. */}
-        {chosenContainer !== undefined && (
+        {chosenEnvironment !== undefined && (
           <p className="page__note">
-            {chosenContainer.shared
-              ? t('agents.containerShared', { container: chosenContainer.name })
-              : t('agents.containerPrivate', {
-                  container: chosenContainer.name,
+            {chosenEnvironment.shared
+              ? t('agents.environmentShared', { name: chosenEnvironment.name })
+              : t('agents.environmentPrivate', {
+                  name: chosenEnvironment.name,
                 })}
           </p>
         )}
-        {chosenContainer?.problem !== undefined && (
-          <p className="page__note">{chosenContainer.problem}</p>
+        {chosenEnvironment?.problem !== undefined && (
+          <p className="page__note">{chosenEnvironment.problem}</p>
         )}
-        {chosenContainer !== undefined &&
-          chosenContainer.weakened.length > 0 && (
+        {chosenEnvironment !== undefined &&
+          chosenEnvironment.weakened.length > 0 && (
             <p className="page__note">
-              {t('agents.containerWeakened', {
-                what: chosenContainer.weakened.join(', '),
+              {t('agents.environmentWeakened', {
+                what: chosenEnvironment.weakened.join(', '),
               })}
             </p>
           )}
         {/* Resolved by the server from the definition's own uid, privileges and
             capabilities, so an operator learns a restricted allow-list is
             impossible here while they are still choosing rather than on save. */}
-        {chosenContainer?.gatewayProblem !== undefined &&
-          form.containerNetworkMode === 'allowlist' && (
+        {chosenEnvironment?.gatewayProblem !== undefined &&
+          form.environmentNetworkMode === 'allowlist' && (
             <p className="page__note">
-              {t('agents.containerGatewayProblem', {
-                why: chosenContainer.gatewayProblem,
+              {t('agents.environmentGatewayProblem', {
+                why: chosenEnvironment.gatewayProblem,
               })}
             </p>
           )}
-        {chosenContainer !== undefined &&
-          form.containerNetworkMode === 'allowlist' && (
+        {chosenEnvironment !== undefined &&
+          form.environmentNetworkMode === 'allowlist' && (
             <>
               <TextField
-                label={t('agents.containerAllow')}
-                value={form.containerAllow}
+                label={t('agents.environmentAllow')}
+                value={form.environmentAllow}
                 onValueChange={(value) => {
-                  update('containerAllow', value);
+                  update('environmentAllow', value);
                 }}
-                hint={t('agents.containerAllowHint')}
+                hint={t('agents.environmentAllowHint')}
               />
               <TextField
-                label={t('agents.containerHosts')}
-                value={form.containerHosts}
+                label={t('agents.environmentHosts')}
+                value={form.environmentHosts}
                 onValueChange={(value) => {
-                  update('containerHosts', value);
+                  update('environmentHosts', value);
                 }}
-                hint={t('agents.containerHostsHint')}
+                hint={t('agents.environmentHostsHint')}
               />
               <TextField
-                label={t('agents.containerDns')}
-                value={form.containerDns}
+                label={t('agents.environmentDns')}
+                value={form.environmentDns}
                 onValueChange={(value) => {
-                  update('containerDns', value);
+                  update('environmentDns', value);
                 }}
-                hint={t('agents.containerDnsHint')}
+                hint={t('agents.environmentDnsHint')}
               />
             </>
           )}
@@ -1487,7 +1499,7 @@ function Editor({
                     name={name}
                     label="agents.promptPlatform"
                     builtIn={
-                      form.containerName.trim() === ''
+                      form.environmentName.trim() === ''
                         ? DEFAULT_PLATFORM_HOST_TEMPLATE
                         : DEFAULT_PLATFORM_CONTAINER_TEMPLATE
                     }
@@ -1508,6 +1520,32 @@ function Editor({
                       : {})}
                     onChange={(next) => {
                       update('platformPrompt', next);
+                    }}
+                  />
+                  {/* After the command policy, which says *where* commands
+                      run: this says what is *there*. Its built-in is the chosen
+                      environment's own `prompt` rather than anything this repo
+                      ships. Nobody but the operator knows what is installed in
+                      an image, so an agent on the host has nothing to inherit
+                      and the section is simply not placed. */}
+                  <TemplateEditor
+                    key={`${String(formEpoch)}-environment`}
+                    name={name}
+                    label="agents.promptEnvironment"
+                    builtIn={chosenEnvironment?.prompt ?? ''}
+                    value={form.environmentPrompt}
+                    placeholders={ENVIRONMENT_PROMPT_PLACEHOLDERS}
+                    hint="agents.promptEnvironmentHint"
+                    {...(toolsOff
+                      ? {
+                          warning: {
+                            title: t('agents.toolsOffTitle'),
+                            message: t('agents.promptNotPlacedNoTools'),
+                          },
+                        }
+                      : {})}
+                    onChange={(next) => {
+                      update('environmentPrompt', next);
                     }}
                   />
                   <TemplateEditor

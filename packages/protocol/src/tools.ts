@@ -55,11 +55,10 @@ export type ToolPermissions = z.infer<typeof ToolPermissionsSchema>;
  * The tools that ship in the box.
  *
  * Here rather than in `ghostai-tools`, which is where they are actually
- * defined, because two packages downstream need the *names* without the
- * implementations: `ghostai-security` refuses a container that shadows one, and
- * `DEFAULT_AGENT_TOOLS` in `config.ts` seeds a new agent with them. Both sit
- * below `tools` in the layer graph. `packages/tools` owns a test that this list
- * still matches `BUILTIN_TOOLS`, which is the only place both are visible.
+ * defined, because `DEFAULT_AGENT_TOOLS` in `config.ts` needs the *names*
+ * without the implementations, to seed a new agent with them, and sits below
+ * `tools` in the layer graph. `packages/tools` owns a test that this list still
+ * matches `BUILTIN_TOOLS`, which is the only place both are visible.
  */
 export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'read_file',

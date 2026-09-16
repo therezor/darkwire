@@ -40,6 +40,11 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     summary: 'settings.panels.tools.summary',
   },
   {
+    id: 'environments',
+    label: 'settings.panels.environments.label',
+    summary: 'settings.panels.environments.summary',
+  },
+  {
     id: 'account',
     label: 'settings.panels.account.label',
     summary: 'settings.panels.account.summary',

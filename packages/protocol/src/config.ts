@@ -516,9 +516,9 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
   });
 
 /**
- * How much of the network an agent's container reaches.
+ * How much of the network an agent's environment reaches.
  *
- * The one place egress is configured. A container definition decides whether a
+ * The one place egress is configured. An environment definition decides whether a
  * restricted gateway *can* be built — a non-root numeric uid, no-new-privs, no
  * packet-forging capability — and this decides what that gateway permits.
  * Splitting the two across both files is what produced a "ceiling" nobody could
@@ -535,7 +535,7 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
 export const NetworkModeSchema = z.enum(['none', 'allowlist', 'open']);
 export type NetworkMode = z.infer<typeof NetworkModeSchema>;
 
-export const ContainerNetworkSchema = z.object({
+export const EnvironmentNetworkSchema = z.object({
   mode: NetworkModeSchema.default('none'),
   /** CIDRs the packet filter permits, for `allowlist`. */
   allow: z.array(z.string()).default([]),
@@ -545,19 +545,19 @@ export const ContainerNetworkSchema = z.object({
    * Resolvers the gateway permits on port 53, as IP literals.
    *
    * Empty is correct for a host allow-list, where the proxy resolves names on
-   * the container's behalf, and wrong for a CIDR allow-list, where nothing in
-   * the container can resolve a name without one.
+   * the environment's behalf, and wrong for a CIDR allow-list, where nothing in
+   * the environment can resolve a name without one.
    */
   dns: z.array(z.string()).default([]),
 });
-export type ContainerNetwork = z.infer<typeof ContainerNetworkSchema>;
+export type EnvironmentNetwork = z.infer<typeof EnvironmentNetworkSchema>;
 
 /**
  * Where this agent's command operations run, and what they can reach.
  *
  * An empty `name` is the behaviour that has always existed: a child process on
  * the machine running GhostAI, inside the workspace jail, where a network
- * request means nothing and is refused rather than ignored. A named container
+ * request means nothing and is refused rather than ignored. A named environment
  * routes command operations through the sandbox service instead.
  *
  * The image, capabilities, hardening and sharing live in the installed
@@ -566,13 +566,13 @@ export type ContainerNetwork = z.infer<typeof ContainerNetworkSchema>;
  * image, and a single place to configure it is worth more than a second ceiling
  * nobody could locate.
  */
-export const AgentContainerSchema = z.object({
-  /** An installed container name, or empty to run on the host. */
+export const AgentEnvironmentSchema = z.object({
+  /** An installed environment name, or empty to run on the host. */
   name: z.string().default(''),
-  /** What this agent's container may reach. */
-  network: ContainerNetworkSchema.prefault({}),
+  /** What this agent's environment may reach. */
+  network: EnvironmentNetworkSchema.prefault({}),
 });
-export type AgentContainer = z.infer<typeof AgentContainerSchema>;
+export type AgentEnvironment = z.infer<typeof AgentEnvironmentSchema>;
 
 /**
  * Another agent this one may hand a task to.
@@ -680,16 +680,26 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
   /**
    * The `## Running commands` section, as a template. Fills `{{platformPolicy}}`.
    *
-   * Empty means the built-in for this agent's placement — `exec` on the host
-   * and `exec` in a container get different defaults, and which one applies is
-   * decided by `container.name` rather than by anything written here. A single
-   * space removes the section.
+   * Empty means the built-in for this agent's placement. `exec` on the host and
+   * `exec` in an environment get different defaults, and which one applies is
+   * decided per turn, because a subagent inherits its caller's environment. A
+   * single space removes the section.
    *
    * Editing it does not widen anything. Where a command may reach is decided by
    * `guardExec` and the workspace jail, neither of which reads the prompt; this
    * is the sentence that tells the model what those two will do.
    */
   platformPrompt: z.string().default(''),
+  /**
+   * The `## Environment` section, as a template. Fills `{{environment}}`.
+   *
+   * Empty inherits the environment definition's own `prompt`; a single space
+   * removes it. Unlike every other template here there is no built-in below the
+   * inheritance, so "inherit" can still resolve to nothing. An agent on the
+   * host, or in an environment whose definition says nothing about itself,
+   * places no section at all.
+   */
+  environmentPrompt: z.string().default(''),
   /**
    * The `## Tool output policy` section, as a template.
    *
@@ -756,7 +766,7 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
   /** Merged over `tools.exec`, so one agent can hold a tighter allow-list. */
   exec: patchOf(ExecToolConfigSchema).optional(),
   /** Command placement for the built-in `exec` tool. */
-  container: AgentContainerSchema.prefault({}),
+  environment: AgentEnvironmentSchema.prefault({}),
   /**
    * Agents this one may delegate to. Order is the order the model sees them.
    *
@@ -985,9 +995,9 @@ export const ConfigPatchSchema = z.strictObject({
               // without it a save that only changes the mode would have to
               // resend `allow` — which is how a settings panel silently clears
               // the allow-list it never rendered.
-              container: patchOf(AgentContainerSchema)
+              environment: patchOf(AgentEnvironmentSchema)
                 .extend({
-                  network: patchOf(ContainerNetworkSchema).optional(),
+                  network: patchOf(EnvironmentNetworkSchema).optional(),
                 })
                 .optional(),
               // `subagents` is deliberately *not* restated beside these. It is
@@ -1119,7 +1129,7 @@ export interface AgentSettingsChange {
  * Written once because of the rule it encodes: **`agents.list.*` is in the
  * merge's `REPLACE_WHOLESALE` list, so the patch *is* the agent.** A patch naming
  * `model` alone does not set one field — it replaces the entry and takes the
- * label, the system prompt, the tools, the container and the subagent roster with
+ * label, the system prompt, the tools, the environment and the subagent roster with
  * it. So the stored entry is read, spread, and sent back whole, and clearing a
  * field means deleting the key rather than nulling it.
  *

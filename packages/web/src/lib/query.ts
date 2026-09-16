@@ -24,8 +24,8 @@ export const queryKeys = {
   status: ['status'] as const,
   workspaces: ['workspaces'] as const,
   agents: ['agents'] as const,
-  containers: ['containers'] as const,
-  containerInstances: ['container-instances'] as const,
+  environments: ['environments'] as const,
+  environmentInstances: ['environment-instances'] as const,
   /** Live connection state, which is not in the settings tree. See `use-mcp.ts`. */
   mcp: ['mcp'] as const,
   /** Which extensions loaded, and why the rest did not. See `use-extensions.ts`. */

@@ -2,7 +2,7 @@
 
 The sandbox service owns Docker or Podman. The GhostAI app talks to it through a
 versioned, bounded Unix socket and never needs the container runtime socket. The service
-accepts only registered workspace IDs, container names and an argv array; a client cannot
+accepts only registered workspace IDs, environment names and an argv array; a client cannot
 submit an image, a mount, a raw daemon argument or a shell command. The container
 definition and the placement it implies are checked independently on every request,
 against the policy directory rather than the caller's word.
@@ -19,7 +19,7 @@ try to reap the other's containers.
 ## Container deployment
 
 Copy `deploy/sandbox/examples` into an absolute data directory as `policies`, replace the
-example image placeholder with a digest or local image ID, then install each container
+example image placeholder with a digest or local image ID, then install each environment
 definition from an operator-controlled installation. Build the gateway image when any
 agent asks for `allowlist` egress:
 
@@ -49,7 +49,7 @@ it before exposing it beyond the machine.
 - **`serve-env`** — the mode `deploy/sandbox/compose.yaml` uses. Every path is the fixed
   one inside the image, and `GHOSTAI_DATA_DIR` supplies the absolute host path the daemon
   sees for the same directories. `GHOSTAI_GATEWAY_IMAGE` and
-  `GHOSTAI_SANDBOX_CONTAINERS` fill in the rest; the latter defaults to `dev`. It
+  `GHOSTAI_ENVIRONMENTS` fill in the rest; the latter defaults to `dev`. It
   registers one workspace, `default`.
 - **a path** — the config file below, which is the only mode that can register more than
   one workspace or point at a daemon whose paths differ from the service's own.
@@ -70,7 +70,7 @@ Run `ghostai-environment /absolute/path/service.json` with:
     "default": {
       "path": "/srv/ghostai/workspaces/default",
       "daemonPath": "/srv/ghostai/workspaces/default",
-      "containers": ["dev"]
+      "environments": ["dev"]
     }
   }
 }
@@ -90,7 +90,7 @@ The CLI and Settings → Tools use the same management protocol:
 ```bash
 ghostai sandbox health
 ghostai sandbox list
-ghostai sandbox start --container dev --workspace default
+ghostai sandbox start --environment dev --workspace default
 ghostai sandbox stop INSTANCE
 ghostai sandbox restart INSTANCE
 ghostai sandbox stop INSTANCE --force

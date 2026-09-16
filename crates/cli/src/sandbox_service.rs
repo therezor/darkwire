@@ -16,8 +16,8 @@
 //! The workspace registration is generated rather than configured, and that is
 //! the one place this differs from a deployed service. That allow-list exists
 //! to bound a *remote* app: it is what stops an app in another trust domain
-//! naming a container the operator never meant it to reach. An embedded service
-//! is the same operator, the same process tree and the same policy directory,
+//! naming an environment the operator never meant it to reach. An embedded
+//! service is the same operator, the same process tree and the same policy directory,
 //! so it registers every workspace in the registry against every installed
 //! definition — and the approval each one still needs is unchanged.
 //!
@@ -49,7 +49,7 @@ const BIND_TIMEOUT_MS: u64 = 2_000;
 ///
 /// Returns the task that owns it, which the caller keeps alive for as long as
 /// the server runs. `None` means somebody else owns the socket, or nothing
-/// installed could ask for a container.
+/// installed could ask for an environment.
 pub async fn start_embedded(
     paths: &GhostPaths,
     workspaces: &WorkspaceStore,
@@ -66,26 +66,26 @@ pub async fn start_embedded(
     if env.get("GHOSTAI_SANDBOX_SOCKET").is_some() {
         // Named but not answering. Started here it would bind a path the
         // operator pointed elsewhere for a reason, so the refusal is left to
-        // the first command that needs a container, where it can name the
+        // the first command that needs an environment, where it can name the
         // socket that did not answer.
         return None;
     }
 
     let policies = PolicyStore::new(paths.policy_dir.clone());
-    let containers: Vec<String> = policies
-        .list_containers()
+    let environments: Vec<String> = policies
+        .list_environments()
         .into_iter()
         .map(|entry| entry.name)
         .collect();
-    if containers.is_empty() {
-        // Nothing could name a container, so binding a socket and holding a
+    if environments.is_empty() {
+        // Nothing could name an environment, so binding a socket and holding a
         // maintenance timer open would buy nothing. An operator who installs
         // one afterwards restarts `serve`, which is what they would do to pick
         // up the approval anyway.
         return None;
     }
 
-    let registrations = registrations(paths, workspaces, &containers);
+    let registrations = registrations(paths, workspaces, &environments);
     let state_root = paths.root.join("sandbox");
     let config = ServiceConfig {
         socket: socket.clone(),
@@ -106,8 +106,8 @@ pub async fn start_embedded(
         workspaces: registrations,
     };
     let task = Arc::new(tokio::spawn(async move {
-        // A failure here is not a boot failure. Everything that does not need a
-        // container keeps working, and the first command that does gets a
+        // A failure here is not a boot failure. Everything that does not need an
+        // environment keeps working, and the first command that does gets a
         // sentence naming the socket that was not there.
         if let Err(error) = ghostai_environment::service::serve(config).await {
             tracing::warn!(error = %error.message, "the embedded sandbox service stopped");
@@ -128,14 +128,14 @@ pub async fn start_embedded(
 fn registrations(
     paths: &GhostPaths,
     workspaces: &WorkspaceStore,
-    containers: &[String],
+    environments: &[String],
 ) -> BTreeMap<String, WorkspaceRegistration> {
     let records = workspaces.list().unwrap_or_else(|error| {
         // Registering nothing in silence would make every containerised turn
         // report "Workspace is not registered", which names the wrong problem.
         tracing::warn!(
             error = %error.message,
-            "could not read the workspace registry; no workspace can run a container"
+            "could not read the workspace registry; no workspace can run an environment"
         );
         Vec::new()
     });
@@ -149,7 +149,7 @@ fn registrations(
             WorkspaceRegistration {
                 daemon_path: path.clone(),
                 path,
-                containers: containers.to_vec(),
+                environments: environments.to_vec(),
             },
         );
     }
@@ -160,7 +160,7 @@ fn registrations(
 ///
 /// Elapsing is not an error here. The service logs its own failure, and the
 /// first request that needs it reports the socket by name — waiting longer at
-/// boot would only delay a server that works without containers.
+/// boot would only delay a server that works without environments.
 async fn await_socket(socket: &std::path::Path) {
     let deadline = std::time::Duration::from_millis(BIND_TIMEOUT_MS);
     let poll = tokio::time::Duration::from_millis(10);

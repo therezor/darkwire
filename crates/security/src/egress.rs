@@ -17,11 +17,11 @@
 use std::fmt::Write as _;
 
 use ghostai_core::Result;
-use ghostai_protocol::container::ContainerDefinition;
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::environment::EnvironmentDefinition;
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 
-use crate::container::assert_gateway_compatible;
-use crate::container::invalid;
+use crate::environment::assert_gateway_compatible;
+use crate::environment::invalid;
 use crate::parse_cidr;
 
 /// The uid the egress proxy runs as. Reserved: traffic from it is accepted
@@ -33,8 +33,8 @@ pub const PROXY_PORT: u16 = 3128;
 
 /// Compile one approved request. No engine-owned host tables are changed.
 pub fn gateway_rules(
-    container: &ContainerDefinition,
-    network: &ContainerNetwork,
+    container: &EnvironmentDefinition,
+    network: &EnvironmentNetwork,
 ) -> Result<String> {
     if network.mode != NetworkMode::Allowlist {
         return Err(invalid("Gateway requires restricted egress"));

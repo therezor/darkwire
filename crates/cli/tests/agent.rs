@@ -3,7 +3,7 @@
 //! What is asserted here is the *merge*: that a preset lands in `agents.list`
 //! exactly once, that the refusals fire before the write, and that the roster
 //! snapshot offers only specialists that can answer. The preset shape itself is
-//! `ghostai-protocol`'s and the container gate is `ghostai-security`'s — both
+//! `ghostai-protocol`'s and the environment gate is `ghostai-security`'s. Both
 //! already tested where they live.
 //!
 //! Every run points `GHOSTAI_CATALOGUE` somewhere this file controls, including
@@ -116,20 +116,20 @@ impl Home {
         self.path().join("policy")
     }
 
-    /// A container definition on disk.
-    fn container(&self, name: &str) {
-        let dir = self.policy().join("containers");
-        std::fs::create_dir_all(&dir).expect("a containers directory");
+    /// An environment definition on disk.
+    fn environment(&self, name: &str) {
+        let dir = self.policy().join("environments");
+        std::fs::create_dir_all(&dir).expect("an environments directory");
         std::fs::write(
             dir.join(format!("{name}.yaml")),
             json!({
-                "schema": "ghostai.container/1",
+                "schema": "ghostai.environment/1",
                 "name": name,
                 "image": format!("sha256:{}", "d".repeat(64)),
             })
             .to_string(),
         )
-        .expect("a container definition");
+        .expect("an environment definition");
     }
 
     /// A preset in `<root>/presets`, the operator's own directory.
@@ -232,18 +232,18 @@ fn installs_a_preset_by_its_id() {
 }
 
 #[test]
-fn refuses_a_preset_whose_container_is_not_installed() {
+fn refuses_a_preset_whose_environment_is_not_installed() {
     let home = Home::new();
     home.preset(
         "scout",
-        &preset_for("scout", &json!({"container": {"name": "dev"}})),
+        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 1);
     assert!(
-        run.errors.contains("No container is installed"),
+        run.errors.contains("No environment is installed"),
         "{}",
         run.errors
     );
@@ -251,38 +251,38 @@ fn refuses_a_preset_whose_container_is_not_installed() {
 }
 
 #[test]
-fn installs_a_preset_naming_a_container() {
+fn installs_a_preset_naming_an_environment() {
     let home = Home::new();
-    home.container("dev");
+    home.environment("dev");
     home.preset(
         "scout",
-        &preset_for("scout", &json!({"container": {"name": "dev"}})),
+        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
+    assert_eq!(home.agent("scout")["environment"]["name"], json!("dev"));
 }
 
 #[test]
-fn installs_a_container_for_builtin_exec() {
+fn installs_an_environment_for_builtin_exec() {
     let home = Home::new();
-    home.container("dev");
+    home.environment("dev");
     home.preset(
         "scout",
-        &preset_for("scout", &json!({"container": {"name": "dev"}})),
+        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
+    assert_eq!(home.agent("scout")["environment"]["name"], json!("dev"));
 }
 
 #[test]
-fn refuses_a_network_request_from_a_preset_that_names_no_container() {
-    // Egress is scoped by the container's gateway, so a request made without
+fn refuses_a_network_request_from_a_preset_that_names_no_environment() {
+    // Egress is scoped by the environment's gateway, so a request made without
     // one means nothing — and silently ignoring it would leave the config
     // saying one thing and the agent doing another.
     let home = Home::new();
@@ -290,33 +290,41 @@ fn refuses_a_network_request_from_a_preset_that_names_no_container() {
         "scout",
         &preset_for(
             "scout",
-            &json!({"container": {"network": {"mode": "open"}}}),
+            &json!({"environment": {"network": {"mode": "open"}}}),
         ),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 1);
-    assert!(run.errors.contains("names no container"), "{}", run.errors);
+    assert!(
+        run.errors.contains("names no environment"),
+        "{}",
+        run.errors
+    );
     assert!(home.config().is_none(), "nothing was written");
 }
 
 #[test]
 fn refuses_a_network_request_from_a_preset_that_names_nothing_at_all() {
-    // The same refusal on a preset that names no container.
+    // The same refusal on a preset that names no environment.
     let home = Home::new();
     home.preset(
         "scout",
         &preset_for(
             "scout",
-            &json!({"container": {"network": {"mode": "open"}}}),
+            &json!({"environment": {"network": {"mode": "open"}}}),
         ),
     );
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 1);
-    assert!(run.errors.contains("names no container"), "{}", run.errors);
+    assert!(
+        run.errors.contains("names no environment"),
+        "{}",
+        run.errors
+    );
     assert!(home.config().is_none(), "nothing was written");
 }
 
@@ -356,13 +364,13 @@ fn refuses_an_egress_request_nothing_could_enforce() {
         ),
     ] {
         let home = Home::new();
-        home.container("dev");
+        home.environment("dev");
         home.preset(
             "scout",
             &preset_for(
                 "scout",
                 &json!({
-                    "container": {"name": "dev", "network": network},
+                    "environment": {"name": "dev", "network": network},
                 }),
             ),
         );

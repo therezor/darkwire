@@ -25,7 +25,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::Value;
 
 use crate::{
-    automation, config, container, extension, messages, preset, rest, subagent, tools, ws,
+    automation, config, environment, extension, messages, preset, rest, subagent, tools, ws,
 };
 
 /// One published schema: the name the browser's registry uses, and how to
@@ -320,12 +320,12 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::ToolsConfig>,
     },
     RegisteredSchema {
-        name: "ContainerNetwork",
-        schema: schema_for::<config::ContainerNetwork>,
+        name: "EnvironmentNetwork",
+        schema: schema_for::<config::EnvironmentNetwork>,
     },
     RegisteredSchema {
-        name: "AgentContainer",
-        schema: schema_for::<config::AgentContainer>,
+        name: "AgentEnvironment",
+        schema: schema_for::<config::AgentEnvironment>,
     },
     RegisteredSchema {
         name: "SubagentRef",
@@ -363,30 +363,34 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         name: "ConfigPatch",
         schema: schema_for::<config::ConfigPatch>,
     },
-    // container
+    // environment
     RegisteredSchema {
-        name: "ContainerDefinition",
-        schema: schema_for::<container::ContainerDefinition>,
+        name: "EnvironmentDefinition",
+        schema: schema_for::<environment::EnvironmentDefinition>,
     },
     RegisteredSchema {
         name: "NetworkMode",
         schema: schema_for::<config::NetworkMode>,
     },
     RegisteredSchema {
+        name: "EnvironmentKind",
+        schema: schema_for::<environment::EnvironmentKind>,
+    },
+    RegisteredSchema {
         name: "ContainerRuntime",
-        schema: schema_for::<container::ContainerRuntime>,
+        schema: schema_for::<environment::ContainerRuntime>,
     },
     RegisteredSchema {
         name: "ContainerCaps",
-        schema: schema_for::<container::ContainerCaps>,
+        schema: schema_for::<environment::ContainerCaps>,
     },
     RegisteredSchema {
         name: "ContainerSecurity",
-        schema: schema_for::<container::ContainerSecurity>,
+        schema: schema_for::<environment::ContainerSecurity>,
     },
     RegisteredSchema {
         name: "ContainerLimits",
-        schema: schema_for::<container::ContainerLimits>,
+        schema: schema_for::<environment::ContainerLimits>,
     },
     // extension
     RegisteredSchema {
@@ -750,12 +754,12 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<rest::ToolListResponse>,
     },
     RegisteredSchema {
-        name: "ContainerSummary",
-        schema: schema_for::<rest::ContainerSummary>,
+        name: "EnvironmentSummary",
+        schema: schema_for::<rest::EnvironmentSummary>,
     },
     RegisteredSchema {
-        name: "ContainerListResponse",
-        schema: schema_for::<rest::ContainerListResponse>,
+        name: "EnvironmentListResponse",
+        schema: schema_for::<rest::EnvironmentListResponse>,
     },
     RegisteredSchema {
         name: "SandboxInstanceSummary",

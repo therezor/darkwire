@@ -386,6 +386,16 @@ export const PLATFORM_PROMPT_PLACEHOLDERS = [
 ] as const;
 
 /**
+ * What an *environment* template may ask for.
+ *
+ * Short on purpose. The image, the workdir and the user are facts about the
+ * definition the operator is already looking at while writing this, so offering
+ * them would be offering to retype what is on the screen. The workspace id is
+ * the one thing the definition cannot know.
+ */
+export const ENVIRONMENT_PROMPT_PLACEHOLDERS = ['workspaceId'] as const;
+
+/**
  * What a *tool-output policy* template may ask for.
  *
  * `tag` is what the envelopes actually carry and is what the text should name;
@@ -580,10 +590,11 @@ export const RAW_PROMPT_PLACEHOLDERS = [
    * out, raw mode places nothing and so has to be able to ask for it.
    */
   'platformPolicy',
+  /** What the environment says about itself. Empty when it says nothing. */
+  'environment',
   /** The rendered tool-output policy. No leading blank line — it is usually placed alone. */
   'toolPolicy',
   'nonce',
-  'tag',
   /** Every `ContextContributor.staticSection`, joined, with a leading blank line. */
   'contributors',
   /** Every `ContextContributor.runtimeSection`, joined, with a leading blank line. */

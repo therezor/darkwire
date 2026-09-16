@@ -95,6 +95,9 @@
                   "platformPrompt": {
                     "type": "string"
                   },
+                  "environmentPrompt": {
+                    "type": "string"
+                  },
                   "toolPolicyPrompt": {
                     "type": "string"
                   },
@@ -186,7 +189,7 @@
                       }
                     }
                   },
-                  "container": {
+                  "environment": {
                     "type": "object",
                     "properties": {
                       "name": {

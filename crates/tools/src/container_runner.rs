@@ -46,8 +46,8 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::container::{ContainerDefinition, ContainerRuntime, SeccompProfile};
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use ghostai_security::{ExecPlan, egress::PROXY_PORT};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -110,16 +110,16 @@ pub struct WorkspaceMount {
     /// `/data/workspace` gets the host's.
     pub host_path: String,
     /// `container.workdir`.
-    pub container_path: String,
+    pub environment_path: String,
 }
 
 /// What `docker run` needs for a session's sandbox.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContainerCreateOptions {
     /// The approved definition.
-    pub container: ContainerDefinition,
+    pub container: EnvironmentDefinition,
     /// What the agent asked to reach.
-    pub network: ContainerNetwork,
+    pub network: EnvironmentNetwork,
     /// The workspace mount.
     pub mount: WorkspaceMount,
     /// The container's name.
@@ -143,8 +143,8 @@ pub struct ContainerCreateOptions {
 impl ContainerCreateOptions {
     /// Options with no gateway, transcripts, sysfs masking or labels.
     pub fn new(
-        container: ContainerDefinition,
-        network: ContainerNetwork,
+        container: EnvironmentDefinition,
+        network: EnvironmentNetwork,
         mount: WorkspaceMount,
         container_name: impl Into<String>,
     ) -> ContainerCreateOptions {
@@ -171,7 +171,7 @@ impl ContainerCreateOptions {
 /// other respect. The floor belongs in code, where no data can lower it. The
 /// definition's own `drop` list is still emitted, so an operator can be
 /// explicit without that meaning anything different.
-fn capability_flags(container: &ContainerDefinition) -> Vec<String> {
+fn capability_flags(container: &EnvironmentDefinition) -> Vec<String> {
     let mut flags = vec!["--cap-drop=ALL".to_owned()];
     for capability in &container.caps.drop {
         if !capability.eq_ignore_ascii_case("ALL") {
@@ -339,7 +339,7 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
     argv.extend(network_flags(options)?);
 
     argv.push("--mount".to_owned());
-    argv.push(bind_mount(&mount.host_path, &mount.container_path, false));
+    argv.push(bind_mount(&mount.host_path, &mount.environment_path, false));
     // Read-only, so the agent can read its own truncated output and cannot
     // plant a symlink where the host is about to write the next one. Scoped to
     // this container's own subdirectory, so a shared instance does not hand one
@@ -362,7 +362,7 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
         ));
     }
     argv.push("--workdir".to_owned());
-    argv.push(mount.container_path.clone());
+    argv.push(mount.environment_path.clone());
 
     // Idle forever as PID 1's child. `tail -f /dev/null` rather than `sleep
     // infinity`, which busybox does not always accept.
@@ -380,7 +380,7 @@ pub struct ContainerExecOptions<'a> {
     /// The guarded command.
     pub plan: &'a ExecPlan,
     /// The approved definition.
-    pub container: &'a ContainerDefinition,
+    pub container: &'a EnvironmentDefinition,
     /// The container to run in.
     pub container_name: &'a str,
     /// Identifies this run's transcript directory and pid file.
@@ -609,7 +609,7 @@ pub type RunIdSource = Arc<dyn Fn() -> String + Send + Sync>;
 #[derive(Clone)]
 pub struct ContainerRunnerOptions {
     /// The approved definition.
-    pub container: ContainerDefinition,
+    pub container: EnvironmentDefinition,
     /// The container every command runs in.
     pub container_name: String,
     /// Host transcript root, shared by every container and long-lived.
@@ -646,7 +646,7 @@ impl std::fmt::Debug for ContainerRunnerOptions {
 /// `SIGTERM`→`SIGKILL` escalation and cancellation all stay in one
 /// implementation rather than being reimplemented slightly differently here.
 pub struct ContainerRunner {
-    container: ContainerDefinition,
+    container: EnvironmentDefinition,
     container_name: String,
     runs_root: PathBuf,
     bin: String,

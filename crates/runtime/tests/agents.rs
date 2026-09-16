@@ -168,7 +168,7 @@ mod resolve_agent {
         // Egress scoping is enforced by the container, so it means nothing on
         // the host.
         let tree = json!({"agents": {"list": {"net": {
-            "container": {"name": "", "network": {"mode": "open"}},
+            "environment": {"name": "", "network": {"mode": "open"}},
         }}}});
         let error = resolve_agent(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);
@@ -178,16 +178,16 @@ mod resolve_agent {
     #[test]
     fn accepts_a_container_for_builtin_exec() {
         let tree = json!({"agents": {"list": {"boxed": {
-            "container": {"name": "dev"},
+            "environment": {"name": "dev"},
         }}}});
         let agent = resolve_agent(&config(&tree), Some("boxed")).unwrap();
-        assert_eq!(agent.container.name, "dev");
+        assert_eq!(agent.environment.name, "dev");
     }
 
     #[test]
     fn refuses_an_egress_entry_that_is_not_a_cidr_block() {
         let tree = json!({"agents": {"list": {"net": {
-            "container": {
+            "environment": {
                 "name": "dev",
                 "network": {"mode": "allowlist", "allow": ["example.com"]},
             },
@@ -202,7 +202,7 @@ mod resolve_agent {
     #[test]
     fn resolves_an_agent_with_a_container_and_scoped_allow_list() {
         let tree = json!({"agents": {"list": {"net": {
-            "container": {
+            "environment": {
                 "name": "dev",
                 "network": {
                     "mode": "allowlist",
@@ -212,16 +212,16 @@ mod resolve_agent {
             },
         }}}});
         let agent = resolved(&tree, Some("net"));
-        assert_eq!(agent.container.name, "dev");
-        assert_eq!(agent.container.network.mode, NetworkMode::Allowlist);
-        assert_eq!(agent.container.network.dns, ["1.1.1.1"]);
+        assert_eq!(agent.environment.name, "dev");
+        assert_eq!(agent.environment.network.mode, NetworkMode::Allowlist);
+        assert_eq!(agent.environment.network.dns, ["1.1.1.1"]);
     }
 
     #[test]
     fn defaults_an_agent_with_no_container_entry_to_the_host() {
         let agent = resolved(&json!({}), None);
-        assert_eq!(agent.container.name, "");
-        assert_eq!(agent.container.network.mode, NetworkMode::None);
+        assert_eq!(agent.environment.name, "");
+        assert_eq!(agent.environment.network.mode, NetworkMode::None);
     }
 }
 
@@ -506,7 +506,7 @@ mod or_default {
         // for settings that were never going to work would hide the one thing
         // the operator needs to see.
         let tree = json!({"agents": {"list": {"net": {
-            "container": {"name": "dev", "network": {"mode": "allowlist", "allow": ["nope"]}},
+            "environment": {"name": "dev", "network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}});
         let error = resolve_agent_or_default(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);

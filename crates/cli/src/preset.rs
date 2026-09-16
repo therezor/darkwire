@@ -201,7 +201,7 @@ fn install_container(
             .with_source(error)
         })?
         .replace(IMAGE_PLACEHOLDER, &image_id);
-    let target = policy_dir.join("containers").join(format!("{name}.yaml"));
+    let target = policy_dir.join("environments").join(format!("{name}.yaml"));
     ensure_dir(target.parent().unwrap_or(&target))?;
     std::fs::write(&target, definition).map_err(|error| {
         GhostError::new(
@@ -563,7 +563,7 @@ fn install(
     // agents naming one container is one build.
     let mut containers: Vec<String> = Vec::new();
     for offer in chosen {
-        let name = &offer.preset.container.name;
+        let name = &offer.preset.environment.name;
         if !name.is_empty() && !containers.contains(name) {
             containers.push(name.clone());
         }
@@ -690,7 +690,7 @@ fn build_containers(
                 "    installed {}",
                 paths
                     .policy_dir
-                    .join("containers")
+                    .join("environments")
                     .join(format!("{name}.yaml"))
                     .display()
             ),
@@ -904,7 +904,7 @@ fn open_store(paths: &PresetPaths) -> PolicyStore {
 
 /// Whether this container is installed and usable as it stands.
 fn is_container_installed(paths: &PresetPaths, name: &str) -> bool {
-    open_store(paths).require_container(name).is_ok()
+    open_store(paths).require_environment(name).is_ok()
 }
 
 /// Runs one `ghostai preset` invocation, with the real world wired in.

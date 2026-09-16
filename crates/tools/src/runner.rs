@@ -14,7 +14,7 @@
 //! [`ExecPlan`] is already the complete description of the job — file, args,
 //! cwd, env, timeout and output budget.
 //!
-//! The constraint a container backend has to honour, recorded here because it
+//! The constraint a confined backend has to honour, recorded here because it
 //! is the part that will bite: the guard computes `cwd` from the jail root and
 //! the environment from a host allow-list. Both are host-shaped. A runner that
 //! mounts the workspace elsewhere has to translate the working directory and
@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use futures::future::join;
 use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::ContainerNetwork;
+use ghostai_protocol::EnvironmentNetwork;
 use ghostai_security::{ExecPlan, OutputCap};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
@@ -122,10 +122,10 @@ pub trait CommandRunner: Send + Sync {
     fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>>;
 }
 
-/// What a turn needs in order to be given the right container.
+/// What a turn needs in order to be given the right environment.
 ///
-/// Carries the independently selected container and network policy. An empty
-/// container means commands run on the host.
+/// Carries the independently selected environment and network policy. An empty
+/// environment means commands run on the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementRequest {
     /// The agent running the turn.
@@ -134,11 +134,11 @@ pub struct PlacementRequest {
     pub workspace_id: String,
     /// The conversation.
     pub session_key: String,
-    /// The agent's container name; empty means the host.
-    pub container: String,
-    /// What the agent asked its container to reach. Part of an instance's
+    /// The agent's environment name; empty means the host.
+    pub environment: String,
+    /// What the agent asked its environment to reach. Part of an instance's
     /// identity: two agents wanting different egress never share one.
-    pub network: ContainerNetwork,
+    pub network: EnvironmentNetwork,
     /// GhostAI's view of the workspace root, where transcripts are written.
     pub workspace_root: String,
 }

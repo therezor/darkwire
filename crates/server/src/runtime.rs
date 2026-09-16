@@ -34,7 +34,7 @@ use ghostai_protocol::rest::{
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::{BoxFuture, ChatResult, ToolChoice};
 use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::policy_store::ContainerListing;
+use ghostai_security::policy_store::EnvironmentListing;
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -199,7 +199,7 @@ pub trait ServerRuntime: Send + Sync {
     fn workspaces(&self) -> Arc<WorkspaceStore>;
 
     /// Independently installed container definitions, read fresh.
-    fn containers(&self) -> Vec<ContainerListing> {
+    fn environments(&self) -> Vec<EnvironmentListing> {
         Vec::new()
     }
 

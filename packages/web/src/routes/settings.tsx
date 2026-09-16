@@ -30,6 +30,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs.js';
 import { AppearancePanel } from '@/settings/appearance-panel.js';
+import { EnvironmentsPanel } from '@/settings/environments-panel.js';
 import { AccountPanel } from '@/settings/account-panel.js';
 import { ExtensionsPanel } from '@/settings/extensions-panel.js';
 import { McpPanel } from '@/settings/mcp-panel.js';
@@ -130,6 +131,12 @@ function PanelBody({ panelId }: { readonly panelId: string }): JSX.Element {
   // server, and an install whose settings request is failing is one whose owner
   // may well want to turn the lights on while they read the error.
   if (panel.id === 'appearance') return <AppearancePanel />;
+
+  // Also before the gate, and for the whole reason rather than half of one: it
+  // reads `/api/environments` and `/api/sandboxes`, and nothing in `config.yaml`
+  // at all. Waiting on a settings request it never uses would leave it blank
+  // for an install whose config is the thing that is broken.
+  if (panel.id === 'environments') return <EnvironmentsPanel />;
 
   if (settings.isPending) {
     return <p className="page__note">{t('settings.loading')}</p>;

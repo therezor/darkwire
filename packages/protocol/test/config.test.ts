@@ -286,7 +286,7 @@ describe('AgentEntrySchema', () => {
     expect(agent.memoryPrompt).toBe('');
     expect(agent.enabled).toBe(true);
     expect(agent.tools).toEqual(DEFAULT_AGENT_TOOLS);
-    expect(agent.container).toEqual({
+    expect(agent.environment).toEqual({
       name: '',
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
@@ -519,16 +519,18 @@ describe('isLoopbackHost', () => {
   });
 });
 
-describe('ConfigPatchSchema: containers', () => {
+describe('ConfigPatchSchema: environments', () => {
   it('accepts a network patch that changes only the mode', () => {
     // `patchOf` is not recursive, so without the hand-restated `network` this
     // would demand `allow` back — and a panel that never rendered the allow-list
     // would clear it on every save of the mode.
     const patch = ConfigPatchSchema.parse({
-      agents: { list: { boxed: { container: { network: { mode: 'open' } } } } },
+      agents: {
+        list: { boxed: { environment: { network: { mode: 'open' } } } },
+      },
     });
 
-    expect(patch.agents?.list?.boxed?.container?.network).toEqual({
+    expect(patch.agents?.list?.boxed?.environment?.network).toEqual({
       mode: 'open',
     });
   });

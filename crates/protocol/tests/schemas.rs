@@ -61,8 +61,8 @@ const UNREGISTERED: &[&str] = &[
     // exports by name.
     "AgentSettingsPatch",
     "ExecToolConfigPatch",
-    "ContainerNetworkPatch",
-    "AgentContainerPatch",
+    "EnvironmentNetworkPatch",
+    "AgentEnvironmentPatch",
     "AgentEntryPatch",
     "AgentsConfigPatch",
     "ProviderConfigPatch",

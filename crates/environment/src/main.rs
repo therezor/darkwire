@@ -26,7 +26,7 @@ async fn main() {
                     WorkspaceRegistration {
                         path: "/workspaces/default".into(),
                         daemon_path: host.join("workspaces/default"),
-                        containers: std::env::var("GHOSTAI_SANDBOX_CONTAINERS")
+                        environments: std::env::var("GHOSTAI_ENVIRONMENTS")
                             .unwrap_or_else(|_| "dev".into())
                             .split(',')
                             .map(str::trim)

@@ -41,8 +41,8 @@ use std::sync::LazyLock;
 use garde::Validate;
 use ghostai_core::{ErrorKind, GhostError, Result};
 pub use ghostai_protocol::BUILTIN_TOOL_NAMES;
-use ghostai_protocol::container::{ContainerDefinition, ContainerRuntime, SeccompProfile};
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use regex::Regex;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -158,7 +158,7 @@ pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
 
 /// Parses definition bytes, with the schema's own errors turned into a
 /// sentence.
-pub fn parse_container(bytes: &[u8]) -> Result<ContainerDefinition> {
+pub fn parse_environment(bytes: &[u8]) -> Result<EnvironmentDefinition> {
     parse_manifest(bytes, "Container definition")
 }
 
@@ -168,7 +168,7 @@ pub fn parse_container(bytes: &[u8]) -> Result<ContainerDefinition> {
 /// starts. Silently narrowing would leave the config saying one thing while the
 /// container did another, and the operator who wrote it would have no way to
 /// discover it.
-pub fn assert_container_network(network: &ContainerNetwork, agent_id: &str) -> Result<()> {
+pub fn assert_environment_network(network: &EnvironmentNetwork, agent_id: &str) -> Result<()> {
     if network.mode != NetworkMode::Allowlist {
         if !network.allow.is_empty() || !network.hosts.is_empty() || !network.dns.is_empty() {
             return Err(invalid(format!(
@@ -233,15 +233,16 @@ pub fn assert_container_network(network: &ContainerNetwork, agent_id: &str) -> R
     Ok(())
 }
 
-fn policy_error(container: &ContainerDefinition, message: String) -> GhostError {
-    GhostError::new(ErrorKind::Config, message).with_detail("container", container.name.as_str())
+fn policy_error(environment: &EnvironmentDefinition, message: String) -> GhostError {
+    GhostError::new(ErrorKind::Config, message)
+        .with_detail("environment", environment.name.as_str())
 }
 
 /// Refuses a container the machinery cannot honour.
 ///
 /// Separate from parsing because a definition can be perfectly well-formed and
 /// still ask for something that would quietly disable a guarantee elsewhere.
-pub fn assert_container_policy(container: &ContainerDefinition) -> Result<()> {
+pub fn assert_environment_policy(container: &EnvironmentDefinition) -> Result<()> {
     if !IMAGE_DIGEST_PATTERN.is_match(&container.image) {
         return Err(policy_error(
             container,
@@ -284,13 +285,13 @@ pub fn assert_container_policy(container: &ContainerDefinition) -> Result<()> {
 
 /// Whether a restricted egress gateway can be built around this container.
 ///
-/// Not part of [`assert_container_policy`], because every condition here is
+/// Not part of [`assert_environment_policy`], because every condition here is
 /// legitimate for a container that reaches nothing: a root uid is how a
 /// rootless builder works, and `NET_RAW` is what `nmap -sS` needs. They are
 /// refused only when an agent asks *this* container for an allow-list, which is
 /// the moment the gateway has to filter by the socket's owner and would be
 /// filtering something that can rewrite itself.
-pub fn assert_gateway_compatible(container: &ContainerDefinition) -> Result<()> {
+pub fn assert_gateway_compatible(container: &EnvironmentDefinition) -> Result<()> {
     let uid = container.user.split(':').next().unwrap_or_default();
     if uid.is_empty() || uid == "0" || !uid.bytes().all(|c| c.is_ascii_digit()) {
         return Err(policy_error(
@@ -347,11 +348,11 @@ pub fn assert_gateway_compatible(container: &ContainerDefinition) -> Result<()> 
 /// The two fields that actually reach the host are the ones worth naming:
 /// `security.devices` becomes `--device=…`, so `/dev/sda:/dev/sda:rwm` is raw
 /// disk access, and `user: "0:0"` runs as root inside. A definition asking for
-/// both passes [`assert_container_policy`], so a summary of image and limits
+/// both passes [`assert_environment_policy`], so a summary of image and limits
 /// alone would present a total escape as a clean container. Neither is
 /// *refused*, because a device is legitimate for a rootless builder; both are
 /// named loudly.
-pub fn weakened_in(container: &ContainerDefinition) -> Vec<String> {
+pub fn weakened_in(container: &EnvironmentDefinition) -> Vec<String> {
     let mut weakened = Vec::new();
     if !container.security.devices.is_empty() {
         weakened.push(format!(

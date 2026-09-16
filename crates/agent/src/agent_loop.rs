@@ -63,7 +63,7 @@ use ghostai_core::{
 };
 use ghostai_protocol::json::Object;
 use ghostai_protocol::{
-    AgentContainer, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
+    AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
     ToolPromptOverrides, ToolsConfig, Usage, apply_tool_prompts, with_subagent_run,
@@ -71,8 +71,7 @@ use ghostai_protocol::{
 use ghostai_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
 use ghostai_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use ghostai_tools::{
-    AutomationResolver, Environment, EnvironmentResolver, HostEnvironment, PlacementRequest,
-    ToolContext, ToolScope,
+    AutomationResolver, EnvironmentResolver, Placed, PlacementRequest, ToolContext, ToolScope,
 };
 use indexmap::IndexMap;
 use tokio::sync::{mpsc, oneshot};
@@ -186,6 +185,12 @@ pub struct LoopAgent {
     /// identity and does not always have tools: the prompt layer receives these
     /// as [`PromptTools`], which it is handed or is not.
     pub platform_prompt: Option<String>,
+    /// This agent's override for what its environment says about itself.
+    ///
+    /// Empty or absent inherits the definition's own `prompt`; a single space
+    /// removes the section, as everywhere else. There is no built-in below the
+    /// definition, so "inherit" can still resolve to nothing.
+    pub environment_prompt: Option<String>,
     /// The operator's wording for the tool-output policy.
     pub tool_policy_prompt: Option<String>,
 }
@@ -228,10 +233,10 @@ pub struct AgentLoopOptions {
     pub automation: Option<Arc<dyn AutomationResolver>>,
     /// Supplies the place this agent's commands run, keyed the same way. A
     /// loop with none runs them on the host, which is what an install with no
-    /// container service configured does.
-    pub environment: Option<Arc<dyn EnvironmentResolver>>,
+    /// environment service configured does.
+    pub environments: Option<Arc<dyn EnvironmentResolver>>,
     /// Where built-in command execution runs.
-    pub container: AgentContainer,
+    pub environment: AgentEnvironment,
     /// Defaults to the schema's defaults, so a caller with no config file
     /// works.
     pub config: AgentSettings,
@@ -307,8 +312,8 @@ impl AgentLoopOptions {
             store,
             jails,
             automation: None,
-            environment: None,
-            container: AgentContainer::default(),
+            environments: None,
+            environment: AgentEnvironment::default(),
             config: AgentSettings::default(),
             tools_config: Arc::new(ToolsConfig::default()),
             model: None,
@@ -380,7 +385,7 @@ pub struct TurnInput {
     /// names none runs where its caller does, which is what makes delegation
     /// stay inside the boundary the operator chose rather than falling back to
     /// the host halfway down a chain.
-    pub inherited_container: Option<AgentContainer>,
+    pub inherited_environment: Option<AgentEnvironment>,
 }
 
 impl TurnInput {
@@ -395,7 +400,7 @@ impl TurnInput {
             turn_id: None,
             chain: Vec::new(),
             root_session_key: None,
-            inherited_container: None,
+            inherited_environment: None,
         }
     }
 }
@@ -680,8 +685,8 @@ struct LoopInner {
     store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
-    environment: Option<Arc<dyn EnvironmentResolver>>,
-    container: AgentContainer,
+    environments: Option<Arc<dyn EnvironmentResolver>>,
+    environment: AgentEnvironment,
     config: AgentSettings,
     tools_config: Arc<ToolsConfig>,
     model_id: String,
@@ -760,8 +765,8 @@ impl AgentLoop {
                 store: options.store,
                 jails: options.jails,
                 automation: options.automation,
+                environments: options.environments,
                 environment: options.environment,
-                container: options.container,
                 config: options.config,
                 tools_config: options.tools_config,
                 model_id: model,
@@ -888,6 +893,36 @@ impl AgentLoop {
         applied.definitions
     }
 
+    /// The place a request resolves to. A loop with no resolver runs on the
+    /// host, which is what an install with no environment service does.
+    fn resolve_placement(&self, request: &PlacementRequest) -> Placed {
+        self.inner
+            .environments
+            .as_ref()
+            .map_or_else(Placed::host, |resolver| resolver.for_turn(request))
+    }
+
+    /// Where a turn on this loop would land, for a caller that is not running
+    /// one. Used by the prompt preview, so what it shows is what a turn would
+    /// carry rather than a second guess at it.
+    fn place(
+        &self,
+        selection: &AgentEnvironment,
+        agent_id: &str,
+        workspace_id: &str,
+        session_key: &str,
+        workspace_root: String,
+    ) -> Placed {
+        self.resolve_placement(&PlacementRequest {
+            agent_id: agent_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
+            session_key: session_key.to_owned(),
+            environment: selection.name.clone(),
+            network: selection.network.clone(),
+            workspace_root,
+        })
+    }
+
     /// The tool-shaped prompt inputs for this turn, or nothing when there are
     /// none.
     ///
@@ -896,15 +931,25 @@ impl AgentLoop {
     /// [`PromptTools`] at all and therefore has no container, no policy wording
     /// and no command wording to render from. Nothing downstream is told why,
     /// and nothing downstream needs a branch to find out.
-    fn prompt_tools(&self) -> Option<PromptTools> {
+    fn prompt_tools(&self, placed: &Placed) -> Option<PromptTools> {
         let inner = &self.inner;
         if !inner.config.tools_enabled {
             return None;
         }
         let agent = inner.agent.as_ref();
+        // The agent's own wording wins; otherwise the definition's. Both go
+        // through `Option`, so "this agent said nothing" and "this environment
+        // said nothing" collapse to the same absence and the section is simply
+        // not placed.
+        let environment_prompt = agent
+            .and_then(|a| a.environment_prompt.clone())
+            .filter(|text| !text.is_empty())
+            .or_else(|| Some(placed.prompt.clone()));
         Some(PromptTools {
             policy_prompt: agent.and_then(|a| a.tool_policy_prompt.clone()),
             platform_prompt: agent.and_then(|a| a.platform_prompt.clone()),
+            confined: placed.environment.confined(),
+            environment_prompt,
         })
     }
 
@@ -926,7 +971,7 @@ impl AgentLoop {
     /// it runs once per turn and never per iteration. Template mode wants the
     /// finished static prompt; raw mode wants the contributor sections on their
     /// own, because a raw template places them itself.
-    async fn preamble(&self, context: &StaticPromptContext) -> Preamble {
+    async fn preamble(&self, context: &StaticPromptContext, placed: &Placed) -> Preamble {
         let contributors = self.contributor_refs();
         if self.is_raw() {
             return Preamble {
@@ -935,7 +980,7 @@ impl AgentLoop {
             };
         }
 
-        let tools = self.prompt_tools();
+        let tools = self.prompt_tools(placed);
         Preamble {
             static_prompt: build_static_prompt(BuildStaticPrompt {
                 context,
@@ -957,9 +1002,10 @@ impl AgentLoop {
         context: &RuntimePromptContext,
         nonce: &str,
         correction: Option<&str>,
+        placed: &Placed,
     ) -> PromptPreview {
         let inner = &self.inner;
-        let tools = self.prompt_tools();
+        let tools = self.prompt_tools(placed);
         let contributors = self.contributor_refs();
         let zone = inner.time_zone.as_ref().map(|read| read());
 
@@ -1045,9 +1091,22 @@ impl AgentLoop {
             now_ms: inner.clock.now_ms(),
         };
 
-        let preamble = self.preamble(&context).await;
+        // Resolved the same way a turn resolves it, so the preview describes
+        // the prompt a turn would actually carry. A preview has no caller, so
+        // there is nothing to inherit: this agent's own environment or the host.
+        let placed = self.place(
+            &inner.environment,
+            &context
+                .agent_id
+                .clone()
+                .unwrap_or_else(|| DEFAULT_AGENT_ID.to_owned()),
+            &context.workspace_id,
+            &context.session_key,
+            jail.root().to_string_lossy().into_owned(),
+        );
+        let preamble = self.preamble(&context, &placed).await;
         let nonce = create_tool_output_nonce(inner.random.as_ref());
-        Ok(self.compose_prompt(&preamble, &runtime, &nonce, None))
+        Ok(self.compose_prompt(&preamble, &runtime, &nonce, None, &placed))
     }
 }
 
@@ -1060,6 +1119,9 @@ impl AgentLoop {
 struct TurnContext {
     session: SessionRecord,
     prompt_context: StaticPromptContext,
+    /// Where this turn's commands run and what that place says about itself,
+    /// resolved once beside the jail. The prompt reads both.
+    placed: Placed,
     scope: TurnScope,
     nonce: String,
     tool_definitions: Vec<ToolDefinition>,
@@ -1124,42 +1186,44 @@ impl AgentLoop {
         // over this jail, so a workspace switch mid-turn cannot move it.
         let jail = inner.jails.for_workspace(&session.workspace_id);
 
-        // An agent that names no container of its own runs where its caller
+        // An agent that names no environment of its own runs where its caller
         // does. At the top of a chain there is no caller, so that is the host.
-        let placement = if inner.container.name.is_empty() {
+        let selection = if inner.environment.name.is_empty() {
             input
-                .inherited_container
+                .inherited_environment
                 .clone()
-                .unwrap_or_else(|| inner.container.clone())
+                .unwrap_or_else(|| inner.environment.clone())
         } else {
-            inner.container.clone()
+            inner.environment.clone()
         };
 
         // Resolved once per turn, beside the jail and for the same reason: a
-        // sandbox is a property of (agent, workspace, session), and re-deriving
-        // it per tool call would let a mid-turn config change move it.
-        let sandbox = PlacementRequest {
+        // placement is a property of (agent, workspace, session), and
+        // re-deriving it per tool call would let a mid-turn config change move
+        // it.
+        let placement = PlacementRequest {
             agent_id: session
                 .agent_id
                 .clone()
                 .unwrap_or_else(|| DEFAULT_AGENT_ID.to_owned()),
             workspace_id: session.workspace_id.clone(),
             session_key: input.session_key.clone(),
-            container: placement.name.clone(),
-            network: placement.network.clone(),
+            environment: selection.name.clone(),
+            network: selection.network.clone(),
             workspace_root: jail.root().to_string_lossy().into_owned(),
         };
-        let automation = inner.automation.as_ref().and_then(|a| a.for_turn(&sandbox));
+        let automation = inner
+            .automation
+            .as_ref()
+            .and_then(|a| a.for_turn(&placement));
         // The place, resolved from the same key. `sandboxed` is derived from it
         // rather than set beside it, so the guard's host-shaped refusals lift
         // exactly when the command stops starting on this machine.
-        let environment: Arc<dyn Environment> = inner.environment.as_ref().map_or_else(
-            || Arc::new(HostEnvironment::new()) as Arc<dyn Environment>,
-            |r| r.for_turn(&sandbox),
-        );
+        let placed = self.resolve_placement(&placement);
+        let environment = Arc::clone(&placed.environment);
 
         let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.tools_config));
-        tool_context.placement = Some(sandbox.clone());
+        tool_context.placement = Some(placement.clone());
         tool_context.token = token.clone();
         tool_context.clock = Arc::clone(&inner.clock);
         tool_context.env = Arc::clone(&inner.env);
@@ -1203,6 +1267,7 @@ impl AgentLoop {
         Ok(TurnContext {
             session,
             prompt_context,
+            placed,
             scope,
             nonce,
             tool_definitions,
@@ -1317,7 +1382,7 @@ impl AgentLoop {
         })
         .await;
 
-        let preamble = self.preamble(&turn.prompt_context).await;
+        let preamble = self.preamble(&turn.prompt_context, &turn.placed).await;
         // Attachments are read from disk on every iteration, because the
         // request is rebuilt on every iteration. Scoped to the turn and
         // discarded with it, so a six-tool turn reads one image once rather
@@ -1417,7 +1482,13 @@ impl AgentLoop {
         // iteration did, and a correction that persisted would be scolding the
         // model for something it has already stopped doing.
         let correction = state.correction.take();
-        let prompt = self.compose_prompt(preamble, &runtime, &turn.nonce, correction.as_deref());
+        let prompt = self.compose_prompt(
+            preamble,
+            &runtime,
+            &turn.nonce,
+            correction.as_deref(),
+            &turn.placed,
+        );
         let request = self.build_request(turn, &prompt, attachments)?;
 
         // What the adapter reports is a duration from *its* request; what a
@@ -2001,9 +2072,9 @@ impl AgentLoop {
                     chain
                 },
                 root_session_key: Some(turn.root_session_key.clone()),
-                inherited_container: turn.tool_context.placement.as_ref().map(|placement| {
-                    AgentContainer {
-                        name: placement.container.clone(),
+                inherited_environment: turn.tool_context.placement.as_ref().map(|placement| {
+                    AgentEnvironment {
+                        name: placement.environment.clone(),
                         network: placement.network.clone(),
                     }
                 }),

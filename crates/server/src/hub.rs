@@ -1451,7 +1451,7 @@ impl SessionHub {
                 chain: Vec::new(),
                 root_session_key: None,
                 // A turn a person started has no caller to inherit from.
-                inherited_container: None,
+                inherited_environment: None,
             },
             &token,
         );

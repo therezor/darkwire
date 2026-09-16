@@ -4,6 +4,17 @@
     "name": {
       "type": "string"
     },
+    "kind": {
+      "default": "container",
+      "type": "string",
+      "enum": [
+        "container"
+      ]
+    },
+    "prompt": {
+      "default": "",
+      "type": "string"
+    },
     "image": {
       "type": "string"
     },

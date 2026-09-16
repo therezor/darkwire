@@ -36,7 +36,7 @@ use ghostai_protocol::config::{Config, ConfigPatch};
 use ghostai_protocol::rest::SetCredentialRequest;
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::BoxFuture;
-use ghostai_security::ContainerListing;
+use ghostai_security::EnvironmentListing;
 use ghostai_security::jail::{JailOptions, WorkspaceJail, single_jail};
 use ghostai_security::random::RandomSource;
 use ghostai_tools::{ToolRegistry, ToolScope};
@@ -227,7 +227,7 @@ pub struct FakeRuntimeOptions {
     /// The trailing turn the loop appends after the history.
     pub runtime_block: Option<String>,
     /// Independently installed container definitions.
-    pub containers: Vec<ContainerListing>,
+    pub environments: Vec<EnvironmentListing>,
 }
 
 /// One agent's view, over a real jail and a real workspace tree.
@@ -330,7 +330,7 @@ pub struct FakeRuntime {
     workspaces: Arc<WorkspaceStore>,
     agent: Arc<FakeAgentView>,
     registered_tools: Vec<ToolDefinition>,
-    containers: Vec<ContainerListing>,
+    environments: Vec<EnvironmentListing>,
     credentials: Mutex<IndexMap<String, bool>>,
     /// Every patch this runtime was asked to apply, in order.
     patches: Mutex<Vec<ConfigPatch>>,
@@ -420,7 +420,7 @@ impl FakeRuntime {
                 .registered_tools
                 .clone()
                 .unwrap_or_else(|| options.tools.clone()),
-            containers: options.containers.clone(),
+            environments: options.environments.clone(),
             agent,
             credentials: Mutex::new(options.credentials_present.clone()),
             patches: Mutex::new(Vec::new()),
@@ -550,8 +550,8 @@ impl ServerRuntime for FakeRuntime {
         agents
     }
 
-    fn containers(&self) -> Vec<ContainerListing> {
-        self.containers.clone()
+    fn environments(&self) -> Vec<EnvironmentListing> {
+        self.environments.clone()
     }
 
     fn extensions(&self) -> ExtensionCounts {

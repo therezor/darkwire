@@ -33,7 +33,9 @@ use ghostai_protocol::{
     AgentPreset, Config, DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, NetworkMode, RESERVED_AGENT_IDS,
     SubagentRef, is_agent_id, preset_to_agent_entry,
 };
-use ghostai_security::{PolicyStore, assert_container_network, assert_gateway_compatible, invalid};
+use ghostai_security::{
+    PolicyStore, assert_environment_network, assert_gateway_compatible, invalid,
+};
 
 use crate::Streams;
 use crate::catalogue::{
@@ -170,17 +172,17 @@ pub enum InstallPlan {
 /// better to find out here, where the message can name the fix.
 fn check_policy(preset: &AgentPreset, paths: &PresetPaths) -> Result<()> {
     let store = PolicyStore::new(paths.policy_dir.clone());
-    if !preset.container.name.is_empty() {
-        let container = store.require_container(&preset.container.name)?;
-        if preset.container.network.mode == NetworkMode::Allowlist {
-            assert_gateway_compatible(&container.definition)?;
+    if !preset.environment.name.is_empty() {
+        let environment = store.require_environment(&preset.environment.name)?;
+        if preset.environment.network.mode == NetworkMode::Allowlist {
+            assert_gateway_compatible(&environment.definition)?;
         }
-    } else if preset.container.network.mode != NetworkMode::None {
+    } else if preset.environment.network.mode != NetworkMode::None {
         return Err(invalid(
-            "This preset asks for a network but names no container; egress is enforced by the container's gateway",
+            "This preset asks for a network but names no environment; egress is enforced by the environment's gateway",
         ));
     }
-    assert_container_network(&preset.container.network, &preset.id)?;
+    assert_environment_network(&preset.environment.network, &preset.id)?;
     Ok(())
 }
 

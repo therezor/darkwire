@@ -24,7 +24,7 @@ use ghostai_environment::container_pool::{
     CONTAINER_IDLE_MS, ContainerEngine, ContainerPool, ContainerPoolOptions, IdFactory,
     MAX_LIVE_CONTAINERS, OWNER_LABEL, RunnerFactory, owner_process_looks_alive, owner_tag,
 };
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use ghostai_security::PolicyStore;
 use ghostai_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunRequest};
 use parking_lot::Mutex;
@@ -190,7 +190,7 @@ struct Harness {
 /// A container definition with the fields a test cares about patched in.
 fn definition(name: &str, overrides: &Value) -> Value {
     let mut value = json!({
-        "schema": "ghostai.container/1",
+        "schema": "ghostai.environment/1",
         "name": name,
         "image": DIGEST,
     });
@@ -220,7 +220,7 @@ impl Harness {
     /// Installs a container definition.
     fn install(&self, name: &str, overrides: &Value) {
         common::write(
-            &self.root.join("containers").join(format!("{name}.yaml")),
+            &self.root.join("environments").join(format!("{name}.yaml")),
             serde_json::to_string(&definition(name, overrides)).unwrap(),
         );
     }
@@ -266,13 +266,13 @@ impl Harness {
     }
 }
 
-fn request(agent: &str, workspace: &str, session: &str, container: &str) -> PlacementRequest {
+fn request(agent: &str, workspace: &str, session: &str, environment: &str) -> PlacementRequest {
     PlacementRequest {
         agent_id: agent.to_owned(),
         workspace_id: workspace.to_owned(),
         session_key: session.to_owned(),
-        container: container.to_owned(),
-        network: ContainerNetwork::default(),
+        environment: environment.to_owned(),
+        network: EnvironmentNetwork::default(),
         workspace_root: "/ghost/workspace".to_owned(),
     }
 }
@@ -280,9 +280,9 @@ fn request(agent: &str, workspace: &str, session: &str, container: &str) -> Plac
 /// The same request, asking for a different reach.
 fn reaching(mode: NetworkMode, request: PlacementRequest) -> PlacementRequest {
     PlacementRequest {
-        network: ContainerNetwork {
+        network: EnvironmentNetwork {
             mode,
-            ..ContainerNetwork::default()
+            ..EnvironmentNetwork::default()
         },
         ..request
     }
@@ -460,16 +460,16 @@ async fn returns_no_runner_for_an_agent_that_names_no_container() {
 }
 
 #[tokio::test]
-async fn refuses_a_container_that_is_not_installed() {
+async fn refuses_an_environment_that_is_not_installed() {
     let h = Harness::new();
     let pool = h.pool();
     // **Never a downgrade to the host.** `Ok(None)` would mean "run it here",
-    // so a container that cannot be honoured is an error rather than an absent
-    // runner.
+    // so an environment that cannot be honoured is an error rather than an
+    // absent runner.
     let error = refusal(pool.resolve_turn(&request("a", "w", "s", "dev")));
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(
-        error.message.contains("No container is installed"),
+        error.message.contains("No environment is installed"),
         "{}",
         error.message
     );
@@ -547,7 +547,7 @@ async fn refuses_rather_than_falling_back_to_the_host_when_the_engine_fails() {
     // The daemon's own words, rather than a bare "could not be started" that
     // sends the reader to the logs for the one fact that would have helped.
     assert!(error.message.contains("no such image"), "{}", error.message);
-    assert_eq!(error.details["container"], "dev");
+    assert_eq!(error.details["environment"], "dev");
     assert!(h.ran_in.lock().is_empty(), "nothing ran on the host");
 }
 
@@ -1078,7 +1078,7 @@ mod the_definition_is_re_read_every_turn {
 
         // Removing a definition is another process touching a file, so nothing
         // notifies this pool; asking every turn is what makes it take effect.
-        std::fs::remove_file(h.root.join("containers/dev.yaml")).unwrap();
+        std::fs::remove_file(h.root.join("environments/dev.yaml")).unwrap();
         assert_eq!(
             refusal(pool.resolve_turn(&request("a", "w", "s", "dev"))).kind,
             ErrorKind::Config
@@ -1094,7 +1094,7 @@ mod the_definition_is_re_read_every_turn {
             .resolve_turn(&request("a", "w", "s", "dev"))
             .unwrap()
             .unwrap();
-        std::fs::remove_file(h.root.join("containers/dev.yaml")).unwrap();
+        std::fs::remove_file(h.root.join("environments/dev.yaml")).unwrap();
         // A turn can sit between its opening and its first tool call for a long
         // time, and a container removed in that window must not be started.
         assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Config);

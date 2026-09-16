@@ -40,9 +40,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::container::ContainerDefinition;
-use ghostai_protocol::{ContainerNetwork, NetworkMode, SandboxInstanceSummary};
-use ghostai_security::{InstalledContainer, PolicyStore, assert_container_network};
+use ghostai_protocol::environment::EnvironmentDefinition;
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode, SandboxInstanceSummary};
+use ghostai_security::{InstalledEnvironment, PolicyStore, assert_environment_network};
 use ghostai_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerRunner, ContainerRunnerOptions,
     PlacementRequest, RunOutcome, RunRequest, WorkspaceMount, container_create_argv,
@@ -120,8 +120,8 @@ pub trait ContainerEngine: Send + Sync {
     fn gateway(
         &self,
         _name: &str,
-        _container: &ContainerDefinition,
-        network: &ContainerNetwork,
+        _container: &EnvironmentDefinition,
+        network: &EnvironmentNetwork,
     ) -> Result<Option<String>> {
         if network.mode == NetworkMode::Allowlist {
             return Err(GhostError::new(
@@ -154,7 +154,7 @@ pub trait ContainerEngine: Send + Sync {
 /// one that disappeared — none of which is about `docker exec` and all of which
 /// otherwise needs a daemon to observe.
 pub type RunnerFactory =
-    Arc<dyn Fn(&str, &ContainerDefinition) -> Arc<dyn CommandRunner> + Send + Sync>;
+    Arc<dyn Fn(&str, &EnvironmentDefinition) -> Arc<dyn CommandRunner> + Send + Sync>;
 
 /// Translates GhostAI's view of a path into the *daemon's*.
 pub type HostPathFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -323,7 +323,7 @@ fn shared_key_of(request: &PlacementRequest, digest: &str) -> Result<String> {
         "shared",
         &request.workspace_id,
         &request.workspace_root,
-        &request.container,
+        &request.environment,
         digest,
         &request.network,
     ))
@@ -332,7 +332,7 @@ fn shared_key_of(request: &PlacementRequest, digest: &str) -> Result<String> {
 
 /// The approved definition a request resolves to, with its approval hash.
 struct ContainerSpec {
-    definition: ContainerDefinition,
+    definition: EnvironmentDefinition,
     digest: String,
 }
 
@@ -346,7 +346,7 @@ impl ContainerPool {
             .map(|entry| SandboxInstanceSummary {
                 id: entry.name.clone(),
                 workspace: entry.request.workspace_id.clone(),
-                container: entry.request.container.clone(),
+                environment: entry.request.environment.clone(),
                 shared: entry.shared,
                 busy: u64::from(entry.busy),
                 last_used_ms: entry.last_used_ms.max(0).cast_unsigned(),
@@ -428,9 +428,9 @@ impl ContainerPool {
         let valid: std::collections::BTreeSet<String> = self
             .options
             .policies
-            .list_containers()
+            .list_environments()
             .into_iter()
-            .filter_map(|entry| self.options.policies.require_container(&entry.name).ok())
+            .filter_map(|entry| self.options.policies.require_environment(&entry.name).ok())
             .map(|entry| entry.digest)
             .collect();
         let invalid: Vec<String> = self
@@ -552,13 +552,13 @@ impl ContainerPool {
     /// and where a call runs are two decisions, and the pool answers only the
     /// second.
     fn container_spec(&self, request: &PlacementRequest) -> Result<Option<ContainerSpec>> {
-        if request.container.is_empty() {
+        if request.environment.is_empty() {
             return Ok(None);
         }
-        let InstalledContainer { definition, digest } = self
+        let InstalledEnvironment { definition, digest } = self
             .options
             .policies
-            .require_container(&request.container)?;
+            .require_environment(&request.environment)?;
         Ok(Some(ContainerSpec { definition, digest }))
     }
 
@@ -593,7 +593,7 @@ impl ContainerPool {
         let approved = self
             .container_spec(spec)?
             .ok_or_else(|| GhostError::new(ErrorKind::Config, "No container selected"))?;
-        assert_container_network(&spec.network, &spec.agent_id)?;
+        assert_environment_network(&spec.network, &spec.agent_id)?;
         if let Some(entry) = self.live.lock().entries.get_mut(key) {
             entry.agents.insert(spec.agent_id.clone());
             return Ok(());
@@ -639,7 +639,7 @@ impl ContainerPool {
     fn docker_exec_runner(
         &self,
         name: &str,
-        container: &ContainerDefinition,
+        container: &EnvironmentDefinition,
     ) -> Arc<dyn CommandRunner> {
         let pool_ids = self.options.new_id.clone();
         let clock = Arc::clone(&self.options.clock);
@@ -682,7 +682,7 @@ impl ContainerPool {
             request.network.clone(),
             WorkspaceMount {
                 host_path: self.daemon_path(&request.workspace_root),
-                container_path: container.workdir.clone(),
+                environment_path: container.workdir.clone(),
             },
             name.clone(),
         );
@@ -745,7 +745,7 @@ impl ContainerPool {
                 ),
             )
             .with_detail("agentId", request.agent_id.clone())
-            .with_detail("container", container.name.clone())
+            .with_detail("environment", container.name.clone())
             .with_source(error)
         })?;
         self.sweep_once();
@@ -779,7 +779,7 @@ impl ContainerPool {
                 ),
             )
             .with_detail("agentId", request.agent_id.clone())
-            .with_detail("container", container.name.clone())
+            .with_detail("environment", container.name.clone())
             .with_source(error)
         })?;
 
@@ -967,7 +967,7 @@ impl CommandRunner for Facade {
                 .lock()
                 .entries
                 .get(&self.key)
-                .map(|entry| (entry.name.clone(), entry.request.container.clone()));
+                .map(|entry| (entry.name.clone(), entry.request.environment.clone()));
             let Some((name, container)) = stale else {
                 return Ok(outcome);
             };
@@ -1022,7 +1022,7 @@ impl ContainerPool {
         // process writing a file, so nothing notifies this pool; asking every
         // turn is what makes revocation mean something. It costs one read and
         // one hash.
-        assert_container_network(&request.network, &request.agent_id)?;
+        assert_environment_network(&request.network, &request.agent_id)?;
         let key = Self::key_for(request, &approved)?;
 
         let stale = {
@@ -1290,8 +1290,8 @@ impl ContainerEngine for DockerEngine {
     fn gateway(
         &self,
         name: &str,
-        container: &ContainerDefinition,
-        network: &ContainerNetwork,
+        container: &EnvironmentDefinition,
+        network: &EnvironmentNetwork,
     ) -> Result<Option<String>> {
         if network.mode != NetworkMode::Allowlist {
             return Ok(None);
@@ -1307,7 +1307,7 @@ impl ContainerEngine for DockerEngine {
         // place in the system where an unreviewed image rewrites the filter.
         let mut gateway_definition = container.clone();
         gateway_definition.image.clone_from(image);
-        ghostai_security::assert_container_policy(&gateway_definition)?;
+        ghostai_security::assert_environment_policy(&gateway_definition)?;
         let rules = ghostai_security::egress::gateway_rules(container, network)?;
         let gateway = format!("{name}-gateway");
         let mut args = argv(&[

@@ -44,7 +44,7 @@ guard is. Reporting one gets you a link back to this list.
   cannot clamp a process. A spawned command is an ordinary process with your user's
   permissions and does not honour the workspace root. The workspace is an organisational
   boundary there, not a security boundary — which is what
-  [containers](docs/containers.md) exist for. `guardExec` _refuses_ outward-shaped argv
+  [containers](docs/environments.md) exist for. `guardExec` _refuses_ outward-shaped argv
   rather than pretending to clamp it.
 - **Extensions.** They are not sandboxed, and the approval dialog says so rather than
   implying otherwise: an extension is ordinary JavaScript in the server process at the

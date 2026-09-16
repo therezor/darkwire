@@ -79,7 +79,7 @@ fn every_command_the_page_lists_is_in_the_help() {
         "serve",
         "preset",
         "agent",
-        "container",
+        "environment",
         "extension",
         "help",
     ] {
@@ -93,7 +93,7 @@ fn every_command_the_page_lists_is_in_the_help() {
 #[test]
 fn every_subcommand_the_page_lists_is_in_its_parents_help() {
     for (parent, children) in [
-        ("container", &["list"][..]),
+        ("environment", &["list"][..]),
         ("extension", &["list", "approve", "revoke"][..]),
         ("agent", &["install", "list"][..]),
         ("preset", &["list", "install", "update"][..]),

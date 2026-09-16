@@ -2,14 +2,14 @@
 
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
-use ghostai_protocol::container::ContainerDefinition;
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::environment::EnvironmentDefinition;
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use ghostai_security::egress::gateway_rules;
 use serde_json::json;
 
-fn container() -> ContainerDefinition {
+fn container() -> EnvironmentDefinition {
     serde_json::from_value(json!({
-        "schema": "ghostai.container/1",
+        "schema": "ghostai.environment/1",
         "name": "test",
         "image": format!("sha256:{}", "e".repeat(64)),
         "user": "1000:1000",
@@ -17,8 +17,8 @@ fn container() -> ContainerDefinition {
     .unwrap()
 }
 
-fn network(allow: &[&str], hosts: &[&str], dns: &[&str]) -> ContainerNetwork {
-    ContainerNetwork {
+fn network(allow: &[&str], hosts: &[&str], dns: &[&str]) -> EnvironmentNetwork {
+    EnvironmentNetwork {
         mode: NetworkMode::Allowlist,
         allow: allow.iter().map(|v| (*v).to_owned()).collect(),
         hosts: hosts.iter().map(|v| (*v).to_owned()).collect(),

@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::container::ContainerDefinition;
-use ghostai_protocol::{ContainerNetwork, NetworkMode};
+use ghostai_protocol::environment::EnvironmentDefinition;
+use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use ghostai_security::ExecPlan;
 use ghostai_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerExecOptions, ContainerRunner,
@@ -29,9 +29,9 @@ use tokio_util::sync::CancellationToken;
 
 const DIGEST: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-fn container_of(overrides: Value) -> ContainerDefinition {
+fn container_of(overrides: Value) -> EnvironmentDefinition {
     let mut base = json!({
-        "schema": "ghostai.container/1",
+        "schema": "ghostai.environment/1",
         "name": "kali",
         "image": format!("kalilinux/kali-rolling@{DIGEST}"),
     });
@@ -59,12 +59,12 @@ fn plan_of() -> ExecPlan {
     }
 }
 
-fn none() -> ContainerNetwork {
-    ContainerNetwork::default()
+fn none() -> EnvironmentNetwork {
+    EnvironmentNetwork::default()
 }
 
-fn network(mode: NetworkMode) -> ContainerNetwork {
-    ContainerNetwork {
+fn network(mode: NetworkMode) -> EnvironmentNetwork {
+    EnvironmentNetwork {
         mode,
         allow: vec!["10.0.0.0/8".to_owned()],
         hosts: Vec::new(),
@@ -75,11 +75,11 @@ fn network(mode: NetworkMode) -> ContainerNetwork {
 fn mount() -> WorkspaceMount {
     WorkspaceMount {
         host_path: "/host/workspace".to_owned(),
-        container_path: "/workspace".to_owned(),
+        environment_path: "/workspace".to_owned(),
     }
 }
 
-fn create(overrides: Value, network: ContainerNetwork) -> Result<Vec<String>> {
+fn create(overrides: Value, network: EnvironmentNetwork) -> Result<Vec<String>> {
     container_create_argv(&ContainerCreateOptions::new(
         container_of(overrides),
         network,
@@ -203,7 +203,7 @@ fn survives_a_colon_in_the_workspace_path() {
         none(),
         WorkspaceMount {
             host_path: "/Users/me/Notes:2024/ws".to_owned(),
-            container_path: "/workspace".to_owned(),
+            environment_path: "/workspace".to_owned(),
         },
         "c",
     ))
@@ -358,7 +358,7 @@ fn uses_the_bridge_for_an_open_request_with_no_gateway() {
 
 #[test]
 fn points_ordinary_clients_at_the_proxy_when_the_request_names_hosts() {
-    let asked = ContainerNetwork {
+    let asked = EnvironmentNetwork {
         mode: NetworkMode::Allowlist,
         allow: Vec::new(),
         hosts: vec!["example.test".to_owned()],
@@ -383,7 +383,7 @@ fn sets_no_proxy_variables_for_a_request_that_names_no_hosts() {
     );
 }
 
-fn exec_argv(plan: &ExecPlan, container: &ContainerDefinition) -> Vec<String> {
+fn exec_argv(plan: &ExecPlan, container: &EnvironmentDefinition) -> Vec<String> {
     container_exec_argv(&ContainerExecOptions {
         plan,
         container,

@@ -4,8 +4,8 @@ use crate::container_pool::{
     ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
 };
 use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{ContainerNetwork, SandboxRequest};
-use ghostai_security::container::invalid;
+use ghostai_protocol::{EnvironmentNetwork, SandboxRequest};
+use ghostai_security::environment::invalid;
 use ghostai_security::{ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, guard_exec};
 use ghostai_tools::{
     BoxFuture, CommandRunner, Environment, OutputStream, OutputTee, PlacementRequest, RunOutcome,
@@ -94,13 +94,13 @@ impl ServiceConfig {
                 .ok_or_else(|| invalid("Missing socket name"))?,
         );
         let mut protected = vec![self.state_root.clone(), self.socket.clone()];
-        let containers = self.policy_root.join("containers");
-        protected.push(if containers.exists() {
-            containers
+        let environments = self.policy_root.join("environments");
+        protected.push(if environments.exists() {
+            environments
                 .canonicalize()
                 .map_err(|e| invalid(e.to_string()))?
         } else {
-            containers
+            environments
         });
         for registration in self.workspaces.values_mut() {
             absolute(&registration.path)?;
@@ -131,7 +131,7 @@ impl ServiceConfig {
 
 /// One workspace a client may name, and the policy it may reach from there.
 ///
-/// The app decides which container an agent selects; this decides whether it
+/// The app decides which environment an agent selects; this decides whether it
 /// may be used in this workspace at all.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -142,9 +142,9 @@ pub struct WorkspaceRegistration {
     /// same string: a bind source is resolved by the daemon, not by this
     /// process.
     pub daemon_path: PathBuf,
-    /// Containers that may be started here.
+    /// Environments that may be started here.
     #[serde(default)]
-    pub containers: Vec<String>,
+    pub environments: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -231,10 +231,10 @@ impl SandboxClient {
         }
     }
 }
-/// Commands run in an installed container, through the service.
+/// Commands run in an installed environment, through the service.
 ///
 /// Holds the placement because [`CommandRunner::run`] carries only a plan:
-/// which container, workspace and session a command belongs to is a property
+/// which environment, workspace and session a command belongs to is a property
 /// of the turn, resolved once when the environment is, not re-derived per
 /// call. The plan's own `cwd` and environment are dropped on the way out —
 /// they describe this machine, and the service composes the container's.
@@ -261,7 +261,7 @@ impl CommandRunner for ContainerEnvironment {
                 .client
                 .request(
                     SandboxRequest::Exec {
-                        container: self.placement.container.clone(),
+                        environment: self.placement.environment.clone(),
                         workspace: self.placement.workspace_id.clone(),
                         agent: self.placement.agent_id.clone(),
                         session: self.placement.session_key.clone(),
@@ -329,31 +329,34 @@ impl Service {
     /// The placement one request resolves to, checked against this service's
     /// own registration rather than trusted from the client.
     ///
-    /// The app decides which container an agent selects; the service decides
+    /// The app decides which environment an agent selects; the service decides
     /// whether this workspace may use it at all. Both have to agree, and the
     /// service's answer is the one that owns the engine.
     fn spec(
         &self,
-        container: &str,
+        environment: &str,
         workspace: &str,
         agent: &str,
         session: &str,
-        network: &ContainerNetwork,
+        network: &EnvironmentNetwork,
     ) -> Result<PlacementRequest> {
-        let registration = self
-            .config
-            .workspaces
-            .get(workspace)
-            .ok_or_else(|| invalid("Workspace is not registered with the sandbox service"))?;
-        if !registration.containers.iter().any(|name| name == container) {
-            return Err(invalid("Container is not authorized for this workspace"));
+        let registration =
+            self.config.workspaces.get(workspace).ok_or_else(|| {
+                invalid("Workspace is not registered with the environment service")
+            })?;
+        if !registration
+            .environments
+            .iter()
+            .any(|name| name == environment)
+        {
+            return Err(invalid("Environment is not authorized for this workspace"));
         }
-        self.store.require_container(container)?;
+        self.store.require_environment(environment)?;
         Ok(PlacementRequest {
             agent_id: agent.into(),
             workspace_id: workspace.into(),
             session_key: session.into(),
-            container: container.into(),
+            environment: environment.into(),
             network: network.clone(),
             workspace_root: registration.path.to_string_lossy().into_owned(),
         })
@@ -361,7 +364,7 @@ impl Service {
 }
 
 impl Service {
-    /// Guards one argv and runs it in the caller's container.
+    /// Guards one argv and runs it in the caller's environment.
     ///
     /// The service guards again because it, rather than the app, owns the engine.
     async fn run_guarded(
@@ -417,11 +420,11 @@ impl Service {
         }
     }
 
-    /// Whether the container still hashes to what the call was prepared at.
+    /// Whether the environment still hashes to what the call was prepared at.
     fn definition_unchanged(&self, drift: &(String, String)) -> bool {
-        let (container, digest) = drift;
+        let (environment, digest) = drift;
         self.store
-            .require_container(container)
+            .require_environment(environment)
             .is_ok_and(|current| &current.digest == digest)
     }
 }
@@ -451,7 +454,7 @@ impl Bounds {
 const MAX_OUTPUT_BYTES: u64 = 128 * 1024;
 const MAX_TIMEOUT_MS: u64 = 300_000;
 
-/// How often a running command's container definition is re-read from disk.
+/// How often a running command's environment definition is re-read from disk.
 ///
 /// An in-flight scan is the one place an edit has to reach code that is
 /// already inside the container; the idle sweep cannot see it.
@@ -483,18 +486,18 @@ impl Service {
                 Ok(json!({"restarted":instance}))
             }
             SandboxRequest::Start {
-                container,
+                environment,
                 workspace,
                 agent,
                 session,
                 network,
             } => {
-                let spec = self.spec(&container, &workspace, &agent, &session, &network)?;
+                let spec = self.spec(&environment, &workspace, &agent, &session, &network)?;
                 self.pool.warm(&spec)?;
                 Ok(json!({"instances":self.pool.status()}))
             }
             SandboxRequest::Exec {
-                container,
+                environment,
                 workspace,
                 agent,
                 session,
@@ -503,8 +506,8 @@ impl Service {
                 max_output_bytes,
                 network,
             } => {
-                let spec = self.spec(&container, &workspace, &agent, &session, &network)?;
-                let installed = self.store.require_container(&container)?;
+                let spec = self.spec(&environment, &workspace, &agent, &session, &network)?;
+                let installed = self.store.require_environment(&environment)?;
                 let outcome = self
                     .run_guarded(
                         &spec,
@@ -513,7 +516,7 @@ impl Service {
                             timeout_ms,
                             max_output_bytes,
                         },
-                        (container.clone(), installed.digest.clone()),
+                        (environment.clone(), installed.digest.clone()),
                         token,
                         progress,
                     )
@@ -703,7 +706,7 @@ mod tests {
     fn config(root: &std::path::Path) -> ServiceConfig {
         for directory in [
             "policies",
-            "policies/containers",
+            "policies/environments",
             "state",
             "control",
             "workspace",
@@ -720,7 +723,7 @@ mod tests {
                 WorkspaceRegistration {
                     path: root.join("workspace"),
                     daemon_path: "/daemon/workspace".into(),
-                    containers: vec!["dev".into()],
+                    environments: vec!["dev".into()],
                 },
             )]),
             engine: "docker".into(),
@@ -734,7 +737,7 @@ mod tests {
         assert!(config(root.path()).validate_paths().is_ok());
         let mut overlap = config(root.path());
         overlap.workspaces.get_mut("default").unwrap().path =
-            root.path().join("policies/containers");
+            root.path().join("policies/environments");
         assert!(overlap.validate_paths().is_err());
         let mut daemon_overlap = config(root.path());
         daemon_overlap

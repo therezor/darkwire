@@ -16,7 +16,7 @@
 
 pub mod automation;
 pub mod config;
-pub mod container;
+pub mod environment;
 pub mod extension;
 pub mod ids;
 pub mod json;
@@ -32,7 +32,7 @@ pub mod ws;
 
 pub use automation::*;
 pub use config::*;
-pub use container::*;
+pub use environment::*;
 pub use extension::*;
 pub use ids::*;
 pub use messages::*;

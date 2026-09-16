@@ -105,6 +105,7 @@ export interface AgentEntryForm {
   readonly livePrompt: string;
   readonly wrapUpPrompt: string;
   readonly platformPrompt: string;
+  readonly environmentPrompt: string;
   readonly toolPolicyPrompt: string;
   readonly memoryPrompt: string;
   readonly skillsPrompt: string;
@@ -172,15 +173,15 @@ export interface AgentEntryForm {
    * `ownFields` drops those rather than sending an id nothing resolves.
    */
   readonly subagents: readonly SubagentRef[];
-  /** An approved container name, or empty to run on the host. */
-  readonly containerName: string;
-  readonly containerNetworkMode: string;
+  /** An installed environment name, or empty to run on the host. */
+  readonly environmentName: string;
+  readonly environmentNetworkMode: string;
   /** Comma-separated CIDR blocks. Only read when the mode is `allowlist`. */
-  readonly containerAllow: string;
+  readonly environmentAllow: string;
   /** Comma-separated DNS names. Only read when the mode is `allowlist`. */
-  readonly containerHosts: string;
+  readonly environmentHosts: string;
   /** Comma-separated resolver addresses. Only read when the mode is `allowlist`. */
-  readonly containerDns: string;
+  readonly environmentDns: string;
 }
 
 /**
@@ -218,6 +219,7 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     livePrompt: entry.livePrompt,
     wrapUpPrompt: entry.wrapUpPrompt,
     platformPrompt: entry.platformPrompt,
+    environmentPrompt: entry.environmentPrompt,
     toolPolicyPrompt: entry.toolPolicyPrompt,
     memoryPrompt: entry.memoryPrompt,
     skillsPrompt: entry.skillsPrompt,
@@ -239,11 +241,11 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     loopWallTimeoutSeconds: msToSeconds(entry.loopWallTimeoutMs),
     tools: { ...entry.tools },
     subagents: entry.subagents.map((ref) => ({ ...ref })),
-    containerName: entry.container.name,
-    containerNetworkMode: entry.container.network.mode,
-    containerAllow: entry.container.network.allow.join(', '),
-    containerHosts: entry.container.network.hosts.join(', '),
-    containerDns: entry.container.network.dns.join(', '),
+    environmentName: entry.environment.name,
+    environmentNetworkMode: entry.environment.network.mode,
+    environmentAllow: entry.environment.network.allow.join(', '),
+    environmentHosts: entry.environment.network.hosts.join(', '),
+    environmentDns: entry.environment.network.dns.join(', '),
   };
 }
 
@@ -362,6 +364,7 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     livePrompt: form.livePrompt,
     wrapUpPrompt: form.wrapUpPrompt,
     platformPrompt: form.platformPrompt,
+    environmentPrompt: form.environmentPrompt,
     toolPolicyPrompt: form.toolPolicyPrompt,
     memoryPrompt: form.memoryPrompt,
     skillsPrompt: form.skillsPrompt,
@@ -390,41 +393,42 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     subagents: form.subagents
       .filter((ref) => ref.id !== '')
       .map((ref) => ({ ...ref, prompt: ref.prompt.trim() })),
-    container: toContainer(form),
+    environment: toEnvironment(form),
   };
 }
 
 /**
- * The container the form describes, and what it may reach.
+ * The environment the form describes, and what it may reach.
  *
  * Every list is dropped unless the mode actually uses it, so switching to
  * `none` and saving does not leave a stale set of CIDRs in the file waiting to
  * take effect the next time somebody switches back. The network goes with the
- * container for the same reason: egress is enforced by the container's gateway,
- * so a request left behind by an agent that no longer has one would mean
- * nothing until somebody picked one again.
+ * environment for the same reason: egress is enforced by the environment's
+ * gateway, so a request left behind by an agent that no longer has one would
+ * mean nothing until somebody picked one again.
  */
-function toContainer(form: AgentEntryForm): AgentEntry['container'] {
-  const name = form.containerName.trim();
-  const mode = name === '' ? 'none' : networkMode(form.containerNetworkMode);
+function toEnvironment(form: AgentEntryForm): AgentEntry['environment'] {
+  const name = form.environmentName.trim();
+  const mode = name === '' ? 'none' : networkMode(form.environmentNetworkMode);
   const scoped = mode === 'allowlist';
   return {
     name,
     network: {
       mode,
-      allow: scoped ? parseList(form.containerAllow) : [],
-      hosts: scoped ? parseList(form.containerHosts) : [],
-      dns: scoped ? parseList(form.containerDns) : [],
+      allow: scoped ? parseList(form.environmentAllow) : [],
+      hosts: scoped ? parseList(form.environmentHosts) : [],
+      dns: scoped ? parseList(form.environmentDns) : [],
     },
   };
 }
 
-const NETWORK_MODES: ReadonlyArray<AgentEntry['container']['network']['mode']> =
-  ['none', 'allowlist', 'open'];
+const NETWORK_MODES: ReadonlyArray<
+  AgentEntry['environment']['network']['mode']
+> = ['none', 'allowlist', 'open'];
 
 function networkMode(
   value: string,
-): AgentEntry['container']['network']['mode'] {
+): AgentEntry['environment']['network']['mode'] {
   return NETWORK_MODES.find((mode) => mode === value) ?? 'none';
 }
 
@@ -579,6 +583,7 @@ export function toNewAgentPatch(
           livePrompt: template.livePrompt,
           wrapUpPrompt: template.wrapUpPrompt,
           platformPrompt: template.platformPrompt,
+          environmentPrompt: template.environmentPrompt,
           toolPolicyPrompt: template.toolPolicyPrompt,
           memoryPrompt: template.memoryPrompt,
           skillsPrompt: template.skillsPrompt,
@@ -603,7 +608,7 @@ export function toNewAgentPatch(
           // created afterwards puts a tool in front of each of them, and the
           // model will use it.
           subagents: [],
-          container: { ...template.container },
+          environment: { ...template.environment },
           provider: template.provider,
           model: template.model,
           maxTokens: template.maxTokens,

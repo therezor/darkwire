@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::automation::{AutomationJob, AutomationRun};
-use crate::config::ContainerNetwork;
+use crate::config::EnvironmentNetwork;
 use crate::config::{
     AgentsConfigPatch, ChannelsConfigPatch, ExtensionsConfigPatch, ProviderConfigPatch,
     SchedulerConfigPatch, ServerConfigPatch, ToolsConfigPatch, UiConfigPatch,
 };
 use crate::config::{Config, ConfigPatch, McpTransport, ReasoningEffort};
-use crate::container::{ContainerLimits, ContainerRuntime};
+use crate::environment::{ContainerLimits, ContainerRuntime, EnvironmentKind};
 use crate::extension::ExtensionContribution;
 use crate::json::{MAX_SAFE_INTEGER, Nullable, True, positive, yes};
 use crate::messages::{StopReason, StoredMessage, Usage};
@@ -905,17 +905,17 @@ pub struct ToolListResponse {
     pub tools: Vec<ToolDefinition>,
 }
 
-/// `GET /api/containers`.
+/// `GET /api/environments`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct ContainerListResponse {
+pub struct EnvironmentListResponse {
     /// Independently selectable execution environments.
     #[garde(dive)]
-    pub containers: Vec<ContainerSummary>,
+    pub environments: Vec<EnvironmentSummary>,
 }
 
-/// One installed container definition.
+/// One installed environment definition.
 ///
 /// Carries everything an operator weighs before selecting one for an agent:
 /// the image, who it runs as, what it is allowed to spend, and whether any
@@ -925,9 +925,16 @@ pub struct ContainerListResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
-pub struct ContainerSummary {
+pub struct EnvironmentSummary {
     /// Operator-installed identifier.
     pub name: String,
+    /// What kind of place this is.
+    #[serde(default)]
+    pub kind: EnvironmentKind,
+    /// The definition's prompt section, so the agent editor can show what an
+    /// agent inherits before it decides whether to override it.
+    #[serde(default)]
+    pub prompt: String,
     /// Immutable image reference.
     pub image: String,
     /// Reused across agents and conversations in one workspace.
@@ -954,7 +961,7 @@ pub struct ContainerSummary {
     pub problem: Option<String>,
 }
 
-/// One container managed by the isolated sandbox service.
+/// One container managed by the isolated environment service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SandboxInstanceSummary {
@@ -962,8 +969,8 @@ pub struct SandboxInstanceSummary {
     pub id: String,
     /// Registered workspace identifier.
     pub workspace: String,
-    /// Approved container definition backing the instance.
-    pub container: String,
+    /// Approved environment definition backing the instance.
+    pub environment: String,
     /// Shared across authorized agents and conversations in this workspace.
     pub shared: bool,
     /// Active operations.
@@ -1003,13 +1010,13 @@ pub enum SandboxRequest {
     /// Run one guarded command. Refused over HTTP because a model's tool call
     /// reaches the service through the agent loop. It carries argv rather than a plan: `cwd` and the
     /// resolved environment of the caller's process mean nothing inside a
-    /// container, and the service re-guards regardless. The caller guards
+    /// environment, and the service re-guards regardless. The caller guards
     /// first so a refusal reaches the model quickly; the service guards again
     /// and its answer is the one that counts.
     #[serde(rename_all = "camelCase")]
     Exec {
-        /// Installed container to run it in.
-        container: String,
+        /// Installed environment to run it in.
+        environment: String,
         /// Registered workspace ID.
         workspace: String,
         /// The calling agent.
@@ -1026,15 +1033,15 @@ pub enum SandboxRequest {
         #[serde(default)]
         #[garde(range(max = MAX_SAFE_INTEGER))]
         max_output_bytes: u64,
-        /// What the agent's container may reach.
+        /// What the agent's environment may reach.
         #[serde(default)]
         #[schemars(transform = crate::json::prefault)]
-        network: ContainerNetwork,
+        network: EnvironmentNetwork,
     },
-    /// Warm an approved container.
+    /// Warm an approved environment.
     Start {
-        /// Approved container name.
-        container: String,
+        /// Approved environment name.
+        environment: String,
         /// Registered workspace ID.
         workspace: String,
         /// Audit identity.
@@ -1045,7 +1052,7 @@ pub enum SandboxRequest {
         /// asking for different egress never share one container.
         #[serde(default)]
         #[schemars(transform = crate::json::prefault)]
-        network: ContainerNetwork,
+        network: EnvironmentNetwork,
     },
     /// Stop an instance.
     Stop {
