@@ -83,8 +83,26 @@ pub async fn save_environment(
         .into());
     }
     assert_no_agent_is_broken_by(&state, &name, Some(&definition))?;
-    state.runtime.save_environment(&definition)?;
+    state
+        .runtime
+        .save_environment(&definition)
+        .map_err(rejected_body)?;
     list_environments(State(state)).await
+}
+
+/// A policy refusal is about the body, not about this server.
+///
+/// The store raises `Config` for both, because from its side "these bytes are
+/// not a valid policy" is one condition however they arrived. Over HTTP the two
+/// are different: a definition on disk that will not parse is the server's
+/// problem and a 500, while a definition somebody just submitted is theirs and a
+/// 422. Without this an operator pasting a tag-pinned image is told the server
+/// broke, and the sentence explaining what they did wrong arrives under it.
+fn rejected_body(error: GhostError) -> GhostError {
+    if error.kind == ErrorKind::Config {
+        return GhostError::new(ErrorKind::InvalidInput, error.message);
+    }
+    error
 }
 
 /// Uninstalls one definition.
@@ -93,7 +111,14 @@ pub async fn remove_environment(
     Path(name): Path<String>,
 ) -> Result<Json<EnvironmentListResponse>, HttpError> {
     assert_no_agent_is_broken_by(&state, &name, None)?;
-    state.runtime.remove_environment(&name)?;
+    // A name that is not installed is a 404 rather than the store's `Config`,
+    // which would report the server as broken for a stale link.
+    state.runtime.remove_environment(&name).map_err(|error| {
+        if error.kind == ErrorKind::Config {
+            return GhostError::new(ErrorKind::NotFound, error.message);
+        }
+        error
+    })?;
     list_environments(State(state)).await
 }
 

@@ -502,6 +502,39 @@ mod writing_a_definition {
     }
 
     #[tokio::test]
+    async fn a_policy_refusal_is_the_bodys_fault_rather_than_the_servers() {
+        // The store raises `Config` for "these bytes are not a valid policy"
+        // however they arrived, and `Config` is a 500 everywhere else because
+        // it usually means this install is broken. Submitted bytes are not
+        // that: an operator pasting a tag-pinned image was told the server had
+        // failed, with the sentence explaining their mistake underneath it.
+        let test = server_with(Vec::new(), &json!({}));
+        let body =
+            serde_json::to_value(definition(&json!({"image": "node:20"}))).expect("a definition");
+
+        let (status, error) = send(&test, Method::PUT, "/api/environments/dev", Some(body)).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .expect("a sentence")
+                .contains("digest"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_one_that_is_not_installed_is_a_404() {
+        // A stale link, not a broken server.
+        let test = server_with(Vec::new(), &json!({}));
+
+        let (status, _) = send(&test, Method::DELETE, "/api/environments/gone", None).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn removing_one_an_enabled_agent_uses_is_refused_and_names_it() {
         // `resolve_policies` runs on every build and propagates, so this delete
         // would be a rollback on reconfigure and a server that will not start

@@ -558,12 +558,23 @@ impl ServerRuntime for FakeRuntime {
         self.environments.lock().clone()
     }
 
-    /// Records the write without re-validating it.
+    /// Records the write, running the one policy check a route test needs.
     ///
-    /// The policy checks belong to `PolicyStore` and are tested there. What a
-    /// route test needs from this seam is that a definition which got past the
-    /// handler's own refusals arrives intact and is listed afterwards.
+    /// The full check set belongs to `PolicyStore` and is tested there. The
+    /// digest pin is repeated here because it is the refusal an operator meets
+    /// most often, and because the *status* it comes back as is the route's
+    /// decision rather than the store's: without a refusing double, every route
+    /// test passes while a policy rejection is reported as a 500.
     fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
+        if !definition.image.starts_with("sha256:") && !definition.image.contains("@sha256:") {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!(
+                    "Container \"{}\" must pin its image by digest, not by tag: {}",
+                    definition.name, definition.image
+                ),
+            ));
+        }
         let mut environments = self.environments.lock();
         environments.retain(|listing| listing.name != definition.name);
         environments.push(EnvironmentListing {
