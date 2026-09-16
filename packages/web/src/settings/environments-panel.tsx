@@ -11,11 +11,10 @@
  * definition must report its new capabilities and its new gateway verdict the
  * moment it changes, and an operator who just fixed one is the likeliest visitor.
  *
- * **Only shared environments can be warmed.** A private instance is keyed on the
- * agent and conversation that will use it, so one started from here would be
- * keyed on nothing real and sit idle until it was reaped: warm in the list and
- * never reused. Shared ones are keyed on the workspace, the definition and the
- * network, all of which this form can supply.
+ * **Any installed environment can be warmed.** An instance is keyed on the
+ * workspace, the definition and the network, all of which this form supplies,
+ * and neither the agent nor the conversation is part of it. So one started here
+ * is the one a turn goes on to reuse.
  */
 
 import { useState, type JSX } from 'react';
@@ -42,20 +41,15 @@ import { useListPage } from '@/components/crud/use-list-page.js';
 import { Section } from '@/components/form/controls.js';
 import { useEnvironments, useRemoveEnvironment } from './use-environment.js';
 
-type SortKey = 'name' | 'image' | 'sharing';
+type SortKey = 'name' | 'image';
 
-/** All three read from A, or from the state an operator is looking for. */
-const ASCENDING_FIRST: readonly SortKey[] = ['name', 'image', 'sharing'];
+/** Both are text, and text reads from A. */
+const ASCENDING_FIRST: readonly SortKey[] = ['name', 'image'];
 
 const COMPARE: Comparators<EnvironmentSummary, SortKey> = {
   name: (a, b) => a.name.localeCompare(b.name),
   image: (a, b) =>
     (a.definition?.image ?? '').localeCompare(b.definition?.image ?? ''),
-  // Shared first ascending: an instance several agents land in is the one whose
-  // settings are worth checking before the one only its owner uses.
-  sharing: (a, b) =>
-    Number(b.definition?.shared ?? false) -
-    Number(a.definition?.shared ?? false),
 };
 
 export function EnvironmentsPanel(): JSX.Element {
@@ -120,7 +114,6 @@ export function EnvironmentsPanel(): JSX.Element {
               options={[
                 { key: 'name', label: t('common.name') },
                 { key: 'image', label: t('settings.environments.image') },
-                { key: 'sharing', label: t('settings.environments.sharing') },
               ]}
               sort={sort}
               ascendingFirst={ASCENDING_FIRST}
@@ -163,14 +156,7 @@ export function EnvironmentsPanel(): JSX.Element {
                       })}
                     >
                       <Box />
-                      <span className="row">
-                        <span className="truncate">{entry.name}</span>
-                        <Badge tone="neutral">
-                          {entry.definition.shared
-                            ? t('settings.environments.shared')
-                            : t('settings.environments.private')}
-                        </Badge>
-                      </span>
+                      <span className="truncate">{entry.name}</span>
                     </Link>
                   )
                 }
@@ -297,8 +283,11 @@ function RunningContainers(): JSX.Element {
   const [workspace, setWorkspace] = useState('default');
 
   const installed = useEnvironments();
+  // Every installed definition, because every environment is shared now. The
+  // filter this replaced kept only `shared: true` ones, and with that flag gone
+  // it would have quietly offered nothing forever.
   const warmable = (installed.data?.environments ?? []).filter(
-    (entry) => entry.definition?.shared === true,
+    (entry) => entry.definition !== undefined,
   );
   const instances = useQuery({
     queryKey: queryKeys.environmentInstances,
@@ -378,10 +367,6 @@ function RunningContainers(): JSX.Element {
             <p>
               <code>{instance.id}</code> · {instance.workspace} ·{' '}
               {instance.environment} ·{' '}
-              {instance.shared
-                ? t('settings.environments.shared')
-                : t('settings.environments.private')}{' '}
-              ·{' '}
               {t('settings.environments.activeCommands', {
                 count: instance.busy,
               })}

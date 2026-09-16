@@ -1,33 +1,29 @@
 //! Warm containers and the [`CommandRunner`] that talks to them.
 //!
-//! A definition's `shared` flag decides which of two identities an instance
-//! gets, and they are different shapes rather than the same shape with a
-//! relaxation.
+//! **An environment is a place, and one place is one container.** An instance is
+//! keyed by workspace, mount, definition and the **effective network**:
 //!
-//! **Private** instances are keyed by `(agent_id, workspace_id, session_key)`:
-//!
-//!  - **The agent** is part of the identity. Two agents on one conversation are
-//!    two private containers.
 //!  - **The workspace** decides what is *mounted*, so it cannot be shared
 //!    across one.
-//!  - **The session** decides the *instance*. Keying on the agent alone would
-//!    put two conversations in one container, which for a security agent means
-//!    one engagement's loot sitting in another's `/tmp`. Keying per *call*
-//!    would be stricter still and pay a container start on every command.
+//!  - **The network** is deliberately present: two agents reaching different
+//!    parts of the network are not interchangeable, and an instance that served
+//!    the wider of the two requests would quietly hand the narrower one a reach
+//!    nobody granted it.
 //!
-//! **Shared** instances are keyed by workspace, mount, approval digest and the
-//! **effective network**. Agent and session are deliberately absent — that is
-//! what sharing means — and the network is deliberately present: two agents
-//! reaching different parts of the network are not interchangeable, and an
-//! instance that served the wider of the two requests would quietly hand the
-//! narrower one a reach nobody granted it. Container identity is absent from both
-//! keys, so agents keep their own operation permissions while reusing one
-//! container.
+//! **Neither the agent nor the session is in the key**, and that is the whole
+//! point: a parent and every subagent it delegates to work in one container
+//! rather than one each. Keying on the session cost four containers for one
+//! fan-out, against a cap of four, on hardware where four containers is the
+//! whole machine. Operation permissions are per agent and enforced elsewhere, so
+//! sharing an instance does not share authority.
+//!
+//! What it costs is the container's own ephemeral filesystem: two commands may
+//! write `/tmp` and `$HOME` at once. The workspace was already shared across
+//! containers by bind mount, so that is the new exposure and it is bounded.
 //!
 //! Starting is lazy, on the first command that needs it, because an install
 //! with six containerised agents should not run six containers to answer one
-//! question. Reaping is on idle, on session end for private instances, and on
-//! reconfigure.
+//! question. Reaping is on idle and on reconfigure.
 //!
 //! **Failure to start is a refusal, never a downgrade.** A container that
 //! cannot be created must not fall back to running the command on the host:
@@ -234,18 +230,10 @@ impl std::fmt::Debug for ContainerPoolOptions {
 
 /// One live container.
 struct Entry {
-    shared: bool,
     gateway: Option<String>,
     agents: std::collections::BTreeSet<String>,
     name: String,
     runner: Arc<dyn CommandRunner>,
-    /// Kept beside the composite key rather than parsed back out of it.
-    ///
-    /// Recovering the session from the key by suffix match is wrong twice: a
-    /// session key containing a space can match another session's key, and a key
-    /// that happens to end with another's text is reaped with it. Storing the
-    /// value removes the parsing entirely.
-    session_key: String,
     /// What the definition hashed to when this container was started.
     digest: String,
     /// The turn that asked for this container, kept so it can be rebuilt.
@@ -268,7 +256,6 @@ struct Entry {
 
 /// The mutable half, behind one lock.
 struct Live {
-    serial: IndexMap<String, Arc<tokio::sync::Mutex<()>>>,
     epochs: IndexMap<String, u64>,
     /// Insertion order is the recency order.
     entries: IndexMap<String, Entry>,
@@ -303,28 +290,31 @@ impl std::fmt::Debug for ContainerPool {
     }
 }
 
-/// The key a private container is held under. See the module header.
-fn key_of(request: &PlacementRequest) -> String {
-    format!(
-        "{} {} {}",
-        request.agent_id, request.workspace_id, request.session_key
-    )
-}
-
-/// The key a shared container is held under.
+/// The key a container is held under.
+///
+/// **An environment is a place, so everything asking for the same place gets the
+/// same container.** Neither the agent nor the session is in here, which is what
+/// makes a parent and the subagents it delegates to work side by side in one
+/// container rather than one each. On a small board that is the difference
+/// between four containers and one.
 ///
 /// Serialised rather than joined with a separator, because every component is
 /// operator- or client-supplied and a workspace path containing the separator
 /// would otherwise collide with a different workspace. The network is part of
 /// it: an instance that reaches more than this request asked for is not this
 /// request's instance.
-fn shared_key_of(request: &PlacementRequest, digest: &str) -> Result<String> {
+///
+/// **The digest is deliberately not in here**, even though it is identity. An
+/// edited definition has to *replace* the container its old bytes started, and
+/// keying on it would leave the old one live under a key nothing asks for again
+/// until the idle sweep finds it. `resolve_turn` compares `Entry::digest`
+/// instead and drops the entry in place, which is the same decision without the
+/// leak.
+fn key_of(request: &PlacementRequest) -> Result<String> {
     serde_json::to_string(&(
-        "shared",
         &request.workspace_id,
         &request.workspace_root,
         &request.environment,
-        digest,
         &request.network,
     ))
     .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))
@@ -347,7 +337,6 @@ impl ContainerPool {
                 id: entry.name.clone(),
                 workspace: entry.request.workspace_id.clone(),
                 environment: entry.request.environment.clone(),
-                shared: entry.shared,
                 busy: u64::from(entry.busy),
                 last_used_ms: entry.last_used_ms.max(0).cast_unsigned(),
                 agents: entry.agents.iter().cloned().collect(),
@@ -451,7 +440,6 @@ impl ContainerPool {
             live: Mutex::new(Live {
                 entries: IndexMap::new(),
                 specs: IndexMap::new(),
-                serial: IndexMap::new(),
                 epochs: IndexMap::new(),
                 counter: 0,
                 swept: false,
@@ -468,23 +456,6 @@ impl ContainerPool {
             .values()
             .map(|entry| entry.name.clone())
             .collect()
-    }
-
-    /// Stops every container this session owns. Called when a session ends.
-    pub fn release_session(&self, session_key: &str) {
-        let doomed: Vec<String> = self
-            .live
-            .lock()
-            .entries
-            .iter()
-            .filter(|(_, entry)| {
-                !entry.shared && entry.session_key == session_key && entry.busy == 0
-            })
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in doomed {
-            self.drop_entry(&key);
-        }
     }
 
     /// Stops everything. Called on reconfigure and on shutdown.
@@ -557,13 +528,9 @@ impl ContainerPool {
         Ok(Some(ContainerSpec { definition, digest }))
     }
 
-    /// The key this request's instance lives under, private or shared.
-    fn key_for(request: &PlacementRequest, spec: &ContainerSpec) -> Result<String> {
-        if spec.definition.shared {
-            shared_key_of(request, &spec.digest)
-        } else {
-            Ok(key_of(request))
-        }
+    /// The key this request's instance lives under.
+    fn key_for(request: &PlacementRequest, _spec: &ContainerSpec) -> Result<String> {
+        key_of(request)
     }
 
     /// Starts this key's container if it has none.
@@ -602,13 +569,7 @@ impl ContainerPool {
                 Some(
                     live.entries
                         .iter()
-                        .find(|(key, entry)| {
-                            entry.busy == 0
-                                && live
-                                    .serial
-                                    .get(*key)
-                                    .is_none_or(|lock| lock.try_lock().is_ok())
-                        })
+                        .find(|(_, entry)| entry.busy == 0)
                         .map(|(key, _)| key.clone())
                         .ok_or_else(|| {
                             GhostError::new(
@@ -786,12 +747,10 @@ impl ContainerPool {
         };
 
         Ok(Entry {
-            shared: container.shared,
             gateway: create.gateway_container.clone(),
             agents: std::collections::BTreeSet::from([request.agent_id.clone()]),
             name,
             runner,
-            session_key: request.session_key.clone(),
             digest: approved.digest.clone(),
             request: request.clone(),
             last_used_ms: self.options.clock.now_ms(),
@@ -851,14 +810,7 @@ impl ContainerPool {
             let live = self.live.lock();
             live.entries
                 .iter()
-                .filter(|(key, entry)| {
-                    entry.busy == 0
-                        && entry.last_used_ms < cutoff
-                        && live
-                            .serial
-                            .get(*key)
-                            .is_none_or(|lock| lock.try_lock().is_ok())
-                })
+                .filter(|(_, entry)| entry.busy == 0 && entry.last_used_ms < cutoff)
                 .map(|(key, _)| key.clone())
                 .collect()
         };
@@ -895,9 +847,6 @@ impl ContainerPool {
 ///
 /// Three jobs beyond delegating.
 ///
-/// It **serialises** commands on the instance, because a shared container is one
-/// filesystem and two agents writing it at once is a race nobody asked for.
-///
 /// It **refuses after an explicit stop or restart**, by comparing the epoch it
 /// was minted at against the instance's. An operator who stops an instance means
 /// it; handing the next command a fresh container under the same key would make
@@ -917,25 +866,18 @@ struct Facade {
     pool: std::sync::Weak<ContainerPool>,
     key: String,
     spec: PlacementRequest,
-    serial: Arc<tokio::sync::Mutex<()>>,
     epoch: u64,
 }
 
 impl CommandRunner for Facade {
     fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
         Box::pin(async move {
-            let _lease = tokio::select! {
-                lease = self.serial.lock() => lease,
-                () = request.token.cancelled() => {
-                    return Err(GhostError::aborted("queued sandbox command"));
-                }
-                () = tokio::time::sleep(QUEUE_TIMEOUT) => {
-                    return Err(GhostError::new(
-                        ErrorKind::Tool,
-                        "Shared container queue timed out",
-                    ));
-                }
-            };
+            // No lease. Commands on one instance run at once, because an
+            // environment is a place several agents work in and queueing them
+            // behind each other made a fan-out of subagents finish one at a
+            // time. What that costs is the container's own ephemeral
+            // filesystem: the workspace was already shared across containers by
+            // bind mount, and a pid file is keyed per run.
             let Some(pool) = self.pool.upgrade() else {
                 return Err(GhostError::new(
                     ErrorKind::Tool,
@@ -1049,30 +991,15 @@ impl ContainerPool {
             self.drop_entry(&key);
         }
 
-        let serial = self
-            .live
-            .lock()
-            .serial
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
         let epoch = self.epoch_of(&key);
         Ok(Some(Arc::new(Facade {
             pool: self.me.clone(),
             key,
             spec: request.clone(),
-            serial,
             epoch,
         })))
     }
 }
-
-/// How long a command may wait for its turn on a shared instance.
-///
-/// A queue rather than a refusal, because two agents sharing a container is the
-/// point of `shared: true`; a bound on it, because a queue nobody drains is a
-/// turn that never ends.
-const QUEUE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// How long a control-plane call may take before it is treated as unreachable.
 ///

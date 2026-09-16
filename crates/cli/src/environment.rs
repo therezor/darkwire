@@ -25,14 +25,6 @@ use crate::runtime::load_options;
 fn describe(environment: &EnvironmentDefinition) -> Vec<String> {
     let mut lines = vec![
         format!("    image      {}", environment.image),
-        format!(
-            "    sharing    {}",
-            if environment.shared {
-                "shared across agents and sessions in a workspace"
-            } else {
-                "private to one agent and session"
-            }
-        ),
         format!("    user       {}", environment.user),
         format!("    workdir    {}", environment.workdir),
         format!(

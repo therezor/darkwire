@@ -196,14 +196,13 @@ describe('the environments panel', () => {
     ).toBeInTheDocument();
   });
 
-  it('warms a shared environment with a structured request', async () => {
+  it('warms an environment with a structured request', async () => {
     const instances = {
       instances: [
         {
           id: 'ghost-sbx-1',
           workspace: 'default',
           environment: 'dev',
-          shared: true,
           busy: 0,
           lastUsedMs: 1,
           agents: ['operator'],

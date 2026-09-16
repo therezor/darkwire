@@ -171,18 +171,14 @@ fn environment_list_points_at_the_old_directory_when_one_is_left_behind() {
 }
 
 #[test]
-fn environment_list_reports_sharing_and_the_rest_of_the_placement() {
+fn environment_list_reports_the_placement_facts() {
     let home = tempfile::tempdir().unwrap();
     install_environment(home.path(), "dev");
     let listed = run_environment(home.path());
     assert!(listed.out.contains("dev"), "{}", listed.out);
-    assert!(
-        listed
-            .out
-            .contains("sharing    shared across agents and sessions in a workspace"),
-        "{}",
-        listed.out
-    );
+    // No sharing line: an environment is a place, and every agent asking for
+    // the same place gets the same container.
+    assert!(!listed.out.contains("sharing"), "{}", listed.out);
     // The image, user and limits are the placement facts an operator reviews.
     assert!(listed.out.contains("image      "), "{}", listed.out);
     assert!(listed.out.contains("user       "), "{}", listed.out);

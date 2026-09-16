@@ -675,7 +675,6 @@
       "shared": "shared",
       "sharedHint": "On, every agent in this workspace asking for the same egress lands in one container. Off, each agent and session gets its own.",
       "sharedLabel": "Share one instance",
-      "sharing": "Sharing",
       "shmHint": "The engine’s own default is 64, which produces short writes in build and scan workloads.",
       "shmSizeMb": "Shared memory (MB)",
       "start": "Start it now",

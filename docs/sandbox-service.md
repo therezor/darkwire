@@ -110,10 +110,9 @@ ghostai sandbox restart INSTANCE
 
 Stop and restart do not refuse a busy instance. The container goes away under whatever it
 was running, queued work comes back aborted, and the next command starts a fresh container
-from the same definition. A shared container is not released when one session ends; idle
-reaping and explicit lifecycle operations manage it.
+from the same definition. A container is not released when one session ends; idle reaping
+and explicit lifecycle operations manage it.
 
-Only `shared` definitions are offered for warming, in the CLI and in Settings →
-Environments. A
-private instance is keyed to an agent, a workspace and a session, so one warmed ahead of
-time would never be the one a turn asks for.
+Any installed definition can be warmed, in the CLI and in Settings → Environments. An
+instance is keyed on the workspace, the definition and the network, none of which is
+particular to one turn, so the one warmed ahead of time is the one a turn goes on to use.

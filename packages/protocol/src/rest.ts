@@ -698,7 +698,6 @@ export const SandboxInstanceSummarySchema = z
     id: z.string(),
     workspace: z.string(),
     environment: z.string(),
-    shared: z.boolean(),
     busy: z.number().int().nonnegative(),
     lastUsedMs: z.number().int().nonnegative(),
     agents: z.array(z.string()).default([]),

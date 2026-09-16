@@ -354,44 +354,90 @@ fn refusal(result: Result<Option<Arc<dyn CommandRunner>>>) -> GhostError {
     }
 }
 
+/// An environment is a place, and one place is one container.
+///
+/// This used to be what `shared: true` bought. It is now the only behaviour,
+/// because keying on the agent and the session cost a fan-out of subagents one
+/// container each against a cap of four.
 #[tokio::test]
-async fn shares_one_container_across_agents_and_conversations() {
+async fn puts_every_agent_and_conversation_in_one_container() {
     let h = Harness::new();
-    h.install("shared", &json!({"shared": true}));
+    h.install("dev", &json!({}));
     let pool = h.pool();
-    let alice = request("alice", "work", "one", "shared");
-    let bob = request("bob", "work", "two", "shared");
+    let alice = request("alice", "work", "one", "dev");
+    let bob = request("bob", "work", "two", "dev");
 
     let first = pool.resolve_turn(&alice).unwrap().unwrap();
     run(&first).await.unwrap();
     let second = pool.resolve_turn(&bob).unwrap().unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
-    pool.release_session("one");
-    assert_eq!(pool.live().len(), 1);
 
     run(&first).await.unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
 
+    // The workspace decides what is mounted, so it cannot be shared across one.
     let separate = pool
-        .resolve_turn(&request("bob", "another", "two", "shared"))
+        .resolve_turn(&request("bob", "another", "two", "dev"))
         .unwrap()
         .unwrap();
     run(&separate).await.unwrap();
     assert_eq!(pool.live().len(), 2);
 }
 
+/// Two commands in one container run at once.
+///
+/// The lock this replaced had a one-minute queue timeout, which was survivable
+/// while sharing was opt-in and would have made a parent delegating to three
+/// subagents fail the slowest of them.
 #[tokio::test]
-async fn gives_two_agents_asking_for_different_egress_two_shared_instances() {
+async fn runs_two_commands_at_once_rather_than_queueing_them() {
     let h = Harness::new();
-    h.install("shared", &json!({"shared": true}));
+    h.install("dev", &json!({}));
+    let pool = h.pool();
+    let alice = pool
+        .resolve_turn(&request("alice", "work", "one", "dev"))
+        .unwrap()
+        .unwrap();
+    let bob = pool
+        .resolve_turn(&request("bob", "work", "two", "dev"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(pool.live().len(), 0);
+
+    h.hold_commands();
+    let first = tokio::spawn(async move { run(&alice).await });
+    let second = tokio::spawn(async move { run(&bob).await });
+
+    // Both inside the runner at the same time. Under the old lock the second
+    // would still be waiting on the first.
+    while pool
+        .status()
+        .iter()
+        .map(|instance| instance.busy)
+        .sum::<u64>()
+        < 2
+    {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(pool.live().len(), 1);
+
+    h.release_commands();
+    first.await.unwrap().unwrap();
+    second.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn gives_two_agents_asking_for_different_egress_two_instances() {
+    let h = Harness::new();
+    h.install("dev", &json!({}));
     let pool = h.pool();
     // An instance that served the wider of the two requests would quietly hand
-    // the narrower one a reach nobody granted it, so the network is part of a
-    // shared instance's identity.
-    let walled = reaching(NetworkMode::None, request("alice", "work", "one", "shared"));
-    let open = reaching(NetworkMode::Open, request("bob", "work", "two", "shared"));
+    // the narrower one a reach nobody granted it, so the network is part of an
+    // instance's identity even though the agent and the session are not.
+    let walled = reaching(NetworkMode::None, request("alice", "work", "one", "dev"));
+    let open = reaching(NetworkMode::Open, request("bob", "work", "two", "dev"));
     for spec in [&walled, &open] {
         let runner = pool.resolve_turn(spec).unwrap().unwrap();
         run(&runner).await.unwrap();
@@ -400,10 +446,7 @@ async fn gives_two_agents_asking_for_different_egress_two_shared_instances() {
 
     // A third agent asking for the reach the first one asked for joins it
     // rather than starting a third.
-    let same = reaching(
-        NetworkMode::None,
-        request("carol", "work", "three", "shared"),
-    );
+    let same = reaching(NetworkMode::None, request("carol", "work", "three", "dev"));
     let runner = pool.resolve_turn(&same).unwrap().unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 2);
@@ -662,22 +705,6 @@ async fn reuses_the_container_for_a_second_turn_in_the_same_session() {
 }
 
 #[tokio::test]
-async fn gives_two_sessions_two_containers() {
-    let h = Harness::new();
-    h.install("dev", &json!({}));
-    let pool = h.pool();
-    for session in ["s1", "s2"] {
-        let runner = pool
-            .resolve_turn(&request("a", "w", session, "dev"))
-            .unwrap()
-            .unwrap();
-        run(&runner).await.unwrap();
-    }
-    // One engagement's loot must not sit in another's `/tmp`.
-    assert_eq!(pool.live().len(), 2);
-}
-
-#[tokio::test]
 async fn gives_two_workspaces_two_containers_because_the_mount_differs() {
     let h = Harness::new();
     h.install("dev", &json!({}));
@@ -685,21 +712,6 @@ async fn gives_two_workspaces_two_containers_because_the_mount_differs() {
     for workspace in ["w1", "w2"] {
         let runner = pool
             .resolve_turn(&request("a", workspace, "s", "dev"))
-            .unwrap()
-            .unwrap();
-        run(&runner).await.unwrap();
-    }
-    assert_eq!(pool.live().len(), 2);
-}
-
-#[tokio::test]
-async fn gives_two_agents_two_containers_because_a_private_one_is_theirs_alone() {
-    let h = Harness::new();
-    h.install("dev", &json!({}));
-    let pool = h.pool();
-    for agent in ["a1", "a2"] {
-        let runner = pool
-            .resolve_turn(&request(agent, "w", "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -751,9 +763,11 @@ async fn evicts_the_least_recently_used_beyond_the_cap() {
     let mut options = h.options();
     options.max_live = 2;
     let pool = ContainerPool::new(options);
-    for session in ["s1", "s2", "s3"] {
+    // Three workspaces rather than three sessions: the session is no longer
+    // part of an instance's identity, so three of those are one container.
+    for workspace in ["w1", "w2", "w3"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "dev"))
+            .resolve_turn(&request("a", workspace, "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -790,9 +804,9 @@ async fn a_zero_cap_means_no_cap_rather_than_no_containers() {
     // leave nothing to say why.
     options.max_live = 0;
     let pool = ContainerPool::new(options);
-    for session in 0..=MAX_LIVE_CONTAINERS {
+    for workspace in 0..=MAX_LIVE_CONTAINERS {
         let runner = pool
-            .resolve_turn(&request("a", "w", &session.to_string(), "dev"))
+            .resolve_turn(&request("a", &workspace.to_string(), "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -802,53 +816,13 @@ async fn a_zero_cap_means_no_cap_rather_than_no_containers() {
 }
 
 #[tokio::test]
-async fn stops_every_container_a_session_owns_when_it_ends() {
-    let h = Harness::new();
-    h.install("dev", &json!({}));
-    let pool = h.pool();
-    for agent in ["a1", "a2"] {
-        let runner = pool
-            .resolve_turn(&request(agent, "w", "chat", "dev"))
-            .unwrap()
-            .unwrap();
-        run(&runner).await.unwrap();
-    }
-    let other = pool
-        .resolve_turn(&request("a1", "w", "other", "dev"))
-        .unwrap()
-        .unwrap();
-    run(&other).await.unwrap();
-
-    pool.release_session("chat");
-    assert_eq!(pool.live().len(), 1);
-}
-
-#[tokio::test]
-async fn releases_only_the_session_it_was_asked_about() {
-    let h = Harness::new();
-    h.install("dev", &json!({}));
-    let pool = h.pool();
-    // A key that *ends with* another's text must not be swept with it, which is
-    // why the session is matched on the whole trailing field.
-    for session in ["chat", "not chat"] {
-        let runner = pool
-            .resolve_turn(&request("a", "w", session, "dev"))
-            .unwrap()
-            .unwrap();
-        run(&runner).await.unwrap();
-    }
-    pool.release_session("chat");
-    assert_eq!(pool.live().len(), 1);
-}
-
-#[tokio::test]
 async fn stops_everything_on_close() {
     let h = Harness::new();
     h.install("dev", &json!({}));
     let pool = h.pool();
-    for session in ["s1", "s2"] {
+    for workspace in ["w1", "w2"] {
         let runner = pool
-            .resolve_turn(&request("a", "w", session, "dev"))
+            .resolve_turn(&request("a", workspace, "s", "dev"))
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -1015,12 +989,12 @@ mod a_container_with_a_command_in_it {
     }
 
     #[tokio::test]
-    async fn is_not_evicted_to_make_room_for_another_session() {
+    async fn is_not_evicted_to_make_room_for_another_workspace() {
         let h = Harness::new();
         h.install("dev", &json!({}));
         let (pool, release) = blocking_pool(&h, 1);
         let busy = pool
-            .resolve_turn(&request("a", "w", "s1", "dev"))
+            .resolve_turn(&request("a", "w1", "s", "dev"))
             .unwrap()
             .unwrap();
         let running = tokio::spawn({
@@ -1029,11 +1003,16 @@ mod a_container_with_a_command_in_it {
         });
         assert!(common::eventually(Duration::from_secs(5), || !pool.live().is_empty()).await);
 
-        // The second session is told to come back rather than served by
-        // stopping the container the first one is scanning in: a command killed
-        // to make room fails with the daemon's words and no stated reason.
+        // A second workspace rather than a second session: the session is no
+        // longer part of an instance's identity, so one of those would join the
+        // container rather than need another. The workspace decides what is
+        // mounted, so it still cannot share one.
+        //
+        // It is told to come back rather than served by stopping the container
+        // the first one is scanning in: a command killed to make room fails
+        // with the daemon's words and no stated reason.
         let second = pool
-            .resolve_turn(&request("a", "w", "s2", "dev"))
+            .resolve_turn(&request("a", "w2", "s", "dev"))
             .unwrap()
             .unwrap();
         let error = common::err(run(&second).await);

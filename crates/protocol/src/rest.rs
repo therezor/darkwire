@@ -965,8 +965,6 @@ pub struct SandboxInstanceSummary {
     pub workspace: String,
     /// Approved environment definition backing the instance.
     pub environment: String,
-    /// Shared across authorized agents and conversations in this workspace.
-    pub shared: bool,
     /// Active operations.
     #[schemars(range(max = MAX_SAFE_INTEGER))]
     pub busy: u64,

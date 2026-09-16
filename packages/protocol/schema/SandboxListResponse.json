@@ -15,9 +15,6 @@
           "environment": {
             "type": "string"
           },
-          "shared": {
-            "type": "boolean"
-          },
           "busy": {
             "type": "integer",
             "minimum": 0,
@@ -40,7 +37,6 @@
           "id",
           "workspace",
           "environment",
-          "shared",
           "busy",
           "lastUsedMs"
         ],

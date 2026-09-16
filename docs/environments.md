@@ -89,10 +89,10 @@ It lives on the reference rather than on the target because being somebody's sub
 relationship: the same researcher can inherit from one caller and run on the host for
 another.
 
-What is inherited is the _name and network policy_, not a running instance. The subagent
-resolves its own placement from its own agent id and a fresh session key, so under a
-private definition it gets its own container; only a definition with `shared: true` puts
-caller and subagent inside the same one.
+What is inherited is the _name and network policy_, and in practice it is also the
+container: an instance is keyed on the workspace, the definition and the network, with
+neither the agent nor the session in it, so a caller and its subagents work in one
+container rather than one each.
 
 This used to be implied by the target naming no environment, which meant "the host" at the
 top of a chain and "inherit" below it. One spelling for two answers, and no way to ask for
@@ -100,9 +100,15 @@ the host under a containerised caller at all.
 
 ## Lifecycle
 
-Environments can be shared or private as declared by their definition. The environment
-service owns their lifecycle and exposes inspection and stop operations through
-`ghostai sandbox` and the Environments settings tab.
+**An environment is a place, and one place is one container.** Everything in a workspace
+asking for the same definition and the same egress lands in the same instance. What that
+costs is the container's own ephemeral filesystem, since two commands may write `/tmp` and
+`$HOME` at once; the workspace itself was already shared across containers by bind mount.
+Commands are not queued behind each other.
+
+The environment service owns the lifecycle and exposes inspection and stop operations
+through `ghostai sandbox` and the Environments settings tab. Containers are reaped when
+they go idle and on reconfigure.
 
 ## Migrating from `ghostai.container/1`
 
