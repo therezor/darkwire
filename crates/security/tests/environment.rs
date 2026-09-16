@@ -238,3 +238,108 @@ fn weakened_in_names_what_grants_more_than_the_defaults() {
         ["user       image default  (may be root)", "runtime    kata"]
     );
 }
+
+// An agent's own egress request
+//
+// These ran through `preset install` before that command existed, which is how
+// they came to be asserted nowhere else. They are the guards between an agent
+// asking for a network and a gateway that could actually enforce the ask, so
+// they belong beside the definition they are checked against.
+
+mod agent_network {
+    use darkwire_core::ErrorKind;
+    use darkwire_protocol::config::{EnvironmentNetwork, NetworkMode};
+    use darkwire_security::assert_environment_network;
+
+    fn allowlist(allow: &[&str], hosts: &[&str], dns: &[&str]) -> EnvironmentNetwork {
+        EnvironmentNetwork {
+            mode: NetworkMode::Allowlist,
+            allow: allow.iter().map(|entry| (*entry).to_owned()).collect(),
+            hosts: hosts.iter().map(|host| (*host).to_owned()).collect(),
+            dns: dns.iter().map(|ip| (*ip).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn entries_without_the_allowlist_mode_are_refused_rather_than_ignored() {
+        // Silently dropping them would leave the config claiming a boundary the
+        // container does not have.
+        let mut network = allowlist(&["10.0.0.0/8"], &[], &["10.0.0.53"]);
+        network.mode = NetworkMode::None;
+
+        let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+        assert_eq!(refusal.kind, ErrorKind::Config);
+        assert!(refusal.message.contains("would have no effect"));
+        assert_eq!(refusal.details["agentId"], "coder");
+    }
+
+    #[test]
+    fn cidrs_and_hosts_together_are_refused() {
+        // One is enforced by the packet filter and the other by the proxy, so a
+        // request enforced in two places is enforced in neither.
+        let network = allowlist(&["10.0.0.0/8"], &["example.com"], &["10.0.0.53"]);
+
+        let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+        assert!(refusal.message.contains("Choose one"));
+    }
+
+    #[test]
+    fn an_allow_entry_that_is_not_a_cidr_is_refused_and_named() {
+        let network = allowlist(&["example.com"], &[], &["10.0.0.53"]);
+
+        let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+        assert!(refusal.message.contains("not a CIDR block"));
+        assert_eq!(refusal.details["entry"], "example.com");
+    }
+
+    #[test]
+    fn a_host_that_is_not_an_exact_dns_name_is_refused_and_named() {
+        for host in ["", "*.example.com", ".example.com", "example.com."] {
+            let network = allowlist(&[], &[host], &[]);
+
+            let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+            assert!(
+                refusal.message.contains("not an exact DNS name"),
+                "{host}: {}",
+                refusal.message
+            );
+            assert_eq!(refusal.details["host"], host);
+        }
+    }
+
+    #[test]
+    fn a_resolver_that_is_not_an_ip_literal_is_refused() {
+        // A name cannot be resolved by something that has to be resolved first.
+        let network = allowlist(&["10.0.0.0/8"], &[], &["dns.example.com"]);
+
+        let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+        assert!(refusal.message.contains("not an IP literal"));
+        assert_eq!(refusal.details["resolver"], "dns.example.com");
+    }
+
+    #[test]
+    fn a_cidr_allow_list_with_no_resolver_is_refused() {
+        // Nothing in the container could resolve a hostname, so every name
+        // would fail and the failure would look like the network being down.
+        let network = allowlist(&["10.0.0.0/8"], &[], &[]);
+
+        let refusal = assert_environment_network(&network, "coder").unwrap_err();
+
+        assert!(refusal.message.contains("names no DNS resolver"));
+    }
+
+    #[test]
+    fn the_two_shapes_that_are_enforceable_are_accepted() {
+        assert!(
+            assert_environment_network(&allowlist(&["10.0.0.0/8"], &[], &["10.0.0.53"]), "a")
+                .is_ok()
+        );
+        assert!(assert_environment_network(&allowlist(&[], &["example.com"], &[]), "a").is_ok());
+        assert!(assert_environment_network(&EnvironmentNetwork::default(), "a").is_ok());
+    }
+}
