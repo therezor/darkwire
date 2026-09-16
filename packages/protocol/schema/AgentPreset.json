@@ -30,10 +30,6 @@
       "default": "",
       "type": "string"
     },
-    "toolboxPrompt": {
-      "default": "",
-      "type": "string"
-    },
     "toolPolicyPrompt": {
       "default": "",
       "type": "string"
@@ -78,31 +74,6 @@
           "ask",
           "deny"
         ]
-      }
-    },
-    "toolbox": {
-      "default": {},
-      "type": "object",
-      "properties": {
-        "name": {
-          "default": "",
-          "type": "string"
-        },
-        "tools": {
-          "default": {},
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {
-            "type": "string",
-            "enum": [
-              "allow",
-              "ask",
-              "deny"
-            ]
-          }
-        }
       }
     },
     "container": {

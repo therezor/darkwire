@@ -60,8 +60,8 @@ export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
  * How an agent's system prompt is assembled.
  *
  * `template` is the two-half assembly: an identity template and a live-state
- * template, with the platform note, the toolbox advertisement and the
- * tool-output policy filled in as sections the operator may also replace. It is
+ * template, with the platform note and the tool-output policy filled in as
+ * sections the operator may also replace. It is
  * the default and the one that keeps a provider's prompt cache working, because
  * everything that changes between requests sits in the tail.
  *
@@ -553,54 +553,6 @@ export const ContainerNetworkSchema = z.object({
 export type ContainerNetwork = z.infer<typeof ContainerNetworkSchema>;
 
 /**
- * The key in `AgentToolbox.tools` standing for "every grant not named above".
- *
- * Here rather than in `ghostai-tools`, which is where it is resolved, because
- * three packages need the *spelling* without the resolution: the runtime reads
- * it, the web editor shows the permission a row actually resolves to, and the
- * CLI reports what an install granted.
- */
-export const TOOLBOX_DEFAULT_KEY = '*';
-
-/**
- * Which toolbox defines this agent's callable operations.
- *
- * **There is no `image`, `runtime`, `caps` or `limits` here, deliberately.**
- * Those live in a container definition, which is installed by an operator and
- * authorised by content hash. A value with no representation in this schema
- * cannot be reached by a config patch, a settings save, or anything that later
- * gains the ability to propose one — which is what makes "the agent cannot
- * change the image it runs in" a property of the shape rather than a rule
- * somebody has to enforce.
- */
-export const AgentToolboxSchema = z.object({
-  /** A toolbox name, or empty for no toolbox operations. */
-  name: z.string().default(''),
-  /**
-   * Which of the toolbox's grants this agent gets, tightening the manifest.
-   *
-   * A toolbox is stocked for a job, not for an agent. `recon` grants
-   * twenty-four operations because reconnaissance needs all of them somewhere;
-   * an agent that only resolves hostnames wants four, and being offered the
-   * other twenty costs ~60–80 tokens each on every request of every turn and
-   * gives the model twenty ways to answer the wrong question. So the manifest
-   * says what the toolbox *grants* and this says what the agent *sees*.
-   *
-   * **`*` is the default for every grant this map does not name.** That is the
-   * whole reason the field is a record rather than a list: `{'*': 'deny', nmap:
-   * 'allow'}` is "only nmap", and `{curl: 'deny'}` is "everything but curl",
-   * and both are one line. Without a default, the first of those means
-   * enumerating twenty-three denials.
-   *
-   * **Each entry is intersected with the grant's own permission and can only
-   * tighten it.** The manifest is what an operator installed; a config that
-   * could widen it would make choosing a toolbox meaningless.
-   */
-  tools: ToolPermissionsSchema.default({}),
-});
-export type AgentToolbox = z.infer<typeof AgentToolboxSchema>;
-
-/**
  * Where this agent's command operations run, and what they can reach.
  *
  * An empty `name` is the behaviour that has always existed: a child process on
@@ -629,7 +581,7 @@ export type AgentContainer = z.infer<typeof AgentContainerSchema>;
  * entry in `agents.list` that some other entry points at. That is the whole
  * design: a researcher is configured, tested and used on its own, and being
  * someone's subagent is a relationship rather than a mode. It also means the
- * model, the tool map and the toolbox a subagent runs under are already answered
+ * model and tool map a subagent runs under are already answered
  * by the entry it names, and nothing here restates them.
  *
  * Three fields, and the two that are not the id both exist because the operator
@@ -715,8 +667,7 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * Whether `systemPrompt` is the static half or the entire system message.
    *
    * `template` — the default — leaves the four templates around it in force.
-   * `raw` stops *placing* anything: no live-state block, no toolbox section, no
-   * tool-output policy unless the template names `{{toolbox}}`, `{{toolPolicy}}`
+   * `raw` stops *placing* anything: no live-state block or tool-output policy
    * and the rest.
    *
    * The three section templates below still decide what those placeholders
@@ -730,8 +681,8 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * The `## Running commands` section, as a template. Fills `{{platformPolicy}}`.
    *
    * Empty means the built-in for this agent's placement — `exec` on the host
-   * and `exec` in a toolbox get different defaults, and which one applies is
-   * decided by `toolbox.name` rather than by anything written here. A single
+   * and `exec` in a container get different defaults, and which one applies is
+   * decided by `container.name` rather than by anything written here. A single
    * space removes the section.
    *
    * Editing it does not widen anything. Where a command may reach is decided by
@@ -739,15 +690,6 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * is the sentence that tells the model what those two will do.
    */
   platformPrompt: z.string().default(''),
-  /**
-   * The `## Toolbox: <name>` advertisement, as a template.
-   *
-   * Only rendered when the agent has a toolbox — an empty `toolbox.name`
-   * produces no section whatever this says. Empty means the built-in; a single
-   * space removes it, which is how an operator whose own `systemPrompt`
-   * already describes the box stops paying for the preamble twice.
-   */
-  toolboxPrompt: z.string().default(''),
   /**
    * The `## Tool output policy` section, as a template.
    *
@@ -795,12 +737,12 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * Per-tool replacements for the description and the parameter descriptions
    * the model is sent.
    *
-   * Keyed by advertised tool name, so it reaches built-ins, toolbox programs,
-   * MCP and extension tools and `ask_<id>` subagent tools alike. For a subagent
+   * Keyed by advertised tool name, so it reaches built-ins, MCP and extension
+   * tools and `ask_<id>` subagent tools alike. For a subagent
    * this wins over `subagents[].prompt`, being the more specific of the two.
    *
    * A key naming no advertised tool is a warning, not an error: a tool can
-   * leave the list because a toolbox was uninstalled or `exec` was disabled,
+   * leave the list because an extension was uninstalled or `exec` was disabled,
    * and neither should stop an agent that was working a moment ago.
    */
   toolPrompts: ToolPromptOverridesSchema.default({}),
@@ -813,8 +755,7 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
   tools: ToolPermissionsSchema.default({ ...DEFAULT_AGENT_TOOLS }),
   /** Merged over `tools.exec`, so one agent can hold a tighter allow-list. */
   exec: patchOf(ExecToolConfigSchema).optional(),
-  toolbox: AgentToolboxSchema.prefault({}),
-  /** Command placement, selected independently of the toolbox. */
+  /** Command placement for the built-in `exec` tool. */
   container: AgentContainerSchema.prefault({}),
   /**
    * Agents this one may delegate to. Order is the order the model sees them.
@@ -1044,7 +985,6 @@ export const ConfigPatchSchema = z.strictObject({
               // without it a save that only changes the mode would have to
               // resend `allow` — which is how a settings panel silently clears
               // the allow-list it never rendered.
-              toolbox: patchOf(AgentToolboxSchema).optional(),
               container: patchOf(AgentContainerSchema)
                 .extend({
                   network: patchOf(ContainerNetworkSchema).optional(),
@@ -1179,7 +1119,7 @@ export interface AgentSettingsChange {
  * Written once because of the rule it encodes: **`agents.list.*` is in the
  * merge's `REPLACE_WHOLESALE` list, so the patch *is* the agent.** A patch naming
  * `model` alone does not set one field — it replaces the entry and takes the
- * label, the system prompt, the tools, the toolbox and the subagent roster with
+ * label, the system prompt, the tools, the container and the subagent roster with
  * it. So the stored entry is read, spread, and sent back whole, and clearing a
  * field means deleting the key rather than nulling it.
  *

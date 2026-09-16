@@ -2,10 +2,10 @@
 
 The sandbox service owns Docker or Podman. The GhostAI app talks to it through a
 versioned, bounded Unix socket and never needs the container runtime socket. The service
-accepts only registered workspace IDs, toolbox names, container names and structured
-operation inputs; a client cannot submit an image, a mount, a raw daemon argument or a
-shell command. Toolbox approval and container placement are checked independently on
-every request, against the policy directory rather than the caller's word.
+accepts only registered workspace IDs, container names and an argv array; a client cannot
+submit an image, a mount, a raw daemon argument or a shell command. The container
+definition and the placement it implies are checked independently on every request,
+against the policy directory rather than the caller's word.
 
 **A single-binary install needs none of this.** `ghostai serve` starts the service as a
 task of its own on a socket under the install root when no deployed one answers, and
@@ -19,9 +19,9 @@ try to reap the other's containers.
 ## Container deployment
 
 Copy `deploy/sandbox/examples` into an absolute data directory as `policies`, replace the
-example image placeholder with a digest or local image ID, then approve each toolbox and
-container from an operator-controlled installation. Build the gateway image when any agent
-asks for `allowlist` egress:
+example image placeholder with a digest or local image ID, then install each container
+definition from an operator-controlled installation. Build the gateway image when any
+agent asks for `allowlist` egress:
 
 ```bash
 docker build -f deploy/sandbox/Dockerfile.gateway -t ghostai-gateway:local .
@@ -48,9 +48,9 @@ it before exposing it beyond the machine.
   by hand.
 - **`serve-env`** — the mode `deploy/sandbox/compose.yaml` uses. Every path is the fixed
   one inside the image, and `GHOSTAI_DATA_DIR` supplies the absolute host path the daemon
-  sees for the same directories. `GHOSTAI_GATEWAY_IMAGE`, `GHOSTAI_SANDBOX_TOOLBOXES` and
-  `GHOSTAI_SANDBOX_CONTAINERS` fill in the rest; the last two default to `coding,review`
-  and `dev`. It registers one workspace, `default`.
+  sees for the same directories. `GHOSTAI_GATEWAY_IMAGE` and
+  `GHOSTAI_SANDBOX_CONTAINERS` fill in the rest; the latter defaults to `dev`. It
+  registers one workspace, `default`.
 - **a path** — the config file below, which is the only mode that can register more than
   one workspace or point at a daemon whose paths differ from the service's own.
 
@@ -70,7 +70,6 @@ Run `ghostai-environment /absolute/path/service.json` with:
     "default": {
       "path": "/srv/ghostai/workspaces/default",
       "daemonPath": "/srv/ghostai/workspaces/default",
-      "toolboxes": ["coding", "review"],
       "containers": ["dev"]
     }
   }
@@ -80,8 +79,9 @@ Run `ghostai-environment /absolute/path/service.json` with:
 Service-visible paths must be absolute and must not overlap policy or control state.
 Socket permissions are `0660`; use a dedicated OS group for app access. Startup reaps
 containers from an earlier boot of the same installation while leaving other GhostAI
-installations alone. Per-operation output is bounded; full transcripts stay under the
-sandbox state directory and can only be read through an approved transcript operation.
+installations alone. Per-command output is bounded; the full transcript stays under the
+sandbox state directory, which is mounted read-only into the container so the agent can
+read its own output back with `exec`.
 
 ## Management
 

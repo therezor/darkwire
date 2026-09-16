@@ -8,8 +8,8 @@
 //!    reads like the model is broken. An MCP server is free to advertise
 //!    `search files` and an extension is free to call a tool `send message`;
 //!    the model is not free to be told about either under that name.
-//!  - **Keeping the registry flat.** One shared registry holds built-ins,
-//!    toolbox programs, every server's tools and every extension's, and the
+//!  - **Keeping the registry flat.** One shared registry holds the built-ins,
+//!    every server's tools and every extension's, and the
 //!    registry treats a duplicate as a `conflict` rather than letting load
 //!    order decide which one a call reaches. Qualifying by owner is what makes
 //!    two of them that both advertise `search` able to coexist.

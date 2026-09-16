@@ -18,7 +18,6 @@ ghostai init                     configure this install, in a wizard
 ghostai serve                    serve the web UI and the API on one port
 ghostai preset    list | install [ids...] | update
 ghostai agent     install <name-or-path> [--force] | list
-ghostai toolbox   list
 ghostai container list
 ghostai sandbox   health | list | start | stop | restart
 ghostai extension list | approve <id> | revoke <id>
@@ -276,8 +275,7 @@ wrote, what it left alone because you may have edited it, and anything a preset 
 this catalogue does not carry. Nothing there refuses: a missing sheet costs one index line
 in that agent's prompt. See [Skills](skills.md#sheets-a-preset-brings).
 
-Toolbox capability and container placement are separate selections. A preset may select
-both, either, or neither; several agents and toolboxes may select the same shared
+A preset may optionally select a container. Several agents may select the same shared
 container definition.
 
 **A definition that is already installed and usable is left alone.** Rebuilding its image
@@ -302,8 +300,8 @@ built on, and what a script wants when it knows the name. It never touches Docke
 never fetches: use `ghostai preset install` when the agent needs a container that is not
 built yet.
 
-A preset is a YAML file holding a system prompt, tool permissions, independent toolbox
-and container references, and a delegation roster. Installing it writes one entry in
+A preset is a YAML file holding a system prompt, tool permissions, an optional container
+reference, and a delegation roster. Installing it writes one entry in
 `agents.list`:
 
 ```bash
@@ -319,8 +317,8 @@ never fetches one, so on a box that has not run `ghostai preset update` every sh
 preset names is reported as missing and the agent installs regardless.
 
 **There is one kind of preset.** A preset is `<id>.yaml` — the filename is the agent id
-— whether or not the agent works in a container; one that does sets `container.name`
-independently of `toolbox.name`. So there is one lookup, and the argument is either a path or an id
+— whether or not the agent works in a container; one that does sets `container.name`.
+So there is one lookup, and the argument is either a path or an id
 searched in two directories:
 
 | Searched                       | Holds                                              |
@@ -335,7 +333,7 @@ machine with no catalogue installs only your own presets rather than failing.
 Installing is a config merge and nothing more: afterwards the agent is ordinary config,
 edited in the web UI like any other. Three rules do the real work:
 
-- A preset naming a toolbox that is not installed is **refused**, with the
+- A preset naming a container that is not installed is **refused**, with the
   command that fixes it — the server would refuse to boot on the result.
 - An id that already exists is **refused without `--force`**, because the existing entry
   may carry your own edits.
@@ -343,31 +341,26 @@ edited in the web UI like any other. Three rules do the real work:
   that moment**. Install `team-lead` last — or re-run it with `--force` after adding
   specialists — and its delegation roster matches what can actually answer.
 
-A preset deliberately cannot name a model, a provider, or anything from the toolbox
-manifest's side of the security boundary. See
-[Toolboxes](toolboxes.md#agent-presets).
+A preset deliberately cannot name a model or provider. See [Containers](containers.md).
 
-## `ghostai toolbox`, `ghostai container`, and `ghostai extension`
+## `ghostai container` and `ghostai extension`
 
-The first two are read-only, because the file on disk **is** the policy — writing it is
-the decision, the same way writing `config.yaml` is:
+Container definitions are read-only from the CLI because the file on disk **is** the policy:
 
 ```bash
-ghostai toolbox list            # every installed toolbox and what it grants
 ghostai container list          # every installed container definition and its hardening
 ```
 
 Each entry still carries a digest, and it is identity rather than consent. Two container
 definitions that differ never share a warm instance; editing a definition while a command
 is running cancels that command and names the drift; an idle container whose definition
-moved is swept. A toolbox's digest covers the manifest **and every tool definition it
-names**, so editing a definition three toolboxes share is visible in all three.
+moved is swept.
 
 `extension` is the one that still has three verbs — `list`, `approve <id>`, `revoke <id>`
 — because its approval is a record in a store rather than a file an operator edits, and
 its digest covers every byte of the install directory rather than a manifest.
 
-See [Toolboxes](toolboxes.md) and [Extensions](extensions.md).
+See [Containers](containers.md) and [Extensions](extensions.md).
 
 Container instances are managed through the isolated service:
 
@@ -396,7 +389,6 @@ container; `--force` cancels its work. See [Sandbox service](sandbox-service.md)
 | `GHOSTAI_DATA_DIR`           | `ghostai-environment serve-env`: the absolute host path the daemon sees. |
 | `GHOSTAI_CONTAINER_ENGINE`   | `docker` or `podman`. Defaults to `docker`.                              |
 | `GHOSTAI_GATEWAY_IMAGE`      | The egress gateway image, needed for `allowlist` egress.                 |
-| `GHOSTAI_SANDBOX_TOOLBOXES`  | `serve-env`: toolboxes to register. Defaults to `coding,review`.         |
 | `GHOSTAI_SANDBOX_CONTAINERS` | `serve-env`: containers to register. Defaults to `dev`.                  |
 
 Provider API keys are read from the environment **only when the vault has no entry** for

@@ -22,7 +22,7 @@ describe('ExtensionManifestSchema', () => {
   });
 
   it('refuses a schema tag it does not recognise', () => {
-    // A literal rather than a string, for the reason the toolbox manifest gives:
+    // A literal rather than a string, so a format change fails loudly.
     // a breaking format change has to fail loudly on the old file rather than
     // parse it into something that means something else now.
     expect(() =>
@@ -76,7 +76,7 @@ describe('ExtensionStatusSchema', () => {
 describe('RunCommandResponseSchema', () => {
   it('answers with text rather than a resource key', () => {
     // An extension's copy ships with the extension and never reaches a locale
-    // bundle, so the UI renders what it is given. The same rule a toolbox's
+    // bundle, so the UI renders what it is given.
     // `notes` follows.
     const answer = RunCommandResponseSchema.parse({
       message: 'Posted to #ops',

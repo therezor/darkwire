@@ -13,7 +13,7 @@
 //! rather than a constant: one applier, two owners, and the `ToolSource` tag
 //! still exact for the case where a whole subsystem goes away at once.
 //!
-//! **It never fails.** A name that collides with a built-in, a toolbox program
+//! **It never fails.** A name that collides with a built-in, a container program
 //! or another owner comes back as a rejected name rather than an error:
 //! `ToolRegistry::register` treats a duplicate as a conflict, and one clash must
 //! not cost an owner its other thirty-nine tools, nor take down the reconcile

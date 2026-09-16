@@ -121,7 +121,7 @@ fn every_key_a_command_reaches_for_is_in_the_bundle() {
         keys::chat::DESCRIPTION,
         keys::serve::DESCRIPTION,
         keys::init::DESCRIPTION,
-        keys::toolbox::DESCRIPTION,
+        keys::container::DESCRIPTION,
         keys::extension::DESCRIPTION,
         keys::agent::DESCRIPTION,
         keys::preset::DESCRIPTION,

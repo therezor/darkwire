@@ -34,7 +34,7 @@ use ghostai_protocol::rest::{
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::{BoxFuture, ChatResult, ToolChoice};
 use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::policy_store::{ContainerListing, ToolboxListing};
+use ghostai_security::policy_store::ContainerListing;
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -197,17 +197,6 @@ pub trait ServerRuntime: Send + Sync {
 
     /// The workspace registry.
     fn workspaces(&self) -> Arc<WorkspaceStore>;
-
-    /// Toolboxes installed on this machine, read fresh.
-    ///
-    /// A listing rather than a store or a path, for the reason the trait exists
-    /// at all: the server should not know where toolboxes live on disk or how
-    /// an approval is recorded, only what an operator is allowed to choose
-    /// from. Read on every call because a manifest edited after approval stops
-    /// being usable the moment it changes.
-    fn toolboxes(&self) -> Vec<ToolboxListing> {
-        Vec::new()
-    }
 
     /// Independently installed container definitions, read fresh.
     fn containers(&self) -> Vec<ContainerListing> {

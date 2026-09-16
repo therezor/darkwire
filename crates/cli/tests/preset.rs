@@ -6,7 +6,7 @@
 //!
 //! The catalogue is a directory this file writes rather than a package it
 //! resolves. That is what `--from` is for, and it is also the only way to test
-//! the layout: a fixture with three agents, two toolboxes and two containers
+//! the layout: a fixture with three agents and two containers
 //! says more about the ordering rules than eight real ones would, and it does
 //! not change when the presets repository does.
 //!
@@ -70,9 +70,9 @@ struct Harness {
 }
 
 impl Harness {
-    /// Three agents, two toolboxes and two containers: one agent needing
-    /// neither, one needing both, and one delegating to the pair. The `spare`
-    /// halves are what nobody named, and so what must never be installed.
+    /// Three agents and two containers: one agent needing neither, one needing
+    /// a container, and one delegating to the pair. The spare container is what
+    /// nobody named, and so must never be installed.
     fn new() -> Harness {
         let harness = Harness {
             home: TempDir::new().expect("a temporary home"),
@@ -86,7 +86,6 @@ impl Harness {
             "coder",
             &json!({
                 "label": "Coder",
-                "toolbox": {"name": "coding"},
                 "container": {"name": "dev", "network": {"mode": "none", "allow": []}},
             }),
         );
@@ -94,8 +93,6 @@ impl Harness {
             "lead",
             &json!({"label": "Team lead", "subagents": [{"id": "coder"}, {"id": "nano"}]}),
         );
-        harness.toolbox("coding");
-        harness.toolbox("spare");
         harness.container("dev");
         harness.container("spare");
         harness.skill("code-review", None, &[("checklist.md", "- Read it.\n")]);
@@ -145,39 +142,6 @@ impl Harness {
             }
         }
         std::fs::write(dir.join(format!("{id}.yaml")), preset.to_string()).expect("a preset");
-    }
-
-    /// A toolbox manifest and the definition it grants, copied verbatim by an
-    /// install. Nothing here is built.
-    fn toolbox(&self, name: &str) {
-        let root = self.catalogue();
-        std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
-        std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
-        std::fs::write(
-            root.join("toolboxes").join(format!("{name}.yaml")),
-            json!({
-                "schema": "ghostai.toolbox/1",
-                "name": name,
-                "tools": [{"name": "rg", "definition": "rg", "permission": "ask"}],
-            })
-            .to_string(),
-        )
-        .expect("a manifest");
-        std::fs::write(
-            root.join("tool-definitions").join("rg.yaml"),
-            json!({
-                "schema": "ghostai.tool/1",
-                "description": "Search the workspace.",
-                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
-                "implementation": {
-                    "kind": "command",
-                    "executable": "/usr/bin/rg",
-                    "argv": ["--files"],
-                },
-            })
-            .to_string(),
-        )
-        .expect("a definition");
     }
 
     /// One container's build context: a `Dockerfile` and the definition whose
@@ -438,41 +402,9 @@ fn shows_every_preset_and_which_are_already_installed() {
         "{}",
         listed.output
     );
+    assert!(listed.output.contains("coder (Coder)"), "{}", listed.output);
     assert!(
-        listed.output.contains("coder (Coder)  coding"),
-        "{}",
-        listed.output
-    );
-    assert!(
-        !listed.output.contains("coder (Coder)  coding  [installed]"),
-        "{}",
-        listed.output
-    );
-}
-
-#[test]
-fn shows_how_much_of_a_box_a_preset_asked_for() {
-    // Two agents naming one toolbox differ only here, so it has to be on the
-    // row an operator picks from.
-    let harness = Harness::new();
-    harness.agent(
-        "scout",
-        &json!({
-            "toolbox": {"name": "coding", "tools": {"*": "deny", "rg": "allow"}},
-        }),
-    );
-
-    let listed = run(
-        &harness,
-        Spec {
-            action: PresetAction::List,
-            ..Spec::default()
-        },
-    );
-
-    // Through the plural forms, so `1` reads as one tool rather than `1 tools`.
-    assert!(
-        listed.output.contains("scout  coding (1 tool)"),
+        !listed.output.contains("coder (Coder)  [installed]"),
         "{}",
         listed.output
     );
@@ -481,9 +413,8 @@ fn shows_how_much_of_a_box_a_preset_asked_for() {
 // install
 
 #[test]
-fn builds_only_the_boxes_the_chosen_agents_asked_for() {
-    // The whole reason the picker exists. `spare` is in the catalogue and
-    // nobody named it, so neither half of it is built or installed.
+fn builds_only_the_containers_the_chosen_agents_asked_for() {
+    // `spare` is in the catalogue and nobody named it, so it is not built or installed.
     let harness = Harness::new();
 
     let installed = run(
@@ -500,29 +431,6 @@ fn builds_only_the_boxes_the_chosen_agents_asked_for() {
         vec![harness.catalogue().join("containers").join("dev")]
     );
     assert!(
-        harness
-            .policy()
-            .join("toolboxes")
-            .join("coding.yaml")
-            .exists()
-    );
-    // The definition the manifest grants travels with it: the approval hash
-    // covers both, so a toolbox installed without one could never be reviewed.
-    assert!(
-        harness
-            .policy()
-            .join("tool-definitions")
-            .join("rg.yaml")
-            .exists()
-    );
-    assert!(
-        !harness
-            .policy()
-            .join("toolboxes")
-            .join("spare.yaml")
-            .exists()
-    );
-    assert!(
         !harness
             .policy()
             .join("containers")
@@ -532,7 +440,7 @@ fn builds_only_the_boxes_the_chosen_agents_asked_for() {
 }
 
 #[test]
-fn runs_no_builder_at_all_when_nothing_chosen_needs_a_box() {
+fn runs_no_builder_at_all_when_nothing_chosen_needs_a_container() {
     let harness = Harness::new();
 
     let installed = run(
@@ -566,7 +474,7 @@ fn pins_the_built_image_id_into_the_installed_definition() {
 }
 
 #[test]
-fn does_not_rebuild_a_box_that_is_already_installed() {
+fn does_not_rebuild_a_container_that_is_already_installed() {
     // Rebuilding changes the image id and so the definition's digest, which
     // restarts every warm instance of it — a re-run must not cost that for
     // nothing.
@@ -769,30 +677,6 @@ fn reports_a_failed_build_without_writing_a_half_pinned_manifest() {
 }
 
 #[test]
-fn refuses_a_preset_naming_a_box_the_catalogue_does_not_carry() {
-    let harness = Harness::new();
-    harness.agent("orphan", &json!({"toolbox": {"name": "nowhere"}}));
-
-    let installed = run(
-        &harness,
-        Spec {
-            action: install(&["orphan"]),
-            ..Spec::default()
-        },
-    );
-
-    assert_eq!(installed.code, 1);
-    assert!(
-        installed
-            .errors
-            .contains("carries nothing named \"nowhere\""),
-        "{}",
-        installed.errors
-    );
-    assert!(installed.built.is_empty());
-}
-
-#[test]
 fn refuses_an_id_that_is_not_on_offer_naming_what_is() {
     let harness = Harness::new();
 
@@ -932,8 +816,7 @@ fn overwrites_the_sheets_with_force_alongside_the_agent() {
 
 #[test]
 fn installs_the_agent_even_when_a_sheet_is_not_in_the_catalogue() {
-    // Unlike a missing toolbox, which refuses: an agent with one fewer index
-    // line runs, and an agent with no toolbox cannot.
+    // A missing sheet costs one index line but does not prevent installation.
     let harness = Harness::new();
     harness.agent("scribe", &json!({"skills": ["ghost-ops"]}));
 

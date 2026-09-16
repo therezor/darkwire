@@ -22,9 +22,6 @@
 //!    parser back in the middle.
 //!  - [`CredentialVault`] — credential theft at rest, with AES-256-GCM under a
 //!    key from the OS keychain or a `0600` keyfile.
-//!  - [`parse_toolbox`] / [`assert_toolbox_policy`] — an agent choosing its own
-//!    toolbox, by making the operation surface a manifest an operator installs
-//!    rather than a field any config patch could reach.
 //!  - [`extension_digest`] / [`ExtensionStore`] — code loading itself into the
 //!    host, by hashing every byte of an install directory and refusing to load
 //!    one whose digest is not the one an operator approved.
@@ -46,15 +43,14 @@ pub mod keychain;
 pub mod nonce;
 pub mod policy_store;
 pub mod random;
-pub mod toolbox;
 pub mod vault;
 
 #[cfg(feature = "testkit")]
 pub mod testkit;
 
 pub use container::{
-    BUILTIN_TOOL_NAMES, assert_container_policy, assert_gateway_compatible, manifest_hash,
-    parse_container, weakened_in,
+    BUILTIN_TOOL_NAMES, assert_container_network, assert_container_policy,
+    assert_gateway_compatible, assert_slug, invalid, manifest_hash, parse_container, weakened_in,
 };
 pub use exec_guard::{
     ExecGuardOptions, ExecPlan, OutputCap, OutputCapResult, SHELL_BINARIES, binary_name, guard_exec,
@@ -84,14 +80,8 @@ pub use nonce::{
     WrappedToolOutput, create_tool_output_nonce, describe_injection_findings,
     detect_prompt_injection, tool_output_policy, tool_output_tag, wrap_tool_output,
 };
-pub use policy_store::{
-    ContainerListing, InstalledContainer, InstalledToolbox, PolicyStore, ToolboxListing,
-};
+pub use policy_store::{ContainerListing, InstalledContainer, PolicyStore};
 pub use random::{OsRandom, RandomSource};
-pub use toolbox::{
-    ResolvedToolbox, assert_container_network, assert_slug, command_argv, narrow_permission,
-    parse_toolbox, resolve_bundle, validate_input, validate_operation,
-};
 pub use vault::{
     CredentialVault, KeyFileStore, KeyStore, ResolvedVaultKey, VAULT_KEY_BYTES, resolve_vault_key,
 };

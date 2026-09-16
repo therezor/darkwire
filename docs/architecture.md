@@ -10,23 +10,23 @@ reconnect-and-fall-back-to-HTTP client that would need.
 Fourteen, plus the four TypeScript packages that stayed. Each crate has its own
 tests and its own coverage bar.
 
-| Crate                    | Does                                                                                                                          |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `ghostai-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                        |
-| `ghostai-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                          |
-| `ghostai-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing         |
-| `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, toolbox policy and extension approvals |
-| `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                        |
-| `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the local and container runners                                            |
-| `ghostai-environment`    | The isolated container service/client, shared lifecycle pool, and egress gateway                                              |
-| `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                            |
-| `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                      |
-| `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                           |
-| `ghostai-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                |
-| `ghostai-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                            |
-| `ghostai-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                 |
-| `ghostai-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                |
-| `ghostai`                | **The binary.** Every command and flag, and the UI compiled into it.                                                          |
+| Crate                    | Does                                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `ghostai-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                          |
+| `ghostai-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                            |
+| `ghostai-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing           |
+| `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, container policy and extension approvals |
+| `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                          |
+| `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the local and container runners                                              |
+| `ghostai-environment`    | The isolated container service/client, shared lifecycle pool, and egress gateway                                                |
+| `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                              |
+| `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                        |
+| `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                             |
+| `ghostai-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                  |
+| `ghostai-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                              |
+| `ghostai-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                   |
+| `ghostai-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                  |
+| `ghostai`                | **The binary.** Every command and flag, and the UI compiled into it.                                                            |
 
 | Still TypeScript      | Does                                                 |
 | --------------------- | ---------------------------------------------------- |
@@ -196,20 +196,18 @@ the part that decides when the model reaches for it.
 
 Everything under `~/.ghostai`, or `$GHOSTAI_HOME`. Directories are created `0700`.
 
-| Path                       | Contents                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `config.yaml`              | The settings tree. Written atomically via a `0600` temp file and a rename.                                            |
-| `ghost.db`                 | One SQLite file, one connection, one WAL.                                                                             |
-| `vault.json`, `vault.key`  | The encrypted credential vault.                                                                                       |
-| `workspace/`               | The jail root. Named workspaces are subdirectories of it.                                                             |
-| `shared/<workspaceId>/`    | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told.    |
-| `policy/toolboxes/`        | Installed grant lists. Outside the workspace, so injection cannot edit the policy the agent runs under.               |
-| `policy/tool-definitions/` | Reusable operation definitions. No digest of their own: each is covered by the digest of every toolbox that names it. |
-| `policy/containers/`       | Container definitions, installed independently of any toolbox.                                                        |
-| `runs/<containerId>/`      | Sandbox command transcripts. Outside the workspace — a symlink-planting escape was demonstrated before this moved.    |
-| `extensions/<id>/`         | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                            |
-| `extension-data/<id>/`     | What an extension writes at runtime — a sibling of its install directory, never a child.                              |
-| `logs/`                    | —                                                                                                                     |
+| Path                      | Contents                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `config.yaml`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                         |
+| `ghost.db`                | One SQLite file, one connection, one WAL.                                                                          |
+| `vault.json`, `vault.key` | The encrypted credential vault.                                                                                    |
+| `workspace/`              | The jail root. Named workspaces are subdirectories of it.                                                          |
+| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told. |
+| `policy/containers/`      | Container definitions. Outside the workspace, so injection cannot edit the policy the agent runs under.            |
+| `runs/<containerId>/`     | Sandbox command transcripts. Outside the workspace — a symlink-planting escape was demonstrated before this moved. |
+| `extensions/<id>/`        | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                         |
+| `extension-data/<id>/`    | What an extension writes at runtime — a sibling of its install directory, never a child.                           |
+| `logs/`                   | —                                                                                                                  |
 
 ### The database
 

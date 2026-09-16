@@ -54,10 +54,6 @@ const UNREGISTERED: &[&str] = &[
     "HealthStatus",
     "CredentialNamespace",
     // Nested objects the browser declares inline.
-    "ToolGrant",
-    "OperationImplementation",
-    "OperationArgument",
-    "OperationInput",
     "ExtensionEngines",
     "AutomationJobCreator",
     "ErrorBody",
@@ -66,7 +62,6 @@ const UNREGISTERED: &[&str] = &[
     "AgentSettingsPatch",
     "ExecToolConfigPatch",
     "ContainerNetworkPatch",
-    "AgentToolboxPatch",
     "AgentContainerPatch",
     "AgentEntryPatch",
     "AgentsConfigPatch",

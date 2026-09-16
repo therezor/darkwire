@@ -176,22 +176,17 @@ mod resolve_agent {
     }
 
     #[test]
-    fn accepts_a_container_without_a_toolbox() {
-        // A container used to be refused without one, on the grounds that it
-        // only hosted a toolbox's operations. It no longer does: a container is
-        // where an agent's commands run, and the built-in `exec` is a command.
+    fn accepts_a_container_for_builtin_exec() {
         let tree = json!({"agents": {"list": {"boxed": {
             "container": {"name": "dev"},
         }}}});
         let agent = resolve_agent(&config(&tree), Some("boxed")).unwrap();
         assert_eq!(agent.container.name, "dev");
-        assert!(agent.toolbox.name.is_empty());
     }
 
     #[test]
     fn refuses_an_egress_entry_that_is_not_a_cidr_block() {
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon"},
             "container": {
                 "name": "dev",
                 "network": {"mode": "allowlist", "allow": ["example.com"]},
@@ -205,12 +200,8 @@ mod resolve_agent {
     }
 
     #[test]
-    fn resolves_an_agent_naming_a_toolbox_with_a_scoped_allow_list() {
+    fn resolves_an_agent_with_a_container_and_scoped_allow_list() {
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {
-                "name": "recon",
-                "tools": {"*": "deny", "nmap": "allow"},
-            },
             "container": {
                 "name": "dev",
                 "network": {
@@ -221,17 +212,15 @@ mod resolve_agent {
             },
         }}}});
         let agent = resolved(&tree, Some("net"));
-        assert_eq!(agent.toolbox.name, "recon");
         assert_eq!(agent.container.name, "dev");
         assert_eq!(agent.container.network.mode, NetworkMode::Allowlist);
         assert_eq!(agent.container.network.dns, ["1.1.1.1"]);
-        assert_eq!(agent.toolbox.tools["nmap"], ToolPermission::Allow);
     }
 
     #[test]
-    fn defaults_an_agent_with_no_toolbox_entry_to_the_host() {
+    fn defaults_an_agent_with_no_container_entry_to_the_host() {
         let agent = resolved(&json!({}), None);
-        assert_eq!(agent.toolbox.name, "");
+        assert_eq!(agent.container.name, "");
         assert_eq!(agent.container.network.mode, NetworkMode::None);
     }
 }
@@ -517,7 +506,6 @@ mod or_default {
         // for settings that were never going to work would hide the one thing
         // the operator needs to see.
         let tree = json!({"agents": {"list": {"net": {
-            "toolbox": {"name": "recon"},
             "container": {"name": "dev", "network": {"mode": "allowlist", "allow": ["nope"]}},
         }}}});
         let error = resolve_agent_or_default(&config(&tree), Some("net")).unwrap_err();
@@ -536,7 +524,6 @@ mod templates {
             &agent.live_prompt,
             &agent.wrap_up_prompt,
             &agent.platform_prompt,
-            &agent.toolbox_prompt,
             &agent.tool_policy_prompt,
             &agent.memory_prompt,
             &agent.skills_prompt,
@@ -551,7 +538,7 @@ mod templates {
     fn carries_what_the_entry_stored() {
         let tree = json!({"agents": {"list": {"custom": {
             "systemPrompt": "S", "livePrompt": "L", "wrapUpPrompt": "W",
-            "platformPrompt": "P", "toolboxPrompt": "B", "toolPolicyPrompt": "{{tag}}",
+            "platformPrompt": "P", "toolPolicyPrompt": "{{tag}}",
             "memoryPrompt": "M", "skillsPrompt": "K", "promptMode": "raw",
             "toolPrompts": {"read_file": {"description": "mine"}},
         }}}});
@@ -560,7 +547,6 @@ mod templates {
         assert_eq!(agent.live_prompt, "L");
         assert_eq!(agent.wrap_up_prompt, "W");
         assert_eq!(agent.platform_prompt, "P");
-        assert_eq!(agent.toolbox_prompt, "B");
         assert_eq!(agent.memory_prompt, "M");
         assert_eq!(agent.skills_prompt, "K");
         assert_eq!(agent.prompt_mode, PromptMode::Raw);
@@ -638,7 +624,7 @@ mod tool_prompts {
             "toolPrompts": {"nmap": {"description": "scan"}},
         }}}});
         let agent = resolved(&tree, Some("a"));
-        // A toolbox program is not in `agents.list`, which is why this needs the
+        // Registered tools are not all named in `agents.list`, so this needs the
         // advertised set rather than the entry alone.
         assert!(tool_prompt_warnings(&agent, &["nmap".to_owned()]).is_empty());
     }

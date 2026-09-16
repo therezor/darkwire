@@ -72,11 +72,6 @@ pub async fn start_embedded(
     }
 
     let policies = PolicyStore::new(paths.policy_dir.clone());
-    let toolboxes: Vec<String> = policies
-        .list_toolboxes()
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
     let containers: Vec<String> = policies
         .list_containers()
         .into_iter()
@@ -90,7 +85,7 @@ pub async fn start_embedded(
         return None;
     }
 
-    let registrations = registrations(paths, workspaces, &toolboxes, &containers);
+    let registrations = registrations(paths, workspaces, &containers);
     let state_root = paths.root.join("sandbox");
     let config = ServiceConfig {
         socket: socket.clone(),
@@ -133,7 +128,6 @@ pub async fn start_embedded(
 fn registrations(
     paths: &GhostPaths,
     workspaces: &WorkspaceStore,
-    toolboxes: &[String],
     containers: &[String],
 ) -> BTreeMap<String, WorkspaceRegistration> {
     let records = workspaces.list().unwrap_or_else(|error| {
@@ -155,7 +149,6 @@ fn registrations(
             WorkspaceRegistration {
                 daemon_path: path.clone(),
                 path,
-                toolboxes: toolboxes.to_vec(),
                 containers: containers.to_vec(),
             },
         );

@@ -94,7 +94,7 @@ pub trait ToolScope: Send + Sync {
     /// What this scope permits for `name` — the whole of the gate's input.
     ///
     /// On the scope rather than looked up from config by the caller, because
-    /// the scope is the only thing that knows where a name came from: a toolbox
+    /// the scope is the only thing that knows where a name came from: a container
     /// program and a built-in of the same name resolve to different tools, and
     /// a caller reading one map would answer for the wrong one.
     fn permission_for(&self, name: &str) -> ToolPermission;

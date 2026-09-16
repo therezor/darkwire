@@ -223,7 +223,7 @@
     flex: none;
   }
 
-  /* The heading over the second list, when the chosen toolbox exposes its
+  /* The heading over the second list, when the chosen container exposes its
      programs as callables. */
   .agent-editor__tool-group {
     font-size: var(--text-sm);

@@ -1,4 +1,4 @@
-//! Installed toolboxes and container definitions.
+//! Installed container definitions.
 //!
 //! A definition is a file on disk and that file is the policy. Writing it is
 //! the decision, the same way writing `config.yaml` is: there is no second
@@ -18,71 +18,17 @@
 //!
 //! ```text
 //! <policy root>/
-//! ├── toolboxes/<name>.yaml                 ghostai.toolbox/1
-//! ├── tool-definitions/<name>.yaml          ghostai.tool/1
 //! └── containers/<name>.yaml                ghostai.container/1
 //! ```
-//!
-//! A tool definition has no digest of its own. It is covered by the digest of
-//! every toolbox that names it, which is stricter than hashing it once: a
-//! definition shared by three toolboxes cannot be edited without all three
-//! noticing.
 
 use std::path::{Path, PathBuf};
 
 use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 
-use crate::container::{assert_container_policy, manifest_hash, parse_container};
-use crate::toolbox::{ResolvedToolbox, assert_slug, invalid, resolve_bundle};
-
-/// What kind of definition a name refers to. Each has its own directory, so a
-/// toolbox and a container may share a name without either reaching the other.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Toolbox,
-    Container,
-}
-
-impl Kind {
-    fn directory(self) -> &'static str {
-        match self {
-            Kind::Toolbox => "toolboxes",
-            Kind::Container => "containers",
-        }
-    }
-
-    fn noun(self) -> &'static str {
-        match self {
-            Kind::Toolbox => "Toolbox",
-            Kind::Container => "Container",
-        }
-    }
-
-    fn command(self) -> &'static str {
-        match self {
-            Kind::Toolbox => "toolbox",
-            Kind::Container => "container",
-        }
-    }
-}
-
-/// A toolbox that parsed and resolved every operation it grants.
-#[derive(Debug, Clone, PartialEq)]
-pub struct InstalledToolbox {
-    /// The manifest and every operation it grants.
-    pub resolved: ResolvedToolbox,
-    /// Host path of the manifest.
-    pub path: PathBuf,
-}
-
-impl InstalledToolbox {
-    /// The digest over the manifest and every definition it names.
-    #[must_use]
-    pub fn digest(&self) -> &str {
-        &self.resolved.digest
-    }
-}
+use crate::container::{
+    assert_container_policy, assert_slug, invalid, manifest_hash, parse_container,
+};
 
 /// A container definition that parsed and passed install policy.
 #[derive(Debug, Clone, PartialEq)]
@@ -106,8 +52,6 @@ pub struct Listing<T> {
     pub problem: Option<String>,
 }
 
-/// One installed toolbox, with the operations it resolved to.
-pub type ToolboxListing = Listing<ResolvedToolbox>;
 /// One installed container definition.
 pub type ContainerListing = Listing<ContainerDefinition>;
 
@@ -126,8 +70,7 @@ impl std::fmt::Debug for PolicyStore {
 }
 
 impl PolicyStore {
-    /// Opens the store over `<root>`, which holds `toolboxes/`, `containers/`
-    /// and `tool-definitions/`.
+    /// Opens the store over `<root>`, which holds `containers/`.
     pub fn new(root: impl Into<PathBuf>) -> PolicyStore {
         PolicyStore { root: root.into() }
     }
@@ -138,36 +81,28 @@ impl PolicyStore {
         &self.root
     }
 
-    fn path_for(&self, kind: Kind, name: &str) -> Result<PathBuf> {
+    fn path_for(&self, name: &str) -> Result<PathBuf> {
         assert_slug(name).map_err(|_| {
             GhostError::new(
                 ErrorKind::InvalidInput,
-                format!("Not a {} name: {name}", kind.command()),
+                format!("Not a container name: {name}"),
             )
             .with_detail("name", name)
         })?;
-        Ok(self
-            .root
-            .join(kind.directory())
-            .join(format!("{name}.yaml")))
-    }
-
-    /// Where a toolbox's manifest lives, once the name is known to be a slug.
-    pub fn toolbox_path(&self, name: &str) -> Result<PathBuf> {
-        self.path_for(Kind::Toolbox, name)
+        Ok(self.root.join("containers").join(format!("{name}.yaml")))
     }
 
     /// Where a container's definition lives, once the name is known to be a
     /// slug.
     pub fn container_path(&self, name: &str) -> Result<PathBuf> {
-        self.path_for(Kind::Container, name)
+        self.path_for(name)
     }
 
-    fn read(&self, kind: Kind, name: &str) -> Result<Option<Vec<u8>>> {
+    fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
         // A name that is not a slug is a caller error with its own message, and
         // letting the mapping below rewrap it as "could not be read" would
         // report a filesystem problem for what is really a rejected input.
-        let path = self.path_for(kind, name)?;
+        let path = self.path_for(name)?;
         match std::fs::read(&path) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error)
@@ -180,42 +115,21 @@ impl PolicyStore {
             }
             Err(error) => Err(GhostError::new(
                 ErrorKind::Config,
-                format!("{} \"{name}\" could not be read", kind.noun()),
+                format!("Container \"{name}\" could not be read"),
             )
             .with_detail("name", name)
             .with_source(error)),
         }
     }
 
-    fn missing(kind: Kind, name: &str) -> GhostError {
-        let noun = kind.noun();
-        let hint = match kind {
-            Kind::Toolbox => {
-                "\n  Install one with `ghostai preset install`, or clear the agent's toolbox."
-            }
-            Kind::Container => {
-                "\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's container."
-            }
-        };
+    fn missing(name: &str) -> GhostError {
         GhostError::new(
             ErrorKind::Config,
             format!(
-                "No {} is installed under \"{name}\".{hint}",
-                noun.to_lowercase()
+                "No container is installed under \"{name}\".\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's container."
             ),
         )
         .with_detail("name", name)
-    }
-
-    fn resolve_toolbox(&self, name: &str, bytes: &[u8]) -> Result<ResolvedToolbox> {
-        let resolved = resolve_bundle(&self.root, bytes)?;
-        if resolved.toolbox.name != name {
-            return Err(invalid(format!(
-                "Toolbox \"{name}\" names itself \"{}\"; a manifest's name is its filename.",
-                resolved.toolbox.name
-            )));
-        }
-        Ok(resolved)
     }
 
     fn resolve_container(name: &str, bytes: &[u8]) -> Result<(ContainerDefinition, String)> {
@@ -230,60 +144,33 @@ impl PolicyStore {
         Ok((definition, manifest_hash(bytes)))
     }
 
-    /// The toolbox an agent named, or a refusal saying what is wrong with it.
-    pub fn require_toolbox(&self, name: &str) -> Result<InstalledToolbox> {
-        let Some(bytes) = self.read(Kind::Toolbox, name)? else {
-            return Err(Self::missing(Kind::Toolbox, name));
-        };
-        let resolved = self.resolve_toolbox(name, &bytes)?;
-        Ok(InstalledToolbox {
-            resolved,
-            path: self.toolbox_path(name)?,
-        })
-    }
-
     /// The container an agent named, or a refusal saying what is wrong with it.
     pub fn require_container(&self, name: &str) -> Result<InstalledContainer> {
-        let Some(bytes) = self.read(Kind::Container, name)? else {
-            return Err(Self::missing(Kind::Container, name));
+        let Some(bytes) = self.read(name)? else {
+            return Err(Self::missing(name));
         };
         let (definition, digest) = Self::resolve_container(name, &bytes)?;
         Ok(InstalledContainer { definition, digest })
     }
 
-    /// Every installed toolbox, usable or not.
-    ///
-    /// A broken manifest is reported rather than skipped: one that vanishes
-    /// from the list because it fails to parse looks like one that was never
-    /// installed, and the operator goes looking in the wrong place.
-    pub fn list_toolboxes(&self) -> Vec<ToolboxListing> {
-        self.list(Kind::Toolbox, |store, name, bytes| {
-            store.resolve_toolbox(name, bytes)
-        })
-    }
-
     /// Every installed container definition, usable or not.
     pub fn list_containers(&self) -> Vec<ContainerListing> {
-        self.list(Kind::Container, |_, name, bytes| {
+        self.list(|name, bytes| {
             Self::resolve_container(name, bytes).map(|(definition, _)| definition)
         })
     }
 
-    fn list<T>(
-        &self,
-        kind: Kind,
-        resolve: impl Fn(&Self, &str, &[u8]) -> Result<T>,
-    ) -> Vec<Listing<T>> {
-        definition_names(&self.root.join(kind.directory()))
+    fn list<T>(&self, resolve: impl Fn(&str, &[u8]) -> Result<T>) -> Vec<Listing<T>> {
+        definition_names(&self.root.join("containers"))
             .into_iter()
             .map(|name| {
                 let path = self
-                    .path_for(kind, &name)
+                    .path_for(&name)
                     .unwrap_or_else(|_| self.root.join(&name));
                 let read = self
-                    .read(kind, &name)
-                    .and_then(|bytes| bytes.ok_or_else(|| Self::missing(kind, &name)))
-                    .and_then(|bytes| resolve(self, &name, &bytes));
+                    .read(&name)
+                    .and_then(|bytes| bytes.ok_or_else(|| Self::missing(&name)))
+                    .and_then(|bytes| resolve(&name, &bytes));
                 match read {
                     Ok(value) => Listing {
                         name,

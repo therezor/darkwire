@@ -91,7 +91,7 @@ fn prints_the_bare_version() {
 }
 
 #[test]
-fn offers_extension_and_container_beside_toolbox() {
+fn offers_extension_and_container_commands() {
     // Approving code the agent will run is the one operator action that cannot
     // be delegated to the agent, and an install driven from a terminal needs a
     // way to do it without opening a browser.
@@ -347,11 +347,7 @@ fn store_commands_carry_their_verb_and_id() {
 }
 
 #[test]
-fn a_bare_store_command_lists() {
-    match invocation(&["toolbox"]).command {
-        Subcommand::Toolbox => {}
-        other => panic!("expected a listing, got {other:?}"),
-    }
+fn a_bare_extension_command_lists() {
     match invocation(&["extension"]).command {
         Subcommand::Extension(StoreAction::List, None) => {}
         other => panic!("expected a listing, got {other:?}"),

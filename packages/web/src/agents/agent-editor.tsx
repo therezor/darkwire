@@ -41,10 +41,9 @@ import {
   DEFAULT_LIVE_STATE_TEMPLATE,
   DEFAULT_MEMORY_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
+  DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
   DEFAULT_PLATFORM_HOST_TEMPLATE,
-  DEFAULT_PLATFORM_TOOLBOX_TEMPLATE,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
-  DEFAULT_TOOLBOX_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
   DEFAULT_WRAP_UP_TEMPLATE,
   deriveAgentId,
@@ -55,8 +54,6 @@ import {
   PROMPT_PLACEHOLDERS,
   RAW_PROMPT_PLACEHOLDERS,
   TOOL_POLICY_PLACEHOLDERS,
-  TOOLBOX_DEFAULT_KEY,
-  TOOLBOX_PROMPT_PLACEHOLDERS,
   type AgentEntry,
   type SubagentRef,
   type ToolPermission,
@@ -210,7 +207,7 @@ const VOLATILE: readonly string[] = [
  *
  * A name rather than a risk band: `exec` is the specific tool that runs a
  * program on the host, and pinning the whole `exec` band would float every
- * toolbox program with it — which is the second list, in its own group, where
+ * container program with it — which is the second list, in its own group, where
  * manifest order is the useful order.
  */
 const EXEC_TOOL = 'exec';
@@ -247,14 +244,13 @@ const FEATURE_TOOLS: ReadonlySet<string> = new Set(['memory', 'skill']);
 const MCP_TOOL_PREFIX = 'mcp_';
 
 /**
- * The dropdown's stand-in for "no toolbox".
+ * The dropdown's stand-in for "no container".
  *
  * A `SelectItem` may not carry an empty value — Radix reserves it for "nothing
  * chosen" — so the option that clears the field needs a value of its own. It
- * begins with `-`, which `ToolboxStore.manifestPathFor` refuses in a toolbox
- * name, so no installed toolbox can ever collide with it.
+ * begins with `-`, which cannot collide with an installed container name.
  */
-const NO_TOOLBOX = '-none-';
+const NO_CONTAINER = '-none-';
 
 /**
  * Creating an agent, on the page that edits one.
@@ -413,10 +409,6 @@ function Editor({
     queryFn: ({ signal }) => api.tools(signal),
   });
 
-  const toolboxes = useQuery({
-    queryKey: queryKeys.toolboxes,
-    queryFn: ({ signal }) => api.toolboxes(signal),
-  });
   const containers = useQuery({
     queryKey: queryKeys.containers,
     queryFn: ({ signal }) => api.containers(signal),
@@ -424,29 +416,8 @@ function Editor({
 
   const resolved = agents.data?.agents.find((agent) => agent.id === agentId);
 
-  /**
-   * Every installed toolbox, approved or not.
-   *
-   * Unapproved ones are offered rather than hidden: an operator who has just
-   * built one needs to see it in the list to understand that approving is the
-   * step they are missing. Choosing it is refused at save with a sentence that
-   * says so, which is a better teacher than an empty dropdown.
-   */
-  const toolboxOptions = [
-    // "No toolbox" has to be a real option, not the placeholder.
-    //
-    // Radix shows a placeholder only while the value is empty, and empty is the
-    // one value a `SelectItem` may not carry — so choosing a toolbox was a
-    // one-way door: the option that would take it back did not exist, and an
-    // agent could not be moved off a container without hand-editing the config.
-    { value: NO_TOOLBOX, label: t('agents.toolboxHost') },
-    ...(toolboxes.data?.toolboxes ?? []).map((box) => ({
-      value: box.name,
-      label: box.label === '' ? box.name : `${box.label} (${box.name})`,
-    })),
-  ];
   const containerOptions = [
-    { value: NO_TOOLBOX, label: t('agents.containerSystem') },
+    { value: NO_CONTAINER, label: t('agents.containerSystem') },
     ...(containers.data?.containers ?? []).map((container) => ({
       value: container.name,
       label: container.shared
@@ -454,13 +425,9 @@ function Editor({
         : t('agents.containerOptionPrivate', { name: container.name }),
     })),
   ];
-  const chosen = toolboxes.data?.toolboxes.find(
-    (box: { name: string }) => box.name === form.toolboxName,
-  );
   const chosenContainer = containers.data?.containers.find(
     (container) => container.name === form.containerName,
   );
-  const boxed = form.toolboxName !== '';
 
   const networkOptions = [
     { value: 'none', label: t('agents.containerNetworkNone') },
@@ -557,12 +524,6 @@ function Editor({
   // happens when it runs are the same act — `deny` is the off position — so
   // there is no switch beside the select and no mode toggle above the list.
 
-  /** The operations the chosen toolbox grants, which get a list of their own. */
-  const toolboxToolNames = useMemo(
-    () => new Set((chosen?.tools ?? []).map((tool) => tool.name)),
-    [chosen],
-  );
-
   /**
    * Every tool this agent could name, registered or not.
    *
@@ -571,18 +532,13 @@ function Editor({
    * agent has an opinion about but whose MCP server happens to be down, and
    * that opinion would be gone the next time anything on this screen was saved.
    *
-   * **Empty for an agent with a toolbox**, which is the whole point of having
-   * one: its grants are the complete callable surface, so there is no `exec`
-   * and no ambient MCP tool for a row here to be about. The grants themselves
-   * are edited in the list below.
    */
   const toolNames = useMemo(() => {
-    if (boxed) return [];
     const names = new Set<string>(
       (tools.data?.tools ?? []).map((tool) => tool.name),
     );
     for (const name of Object.keys(form.tools)) {
-      if (!toolboxToolNames.has(name)) names.add(name);
+      names.add(name);
     }
     // `exec` first, then A–Z. Alphabetical put the one tool that runs arbitrary
     // programs on this machine second from the top by accident of spelling, and
@@ -593,7 +549,7 @@ function Editor({
       if (b === EXEC_TOOL) return 1;
       return a.localeCompare(b);
     });
-  }, [tools.data, form.tools, toolboxToolNames, boxed]);
+  }, [tools.data, form.tools]);
 
   const registered = useMemo(
     () => new Map((tools.data?.tools ?? []).map((tool) => [tool.name, tool])),
@@ -678,21 +634,6 @@ function Editor({
     permission: ToolPermission,
   ): void => {
     update('tools', { ...form.tools, [name]: permission });
-  };
-
-  /**
-   * A grant's permission, which lives in a different map from a built-in's.
-   *
-   * `toolboxTools` is per-toolbox and is intersected with the manifest's own
-   * ceiling when the turn is built; `tools` is the built-in scope of an agent
-   * that has no toolbox. Writing a grant into `tools` would put it in a map
-   * nothing reads for an agent that has one.
-   */
-  const setGrantPermission = (
-    name: string,
-    permission: ToolPermission,
-  ): void => {
-    update('toolboxTools', { ...form.toolboxTools, [name]: permission });
   };
 
   const setToolPrompt = (name: string, override: ToolPromptOverride): void => {
@@ -1190,7 +1131,7 @@ function Editor({
         )}
 
         {/* Below the action tools rather than above them, and under the same
-            kind of heading the toolbox group uses. An operator scanning for
+            kind of heading the container group uses. An operator scanning for
             "what may this agent do in a turn" reads the list above; these two
             are read when the question is "does this agent have memory at all",
             which is the question the switches near the top answer. */}
@@ -1207,62 +1148,6 @@ function Editor({
               )}
             >
               {featureToolNames.map((name) => toolRow(name))}
-            </ul>
-          </>
-        )}
-
-        {/* The toolbox's grants. For an agent that has one these are the whole
-            callable surface, so the list above is empty and this is the only
-            place a permission is set. */}
-        {chosen !== undefined && chosen.tools.length > 0 && (
-          <>
-            <h3 className="agent-editor__tool-group">
-              {t('agents.toolboxToolsGroup', {
-                name: chosen.label || chosen.name,
-              })}
-            </h3>
-            <ul
-              className={cn(
-                'stack agent-editor__tools',
-                toolsOff && 'agent-editor__tools--off',
-              )}
-            >
-              {chosen.tools.map((tool) => (
-                <ToolRow
-                  key={tool.name}
-                  name={tool.name}
-                  detail={tool.description}
-                  risk="exec"
-                  disabled={toolsOff}
-                  // Two layers, most specific first: the per-toolbox override a
-                  // preset gave this agent (`*` being the one for grants it did
-                  // not name), then the manifest's own. The row has to read the
-                  // same one the turn will, or an agent installed with four of
-                  // twenty-four operations would show all twenty-four here.
-                  permission={
-                    form.toolboxTools[tool.name] ??
-                    form.toolboxTools[TOOLBOX_DEFAULT_KEY] ??
-                    tool.permission
-                  }
-                  // The manifest's permission is a ceiling rather than a
-                  // default: an operator wrote this toolbox at these
-                  // permissions, and a screen that could widen one would make
-                  // the manifest mean nothing.
-                  ceiling={tool.permission}
-                  // An operation's schema comes from its installed definition
-                  // and is not in `GET /api/tools`, so there are no argument
-                  // boxes to offer — only the description, which is the part the
-                  // definition's author wrote and this agent may disagree with.
-                  fields={[]}
-                  override={form.toolPrompts[tool.name]}
-                  onChange={(next) => {
-                    setGrantPermission(tool.name, next);
-                  }}
-                  onOverrideChange={(next) => {
-                    setToolPrompt(tool.name, next);
-                  }}
-                />
-              ))}
             </ul>
           </>
         )}
@@ -1328,36 +1213,26 @@ function Editor({
         )}
       </Section>
 
-      {/* After the tools, because a container decides *where* the operations
-          just listed actually run — and before the budget, which is a smaller
-          decision. */}
+      {/* After the tools, because a container decides where built-in exec runs. */}
       <Section
-        title={t('agents.toolboxSection')}
-        description={t('agents.toolboxDesc')}
+        title={t('agents.containerSection')}
+        description={t('agents.containerDesc')}
       >
-        {toolboxes.isPending && (
-          <p className="page__note">{t('agents.toolboxLoading')}</p>
+        {containers.isPending && (
+          <p className="page__note">{t('agents.containerLoading')}</p>
         )}
-        {toolboxes.data?.toolboxes.length === 0 && (
-          <p className="page__note">{t('agents.toolboxNoProfiles')}</p>
+        {containers.data?.containers.length === 0 && (
+          <p className="page__note">{t('agents.containerNoProfiles')}</p>
         )}
 
         <FieldGrid>
           <SelectField
-            label={t('agents.toolboxProfile')}
-            // The sentinel is a display concern and never leaves this control:
-            // the form's own value for "no toolbox" is and stays the empty string.
-            value={form.toolboxName === '' ? NO_TOOLBOX : form.toolboxName}
-            onValueChange={(value) => {
-              update('toolboxName', value === NO_TOOLBOX ? '' : value);
-            }}
-            options={toolboxOptions}
-          />
-          <SelectField
             label={t('agents.containerProfile')}
-            value={form.containerName === '' ? NO_TOOLBOX : form.containerName}
+            value={
+              form.containerName === '' ? NO_CONTAINER : form.containerName
+            }
             onValueChange={(value) => {
-              update('containerName', value === NO_TOOLBOX ? '' : value);
+              update('containerName', value === NO_CONTAINER ? '' : value);
             }}
             options={containerOptions}
           />
@@ -1378,10 +1253,6 @@ function Editor({
 
         {/* Only the states an operator has to act on. A manifest that parses
             needs no line of its own. */}
-        {chosen?.problem !== undefined && (
-          <p className="page__note">{chosen.problem}</p>
-        )}
-
         {chosenContainer !== undefined && (
           <p className="page__note">
             {chosenContainer.shared
@@ -1616,9 +1487,9 @@ function Editor({
                     name={name}
                     label="agents.promptPlatform"
                     builtIn={
-                      form.toolboxName.trim() === ''
+                      form.containerName.trim() === ''
                         ? DEFAULT_PLATFORM_HOST_TEMPLATE
-                        : DEFAULT_PLATFORM_TOOLBOX_TEMPLATE
+                        : DEFAULT_PLATFORM_CONTAINER_TEMPLATE
                     }
                     value={form.platformPrompt}
                     placeholders={PLATFORM_PROMPT_PLACEHOLDERS}
@@ -1639,32 +1510,6 @@ function Editor({
                       update('platformPrompt', next);
                     }}
                   />
-                  {form.toolboxName.trim() !== '' && (
-                    <TemplateEditor
-                      key={`${String(formEpoch)}-toolbox`}
-                      name={name}
-                      label="agents.promptToolbox"
-                      builtIn={DEFAULT_TOOLBOX_TEMPLATE}
-                      value={form.toolboxPrompt}
-                      placeholders={TOOLBOX_PROMPT_PLACEHOLDERS}
-                      hint="agents.promptToolboxHint"
-                      // Left editable rather than disabled: the wording is worth
-                      // writing before the model that can use it is chosen, and
-                      // a box that refuses keystrokes cannot say why as clearly
-                      // as a line that says it is not being placed.
-                      {...(toolsOff
-                        ? {
-                            warning: {
-                              title: t('agents.toolsOffTitle'),
-                              message: t('agents.promptNotPlacedNoTools'),
-                            },
-                          }
-                        : {})}
-                      onChange={(next) => {
-                        update('toolboxPrompt', next);
-                      }}
-                    />
-                  )}
                   <TemplateEditor
                     key={`${String(formEpoch)}-policy`}
                     name={name}

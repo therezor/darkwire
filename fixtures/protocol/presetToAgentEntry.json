@@ -26,7 +26,6 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
-        "toolboxPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -40,10 +39,6 @@
           "exec": "ask",
           "memory": "allow",
           "skill": "allow"
-        },
-        "toolbox": {
-          "name": "",
-          "tools": {}
         },
         "container": {
           "name": "",
@@ -84,7 +79,6 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
-        "toolboxPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -98,10 +92,6 @@
           "exec": "ask",
           "memory": "allow",
           "skill": "allow"
-        },
-        "toolbox": {
-          "name": "",
-          "tools": {}
         },
         "container": {
           "name": "",
@@ -141,7 +131,6 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
-        "toolboxPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -155,10 +144,6 @@
           "exec": "ask",
           "memory": "allow",
           "skill": "allow"
-        },
-        "toolbox": {
-          "name": "",
-          "tools": {}
         },
         "container": {
           "name": "",
@@ -200,7 +185,6 @@
         "wrapUpPrompt": "",
         "promptMode": "template",
         "platformPrompt": "",
-        "toolboxPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -215,10 +199,6 @@
           "memory": "allow",
           "skill": "allow"
         },
-        "toolbox": {
-          "name": "",
-          "tools": {}
-        },
         "container": {
           "name": "",
           "network": {
@@ -232,14 +212,11 @@
       }
     },
     {
-      "name": "a toolbox and subagents carry over",
+      "name": "a container and subagents carry over",
       "input": {
         "preset": {
           "schema": "ghostai.agent-preset/1",
           "id": "researcher",
-          "toolbox": {
-            "name": "web-research"
-          },
           "container": {
             "network": {
               "mode": "open"
@@ -273,7 +250,6 @@
         "wrapUpPrompt": "",
         "promptMode": "raw",
         "platformPrompt": "",
-        "toolboxPrompt": "",
         "toolPolicyPrompt": "",
         "memoryPrompt": "",
         "skillsPrompt": "",
@@ -281,10 +257,6 @@
         "enabled": true,
         "tools": {
           "exec": "deny"
-        },
-        "toolbox": {
-          "name": "web-research",
-          "tools": {}
         },
         "container": {
           "name": "",
@@ -313,7 +285,6 @@
           "livePrompt": "L",
           "wrapUpPrompt": "W",
           "platformPrompt": "P",
-          "toolboxPrompt": "T",
           "toolPolicyPrompt": "O",
           "memoryPrompt": "M",
           "skillsPrompt": "S 😀\r\n"
@@ -336,7 +307,6 @@
         "wrapUpPrompt": "W",
         "promptMode": "template",
         "platformPrompt": "P",
-        "toolboxPrompt": "T",
         "toolPolicyPrompt": "O",
         "memoryPrompt": "M",
         "skillsPrompt": "S 😀\r\n",
@@ -350,10 +320,6 @@
           "exec": "ask",
           "memory": "allow",
           "skill": "allow"
-        },
-        "toolbox": {
-          "name": "",
-          "tools": {}
         },
         "container": {
           "name": "",

@@ -1,7 +1,7 @@
 /**
  * An agent preset: an installable agent definition.
  *
- * A preset is a JSON file — beside a catalogue's toolbox and container
+ * A preset is a JSON file — beside a catalogue's container
  * definitions, or bundled with the CLI — that `ghostai agent install` turns
  * into an entry in `agents.list`. After
  * install it is ordinary agent config: the operator edits it in the UI, and
@@ -19,7 +19,7 @@
  *  - **No `exec` patch and no `enabled` flag.** Install sets `enabled: true`,
  *    because installing a disabled agent is a contradiction; the exec
  *    allow-list is the operator's to tighten afterwards.
- *  - **`toolbox` and `container` are separate references.** Everything that
+ *  - **`container` is an execution-placement reference.** Everything that
  *    could widen the boundary (image, caps, limits) lives in the approved
  *    container definition and has no representation here to reach. A preset
  *    can therefore express nothing a settings save could not.
@@ -42,7 +42,6 @@ import { z } from 'zod';
 import {
   AgentEntrySchema,
   AgentContainerSchema,
-  AgentToolboxSchema,
   DEFAULT_AGENT_TOOLS,
   PromptModeSchema,
   SubagentRefSchema,
@@ -65,14 +64,12 @@ export const AgentPresetSchema = z.object({
 
   // The eight prompt templates, with `AgentEntry`'s three-state semantics:
   // empty inherits the built-in, a single space deletes the section, anything
-  // else replaces it. A preset's `systemPrompt` is where a toolbox's tool
-  // documentation lives — it replaces the default template wholesale, so it
-  // carries its own heading and workspace section.
+  // else replaces it. A preset's `systemPrompt` is where a container's tool
+  // it replaces the default template wholesale.
   systemPrompt: z.string().default(''),
   livePrompt: z.string().default(''),
   wrapUpPrompt: z.string().default(''),
   platformPrompt: z.string().default(''),
-  toolboxPrompt: z.string().default(''),
   toolPolicyPrompt: z.string().default(''),
   memoryPrompt: z.string().default(''),
   skillsPrompt: z.string().default(''),
@@ -82,7 +79,6 @@ export const AgentPresetSchema = z.object({
   toolsEnabled: z.boolean().optional(),
   /** Replaces, never merges — the same rule as `AgentEntry.tools`. */
   tools: ToolPermissionsSchema.default({ ...DEFAULT_AGENT_TOOLS }),
-  toolbox: AgentToolboxSchema.prefault({}),
   container: AgentContainerSchema.prefault({}),
   subagents: z.array(SubagentRefSchema).default([]),
 

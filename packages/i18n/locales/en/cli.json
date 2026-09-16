@@ -111,7 +111,7 @@
     }
   },
   "preset": {
-    "description": "Install agent presets from the catalogue, and the toolboxes they run in.",
+    "description": "Install agent presets and optional containers from the catalogue.",
     "fetching": "Fetching {{package}}…",
     "install": {
       "description": "Install agent presets. With no ids, pick them from a list.",
@@ -317,12 +317,6 @@
       "output": "what a turn shows",
       "sessions": "sessions",
       "workspaces": "workspaces"
-    }
-  },
-  "toolbox": {
-    "description": "List installed toolboxes.",
-    "list": {
-      "description": "Show every installed toolbox and what it grants."
     }
   }
 }

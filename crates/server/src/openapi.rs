@@ -520,14 +520,6 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         responses: &[],
     },
     RouteDoc {
-        id: RouteId::ToolboxesList,
-        summary: "Toolboxes installed on this machine",
-        body: None,
-        query: None,
-        params: None,
-        responses: &[(200, "ToolboxListResponse")],
-    },
-    RouteDoc {
         id: RouteId::ContainersList,
         summary: "Container definitions installed on this machine",
         body: None,

@@ -225,37 +225,6 @@ impl Harness {
         );
     }
 
-    /// Installs a one-operation toolbox.
-    ///
-    /// Nothing the pool does reads one — placement and grants are two
-    /// approvals — so this exists only for the suites that prove the two
-    /// lifecycles are independent.
-    fn install_toolbox(&self, name: &str) {
-        common::write(
-            &self.root.join("tool-definitions/status.yaml"),
-            json!({
-                "schema": "ghostai.tool/1",
-                "description": "Repository status",
-                "implementation": {
-                    "kind": "command",
-                    "executable": "/usr/bin/git",
-                    "argv": ["status"],
-                },
-                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
-            })
-            .to_string(),
-        );
-        common::write(
-            &self.root.join("toolboxes").join(format!("{name}.yaml")),
-            json!({
-                "schema": "ghostai.toolbox/1",
-                "name": name,
-                "tools": [{"name": "status", "definition": "status", "permission": "allow"}],
-            })
-            .to_string(),
-        );
-    }
-
     /// Deterministic container names, so a test can assert on one.
     fn ids(&self) -> IdFactory {
         let counter = Arc::clone(&self.counter);
@@ -302,7 +271,6 @@ fn request(agent: &str, workspace: &str, session: &str, container: &str) -> Plac
         agent_id: agent.to_owned(),
         workspace_id: workspace.to_owned(),
         session_key: session.to_owned(),
-        toolbox: String::new(),
         container: container.to_owned(),
         network: ContainerNetwork::default(),
         workspace_root: "/ghost/workspace".to_owned(),
@@ -357,13 +325,9 @@ fn refusal(result: Result<Option<Arc<dyn CommandRunner>>>) -> GhostError {
 async fn shares_one_container_across_agents_and_conversations() {
     let h = Harness::new();
     h.install("shared", &json!({"shared": true}));
-    h.install_toolbox("writer");
-    h.install_toolbox("reader");
     let pool = h.pool();
-    let mut alice = request("alice", "work", "one", "shared");
-    alice.toolbox = "writer".to_owned();
-    let mut bob = request("bob", "work", "two", "shared");
-    bob.toolbox = "reader".to_owned();
+    let alice = request("alice", "work", "one", "shared");
+    let bob = request("bob", "work", "two", "shared");
 
     let first = pool.resolve_turn(&alice).unwrap().unwrap();
     run(&first).await.unwrap();
@@ -373,10 +337,6 @@ async fn shares_one_container_across_agents_and_conversations() {
     pool.release_session("one");
     assert_eq!(pool.live().len(), 1);
 
-    // Placement and grants are two decisions. The operation layer rejects the
-    // removed writer before reaching this runner; the shared instance both
-    // agents were placed in is untouched.
-    std::fs::remove_file(h.root.join("toolboxes/writer.yaml")).unwrap();
     run(&first).await.unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
@@ -414,36 +374,6 @@ async fn gives_two_agents_asking_for_different_egress_two_shared_instances() {
     let runner = pool.resolve_turn(&same).unwrap().unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 2);
-}
-
-#[tokio::test]
-async fn scopes_the_transcript_directory_to_the_instance_a_request_lands_in() {
-    let h = Harness::new();
-    h.install("shared", &json!({"shared": true}));
-    let pool = h.pool();
-    let walled = reaching(NetworkMode::None, request("alice", "work", "one", "shared"));
-    let open = reaching(NetworkMode::Open, request("bob", "work", "two", "shared"));
-    for spec in [&walled, &open] {
-        let runner = pool.resolve_turn(spec).unwrap().unwrap();
-        run(&runner).await.unwrap();
-    }
-
-    // Matching on workspace and digest alone would let two shared instances of
-    // one container — separate because they asked for different egress — read
-    // each other's transcripts.
-    let first = pool.transcript_directory(&walled).unwrap();
-    let second = pool.transcript_directory(&open).unwrap();
-    assert_ne!(first, second);
-    assert_eq!(first, h.runs_dir.join("ghost-sbx-1"));
-    assert_eq!(second, h.runs_dir.join("ghost-sbx-2"));
-
-    // An instance that is gone has no transcripts to read, which is a refusal
-    // rather than somebody else's directory.
-    pool.close();
-    assert_eq!(
-        common::err(pool.transcript_directory(&walled)).kind,
-        ErrorKind::NotFound
-    );
 }
 
 #[tokio::test]

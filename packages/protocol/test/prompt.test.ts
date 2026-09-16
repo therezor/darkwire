@@ -168,7 +168,7 @@ describe('DEFAULT_SYSTEM_PROMPT_TEMPLATE', () => {
     // Both are still *available* — a custom prompt may want them — and the
     // default deliberately declines. Handed the absolute root, a model writes
     // `<root>/notes/x` and the jail resolves it inside the workspace again;
-    // handed the host OS, a toolboxed agent believes its commands run there.
+    // handed the host OS, a containerized agent needs placement wording instead.
     // See the `PROMPT_PLACEHOLDERS` comment for both failures.
     expect(DEFAULT_SYSTEM_PROMPT_TEMPLATE).not.toContain('{{workspaceRoot}}');
     expect(DEFAULT_SYSTEM_PROMPT_TEMPLATE).not.toContain('{{runtime}}');
@@ -183,7 +183,7 @@ describe('DEFAULT_SYSTEM_PROMPT_TEMPLATE', () => {
 
   it('names no section it cannot leave out', () => {
     // `{{platformPolicy}}` used to be here, and the command policy is now a
-    // section beside the toolbox and the tool-output policy instead. A
+    // section beside the tool-output policy instead. A
     // placeholder always renders to *something* — an empty string still leaves
     // the blank lines the template wrote around it — so a section that may not
     // apply cannot be one. Raw mode keeps the placeholder, because it places

@@ -177,9 +177,8 @@ halves are fetched together, under their own caps, and the runtime one is cached
 per session.
 
 **A command answers with text, not a resource key.** Its copy ships with the
-extension and the translation layer has never seen it — the same rule a
-toolbox's `notes` follows. `ok: false` renders the answer as an error rather
-than a note.
+extension and the translation layer has never seen it. `ok: false` renders the
+answer as an error rather than a note.
 
 **`ghostai/channels/list` is not in the obvious design and had to be.** A
 channel is registered as a _factory_ keyed by id and the manager builds it
@@ -315,8 +314,8 @@ what bounds the gap.
 ## Approval
 
 **The digest covers every byte of the install directory**, not the manifest. A
-toolbox manifest pins an immutable image, so hashing the manifest hashes the
-code; an extension manifest names a _path_, so hashing it would approve a
+container definition pins an immutable image, so hashing the definition hashes
+the code; an extension manifest names a _path_, so hashing it would approve a
 pointer. Editing any file — including the one `command` runs, adding one,
 removing one, renaming one — moves the digest and revokes the approval
 automatically. Nobody has to remember to re-approve, because they cannot avoid
@@ -355,8 +354,8 @@ an ordinary process under the operator's account, with the operator's
 filesystem and the operator's network — it can open `~/.ghostai/vault.json`
 itself, spawn a program and open a socket, and nothing here stops it. **The
 trust class is unchanged from the in-process design**; what changed is the reach
-of a mistake, not the reach of an attack. That is the same trust level as a
-toolbox with host `exec`, and
+of a mistake, not the reach of an attack. That is the same trust level as an
+agent with host `exec`, and
 [Security](security.md#extension-authorisation) states it rather than papering
 over it.
 

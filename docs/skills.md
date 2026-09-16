@@ -270,13 +270,14 @@ Four things about it, each of them a decision rather than an omission:
   catalogue is what lands in the workspace, and editing it afterwards is editing their own
   file. If a sheet's `agents:` does not include the preset that brought it, the install
   says so — that is legal, and usually a mistake.
-- **There is no approval gate and no hash.** A toolbox manifest gets one because it names
-  a container's boundary; a sheet is prose, and the preset's own `systemPrompt` — from the
-  same catalogue, over the same network — already sets the bar. Running the command at a
-  terminal is the operator action. See [Toolboxes](toolboxes.md).
+- **There is no hash.** A container definition carries one because its bytes decide a
+  boundary; a sheet is prose, and the preset's own `systemPrompt` — from the same
+  catalogue, over the same network — already sets the bar. Running the command at a
+  terminal is the operator action. See [Containers](containers.md).
 - **Nothing refuses.** A sheet that is missing, symlinked, or over the copier's bounds
-  costs that sheet and a line in the report. A missing _toolbox_ refuses, because an agent
-  without one cannot run at all; an agent with one fewer index line can.
+  costs that sheet and a line in the report. A missing _container_ refuses, because the
+  server would refuse to boot on an agent whose placement does not exist; an agent with
+  one fewer index line boots fine.
 - **A sheet already in the workspace is left alone** unless `--force` is passed, which is
   the same rule the `agents.list` entry follows and for the same reason: it may carry your
   edits. `--force` overwrites file by file rather than emptying the directory first, so

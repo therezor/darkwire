@@ -16,10 +16,6 @@ describe('AgentPresetSchema', () => {
     expect(preset.label).toBe('');
     expect(preset.promptMode).toBe('template');
     expect(preset.tools).toEqual(DEFAULT_AGENT_TOOLS);
-    expect(preset.toolbox).toEqual({
-      name: '',
-      tools: {},
-    });
     expect(preset.container).toEqual({
       name: '',
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
@@ -47,7 +43,7 @@ describe('AgentPresetSchema', () => {
   });
 
   it('refuses a schema tag it does not recognise', () => {
-    // A literal rather than a string, for the reason the toolbox manifest
+    // A literal rather than a string, so a breaking format change
     // gives: a breaking format change has to fail loudly on the old file
     // rather than parse it into something that means something else now.
     expect(() =>
@@ -56,18 +52,10 @@ describe('AgentPresetSchema', () => {
   });
 
   it('cannot name an image, caps or limits', () => {
-    // The whole point of the shape: a preset reuses `AgentToolboxSchema`, so
-    // the boundary fields live only in the operator-approved manifest and a
-    // preset has no field through which to widen them.
+    // A preset may choose a container but cannot widen its image or limits.
     const preset = AgentPresetSchema.parse({
       ...MINIMAL,
-      toolbox: { name: 'web-research' },
       container: { name: 'dev', network: { mode: 'open' }, image: 'ignored' },
-    });
-
-    expect(preset.toolbox).toEqual({
-      name: 'web-research',
-      tools: {},
     });
     expect(preset.container).toEqual({
       name: 'dev',

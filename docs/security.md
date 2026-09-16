@@ -23,7 +23,7 @@ credentials. The attacks worth defending against come from three directions:
    install.
 
 What is explicitly _not_ claimed: this does not defend against a model that is
-deliberately hostile and has host `exec`. That is what [toolboxes](toolboxes.md) are for,
+deliberately hostile and has host `exec`. That is what [containers](containers.md) are for,
 and the limit is stated in the jail section below rather than papered over.
 
 ---
@@ -58,7 +58,7 @@ enabled on the host.** A spawned child process does not honour the jail's clampi
 is why the exec guard _refuses_ out-of-workspace path arguments rather than resolving them
 inside — refusal is the only honest answer when the thing being constrained can walk out.
 
-An agent that must be genuinely confined gets a [toolbox](toolboxes.md).
+An agent that must be genuinely confined gets a [container](containers.md).
 
 ---
 
@@ -89,8 +89,8 @@ What actually constrains the child:
 - **An output budget enforced while the child writes**, not after it exits, so a runaway
   process cannot fill memory before the cap notices.
 
-Inside a toolbox the shell ban and the path ban lift together; see
-[Toolboxes](toolboxes.md#why-the-exec-guard-relaxes-inside-one) for why that is not a
+Inside a container the shell ban and the path ban lift together; see
+[Containers](containers.md#why-the-exec-guard-relaxes-inside-one) for why that is not a
 weakening.
 
 ---
@@ -194,7 +194,7 @@ back out. What a client can see is a per-instance `credentialsPresent` boolean.
 
 ---
 
-## Toolbox and container policy
+## Container policy
 
 **Stops:** the policy an agent runs under being changed underneath the operator.
 
@@ -206,23 +206,21 @@ definition trustworthy is that `policy/` sits **outside the workspace jail**, so
 an agent runs — and so no prompt injection — can reach it. The only writer today is
 `ghostai preset install`, a command with a terminal behind it.
 
-**Every definition still carries a digest, and it is identity rather than consent.** A
-toolbox's digest is a **dependency bundle hash**: the manifest and every reusable tool
-definition it names, length-framed and hashed together, so editing a shared definition
-moves the digest of every toolbox that reaches it. A container definition hashes its own
-bytes alone. Two container definitions that differ never share a warm instance, and an
-idle container whose definition moved is swept rather than reused.
+**Every definition still carries a digest, and it is identity rather than consent.** The
+digest is taken over the definition's own bytes, never over a re-serialisation of the
+parsed object, so it moves on a change of meaning rather than on a formatter. Two
+definitions that differ never share a warm instance, and an idle container whose
+definition moved is swept rather than reused.
 
 Re-checked **during** a call, not only before it: a 250 ms ticker re-resolves the
 definition beside a running command and cancels the moment its digest stops matching the
 one the call was prepared under. An operator editing a manifest means it now, not when
-the process happens to exit. The digest crosses the socket with each call, so the app and
-the isolated sandbox service agree on which bytes ran without either being the authority
-on the other.
+the process happens to exit. No digest crosses the socket: the sandbox service reads the
+policy directory itself, so a caller cannot name the bytes it would like to have run.
 
-The toolbox is the complete callable surface and agent permissions may only tighten its
-ceilings. Containers require content-addressed images; `NET_ADMIN`, `SYS_ADMIN` and
-`SYS_MODULE` are refused. Restricted egress uses a separate default-deny gateway whose
+A container decides where `exec` runs, not what an agent may call: the agent's `tools`
+permission map is the whole authority for that. Containers require content-addressed
+images; `NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are refused. Restricted egress uses a separate default-deny gateway whose
 namespace the tool container shares. Definitions live beside the workspace, never inside
 it, so file tools cannot rewrite the policy the agent runs under.
 
@@ -231,9 +229,9 @@ A settings save can set `network.mode` to `open`; it cannot change an image dige
 capability, a seccomp profile, a uid, `noNewPrivileges` or the shared flag, because none
 of those has any representation in the config tree. A gateway also refuses to start for a
 container whose hardening could not enforce a restricted allow-list, so the two halves
-cannot silently disagree. The trade was one configuration point for one fewer ceiling.
+cannot silently disagree.
 
-Full detail in [Toolboxes](toolboxes.md).
+Full detail in [Containers](containers.md).
 
 ---
 
@@ -267,7 +265,7 @@ the operator's account, with the operator's filesystem and the operator's
 network. It can open `~/.ghostai/vault.json` itself, spawn a program and open a
 socket, and nothing in this repository stops it. **The trust class is unchanged
 from the in-process design** — what the boundary narrows is the reach of a
-mistake, not the reach of an attack. That is the same trust level as a toolbox
+mistake, not the reach of an attack. That is the same trust level as a container
 with host `exec`, and it is why approving one asks a question in the UI rather
 than being a toggle.
 

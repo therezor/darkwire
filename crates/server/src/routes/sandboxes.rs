@@ -10,7 +10,7 @@
 //! gets a new one on the next command, under the same approved definition. Only
 //! `execute` is refused here, because a model's tool call reaches the service
 //! through the agent loop, which supplies the approval hash it resolved the
-//! toolbox at; an `execute` arriving as a management call has no such
+//! container at; an `execute` arriving as a management call has no such
 //! provenance, whatever it claims.
 
 use axum::Json;
@@ -51,10 +51,7 @@ pub async fn manage(
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let Json(raw) = body.map_err(|error| HttpError::bad_request(error.body_text()))?;
     let request: SandboxRequest = parse_body("sandbox request", raw)?;
-    if matches!(
-        request,
-        SandboxRequest::Execute { .. } | SandboxRequest::Exec { .. }
-    ) {
+    if matches!(request, SandboxRequest::Exec { .. }) {
         return Err(GhostError::new(
             ErrorKind::PermissionDenied,
             "Tool execution is not a management operation",

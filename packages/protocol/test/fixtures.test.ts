@@ -31,11 +31,10 @@ import {
   DEFAULT_LIVE_STATE_TEMPLATE,
   DEFAULT_MEMORY_TEMPLATE,
   DEFAULT_PLATFORM_HOST_TEMPLATE,
-  DEFAULT_PLATFORM_TOOLBOX_TEMPLATE,
+  DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
-  DEFAULT_TOOLBOX_TEMPLATE,
   DEFAULT_WRAP_UP_TEMPLATE,
   LIVE_PROMPT_PLACEHOLDERS,
   MEMORY_PROMPT_PLACEHOLDERS,
@@ -47,7 +46,6 @@ import {
   SKILLS_PROMPT_PLACEHOLDERS,
   ServerMessageSchema,
   TOOL_POLICY_PLACEHOLDERS,
-  TOOLBOX_PROMPT_PLACEHOLDERS,
   agentSettingsPatch,
   applyToolPrompts,
   defaultSubagentPrompt,
@@ -230,38 +228,20 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
             runtime: 'Linux x64, Node 22.0.0',
             platform: 'linux',
             workspaceId: 'acme',
-            toolbox: '',
-            workdir: '',
             shellPolicy:
               '\n\nA POSIX shell is available through `["sh","-c","…"]`.',
           },
         },
       },
       {
-        name: 'default: DEFAULT_PLATFORM_TOOLBOX_TEMPLATE',
+        name: 'default: DEFAULT_PLATFORM_CONTAINER_TEMPLATE',
         input: {
-          template: DEFAULT_PLATFORM_TOOLBOX_TEMPLATE,
+          template: DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
           values: {
             runtime: 'macOS arm64, Node 22.0.0',
             platform: 'darwin',
             workspaceId: 'acme',
-            toolbox: 'recon',
-            workdir: '/workspace',
             shellPolicy: '',
-          },
-        },
-      },
-      {
-        name: 'default: DEFAULT_TOOLBOX_TEMPLATE',
-        input: {
-          template: DEFAULT_TOOLBOX_TEMPLATE,
-          values: {
-            name: 'recon',
-            workdir: '/workspace',
-            tools:
-              '\n\nInstalled:\n- nmap — Scan a host.\n- dig — Resolve a name.',
-            toolList: '- nmap — Scan a host.\n- dig — Resolve a name.',
-            notes: '\n\nNo browser and no JavaScript engine.',
           },
         },
       },
@@ -341,15 +321,8 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
       {
         name: 'vocabulary: PLATFORM_PROMPT_PLACEHOLDERS',
         input: {
-          template: `${DEFAULT_PLATFORM_HOST_TEMPLATE}\n${DEFAULT_PLATFORM_TOOLBOX_TEMPLATE}`,
+          template: `${DEFAULT_PLATFORM_HOST_TEMPLATE}\n${DEFAULT_PLATFORM_CONTAINER_TEMPLATE}`,
           known: PLATFORM_PROMPT_PLACEHOLDERS,
-        },
-      },
-      {
-        name: 'vocabulary: TOOLBOX_PROMPT_PLACEHOLDERS',
-        input: {
-          template: DEFAULT_TOOLBOX_TEMPLATE,
-          known: TOOLBOX_PROMPT_PLACEHOLDERS,
         },
       },
       {
@@ -957,11 +930,10 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: { preset: { ...PRESET, skills: ['code-review'] } },
       },
       {
-        name: 'a toolbox and subagents carry over',
+        name: 'a container and subagents carry over',
         input: {
           preset: {
             ...PRESET,
-            toolbox: { name: 'web-research' },
             container: { network: { mode: 'open' } },
             subagents: [{ id: 'writer' }],
             tools: { exec: 'deny' },
@@ -977,7 +949,6 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
             livePrompt: 'L',
             wrapUpPrompt: 'W',
             platformPrompt: 'P',
-            toolboxPrompt: 'T',
             toolPolicyPrompt: 'O',
             memoryPrompt: 'M',
             skillsPrompt: 'S 😀\r\n',

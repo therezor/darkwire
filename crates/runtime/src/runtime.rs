@@ -43,7 +43,7 @@
 //!    The store, the tool registry and the steering queue survive; the provider,
 //!    the jail and the loop are rebuilt. A turn already running keeps the loop it
 //!    started on, which is the only coherent answer: its provider request is in
-//!    flight and its tool definitions are already in the model's context.
+//!    flight and its tool registry entries are already in the model's context.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -53,8 +53,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use ghostai_agent::approval::ApprovalGate;
 use ghostai_agent::{
     AgentLoop, AgentLoopOptions, ContextContributor, Host, LoopAgent, LoopResolver,
-    MemoryContributor, PromptAgent, PromptToolbox, PromptToolboxTool, SkillsContributor,
-    SteeringQueue, subagent_map,
+    MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, subagent_map,
 };
 use ghostai_core::paths::ResolveGhostPaths;
 use ghostai_core::{
@@ -67,15 +66,15 @@ use ghostai_mcp::{
 };
 use ghostai_protocol::{
     Config, ConfigPatch, DEFAULT_AGENT_ID, McpServerStatus, NetworkMode, ProviderConfig,
-    SandboxRequest, TOOLBOX_DEFAULT_KEY, ToolPermission, ToolPermissions, ToolSource, new_uuid,
+    SandboxRequest, ToolSource, new_uuid,
 };
 use ghostai_providers::{
     ChatProvider, PROVIDERS, ProviderInstance, ProviderSpec, ResolveInstanceOptions,
     resolve_connection, resolve_instance,
 };
 use ghostai_security::{
-    CredentialVault, ExtensionStore, InstalledToolbox, JailResolver, OsRandom, PolicyStore,
-    RandomSource, WorkspaceJail, assert_gateway_compatible, narrow_permission,
+    CredentialVault, ExtensionStore, JailResolver, OsRandom, PolicyStore, RandomSource,
+    WorkspaceJail, assert_gateway_compatible,
 };
 use ghostai_tools::{
     AnyTool, AutomationResolver, BuiltinOptions, ToolRegistry, ToolRegistryOptions, ToolSink,
@@ -266,15 +265,6 @@ struct Resolved {
     unconfigured: Option<(ErrorKind, String)>,
 }
 
-/// What one build resolved about the policy every agent named.
-struct BuiltPolicies {
-    /// The prompt section describing each toolboxed agent's operations.
-    prompts: IndexMap<String, PromptToolbox>,
-    /// The permission each agent's grants resolved to, for the advertised-name
-    /// warnings.
-    permissions: IndexMap<String, ToolPermissions>,
-}
-
 /// A provider whose `env_key` is exported, used only after resolution answered
 /// nothing.
 ///
@@ -426,7 +416,7 @@ impl std::fmt::Debug for GhostRuntime {
 /// Builds a runtime from `options`.
 ///
 /// Fails only on settings that cannot be built at all — an unusable workspace,
-/// an agent naming a toolbox that is not installed. A missing provider or model is a
+/// an agent naming a container that is not installed. A missing provider or model is a
 /// *state*: the runtime comes up unconfigured.
 pub fn create_runtime(options: RuntimeOptions) -> Result<Arc<GhostRuntime>> {
     GhostRuntime::new(options)
@@ -569,18 +559,10 @@ impl GhostRuntime {
     }
 
     /// Management calls use the same service transport as container tools.
-    ///
-    /// `execute` is refused here rather than filtered at the route: a model's
-    /// tool call reaches the service through the agent loop, which supplies the
-    /// digest it resolved the toolbox at. An `execute` arriving as a
-    /// management call has no such provenance, whatever it claims.
     pub async fn sandbox_request(&self, value: serde_json::Value) -> Result<serde_json::Value> {
         let request: SandboxRequest = serde_json::from_value(value)
             .map_err(|e| GhostError::new(ErrorKind::InvalidInput, e.to_string()))?;
-        if matches!(
-            request,
-            SandboxRequest::Execute { .. } | SandboxRequest::Exec { .. }
-        ) {
+        if matches!(request, SandboxRequest::Exec { .. }) {
             return Err(GhostError::new(
                 ErrorKind::PermissionDenied,
                 "Tool execution is not a management operation",
@@ -929,22 +911,14 @@ impl GhostRuntime {
         };
 
         // Before the mutations below, because every failure it can produce — an
-        // toolbox that is not installed, a manifest that does not parse, a network
+        // container that is not installed, a manifest that does not parse, a network
         // request above its ceiling — must leave the runtime serving on the
         // settings that worked a moment ago.
-        let built = Self::resolve_policies(&agents, &paths)?;
+        Self::resolve_policies(&agents, &paths)?;
 
-        // Here rather than in `resolve_agents`, because only now is the full set
-        // of names an agent can advertise known: the toolbox's own programs are
-        // merged over its map when the loop is built, and warning without them
-        // would fire on every override a toolboxed agent has.
+        // Include every centrally registered tool name plus subagent tools.
         for agent in &agents {
-            let mut advertised: Vec<String> = built
-                .permissions
-                .get(&agent.id)
-                .map(|map| map.keys().cloned().collect())
-                .unwrap_or_default();
-            advertised.extend(agent.tools.keys().cloned());
+            let mut advertised: Vec<String> = agent.tools.keys().cloned().collect();
             advertised.extend(
                 agent
                     .subagents
@@ -1003,12 +977,8 @@ impl GhostRuntime {
         // settings that just changed. A turn already running keeps the loop it
         // started on, because it holds the object rather than looking it up
         // again.
-        let (factory, cache_resolver) = self.loop_factory(
-            config.clone(),
-            paths.clone(),
-            Arc::clone(&jails),
-            Arc::new(built.prompts.clone()),
-        );
+        let (factory, cache_resolver) =
+            self.loop_factory(config.clone(), paths.clone(), Arc::clone(&jails));
         let loops = Arc::new(LoopCache::new(factory));
         cache_resolver.bind(&loops);
         let agent_loop = loops.get(DEFAULT_AGENT_ID)?;
@@ -1232,111 +1202,20 @@ impl GhostRuntime {
         }
     }
 
-    /// Resolve every toolbox and container an enabled agent names.
-    ///
-    /// Nothing here reaches a container engine, and that is the point of the
-    /// split rather than an optimisation: whether a definition is installed,
-    /// installed and internally coherent is static config and belongs in an
-    /// all-or-nothing rebuild, while whether an engine is *running* changes
-    /// while the server is up. The sandbox service answers the second, on the
-    /// first command that needs one.
-    fn resolve_policies(agents: &[EffectiveAgent], paths: &GhostPaths) -> Result<BuiltPolicies> {
-        let named: Vec<&EffectiveAgent> = agents
-            .iter()
-            .filter(|agent| !agent.toolbox.name.is_empty() || !agent.container.name.is_empty())
-            .collect();
-        if named.is_empty() {
-            return Ok(BuiltPolicies {
-                prompts: IndexMap::new(),
-                permissions: IndexMap::new(),
-            });
-        }
-
+    /// Resolve every container an enabled agent names.
+    fn resolve_policies(agents: &[EffectiveAgent], paths: &GhostPaths) -> Result<()> {
         let policies = PolicyStore::new(paths.policy_dir.clone());
-
-        // Every agent resolved *here*, so a toolbox that is not installed, a
-        // definition that does not parse, or an egress request nothing could enforce is a
-        // refusal on the save rather than a turn that dies on its first command.
-        // The prompt sections fall out of the same pass, which is why this is not
-        // two walks.
-        let mut prompts = IndexMap::new();
-        let mut permissions = IndexMap::new();
-        for agent in named {
-            let mut workdir = String::new();
-            if !agent.container.name.is_empty() {
-                let container = policies.require_container(&agent.container.name)?;
-                // Whether a *restricted* allow-list can be enforced in this
-                // container depends on its uid, its privileges and its
-                // capabilities. Checked on the save, where the operator can
-                // change either half, rather than at the first command.
-                if agent.container.network.mode == NetworkMode::Allowlist {
-                    assert_gateway_compatible(&container.definition)?;
-                }
-                workdir.clone_from(&container.definition.workdir);
+        for agent in agents
+            .iter()
+            .filter(|agent| !agent.container.name.is_empty())
+        {
+            let container = policies.require_container(&agent.container.name)?;
+            if agent.container.network.mode == NetworkMode::Allowlist {
+                assert_gateway_compatible(&container.definition)?;
             }
-            if agent.toolbox.name.is_empty() {
-                continue;
-            }
-            let installed = policies.require_toolbox(&agent.toolbox.name)?;
-            let resolved = resolved_permissions(&installed, &agent.toolbox.tools);
-            prompts.insert(
-                agent.id.clone(),
-                PromptToolbox {
-                    name: installed.resolved.toolbox.name.clone(),
-                    workdir,
-                    // Resolved against the same overrides the permission map is,
-                    // so the prose and the tool schemas cannot list different
-                    // operations. An agent given four of a toolbox's twenty-four
-                    // must not be told it has the other twenty.
-                    tools: installed
-                        .resolved
-                        .toolbox
-                        .tools
-                        .iter()
-                        .filter(|grant| resolved.get(&grant.name) != Some(&ToolPermission::Deny))
-                        .map(|grant| PromptToolboxTool {
-                            name: grant.name.clone(),
-                            use_for: installed
-                                .resolved
-                                .operations
-                                .get(&grant.name)
-                                .map(|operation| operation.description.clone())
-                                .unwrap_or_default(),
-                        })
-                        .collect(),
-                    notes: installed.resolved.toolbox.notes.clone(),
-                },
-            );
-            permissions.insert(agent.id.clone(), resolved);
         }
-
-        Ok(BuiltPolicies {
-            prompts,
-            permissions,
-        })
+        Ok(())
     }
-}
-
-/// Each grant's permission after the agent's own map has tightened it.
-fn resolved_permissions(
-    installed: &InstalledToolbox,
-    overrides: &ToolPermissions,
-) -> ToolPermissions {
-    installed
-        .resolved
-        .toolbox
-        .tools
-        .iter()
-        .map(|grant| {
-            let requested = overrides
-                .get(&grant.name)
-                .or_else(|| overrides.get(TOOLBOX_DEFAULT_KEY));
-            let permission = requested.map_or(grant.permission, |requested| {
-                narrow_permission(grant.permission, *requested)
-            });
-            (grant.name.clone(), permission)
-        })
-        .collect()
 }
 
 /// Resolves a subagent's loop through the cache that built its parent.
@@ -1409,7 +1288,6 @@ impl GhostRuntime {
         config: Config,
         paths: GhostPaths,
         jails: Arc<JailCache>,
-        prompts: Arc<IndexMap<String, PromptToolbox>>,
     ) -> (crate::loop_cache::LoopFactory, Arc<CacheResolver>) {
         let resolver = Arc::new(CacheResolver {
             loops: Mutex::new(None),
@@ -1427,7 +1305,6 @@ impl GhostRuntime {
                 agent_id,
                 &paths,
                 &jails,
-                &prompts,
                 Arc::clone(&bound) as Arc<dyn LoopResolver>,
             )
         });
@@ -1448,7 +1325,6 @@ impl GhostRuntime {
         agent_id: &str,
         paths: &GhostPaths,
         jails: &Arc<JailCache>,
-        prompts: &IndexMap<String, PromptToolbox>,
         resolver: Arc<dyn LoopResolver>,
     ) -> Result<Option<AgentLoop>> {
         let agent = resolve_agent(config, Some(agent_id))?;
@@ -1457,60 +1333,14 @@ impl GhostRuntime {
             return Ok(None);
         };
 
-        // Two shapes, and which one an agent gets is decided by whether it
-        // names a toolbox:
-        //
-        //  - **No toolbox** is the built-in scope narrowed by `agent.tools`:
-        //    `read_file`, `exec` and whatever MCP servers and extensions
-        //    registered, gated by the agent's own map.
-        //  - **A toolbox** is a *complete* scope of its granted operations and
-        //    nothing else. No `exec` to reach a program the toolbox did not
-        //    grant, no ambient MCP tool the operator did not name. A toolbox
-        //    that wants a built-in back grants it explicitly as a `registered`
-        //    operation, pinned to that tool's definition digest.
-        //
-        // A view of the one shared registry rather than a registry of its own in
-        // both cases: an MCP server is one connection however many agents are
-        // configured.
-        // Checked here rather than only on the toolbox branch below, because an
-        // agent may now name a container without one: a name that resolves to
-        // nothing would otherwise be a typo that silently ran on the host.
+        // Every agent gets a permission-filtered view of the one shared
+        // registry. Built-ins, MCP and extension tools retain their source
+        // identities and lifecycle on that registry.
         if !agent.container.name.is_empty() {
             PolicyStore::new(paths.policy_dir.clone()).require_container(&agent.container.name)?;
         }
-        // Two independent facts, not one tri-state. They used to be the same
-        // question because a container without a toolbox was refused; now that
-        // an agent may name either alone, the prompt has four cases and reading
-        // them off one `Option<bool>` would collapse two of them.
-        let toolboxed = !agent.toolbox.name.is_empty();
         let containerized = !agent.container.name.is_empty();
-        let scope = if agent.toolbox.name.is_empty() {
-            self.tools.select(agent.tools.clone())
-        } else {
-            let store = Arc::new(PolicyStore::new(paths.policy_dir.clone()));
-            let installed = store.require_toolbox(&agent.toolbox.name)?;
-            // A command operation runs in a container by being *sent* to the
-            // service that owns one. Without a container the same operation runs
-            // here, as a guarded child process in the workspace jail — which is
-            // why the executor is `None` rather than a local implementation of
-            // the same trait.
-            let remote = if agent.container.name.is_empty() {
-                None
-            } else {
-                store.require_container(&agent.container.name)?;
-                Some(Arc::new(ghostai_environment::service::SandboxClient::new(
-                    self.sandbox_socket(),
-                ))
-                    as Arc<dyn ghostai_tools::operations::OperationExecutor>)
-            };
-            ghostai_tools::operations::toolbox_operation_scope(
-                &installed,
-                &store,
-                &self.tools,
-                &agent.toolbox.tools,
-                remote.as_ref(),
-            )?
-        };
+        let scope = self.tools.select(agent.tools.clone());
 
         let mut options = AgentLoopOptions::new(
             provider,
@@ -1521,9 +1351,7 @@ impl GhostRuntime {
         options.model = Some(endpoint.model);
         options.config = agent.settings.clone();
         options.tools_config = Arc::new(agent.tools_config.clone());
-        options.toolbox = agent.toolbox.clone();
         options.container = agent.container.clone();
-        options.toolbox_prompt = prompts.get(&agent.id).cloned();
         // The delegation half of what this agent may do. Beside the tools and
         // for the same reason: both are resolved once, here, so a turn never asks
         // the config who it is allowed to call.
@@ -1561,20 +1389,11 @@ impl GhostRuntime {
             },
             id: agent.id.clone(),
             tool_prompts: Some(agent.tool_prompts.clone()),
-            platform_prompt: Some(match (toolboxed, containerized) {
+            platform_prompt: Some(match containerized {
                 _ if !agent.platform_prompt.is_empty() => agent.platform_prompt.clone(),
-                (true, true) => "## Tool execution\n\nOnly the advertised toolbox operations are callable. Command operations run in the tool container; registered tools run in the app or their configured provider. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
-                (true, false) => "## Tool execution\n\nOnly the advertised toolbox operations are callable. They run in the app environment or their configured provider, without toolbox container isolation. File tools, when granted, use the workspace jail. Do not assume a shell or generic exec operation is available.".into(),
-                // The cell the removed refusal used to make unreachable. Worth
-                // its own wording because the split is surprising: commands
-                // cross into the container, while the file tools stay here and
-                // act on the workspace on this machine.
-                (false, true) => "## Tool execution\n\nCommands you run with `exec` run inside a container, not on the host: a shell is available there, and what it can reach is fixed by the container's definition. File tools act on the workspace on this machine, so a path you write is not the path a command sees.".into(),
-                (false, false) => String::new(),
+                true => ghostai_protocol::DEFAULT_PLATFORM_CONTAINER_TEMPLATE.into(),
+                false => String::new(),
             }),
-            toolbox_prompt: Some(if toolboxed && agent.toolbox_prompt.is_empty() {
-                "## Toolbox: {{name}}\n\nUse only the operations listed in your tools. Their schemas and permission ceilings are fixed by the operator.{{tools}}{{notes}}".into()
-            } else { agent.toolbox_prompt.clone() }),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
         });
 

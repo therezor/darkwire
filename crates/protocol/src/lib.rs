@@ -16,6 +16,7 @@
 
 pub mod automation;
 pub mod config;
+pub mod container;
 pub mod extension;
 pub mod ids;
 pub mod json;
@@ -25,13 +26,13 @@ pub mod prompt;
 pub mod rest;
 pub mod schemas;
 pub mod subagent;
-pub mod toolbox;
 pub mod tools;
 pub mod uuid;
 pub mod ws;
 
 pub use automation::*;
 pub use config::*;
+pub use container::*;
 pub use extension::*;
 pub use ids::*;
 pub use messages::*;
@@ -40,7 +41,6 @@ pub use prompt::*;
 pub use rest::*;
 pub use schemas::{PROTOCOL_SCHEMAS, RegisteredSchema, protocol_generator, registered};
 pub use subagent::*;
-pub use toolbox::*;
 pub use tools::*;
 pub use uuid::*;
 pub use ws::*;

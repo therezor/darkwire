@@ -8,8 +8,8 @@
 //!
 //! What is asserted here is the half of the contract the app cannot enforce for
 //! itself: the service owns the engine, so it re-checks the workspace
-//! registration, both approvals and the operation grant against its own policy
-//! directory rather than trusting what the caller says it resolved.
+//! registration and container definition against its own policy directory
+//! rather than trusting what the caller says it resolved.
 
 #![allow(
     clippy::expect_used,
@@ -27,7 +27,6 @@ use std::time::Duration;
 use ghostai_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
 use ghostai_protocol::rest::SandboxRequest;
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
-use ghostai_security::PolicyStore;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -35,8 +34,7 @@ use common::write;
 
 const DIGEST: &str = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
-/// A service on its own socket, with one workspace, one toolbox and one
-/// container, all approved.
+/// A service on its own socket, with one workspace and one container.
 struct Harness {
     #[expect(dead_code, reason = "held so the directory outlives the service")]
     dir: tempfile::TempDir,
@@ -51,30 +49,6 @@ impl Drop for Harness {
     }
 }
 
-fn toolbox() -> Value {
-    json!({
-        "schema": "ghostai.toolbox/1",
-        "name": "coding",
-        "tools": [
-            {"name": "git_status", "definition": "git-status", "permission": "allow"},
-            {"name": "never", "definition": "git-status", "permission": "deny"},
-        ],
-    })
-}
-
-fn definition() -> Value {
-    json!({
-        "schema": "ghostai.tool/1",
-        "description": "Show repository status",
-        "implementation": {
-            "kind": "command",
-            "executable": "/usr/bin/git",
-            "argv": ["status"],
-        },
-        "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
-    })
-}
-
 fn container() -> Value {
     json!({"schema": "ghostai.container/1", "name": "dev", "image": DIGEST})
 }
@@ -84,11 +58,6 @@ impl Harness {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let policy = root.join("policy");
-        write(&policy.join("toolboxes/coding.yaml"), toolbox().to_string());
-        write(
-            &policy.join("tool-definitions/git-status.yaml"),
-            definition().to_string(),
-        );
         write(&policy.join("containers/dev.yaml"), container().to_string());
         std::fs::create_dir_all(root.join("workspaces/default")).unwrap();
 
@@ -111,7 +80,6 @@ impl Harness {
                 WorkspaceRegistration {
                     path: root.join("workspaces/default"),
                     daemon_path: root.join("workspaces/default"),
-                    toolboxes: vec!["coding".to_owned()],
                     containers: vec!["dev".to_owned()],
                 },
             )]),
@@ -144,64 +112,10 @@ impl Harness {
             .request(request, &CancellationToken::new())
             .await
     }
-
-    fn policy(&self) -> PolicyStore {
-        PolicyStore::new(self.root.join("policy"))
-    }
 }
 
 fn no_network() -> ContainerNetwork {
     ContainerNetwork::default()
-}
-
-/// An `Execute` naming everything correctly, which every refusal test varies
-/// one field of.
-fn execute() -> SandboxRequest {
-    SandboxRequest::Execute {
-        toolbox: "coding".to_owned(),
-        digest: String::new(),
-        container: "dev".to_owned(),
-        operation: "git_status".to_owned(),
-        workspace: "default".to_owned(),
-        agent: "scanner".to_owned(),
-        session: "s1".to_owned(),
-        network: no_network(),
-        args: json!({}),
-    }
-}
-
-/// `Execute` carrying the digest the toolbox currently resolves to.
-fn resolved_execute(harness: &Harness) -> SandboxRequest {
-    let digest = harness
-        .policy()
-        .require_toolbox("coding")
-        .unwrap()
-        .digest()
-        .to_owned();
-    match execute() {
-        SandboxRequest::Execute {
-            toolbox,
-            container,
-            operation,
-            workspace,
-            agent,
-            session,
-            network,
-            args,
-            ..
-        } => SandboxRequest::Execute {
-            toolbox,
-            digest,
-            container,
-            operation,
-            workspace,
-            agent,
-            session,
-            network,
-            args,
-        },
-        other => other,
-    }
 }
 
 fn message(result: ghostai_core::Result<Value>) -> String {
@@ -243,129 +157,16 @@ async fn refuses_a_workspace_it_was_never_told_about() {
     // another trust domain naming a workspace the operator did not register
     // gets nothing, whatever its own config says.
     let harness = Harness::start().await;
-    let SandboxRequest::Execute {
-        toolbox,
-        digest,
-        container,
-        operation,
-        agent,
-        session,
-        network,
-        args,
-        ..
-    } = execute()
-    else {
-        unreachable!("execute() is an Execute")
-    };
     let refusal = harness
-        .ask(SandboxRequest::Execute {
-            toolbox,
-            digest,
-            container,
-            operation,
+        .ask(SandboxRequest::Start {
+            container: "dev".to_owned(),
             workspace: "elsewhere".to_owned(),
-            agent,
-            session,
-            network,
-            args,
+            agent: "scanner".to_owned(),
+            session: "s1".to_owned(),
+            network: no_network(),
         })
         .await;
     assert!(message(refusal).contains("not registered"));
-}
-
-#[tokio::test]
-async fn refuses_a_toolbox_this_workspace_was_not_given() {
-    let harness = Harness::start().await;
-    // Installed, but not in this workspace's registration.
-    write(
-        &harness.root.join("policy/toolboxes/other.yaml"),
-        json!({"schema": "ghostai.toolbox/1", "name": "other", "tools": []}).to_string(),
-    );
-
-    let SandboxRequest::Execute {
-        digest,
-        container,
-        operation,
-        workspace,
-        agent,
-        session,
-        network,
-        args,
-        ..
-    } = execute()
-    else {
-        unreachable!("execute() is an Execute")
-    };
-    let refusal = harness
-        .ask(SandboxRequest::Execute {
-            toolbox: "other".to_owned(),
-            digest,
-            container,
-            operation,
-            workspace,
-            agent,
-            session,
-            network,
-            args,
-        })
-        .await;
-    assert!(message(refusal).contains("not authorized"));
-}
-
-#[tokio::test]
-async fn refuses_a_digest_that_is_not_the_one_on_disk() {
-    // The caller resolved the toolbox at some digest and says so. If the bytes
-    // changed between then and now, the call is refused rather than run under
-    // a definition the caller never read.
-    let harness = Harness::start().await;
-    assert!(
-        message(harness.ask(execute()).await).contains("definition changed"),
-        "an empty digest is not the one on disk"
-    );
-    assert!(
-        harness
-            .ask(resolved_execute(&harness))
-            .await
-            .is_err_and(|error| !error.message.contains("definition changed")),
-        "the real digest gets past the drift check"
-    );
-}
-
-#[tokio::test]
-async fn refuses_an_operation_the_toolbox_does_not_grant() {
-    let harness = Harness::start().await;
-    for operation in ["not_granted", "never"] {
-        let SandboxRequest::Execute {
-            toolbox,
-            digest,
-            container,
-            workspace,
-            agent,
-            session,
-            network,
-            args,
-            ..
-        } = resolved_execute(&harness)
-        else {
-            unreachable!("resolved_execute is an Execute")
-        };
-        let refusal = harness
-            .ask(SandboxRequest::Execute {
-                toolbox,
-                digest,
-                container,
-                operation: operation.to_owned(),
-                workspace,
-                agent,
-                session,
-                network,
-                args,
-            })
-            .await;
-        // `never` is granted at `deny`, which is the same answer as a name the
-        // manifest never mentioned: the agent cannot call it.
-        assert!(message(refusal).contains("not granted"), "{operation}");
-    }
 }
 
 #[tokio::test]

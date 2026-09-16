@@ -1,19 +1,11 @@
-//! `ghostai preset` — pick agents from the catalogue, and get the boxes they need.
+//! `ghostai preset` — pick agents and optional containers from the catalogue.
 //!
-//! **A toolbox is built because an agent asked for it, never on its own.** The
-//! selection is a list of agents; the boxes fall out of `toolbox.name` on the
-//! ones chosen. That is why there is no "presets only" flag: choosing only
-//! agents that need no container *is* the flag, and it is a checkbox rather
-//! than something to remember.
-//!
-//! **It stops short of approving anything unless somebody says so, and prints
-//! the policy before it asks.** Building an image and installing its manifest
-//! are reversible, mechanical steps; approving one is a statement that a person
-//! read what that container may do — its network ceiling, the capabilities it
-//! adds back, the hardening it switches off. A prompt showing only names would
-//! make that sentence false, so this run ends up printing a screen of policy
-//! before a `y`. That is the right trade for the one action here that re-running
-//! cannot undo.
+//! **Installing a container definition is the decision, because the file on
+//! disk *is* the policy.** There is no second step recording consent — what
+//! the machine running `exec` may be is settled by the bytes this writes under
+//! `policy/containers/`. `ghostai container list` is where those bytes are read
+//! back: the capabilities a definition adds, the hardening it switches off, and
+//! whether a restricted egress gateway could be built around it at all.
 //!
 //! Everything that touches the world is injected — the fetcher, the image
 //! builder, the daemon probe, the prompts — so the tests need neither a
@@ -28,18 +20,15 @@ use ghostai_core::{
 };
 use ghostai_environment::container_pool::{DockerEngineOptions, docker_engine};
 use ghostai_i18n::{args, keys};
-use ghostai_protocol::{
-    AgentEntry, AgentPreset, Config, DEFAULT_WORKSPACE_ID, TOOLBOX_DEFAULT_KEY, ToolPermission,
-};
-use ghostai_security::{PolicyStore, parse_toolbox};
+use ghostai_protocol::{AgentEntry, AgentPreset, Config, DEFAULT_WORKSPACE_ID};
+use ghostai_security::PolicyStore;
 
 use crate::Streams;
 use crate::agent::{InstallPlan, PresetPaths, plan_install};
 use crate::ask::Ask;
 use crate::catalogue::{
     CATALOGUE_PACKAGE, CatalogueOptions, FetchCatalogueOptions, Fetcher, assert_catalogue_layout,
-    catalogue_container, catalogue_definition, catalogue_dir, catalogue_skills_dir,
-    catalogue_toolbox, fetch_catalogue,
+    catalogue_container, catalogue_dir, catalogue_skills_dir, fetch_catalogue,
 };
 use crate::i18n::{Env, Translations};
 use crate::presets::{find_preset, list_all_presets, preset_dirs, read_preset};
@@ -180,9 +169,9 @@ fn container_build(context: &Path, tag: &str) -> Result<String> {
 
 /// Whether a build reported a digest rather than a tag.
 ///
-/// A definition is only worth approving if the image it names cannot move, so
-/// an id that is not `sha256:` plus sixty-four hex digits is refused rather
-/// than pinned into a definition an operator would then approve.
+/// A definition only bounds anything if the image it names cannot move, so an
+/// id that is not `sha256:` plus sixty-four hex digits is refused rather than
+/// pinned into a definition an operator would then rely on.
 fn is_pinned_image(id: &str) -> bool {
     let Some(hex) = id.strip_prefix("sha256:") else {
         return false;
@@ -190,68 +179,7 @@ fn is_pinned_image(id: &str) -> bool {
     hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// Everything an operator has to weigh before approving a container.
-///
-fn copy_policy_file(source: &Path, target: &Path) -> Result<()> {
-    ensure_dir(target.parent().unwrap_or(target))?;
-    std::fs::copy(source, target).map(|_| ()).map_err(|error| {
-        GhostError::new(
-            ErrorKind::Storage,
-            format!(
-                "{} could not be copied to {}",
-                source.display(),
-                target.display()
-            ),
-        )
-        .with_source(error)
-    })
-}
-
-/// Installs one toolbox and every operation definition it names.
-///
-/// The definitions travel with it rather than being installed on their own,
-/// because the approval hash covers all of them: a toolbox whose definitions
-/// were missing would resolve to a refusal rather than to something an operator
-/// could review.
-fn install_toolbox(name: &str, catalogue: &Path, policy_dir: &Path) -> Result<()> {
-    let Some(source) = catalogue_toolbox(catalogue, name) else {
-        return Ok(());
-    };
-    let bytes = std::fs::read(&source).map_err(|error| {
-        GhostError::new(
-            ErrorKind::Config,
-            format!("{} could not be read", source.display()),
-        )
-        .with_source(error)
-    })?;
-    let toolbox = parse_toolbox(&bytes)?;
-    for grant in &toolbox.tools {
-        let Some(definition) = catalogue_definition(catalogue, &grant.definition) else {
-            return Err(GhostError::new(
-                ErrorKind::Config,
-                format!(
-                    "Toolbox \"{name}\" grants \"{}\" from definition \"{}\", which this \
-                     catalogue does not carry.\n  Update the catalogue with `ghostai preset \
-                     update`.",
-                    grant.name, grant.definition
-                ),
-            )
-            .with_detail("definition", grant.definition.clone()));
-        };
-        copy_policy_file(
-            &definition,
-            &policy_dir
-                .join("tool-definitions")
-                .join(format!("{}.yaml", grant.definition)),
-        )?;
-    }
-    copy_policy_file(
-        &source,
-        &policy_dir.join("toolboxes").join(format!("{name}.yaml")),
-    )
-}
-
-/// Builds one container image and installs its definition. Never approves it.
+/// Builds one container image and installs its definition.
 fn install_container(
     name: &str,
     context: &Path,
@@ -298,7 +226,7 @@ pub struct Offer {
 /// Every preset on offer, operator's own and the catalogue's, deduplicated.
 ///
 /// Reads each one, unlike `ghostai agent list` which reads only names: this has
-/// to show the toolbox and the label, and it is about to install them anyway. A
+/// to show the container and the label, and it is about to install them anyway. A
 /// file that does not parse is a line in the report rather than the end of the
 /// run — one broken preset in a directory must not hide the other seven.
 fn offers(paths: &PresetPaths, config: &Config, warnings: &mut Vec<String>) -> Vec<Offer> {
@@ -334,7 +262,7 @@ fn first_line(message: &str) -> &str {
     message.lines().next().unwrap_or(message)
 }
 
-/// `<id> (<label>)  <toolbox>`, which is what the choice actually turns on.
+/// `<id> (<label>)`.
 fn label_of(offer: &Offer, t: &Translations) -> String {
     let label = if offer.preset.label.is_empty() {
         &offer.id
@@ -346,36 +274,8 @@ fn label_of(offer: &Offer, t: &Translations) -> String {
     } else {
         format!(" ({label})")
     };
-    let box_name = if offer.preset.toolbox.name.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "  {}{}",
-            offer.preset.toolbox.name,
-            describe_grant(&offer.preset, t)
-        )
-    };
-    format!("{}{name}{box_name}", offer.id)
-}
-
-/// How much of the box this preset asked for, when it did not ask for all of it.
-///
-/// Worth a few characters in the picker because it is the difference between
-/// two agents that name the same toolbox — and because an operator scanning the
-/// list has no other way to see that one of them is getting four programs of
-/// twenty-four.
-fn describe_grant(preset: &AgentPreset, t: &Translations) -> String {
-    let overrides = &preset.toolbox.tools;
-    if !overrides.contains_key(TOOLBOX_DEFAULT_KEY) {
-        return String::new();
-    }
-    let named = overrides
-        .iter()
-        .filter(|(name, permission)| {
-            name.as_str() != TOOLBOX_DEFAULT_KEY && **permission != ToolPermission::Deny
-        })
-        .count();
-    format!(" ({})", t.tr(keys::preset::TOOLS, args!["count" => named]))
+    let _ = t;
+    format!("{}{name}", offer.id)
 }
 
 /// The catalogue this run reads, fetching it first when that is called for.
@@ -661,29 +561,18 @@ fn install(
 
     // What the *chosen* agents name, in first-mention order and each once. Two
     // agents naming one container is one build.
-    let mut toolboxes: Vec<String> = Vec::new();
     let mut containers: Vec<String> = Vec::new();
     for offer in chosen {
-        for (name, into) in [
-            (&offer.preset.toolbox.name, &mut toolboxes),
-            (&offer.preset.container.name, &mut containers),
-        ] {
-            if !name.is_empty() && !into.contains(name) {
-                into.push(name.clone());
-            }
+        let name = &offer.preset.container.name;
+        if !name.is_empty() && !containers.contains(name) {
+            containers.push(name.clone());
         }
     }
 
-    let missing: Vec<String> = toolboxes
+    let missing: Vec<String> = containers
         .iter()
-        .filter(|name| !is_toolbox_installed(paths, name))
-        .filter(|name| catalogue_toolbox(catalogue, name).is_none())
-        .chain(
-            containers
-                .iter()
-                .filter(|name| !is_container_installed(paths, name))
-                .filter(|name| catalogue_container(catalogue, name).is_none()),
-        )
+        .filter(|name| !is_container_installed(paths, name))
+        .filter(|name| catalogue_container(catalogue, name).is_none())
         .cloned()
         .collect();
     if !missing.is_empty() {
@@ -691,7 +580,7 @@ fn install(
         return Err(GhostError::new(
             ErrorKind::Config,
             format!(
-                "This catalogue carries nothing named {}.\n  A preset naming a toolbox or \
+                "This catalogue carries nothing named {}.\n  A preset naming a \
                  container the catalogue does not carry cannot be\n  installed. Update the \
                  catalogue with `ghostai preset update`.",
                 quoted.join(", ")
@@ -703,11 +592,6 @@ fn install(
     // Already installed and usable? Then there is nothing to do: rebuilding
     // would change the image id and so the definition's digest, restarting
     // every warm instance of it for no reason.
-    for name in &toolboxes {
-        if !is_toolbox_installed(paths, name) {
-            install_toolbox(name, catalogue, &paths.policy_dir)?;
-        }
-    }
     let to_build: Vec<&String> = containers
         .iter()
         .filter(|name| !is_container_installed(paths, name))
@@ -734,8 +618,8 @@ fn install(
             }
             InstallPlan::Blocked { id, reason } => {
                 // Already installed, and its roster would now name more
-                // specialists than it does — which happens whenever toolboxes
-                // were approved between two runs. Not overwritten, because the
+                // specialists than it does — which happens whenever containers
+                // were installed between two runs. Not overwritten, because the
                 // entry may carry edits; named instead, with the command that
                 // refreshes it.
                 if let Some(current) = config.agents.list.get(&id)
@@ -875,8 +759,8 @@ fn install_sheets(
 /// What the sheet copy did, and what it left for the operator.
 ///
 /// Split from the rest of the report because the two halves answer different
-/// questions — one is about files in a workspace, the other about approvals and
-/// agents — and the only thing they share is the stream they write to.
+/// questions — one is about files in a workspace, the other about containers
+/// and agents — and the only thing they share is the stream they write to.
 fn report_sheets(
     paths: &PresetPaths,
     sheets: &SkillInstallResult,
@@ -1016,11 +900,6 @@ fn roster_is_stale(preset: &AgentPreset, entry: &AgentEntry, config: &Config) ->
 /// The definitions over this run's paths.
 fn open_store(paths: &PresetPaths) -> PolicyStore {
     PolicyStore::new(paths.policy_dir.clone())
-}
-
-/// Whether this toolbox is installed and usable as it stands.
-fn is_toolbox_installed(paths: &PresetPaths, name: &str) -> bool {
-    open_store(paths).require_toolbox(name).is_ok()
 }
 
 /// Whether this container is installed and usable as it stands.

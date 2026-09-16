@@ -24,8 +24,8 @@
  * every config at write time would freeze every agent on the wording that
  * happened to ship the day it was created.
  *
- * **There is nothing here the operator cannot edit.** The platform note, the
- * toolbox advertisement and the tool-output policy are each a template beside
+ * **There is nothing here the operator cannot edit.** The platform note and the
+ * tool-output policy are each a template beside
  * the three below rather than prose composed in code. The last is the
  * interesting one, and the reasoning is the workspace paragraph's:
  * `wrapToolOutput` emits the fences whatever the prose says, so the text
@@ -58,7 +58,7 @@ export const SECTION_SEPARATOR = '\n\n---\n\n';
  *    directory tree of junk, with no error. The path is also the one thing in the
  *    prompt that leaks the operator's home directory layout to the provider.
  *  - `runtime` names the host OS, which is where `exec` runs only when the agent
- *    has no toolbox. For a toolboxed agent it describes a machine none of its
+ *    has no container. For a containered agent it describes a machine none of its
  *    commands touch, and the command policy section states the correct one.
  *
  * They stay in this list because a custom prompt may reasonably want them — an
@@ -66,12 +66,12 @@ export const SECTION_SEPARATOR = '\n\n---\n\n';
  * silently changes every stored template that uses it.
  *
  * **`platformPolicy` is deliberately absent.** The command policy is a
- * *section*, placed beside the toolbox advertisement and the tool-output policy
+ * *section*, placed beside the tool-output policy
  * rather than interpolated into this template. A placeholder cannot express
  * "this section does not apply": it renders to a string, and an empty one
  * leaves the blank lines the template wrote around it. A section that does not
  * apply is simply not in the list. It is still the operator's to edit —
- * `DEFAULT_PLATFORM_HOST_TEMPLATE` and its toolbox twin, on the Running
+ * `DEFAULT_PLATFORM_HOST_TEMPLATE` and its container twin, on the Running
  * commands box in the agent editor — just not as this template's variable.
  *
  * `RAW_PROMPT_PLACEHOLDERS` keeps it, because raw mode places every section
@@ -354,8 +354,7 @@ ${GUIDELINES}`;
  * A convention the templates below rely on, stated once.
  *
  * **A placeholder that can render to nothing carries its own leading blank
- * line.** `{{notes}}` is `'\n\n' + the notes` or `''`, never the notes alone —
- * so a toolbox with no notes leaves no gap where the section would have been.
+ * line.** Optional generated content includes its separator or renders empty.
  * `{{wrapUp}}` in `DEFAULT_LIVE_STATE_TEMPLATE` already worked this way; this
  * generalises it rather than inventing a second rule.
  *
@@ -371,13 +370,7 @@ ${GUIDELINES}`;
  *
  * This section fills `{{platformPolicy}}` in the static half, and it is the one
  * part of the prompt that depends on *placement*: whether `exec` lands on this
- * machine or inside a toolbox container. Those two are opposite on every point
- * that matters — whether the workspace confines the command, whether a shell is
- * there, which OS's tools exist — which is why there are two defaults below.
- *
- * An override is a single template because an *agent* is not ambiguous the way
- * the function generating this is: placement is `toolbox.name`, a config fact,
- * so an operator writing this for one agent writes the one that is true of it.
+ * machine or inside a container.
  */
 export const PLATFORM_PROMPT_PLACEHOLDERS = [
   /** `<os> <arch>, Node <version>` — the host, whatever `exec` does. */
@@ -385,36 +378,11 @@ export const PLATFORM_PROMPT_PLACEHOLDERS = [
   /** The raw `NodeJS.Platform`: `darwin`, `linux`, `win32`. */
   'platform',
   'workspaceId',
-  /** The toolbox name, or empty when `exec` runs on the host. */
-  'toolbox',
-  /** Where the workspace is mounted in the container. Empty without a toolbox. */
-  'workdir',
   /**
    * The generated shell-tooling paragraph for this host OS, with its own
-   * leading blank line. Empty for a toolboxed agent, whose shell is the
-   * container's and is described by the toolbox section instead.
+   * leading blank line.
    */
   'shellPolicy',
-] as const;
-
-/**
- * What a *toolbox* template may ask for.
- *
- * Both the composed and the raw form of the part that carries text of its own
- * — the `Installed:` label — because an operator rewriting the section around
- * it needs the pieces, and one keeping the default wants the whole block or
- * nothing. Longer-form tool documentation is not offered here at all: it lives
- * in the agent's own `systemPrompt`, which is where a preset puts it.
- */
-export const TOOLBOX_PROMPT_PLACEHOLDERS = [
-  'name',
-  'workdir',
-  /** `Installed:` and the bullet list, with a leading blank line. Empty when none. */
-  'tools',
-  /** Just the bullet lines, no label and no leading blank line. */
-  'toolList',
-  /** The manifest's notes, with a leading blank line. Empty when blank. */
-  'notes',
 ] as const;
 
 /**
@@ -464,44 +432,13 @@ which is why an argument pointing outside it (\`/etc/passwd\`, \`../secrets\`) i
 refused rather than resolved inside. Its working directory is already the
 workspace root, so pass relative arguments.{{shellPolicy}}`;
 
-/**
- * `{{platformPolicy}}` when `exec` runs in a toolbox.
- *
- * The host label is still named, and deliberately as a fact about the machine
- * rather than about the commands: an agent asked what it is running on should not
- * have to guess, and the sentence after it is what stops the model reading that
- * as where `exec` lands.
- */
-export const DEFAULT_PLATFORM_TOOLBOX_TEMPLATE = `## Running commands
+/** `{{platformPolicy}}` when `exec` runs in a selected container. */
+export const DEFAULT_PLATFORM_CONTAINER_TEMPLATE = `## Running commands
 
-This machine runs {{runtime}}. Your \`exec\` calls do not: they run inside the
-\`{{toolbox}}\` toolbox container described below. The file tools are the other
-way round — they always act on the workspace here, never inside the container.
-
-Both reach the same files under different names: what the file tools call
-\`notes/todo.md\` is \`{{workdir}}/notes/todo.md\` to a command.`;
-
-/**
- * The toolbox advertisement.
- *
- * **It does not state where commands run.** That sentence lives in the platform
- * policy, which is earlier in the prompt and says it for both placements, so
- * repeating it here would be the same claim twice — and a model resolving an
- * apparent contradiction between its prompt and its tools tends to resolve it by
- * refusing.
- *
- * This is prose composed from a declared list, not a set of tool schemas. A
- * research or Kali image carries hundreds of programs a model already knows from
- * pretraining, and declaring them as schemas would cost thousands of tokens on
- * every request to say what forty say once.
- */
-export const DEFAULT_TOOLBOX_TEMPLATE = `## Toolbox: {{name}}
-
-A shell is available in here, so a pipeline goes through \`["bash","-lc","…"]\`.
-Nothing from this machine is visible except the workspace, so write findings
-there rather than holding them in context. Output too large to return is kept
-in full under \`/run/ghost-runs/\`; reach it with a shell command, not the file
-tools.{{tools}}{{notes}}`;
+Commands you run with \`exec\` run inside a container, not on the host. What they
+can reach is fixed by the container definition and the agent's network policy.
+File tools act on the workspace on this machine; the same workspace is mounted
+inside the container.`;
 
 /**
  * The section that makes the tool-output delimiters mean something.
@@ -544,7 +481,7 @@ its slash, and is part of the data.`;
  * happens long after this section is rendered.
  *
  * **`{{index}}` carries its own leading blank line**, the convention `{{notes}}`
- * and `{{tools}}` already keep on the toolbox template — a section whose optional
+ * and `{{tools}}` already keep on the container template — a section whose optional
  * half is absent should leave no gap where it would have been, and a pass
  * afterwards collapsing blank lines would rewrite an operator's spacing to fix a
  * problem the renderer created.
@@ -588,7 +525,7 @@ names.{{index}}`;
  *
  * **It advertises files rather than carrying their contents**, which is the
  * whole shape of the feature. A workspace has many memories and needs at most a
- * few per turn, so an index earns its keep the way `DEFAULT_TOOLBOX_TEMPLATE`'s
+ * few per turn, so an index earns its keep the way a compact tool catalogue's
  * tool list does — where inlining a memory whole would pay for it on every
  * request whether or not a word of it bore on the question.
  *
@@ -596,7 +533,7 @@ names.{{index}}`;
  *
  *  - **It names `read_file`.** A list of paths with no instruction to open them
  *    reads as a list of things that exist, not as a list of things to consult.
- *    `DEFAULT_TOOLBOX_TEMPLATE` and the skills index both learned this.
+ *    compact tool catalogues and the skills index both learned this.
  *  - **It says a repeated name replaces.** Without it a model that learns it was
  *    wrong writes a second memory contradicting the first, and the index then
  *    carries both with nothing to say which is current.
@@ -622,8 +559,7 @@ standing beside its correction.
  * would otherwise have placed.
  *
  * In `raw` mode `systemPrompt` **is** the system message. Nothing is prepended,
- * appended or interleaved — not the live-state block, not the toolbox section,
- * not the tool-output policy. A template that wants one names it.
+ * appended or interleaved — not the live-state block or the tool-output policy.
  *
  * The cost is the split this file is organised around. The static half is the
  * provider's cached prefix and the runtime half is the cheap tail; one template
@@ -644,8 +580,6 @@ export const RAW_PROMPT_PLACEHOLDERS = [
    * out, raw mode places nothing and so has to be able to ask for it.
    */
   'platformPolicy',
-  /** The rendered toolbox section, with a leading blank line. Empty without one. */
-  'toolbox',
   /** The rendered tool-output policy. No leading blank line — it is usually placed alone. */
   'toolPolicy',
   'nonce',

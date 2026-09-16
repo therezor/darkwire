@@ -1,6 +1,6 @@
 //! The container definitions installed on this machine.
 //!
-//! Read from disk on every request, for the same reason the toolbox list is:
+//! Read from disk on every request, for the same reason the container list is:
 //! an edited definition must report its new digest, its new capabilities and
 //! its new gateway verdict the moment it changes.
 //!

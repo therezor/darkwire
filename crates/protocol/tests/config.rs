@@ -10,8 +10,8 @@
 
 use garde::Validate;
 use ghostai_protocol::{
-    AgentEntry, Config, ConfigPatch, DEFAULT_AGENT_ID, DEFAULT_AGENT_TOOLS, TOOLBOX_DEFAULT_KEY,
-    ToolPermission, default_agent_tools, parse_config,
+    AgentEntry, Config, ConfigPatch, DEFAULT_AGENT_ID, DEFAULT_AGENT_TOOLS, ToolPermission,
+    default_agent_tools, parse_config,
 };
 use serde_json::json;
 
@@ -111,7 +111,6 @@ fn the_seed_tools_are_the_built_ins_at_their_band() {
     assert_eq!(tools["exec"], ToolPermission::Ask);
     assert_eq!(tools["read_file"], ToolPermission::Allow);
     assert_eq!(AgentEntry::default().tools, tools);
-    assert_eq!(TOOLBOX_DEFAULT_KEY, "*");
 }
 
 #[test]

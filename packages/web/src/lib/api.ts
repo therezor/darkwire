@@ -55,7 +55,6 @@ import {
   WorkspaceSummarySchema,
   StatusResponseSchema,
   AgentListResponseSchema,
-  ToolboxListResponseSchema,
   ContainerListResponseSchema,
   ToolListResponseSchema,
   UploadResponseSchema,
@@ -96,7 +95,6 @@ import {
   type WorkspaceSummary,
   type StatusResponse,
   type AgentListResponse,
-  type ToolboxListResponse,
   type ContainerListResponse,
   type ToolListResponse,
   type UploadResponse,
@@ -524,27 +522,14 @@ export const api = {
   /**
    * Start, stop or restart one instance.
    *
-   * `execute` is in the same type and is refused by the route: a model's tool
-   * call reaches the service through the agent loop, which carries the approval
-   * hash it resolved the toolbox at, and nothing here could supply one.
+   * Guarded `exec` belongs to the agent loop and is refused by this route.
    */
   manageSandbox: (
-    operation: Exclude<SandboxRequest, { op: 'execute' } | { op: 'list' }>,
+    operation: Exclude<SandboxRequest, { op: 'exec' } | { op: 'list' }>,
   ): Promise<Record<string, unknown>> =>
     request('/api/sandboxes', z.record(z.string(), z.unknown()), {
       method: 'POST',
       body: operation,
-    }),
-
-  /**
-   * Toolboxes installed on this machine.
-   *
-   * Read fresh rather than cached long: a manifest edited after approval stops
-   * being usable the moment it changes, and a stale list would keep offering it.
-   */
-  toolboxes: (signal?: AbortSignal): Promise<ToolboxListResponse> =>
-    request('/api/toolboxes', ToolboxListResponseSchema, {
-      ...(signal ? { signal } : {}),
     }),
 
   /** The container definitions an operator installed. */
@@ -609,7 +594,7 @@ export const api = {
    * Runs one, and answers with the extension's own words.
    *
    * Not a resource key: an extension's copy ships with the extension and the
-   * translation layer has never seen it. The same rule a toolbox's `notes`
+   * translation layer has never seen it. The same rule a container's `notes`
    * follows.
    */
   runCommand: (

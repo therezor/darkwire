@@ -76,9 +76,9 @@ codebase surgery, research sweeps, scheduled chores.
 - **A small prompt is a fast prompt.** On a local model the prompt is not a bill, it is
   wall-clock: whatever changed since the last step gets re-processed before the first
   token comes back, and one tool-using turn is five or ten requests over the same history.
-  So the volatile half of the prompt is kept tiny, tool definitions are rebuilt once per
-  _turn_ rather than once per step, and a toolbox advertises a whole container of programs
-  in **~40 tokens** where the equivalent tool schemas cost **60–80 each, per request**.
+  So the volatile half of the prompt is kept tiny, tool registry entries are rebuilt once per
+  _turn_ rather than once per step, and `exec` reaches every program in a container from one
+  **~40 token** schema where a tool per program costs **60–80 each, per request**.
 - **Nothing leaves the box.** A repo-wide grep for
   `telemetry|analytics|posthog|sentry|mixpanel` returns **exactly one hit** — the test that
   forbids them. Binds `127.0.0.1`; a public bind with auth off **refuses to start**.
@@ -92,9 +92,9 @@ codebase surgery, research sweeps, scheduled chores.
 - **More private than ChatGPT** — nothing leaves the box. Zero telemetry, and fully
   offline against Ollama.
 - **More contained than Claude Code** — `exec` runs in a digest-pinned container, caps
-  dropped, network capped by the manifest.
-- **Leaner on tokens than OpenClaw** — a whole toolbox advertises in ~40 tokens, where
-  tool schemas cost 60–80 **each, per request**.
+  dropped, egress default-deny unless the agent asks for more.
+- **Leaner on tokens than OpenClaw** — one `exec` schema reaches every program in the
+  container, in ~40 tokens, where a tool per program costs 60–80 **each, per request**.
 
 ---
 
@@ -126,7 +126,7 @@ codebase surgery, research sweeps, scheduled chores.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/context.light.png">
-  <img alt="The context inspector, breaking a session's token usage into system prompt, tool definitions, session and live state." src="docs/screenshots/context.dark.png">
+  <img alt="The context inspector, breaking a session's token usage into system prompt, tool registry entries, session and live state." src="docs/screenshots/context.dark.png">
 </picture>
 
 </td><td width="50%">
@@ -145,18 +145,18 @@ More in [Web UI](docs/web-ui.md). Generated from the real app, not staged.
 
 ## Loadout
 
-|                                                        |                                                                                                                                                                |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [**Skills**](docs/skills.md)                           | A folder in the workspace. The agent opens the sheet when it applies; ~20 tokens to index.                                                                     |
-| [**Memory**](docs/memory.md)                           | One markdown file per fact, committed beside the project.                                                                                                      |
-| [**Toolboxes**](docs/toolboxes.md)                     | Bound the blast radius: `exec` in a digest-pinned container — caps dropped, root read-only, network capped by the manifest, and no field an agent could widen. |
-| [**Agent presets**](docs/cli.md#ghost-preset)          | `ghostai preset install` picks agents from a catalogue and builds only the containers those agents named, printing what each one may do as it lands.           |
-| [**MCP servers**](docs/tools.md#mcp-servers)           | stdio, Streamable HTTP or SSE, with OAuth. Each agent picks which of their tools it may call.                                                                  |
-| [**Extensions**](docs/extensions.md)                   | Tools, channels, providers, prompt sections, commands. Approval is a digest over every byte.                                                                   |
-| [**Subagents**](docs/architecture.md#subagents)        | One agent hands work to another as an `ask_<id>` tool.                                                                                                         |
-| [**Telegram**](docs/configuration.md#channelstelegram) | The same sessions from a phone. Answers only the ids you list.                                                                                                 |
-| [**Scheduled jobs**](docs/configuration.md#scheduler)  | Cron and one-shot. A heartbeat is a job, not a second system.                                                                                                  |
-| [**REST + WebSocket**](docs/api.md)                    | One port, with an OpenAPI 3.1 doc generated from the schemas the server validates against.                                                                     |
+|                                                        |                                                                                                                                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Skills**](docs/skills.md)                           | A folder in the workspace. The agent opens the sheet when it applies; ~20 tokens to index.                                                                 |
+| [**Memory**](docs/memory.md)                           | One markdown file per fact, committed beside the project.                                                                                                  |
+| [**Containers**](docs/containers.md)                   | Bound the blast radius: `exec` in a digest-pinned container — caps dropped, root read-only, and no image, capability or uid an agent's config could reach. |
+| [**Agent presets**](docs/cli.md#ghost-preset)          | `ghostai preset install` picks agents from a catalogue and builds only the containers those agents named, printing what each one may do as it lands.       |
+| [**MCP servers**](docs/tools.md#mcp-servers)           | stdio, Streamable HTTP or SSE, with OAuth. Each agent picks which of their tools it may call.                                                              |
+| [**Extensions**](docs/extensions.md)                   | Tools, channels, providers, prompt sections, commands. Approval is a digest over every byte.                                                               |
+| [**Subagents**](docs/architecture.md#subagents)        | One agent hands work to another as an `ask_<id>` tool.                                                                                                     |
+| [**Telegram**](docs/configuration.md#channelstelegram) | The same sessions from a phone. Answers only the ids you list.                                                                                             |
+| [**Scheduled jobs**](docs/configuration.md#scheduler)  | Cron and one-shot. A heartbeat is a job, not a second system.                                                                                              |
+| [**REST + WebSocket**](docs/api.md)                    | One port, with an OpenAPI 3.1 doc generated from the schemas the server validates against.                                                                 |
 
 ## Security
 
@@ -169,7 +169,7 @@ asks for is an untrusted request.
 | ----------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **Workspace jail**      | Path traversal. `/etc/passwd` addresses `<workspace>/etc/passwd`; paths are rebuilt, then `realpath`'d.        |
 | **Argv-only exec**      | Command injection. The argv vector is spawned directly — no shell, so no string to interpret.                  |
-| **Toolboxes**           | Blast radius. A digest-pinned container plus its whole policy, authorised by manifest hash.                    |
+| **Containers**          | Blast radius. `exec` runs in a digest-pinned container whose definition fixes caps, user and network.          |
 | **Per-tool permission** | An agent doing what you did not enable. Absent means not enabled; `ask` shows you the arguments first.         |
 | **`guardedFetch`**      | SSRF and DNS rebinding. Resolved addresses are pinned into the dispatcher — no second lookup to differ.        |
 | **Nonce fencing**       | Prompt injection. Every tool result is fenced with a fresh per-turn nonce, and the model is told it is data.   |
@@ -178,7 +178,7 @@ asks for is an untrusted request.
 
 [Security](docs/security.md) states each guard's limits — including the one that matters: a
 workspace is an organisational boundary, not a security boundary, wherever host `exec` is
-enabled. That is what toolboxes are for. [SECURITY.md](SECURITY.md) is how to report a
+enabled. That is what containers are for. [SECURITY.md](SECURITY.md) is how to report a
 vulnerability.
 
 ## What is not built yet
@@ -206,7 +206,7 @@ one is a folder plus a line.
 **[Getting started](docs/getting-started.md)** · [CLI](docs/cli.md) ·
 [Configuration](docs/configuration.md) · [Prompts](docs/prompts.md) ·
 [Providers](docs/providers.md) · [Tools & permissions](docs/tools.md) ·
-[Skills](docs/skills.md) · [Memory](docs/memory.md) · [Toolboxes](docs/toolboxes.md) ·
+[Skills](docs/skills.md) · [Memory](docs/memory.md) · [Containers](docs/containers.md) ·
 [Extensions](docs/extensions.md) · [Web UI](docs/web-ui.md) · [API](docs/api.md) ·
 [Architecture](docs/architecture.md) · [Security](docs/security.md) ·
 [Development](docs/development.md)

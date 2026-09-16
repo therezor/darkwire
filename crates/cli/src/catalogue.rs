@@ -1,6 +1,6 @@
 //! Finding the catalogue, and fetching it when it is not here yet.
 //!
-//! The catalogue is `@ghostwire/presets` — the agent presets and the toolbox
+//! The catalogue is `@ghostwire/presets` — the agent presets and the container
 //! definitions some of them run in — and it is published from a repository of
 //! its own rather than living in this one. That is the whole reason this module
 //! exists: presets shipped inside the binary would make finding them a lookup
@@ -185,24 +185,14 @@ pub fn catalogue_agents_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "agents")
 }
 
-/// One `<name>.yaml` per toolbox, naming the operations it grants.
-pub fn catalogue_toolboxes_dir(dir: &Path) -> Option<PathBuf> {
-    subdir(dir, "toolboxes")
-}
-
 /// One directory per container, each with a `Dockerfile` and a definition.
 pub fn catalogue_containers_dir(dir: &Path) -> Option<PathBuf> {
     subdir(dir, "containers")
 }
 
-/// One `<name>.yaml` per reusable operation definition.
-pub fn catalogue_definitions_dir(dir: &Path) -> Option<PathBuf> {
-    subdir(dir, "tool-definitions")
-}
-
 /// One directory per skill sheet, each with a `SKILL.md`.
 ///
-/// Optional, like `toolboxes/` and unlike `agents/`: a catalogue that ships
+/// Optional, unlike `agents/`: a catalogue that ships
 /// only agent presets is an ordinary catalogue, so this answers `None` rather
 /// than going through [`assert_catalogue_layout`].
 pub fn catalogue_skills_dir(dir: &Path) -> Option<PathBuf> {
@@ -214,26 +204,10 @@ fn subdir(dir: &Path, name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// One toolbox manifest, or `None` when the catalogue does not carry it.
-///
-/// A preset can name a toolbox this catalogue has never heard of — an
-/// operator's own preset, or one written against a newer catalogue — and that
-/// is a sentence to print, not a crash.
-pub fn catalogue_toolbox(dir: &Path, name: &str) -> Option<PathBuf> {
-    let file = catalogue_toolboxes_dir(dir)?.join(format!("{name}.yaml"));
-    file.exists().then_some(file)
-}
-
-/// One operation definition, or `None` when the catalogue does not carry it.
-pub fn catalogue_definition(dir: &Path, name: &str) -> Option<PathBuf> {
-    let file = catalogue_definitions_dir(dir)?.join(format!("{name}.yaml"));
-    file.exists().then_some(file)
-}
-
 /// The build context for one container, or `None` when the catalogue does not
 /// carry it.
 ///
-/// The same shape and the same argument as [`catalogue_toolbox`]. The
+/// The container definition must exist alongside its build context. The
 /// `container.yaml` has to be there as well as the directory: a name with no
 /// definition is a half-checkout, and an image build would be the wrong error
 /// to report it with.
@@ -244,8 +218,7 @@ pub fn catalogue_container(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// One skill sheet's directory, or `None` when the catalogue lacks it.
 ///
-/// The same shape and the same argument as [`catalogue_toolbox`]: a preset can
-/// name a sheet this catalogue has never heard of, and the `SKILL.md` has to be
+/// A preset can name a sheet this catalogue has never heard of, and the `SKILL.md` has to be
 /// there as well as the directory. A directory without one would be copied,
 /// reported as installed, and then silently skipped when the sheets are read —
 /// the worst of the three outcomes, because nothing anywhere would say why.

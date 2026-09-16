@@ -167,7 +167,7 @@ pub struct ServeArgs {
     pub json: bool,
 }
 
-/// The three verbs `toolbox` and `extension` share.
+/// The three verbs `container` and `extension` share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreAction {
     /// Show what is installed and the state each is in.
@@ -251,8 +251,6 @@ pub enum Subcommand {
     Init,
     /// `serve`.
     Serve(Box<ServeArgs>),
-    /// `toolbox list`.
-    Toolbox,
     /// `container list`.
     Container,
     /// Manage the sandbox service through its constrained socket API.
@@ -452,11 +450,6 @@ pub fn build_command(t: &Translations) -> Command {
         .subcommand(serve_command(t))
         .subcommand(sandbox_command(t))
         .subcommand(list_command(
-            "toolbox",
-            t.t(keys::toolbox::DESCRIPTION),
-            t.t(keys::toolbox::list::DESCRIPTION),
-        ))
-        .subcommand(list_command(
             "container",
             t.t(keys::container::DESCRIPTION),
             t.t(keys::container::list::DESCRIPTION),
@@ -645,7 +638,7 @@ fn serve_command(t: &Translations) -> Command {
         )
 }
 
-/// A definition directory with nothing to decide: `toolbox` and `container`.
+/// A definition directory with nothing to decide: `container` and `container`.
 ///
 /// Both are read-only because the file on disk *is* the policy. `extension`
 /// still has the three verbs, which is why [`store_command`] stays.
@@ -850,9 +843,9 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
     })
 }
 
-/// The verb and the id a `toolbox` or `extension` invocation named.
+/// The verb and the id a `container` or `extension` invocation named.
 ///
-/// A bare `ghostai toolbox` lists, which is the one an operator means by it —
+/// A bare `ghostai container` lists, which is the one an operator means by it —
 /// so there is no "no verb" answer to give back.
 /// The verb clap already restricted to this set.
 fn sandbox_action_of(matches: &ArgMatches) -> SandboxAction {
@@ -988,7 +981,6 @@ where
             Ok(serve) => Subcommand::Serve(Box::new(serve)),
             Err(error) => return Parsed::Refused(format!("{}\n", describe_error(&error)), 1),
         },
-        Some(("toolbox", _)) => Subcommand::Toolbox,
         Some(("container", _)) => Subcommand::Container,
         Some(("sandbox", sub)) => Subcommand::Sandbox {
             action: sandbox_action_of(sub),

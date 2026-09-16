@@ -1,11 +1,9 @@
 //! `ghostai container list` — where an agent's commands would run.
 //!
-//! A different question from the toolbox next door. A toolbox decides *what* an
-//! agent may call; a container decides what the machine running those calls is
-//! allowed to be — its image, its capabilities, who it runs as. They are two
-//! files because they are two decisions: handing an agent one more operation
-//! should not mean re-reading an image, and changing an image should not mean
-//! re-reading every toolbox that might run in it.
+//! A container definition decides what the machine running `exec` is allowed to
+//! be: its image, its capabilities, who it runs as. It does not decide *what* an
+//! agent may call — the tool permissions in `config.yaml` do that, and the
+//! command itself is whatever the model asked `exec` to run.
 //!
 //! The listing names anything the definition weakened, and whether a restricted
 //! egress allow-list could be enforced in it at all. Both are the difference
@@ -15,7 +13,7 @@
 use std::io::Write;
 
 use ghostai_core::{GhostError, LoadConfigOptions, Result, load_config};
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_security::{PolicyStore, assert_gateway_compatible, weakened_in};
 
 use crate::Streams;

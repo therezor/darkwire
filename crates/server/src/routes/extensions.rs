@@ -9,7 +9,7 @@
 //! Approve and revoke are **not** settings patches, and that is the design
 //! rather than an omission. An approval is a statement about the exact bytes on
 //! disk at one moment — recorded as a digest in the database, next to the
-//! toolbox approvals it copies. Writing it into `config.yaml` would make it
+//! container approvals it copies. Writing it into `config.yaml` would make it
 //! survive an edit to the very files it was about, which is the one thing the
 //! whole gate exists to prevent.
 //!

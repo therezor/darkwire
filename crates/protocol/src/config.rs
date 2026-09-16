@@ -57,8 +57,8 @@ pub enum ReasoningEffort {
 /// How an agent's system prompt is assembled.
 ///
 /// `template` is the two-half assembly: an identity template and a live-state
-/// template, with the platform note, the toolbox advertisement and the
-/// tool-output policy filled in as sections the operator may also replace. It
+/// template, with the platform note and the tool-output policy filled in as
+/// sections the operator may also replace. It
 /// keeps a provider's prompt cache working, because everything that changes
 /// between requests sits in the tail. `raw` hands the whole system message to
 /// one template and places nothing: "you own the prompt" and "you own the
@@ -665,35 +665,6 @@ pub enum NetworkMode {
     Open,
 }
 
-/// The key in [`AgentToolbox::tools`] standing for "every entry not named".
-pub const TOOLBOX_DEFAULT_KEY: &str = "*";
-
-/// Which toolbox defines this agent's callable operations.
-///
-/// **There is no image, runtime, caps or limits here, deliberately.** Those
-/// live in a container definition, installed by an operator and authorised by
-/// content hash. A value with no representation in this type cannot be reached
-/// by a config patch, which is what makes "the agent cannot change the image it
-/// runs in" a property of the shape rather than a rule to enforce.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-#[garde(allow_unvalidated)]
-pub struct AgentToolbox {
-    /// A toolbox name, or empty for no toolbox operations.
-    #[serde(default)]
-    pub name: String,
-    /// Which of the toolbox's grants this agent gets, tightening the manifest.
-    ///
-    /// A toolbox is stocked for a job, not for an agent: `recon` grants
-    /// twenty-four operations and an agent that only resolves hostnames wants
-    /// four. `*` stands for every grant this map does not name, which is the
-    /// whole reason it is a map rather than a list: `{"*": "deny", "nmap":
-    /// "allow"}` is "only nmap" in one line. Each entry is intersected with the
-    /// grant's own permission and can only tighten it.
-    #[serde(default)]
-    pub tools: ToolPermissions,
-}
-
 /// Where this agent's command operations run, and what they can reach.
 ///
 /// An empty name runs command operations on the machine running GhostAI,
@@ -792,15 +763,11 @@ pub struct AgentEntry {
     #[serde(default)]
     pub prompt_mode: PromptMode,
     /// The `## Running commands` section. Empty means the built-in for this
-    /// agent's placement — host or toolbox — decided by `toolbox.name`. Editing
+    /// agent's placement — host or container — decided by `container.name`. Editing
     /// it does not widen anything: where a command may reach is decided by the
     /// exec guard and the jail, neither of which reads the prompt.
     #[serde(default)]
     pub platform_prompt: String,
-    /// The `## Toolbox: <name>` advertisement. Only rendered when the agent
-    /// has a toolbox.
-    #[serde(default)]
-    pub toolbox_prompt: String,
     /// The `## Tool output policy` section. The envelopes are emitted and the
     /// nonce regenerated whatever this says — this is the *explanation* of a
     /// defence, not the defence.
@@ -816,7 +783,7 @@ pub struct AgentEntry {
     pub skills_prompt: String,
     /// Per-tool replacements for the description and the parameter
     /// descriptions the model is sent. Keyed by advertised tool name, so it
-    /// reaches built-ins, toolbox programs, MCP and extension tools and
+    /// reaches built-ins, MCP and extension tools and
     /// `ask_<id>` subagent tools alike. A key naming no advertised tool is a
     /// warning, not an error.
     #[serde(default)]
@@ -834,12 +801,7 @@ pub struct AgentEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub exec: Option<ExecToolConfigPatch>,
-    /// Which curated operation surface this agent can call.
-    #[serde(default)]
-    #[schemars(transform = prefault)]
-    #[garde(dive)]
-    pub toolbox: AgentToolbox,
-    /// Where command operations run, independently of the toolbox selection.
+    /// Where built-in command execution runs.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
@@ -861,7 +823,6 @@ impl Default for AgentEntry {
             wrap_up_prompt: String::new(),
             prompt_mode: PromptMode::Template,
             platform_prompt: String::new(),
-            toolbox_prompt: String::new(),
             tool_policy_prompt: String::new(),
             memory_prompt: String::new(),
             skills_prompt: String::new(),
@@ -869,7 +830,6 @@ impl Default for AgentEntry {
             enabled: true,
             tools: default_agent_tools(),
             exec: None,
-            toolbox: AgentToolbox::default(),
             container: AgentContainer::default(),
             subagents: Vec::new(),
         }
@@ -1246,19 +1206,6 @@ pub struct ContainerNetworkPatch {
     pub dns: Option<Vec<String>>,
 }
 
-/// A patch over [`AgentToolbox`].
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-#[garde(allow_unvalidated)]
-pub struct AgentToolboxPatch {
-    /// See [`AgentToolbox::name`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// See [`AgentToolbox::tools`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tools: Option<ToolPermissions>,
-}
-
 /// A patch over [`AgentContainer`]. `network` is itself a patch, so a save
 /// that only changes the mode does not have to resend `allow` — which is how a
 /// settings panel silently clears the allow-list it never rendered.
@@ -1306,9 +1253,6 @@ pub struct AgentEntryPatch {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_prompt: Option<String>,
-    /// See [`AgentEntry::toolbox_prompt`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub toolbox_prompt: Option<String>,
     /// See [`AgentEntry::tool_policy_prompt`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_policy_prompt: Option<String>,
@@ -1331,10 +1275,6 @@ pub struct AgentEntryPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub exec: Option<ExecToolConfigPatch>,
-    /// See [`AgentEntry::toolbox`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(dive)]
-    pub toolbox: Option<AgentToolboxPatch>,
     /// See [`AgentEntry::container`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
@@ -1355,7 +1295,6 @@ impl From<AgentEntry> for AgentEntryPatch {
             wrap_up_prompt: Some(entry.wrap_up_prompt),
             prompt_mode: Some(entry.prompt_mode),
             platform_prompt: Some(entry.platform_prompt),
-            toolbox_prompt: Some(entry.toolbox_prompt),
             tool_policy_prompt: Some(entry.tool_policy_prompt),
             memory_prompt: Some(entry.memory_prompt),
             skills_prompt: Some(entry.skills_prompt),
@@ -1363,10 +1302,6 @@ impl From<AgentEntry> for AgentEntryPatch {
             enabled: Some(entry.enabled),
             tools: Some(entry.tools),
             exec: entry.exec,
-            toolbox: Some(AgentToolboxPatch {
-                name: Some(entry.toolbox.name),
-                tools: Some(entry.toolbox.tools),
-            }),
             container: Some(AgentContainerPatch {
                 name: Some(entry.container.name),
                 network: Some(ContainerNetworkPatch {
@@ -1721,7 +1656,7 @@ pub struct AgentSettingsChange {
 /// Written once because of the rule it encodes: **`agents.list.*` replaces
 /// wholesale, so the patch *is* the agent.** A patch naming `model` alone does
 /// not set one field — it replaces the entry and takes the label, the system
-/// prompt, the tools, the toolbox and the subagent roster with it. So the
+/// prompt, the tools, the container and the subagent roster with it. So the
 /// stored entry is read and sent back whole, and clearing a field means
 /// omitting the key rather than nulling it, since a `null` would reach the
 /// entry as a value and be rejected.

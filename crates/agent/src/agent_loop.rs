@@ -14,7 +14,7 @@
 //! Everything here is either a cost decision or a correctness decision, and the
 //! ones that look like details are the ones that matter:
 //!
-//!  - **The nonce and the tool definitions are computed once per turn**, not
+//!  - **The nonce and the tool registry entries are computed once per turn**, not
 //!    per iteration. Both sit in the part of the prompt providers cache;
 //!    regenerating them mid-turn would rewrite the prefix and throw the cache
 //!    away five times over for no semantic change.
@@ -63,7 +63,7 @@ use ghostai_core::{
 };
 use ghostai_protocol::json::Object;
 use ghostai_protocol::{
-    AgentContainer, AgentSettings, AgentToolbox, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
+    AgentContainer, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
     ToolPromptOverrides, ToolsConfig, Usage, apply_tool_prompts, with_subagent_run,
@@ -88,8 +88,8 @@ use crate::dispatch::{
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
 use crate::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, PromptAgent,
-    PromptToolbox, PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt,
-    build_runtime_block, build_static_prompt, contributor_sections, runtime_reminder,
+    PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt, build_runtime_block,
+    build_static_prompt, contributor_sections, runtime_reminder,
 };
 use crate::steering::{SteeringQueue, steering_text};
 use crate::subagent::{
@@ -186,8 +186,6 @@ pub struct LoopAgent {
     /// identity and does not always have tools: the prompt layer receives these
     /// as [`PromptTools`], which it is handed or is not.
     pub platform_prompt: Option<String>,
-    /// The operator's wording for the toolbox advertisement.
-    pub toolbox_prompt: Option<String>,
     /// The operator's wording for the tool-output policy.
     pub tool_policy_prompt: Option<String>,
 }
@@ -232,12 +230,8 @@ pub struct AgentLoopOptions {
     /// loop with none runs them on the host, which is what an install with no
     /// container service configured does.
     pub environment: Option<Arc<dyn EnvironmentResolver>>,
-    /// Which toolbox defines this agent's operations.
-    pub toolbox: AgentToolbox,
-    /// Where command operations run, independently of the toolbox.
+    /// Where built-in command execution runs.
     pub container: AgentContainer,
-    /// The toolbox's declared contents, injected into the static prompt.
-    pub toolbox_prompt: Option<PromptToolbox>,
     /// Defaults to the schema's defaults, so a caller with no config file
     /// works.
     pub config: AgentSettings,
@@ -314,9 +308,7 @@ impl AgentLoopOptions {
             jails,
             automation: None,
             environment: None,
-            toolbox: AgentToolbox::default(),
             container: AgentContainer::default(),
-            toolbox_prompt: None,
             config: AgentSettings::default(),
             tools_config: Arc::new(ToolsConfig::default()),
             model: None,
@@ -689,9 +681,7 @@ struct LoopInner {
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
     environment: Option<Arc<dyn EnvironmentResolver>>,
-    toolbox: AgentToolbox,
     container: AgentContainer,
-    toolbox_prompt: Option<PromptToolbox>,
     config: AgentSettings,
     tools_config: Arc<ToolsConfig>,
     model_id: String,
@@ -771,9 +761,7 @@ impl AgentLoop {
                 jails: options.jails,
                 automation: options.automation,
                 environment: options.environment,
-                toolbox: options.toolbox,
                 container: options.container,
-                toolbox_prompt: options.toolbox_prompt,
                 config: options.config,
                 tools_config: options.tools_config,
                 model_id: model,
@@ -819,12 +807,12 @@ impl AgentLoop {
             .push(session_key, content, self.inner.clock.now_ms());
     }
 
-    /// The tool definitions a turn on this loop would send.
+    /// The tool registry entries a turn on this loop would send.
     ///
     /// Exposed for the same reason the prompt preview is: describing what a
     /// turn would carry has to come from the object that carries it. Rebuilding
     /// the list from the registry instead gives the built-ins narrowed by the
-    /// agent's allow-list and nothing else — a toolboxed agent's programs are
+    /// agent's allow-list and nothing else — the subagent delegation tools are
     /// composed on *top* of that scope, so they were missing from the inspector
     /// and, worse, missing from its token count.
     ///
@@ -868,7 +856,7 @@ impl AgentLoop {
     /// The operator's wording in place of the compiled one.
     ///
     /// Last, and after the subagents are appended, so one pass covers
-    /// built-ins, toolbox programs, MCP and extension tools and delegation
+    /// built-ins, MCP and extension tools and delegation
     /// alike — and so an override for a subagent tool beats the operator's
     /// subagent prompt, being the more specific of the two. Doing it in the
     /// registry instead would have to happen before the subagents exist, and
@@ -877,7 +865,7 @@ impl AgentLoop {
     ///
     /// A miss is logged rather than refused. The settings layer already warned
     /// the operator at save time; this is the backstop for a tool that left the
-    /// list afterwards, because a toolbox was uninstalled or `exec` was
+    /// list afterwards, because an MCP server went down or `exec` was
     /// switched off.
     fn with_tool_prompts(&self, definitions: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
         let Some(overrides) = self
@@ -905,7 +893,7 @@ impl AgentLoop {
     ///
     /// Where the tools setting crosses into prompt assembly, and it crosses as
     /// presence rather than as a flag: off, the prompt layer is handed no
-    /// [`PromptTools`] at all and therefore has no toolbox, no policy wording
+    /// [`PromptTools`] at all and therefore has no container, no policy wording
     /// and no command wording to render from. Nothing downstream is told why,
     /// and nothing downstream needs a branch to find out.
     fn prompt_tools(&self) -> Option<PromptTools> {
@@ -915,8 +903,6 @@ impl AgentLoop {
         }
         let agent = inner.agent.as_ref();
         Some(PromptTools {
-            toolbox: inner.toolbox_prompt.clone(),
-            toolbox_prompt: agent.and_then(|a| a.toolbox_prompt.clone()),
             policy_prompt: agent.and_then(|a| a.tool_policy_prompt.clone()),
             platform_prompt: agent.and_then(|a| a.platform_prompt.clone()),
         })
@@ -1159,7 +1145,6 @@ impl AgentLoop {
                 .unwrap_or_else(|| DEFAULT_AGENT_ID.to_owned()),
             workspace_id: session.workspace_id.clone(),
             session_key: input.session_key.clone(),
-            toolbox: inner.toolbox.name.clone(),
             container: placement.name.clone(),
             network: placement.network.clone(),
             workspace_root: jail.root().to_string_lossy().into_owned(),

@@ -16,9 +16,8 @@
 
 use ghostai_agent::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, Platform,
-    PromptAgent, PromptToolbox, PromptToolboxTool, PromptTools, RuntimePromptContext,
-    StaticPromptContext, build_raw_prompt, build_runtime_block, build_static_prompt,
-    contributor_sections, runtime_reminder, template_or,
+    PromptAgent, PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt,
+    build_runtime_block, build_static_prompt, contributor_sections, runtime_reminder, template_or,
 };
 use ghostai_protocol::PromptMode;
 use ghostai_providers::BoxFuture;
@@ -51,24 +50,6 @@ fn runtime() -> RuntimePromptContext {
         iteration: 3,
         max_iterations: 40,
         now_ms: 1_700_000_000_000,
-    }
-}
-
-fn toolbox() -> PromptToolbox {
-    PromptToolbox {
-        name: "web-research".to_owned(),
-        workdir: "/workspace".to_owned(),
-        tools: vec![
-            PromptToolboxTool {
-                name: "search".to_owned(),
-                use_for: "Search the web.".to_owned(),
-            },
-            PromptToolboxTool {
-                name: "curl".to_owned(),
-                use_for: String::new(),
-            },
-        ],
-        notes: "Run `tools` for the full reference.".to_owned(),
     }
 }
 
@@ -145,36 +126,6 @@ async fn windows_gets_its_own_shell_advice_byte_for_byte() {
 }
 
 #[tokio::test]
-async fn a_toolboxed_agent_with_contributors_is_byte_identical() {
-    let context = StaticPromptContext {
-        workspace_id: "client-acme".to_owned(),
-        ..context()
-    };
-    let agent = PromptAgent {
-        label: "Researcher".to_owned(),
-        ..PromptAgent::default()
-    };
-    let tools = PromptTools {
-        toolbox: Some(toolbox()),
-        ..PromptTools::default()
-    };
-    let memory = Fixed::statics("memory", "# Memory\n\nThe user prefers metric units.");
-    let skills = Fixed::statics("skills", "# Skills\n\npdf");
-    let contributors: Vec<&dyn ContextContributor> = vec![&memory, &skills];
-
-    let prompt = build_static_prompt(BuildStaticPrompt {
-        agent: Some(&agent),
-        contributors: &contributors,
-        tools: Some(&tools),
-        host: host(Platform::MacOs),
-        ..BuildStaticPrompt::new(&context)
-    })
-    .await;
-
-    assert_eq!(prompt, include_str!("golden/static-toolbox.txt"));
-}
-
-#[tokio::test]
 async fn a_turn_with_no_tools_places_no_tool_shaped_section() {
     let context = context();
     let prompt = build_static_prompt(BuildStaticPrompt {
@@ -187,7 +138,6 @@ async fn a_turn_with_no_tools_places_no_tool_shaped_section() {
     // The three sections that describe tools, each absent because their input
     // was withheld rather than because a flag said so.
     assert!(!prompt.contains("## Running commands"));
-    assert!(!prompt.contains("## Toolbox"));
     assert!(!prompt.contains("## Tool output policy"));
 }
 
@@ -236,15 +186,12 @@ fn a_raw_template_places_every_section_itself_byte_for_byte() {
         label: "Raw".to_owned(),
         prompt_mode: Some(PromptMode::Raw),
         system_prompt: "# {{name}} on {{runtime}}\n\nTime: {{time}}{{wrapUp}}\n{{platformPolicy}}\
-                        {{toolbox}}\n\n{{toolPolicy}}{{contributors}}{{runtimeSections}}\
+                        \n\n{{toolPolicy}}{{contributors}}{{runtimeSections}}\
                         {{correction}}"
             .to_owned(),
         ..PromptAgent::default()
     };
-    let tools = PromptTools {
-        toolbox: Some(toolbox()),
-        ..PromptTools::default()
-    };
+    let tools = PromptTools::default();
     let extra = Fixed::runtimes("x", "## Extra\n\nline");
     let contributors: Vec<&dyn ContextContributor> = vec![&extra];
     let statics = vec!["# Memory\n\nmetric".to_owned()];
@@ -303,7 +250,7 @@ async fn an_unrecognised_platform_is_named_as_the_target_reports_it() {
     .await;
 
     assert!(prompt.contains("FreeBSD amd64"));
-    // A toolbox-less agent on a POSIX host still gets the shell paragraph.
+    // A host-based agent on a POSIX platform still gets the shell paragraph.
     assert!(prompt.contains("Standard shell tools and UTF-8 are available"));
 }
 
@@ -388,12 +335,10 @@ async fn a_single_space_deletes_a_section_and_empty_inherits_the_default() {
     let silenced = PromptTools {
         platform_prompt: Some(" ".to_owned()),
         policy_prompt: Some(" ".to_owned()),
-        ..PromptTools::default()
     };
     let defaulted = PromptTools {
         platform_prompt: Some(String::new()),
         policy_prompt: Some(String::new()),
-        ..PromptTools::default()
     };
 
     let gone = build_static_prompt(BuildStaticPrompt {
@@ -413,68 +358,6 @@ async fn a_single_space_deletes_a_section_and_empty_inherits_the_default() {
     assert!(!gone.contains("## Tool output policy"));
     assert!(kept.contains("## Running commands"));
     assert!(kept.contains("## Tool output policy"));
-}
-
-#[tokio::test]
-async fn a_toolbox_with_no_programs_and_no_notes_leaves_no_gap() {
-    let context = context();
-    let tools = PromptTools {
-        toolbox: Some(PromptToolbox {
-            name: "bare".to_owned(),
-            workdir: "/workspace".to_owned(),
-            tools: Vec::new(),
-            notes: "   ".to_owned(),
-        }),
-        ..PromptTools::default()
-    };
-    let prompt = build_static_prompt(BuildStaticPrompt {
-        tools: Some(&tools),
-        host: host(Platform::Linux),
-        ..BuildStaticPrompt::new(&context)
-    })
-    .await;
-
-    assert!(prompt.contains("## Toolbox: bare"));
-    assert!(!prompt.contains("Installed:"));
-    assert!(!prompt.contains("tools.\n\n\n"));
-}
-
-#[tokio::test]
-async fn an_unnamed_toolbox_is_the_host() {
-    let context = context();
-    let tools = PromptTools {
-        toolbox: Some(PromptToolbox::default()),
-        ..PromptTools::default()
-    };
-    let prompt = build_static_prompt(BuildStaticPrompt {
-        tools: Some(&tools),
-        host: host(Platform::Linux),
-        ..BuildStaticPrompt::new(&context)
-    })
-    .await;
-
-    assert!(!prompt.contains("## Toolbox"));
-    assert!(prompt.contains("`exec` runs on this machine"));
-}
-
-#[tokio::test]
-async fn a_toolbox_template_deleted_by_a_space_places_nothing() {
-    let context = context();
-    let tools = PromptTools {
-        toolbox: Some(toolbox()),
-        toolbox_prompt: Some(" ".to_owned()),
-        ..PromptTools::default()
-    };
-    let prompt = build_static_prompt(BuildStaticPrompt {
-        tools: Some(&tools),
-        host: host(Platform::Linux),
-        ..BuildStaticPrompt::new(&context)
-    })
-    .await;
-
-    assert!(!prompt.contains("## Toolbox"));
-    // The command policy still says where commands land.
-    assert!(prompt.contains("web-research"));
 }
 
 #[test]
@@ -737,7 +620,7 @@ fn empty_inherits_and_absent_inherits_but_a_space_does_not() {
 fn a_raw_template_with_no_tools_empties_the_sections_it_names() {
     let runtime = runtime();
     let agent = PromptAgent {
-        system_prompt: "A{{platformPolicy}}B{{toolbox}}C{{toolPolicy}}D".to_owned(),
+        system_prompt: "A{{platformPolicy}}B{{toolPolicy}}D".to_owned(),
         ..PromptAgent::default()
     };
 
@@ -750,7 +633,7 @@ fn a_raw_template_with_no_tools_empties_the_sections_it_names() {
 
     // Rendering to nothing rather than being dropped: the operator placed those
     // placeholders, so the layout around them is theirs.
-    assert_eq!(prompt, "ABCD");
+    assert_eq!(prompt, "ABD");
 }
 
 #[test]

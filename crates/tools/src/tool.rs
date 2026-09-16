@@ -434,7 +434,7 @@ impl ToolSpec {
 
 /// A rewrite of the raw argument value before validation.
 ///
-/// The one place a tool may be lenient about shape: a toolbox program's `args`
+/// The one place a tool may be lenient about shape: a container program's `args`
 /// arriving as a string is coerced into the array the schema asks for. The
 /// advertised type does not change — coercion is a backstop, not a contract.
 pub type Preprocess = Arc<dyn Fn(&mut Value) + Send + Sync>;
@@ -581,7 +581,7 @@ impl<H: ToolHandler> TypedTool<H> {
 
     /// Defines a tool advertising `parameters` in place of the derived schema.
     ///
-    /// For a tool whose schema carries text only known at runtime — a toolbox
+    /// For a tool whose schema carries text only known at runtime — a container
     /// entry's own description of its `args`. The handler's argument type must
     /// still deserialise from anything the schema admits.
     pub fn with_parameters(spec: ToolSpec, parameters: Object, handler: H) -> Result<TypedTool<H>> {

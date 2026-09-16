@@ -1,11 +1,11 @@
 //! Whether a directory of code may be loaded, and what question that decision
 //! actually answers.
 //!
-//! The shape is [`crate::toolbox`]'s — parse the manifest, refuse what the
+//! The shape is [`crate::container`]'s — parse the manifest, refuse what the
 //! machinery cannot honour, hash what the operator reviewed — with one deliberate
 //! difference, and it is the difference that makes the analogy hold.
 //!
-//! **A toolbox is authorised by its manifest alone because the manifest pins the
+//! **A container is authorised by its manifest alone because the manifest pins the
 //! code.** `image` must be a digest, so approving those bytes approves an exact,
 //! immutable container. An extension's manifest names `entry`, which is a path:
 //! approving the manifest would approve a *pointer*, and the file behind it
@@ -13,7 +13,7 @@
 //! digest here covers the whole install directory — every regular file under it,
 //! each contributing its relative path and its own sha256 to one ordered hash.
 //! Editing any of them, adding one, or removing one moves the digest and revokes
-//! the approval, which is exactly what the toolbox gate buys and what a
+//! the approval, which is exactly what the container gate buys and what a
 //! manifest-only hash would only appear to.
 //!
 //! **What this does not buy** is worth stating in the same breath, because
@@ -21,8 +21,8 @@
 //! host's own privileges. It can read the vault file, spawn a process and open
 //! a socket, and nothing here stops it. The question this module answers is
 //! "are these the exact bytes the operator reviewed?", not "is this code safe"
-//! — which is the same question the toolbox store answers, at the same trust
-//! level as a toolbox with host `exec`.
+//! — which is the same question the container store answers, at the same trust
+//! level as a container with host `exec`.
 
 use std::path::{Path, PathBuf};
 
@@ -72,7 +72,7 @@ fn contains(root: &Path, candidate: &Path) -> bool {
 
 /// Refuses an extension the host cannot load safely.
 ///
-/// Separate from parsing for the reason [`crate::assert_toolbox_policy`] is: a
+/// Separate from parsing for the reason [`crate::assert_container_policy`] is: a
 /// manifest can be perfectly well-formed and still name something that would put
 /// the code that runs outside the bytes that were approved.
 ///

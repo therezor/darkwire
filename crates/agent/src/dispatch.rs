@@ -22,7 +22,7 @@
 //!    transport that gated it for itself would be one `if` away from an ungated
 //!    one. The answer comes from the scope, because the scope is what knows
 //!    whether a name resolved to a built-in or to a program in this agent's
-//!    toolbox. What this file decides is whether to ask; what the answer is,
+//!    container. What this file decides is whether to ask; what the answer is,
 //!    and how long it holds, belong to the gate.
 //!  - **Adjacent read-only calls run together; everything else runs in order.**
 //!    A model asks for six files in one message; fetching them one after

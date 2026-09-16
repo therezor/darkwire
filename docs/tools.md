@@ -6,7 +6,7 @@ themselves — eight built in, plus whatever MCP servers and extensions contribu
 
 The short version, if you read one paragraph: **enablement and permission are the same
 map.** A tool the map does not mention is not enabled, and not in a way that has to be
-checked — it never reaches the tool definitions the model is sent, so there is nothing for
+checked — it never reaches the tool registry entries the model is sent, so there is nothing for
 it to call and nothing to refuse.
 
 ## The built-ins
@@ -20,16 +20,16 @@ per-agent permission, so being a tool is what makes each feature switchable with
 config flag beside it that could disagree. Denying either removes its prompt section too.
 See [Memory](memory.md) and [Skills](skills.md).
 
-| Tool         | Args                                        | Risk band | Does                                                                             |
-| ------------ | ------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
-| `read_file`  | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                   |
-| `list_dir`   | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                               |
-| `write_file` | `path`, `content`                           | `write`   | Creates or overwrites.                                                           |
-| `edit_file`  | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                         |
-| `exec`       | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program on the host. Absent from an agent with a [toolbox](toolboxes.md). |
-| `automation` | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                           |
-| `memory`     | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.               |
-| `skill`      | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                |
+| Tool         | Args                                        | Risk band | Does                                                                                      |
+| ------------ | ------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `read_file`  | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                            |
+| `list_dir`   | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                        |
+| `write_file` | `path`, `content`                           | `write`   | Creates or overwrites.                                                                    |
+| `edit_file`  | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                  |
+| `exec`       | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](containers.md) when the agent names one. |
+| `automation` | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                    |
+| `memory`     | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                        |
+| `skill`      | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                         |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
 takes an argv array, never a command string.
@@ -82,15 +82,13 @@ a turn a person started, and the scheduler starts turns the same way.
 Jobs an agent made carry `createdBy`, so the panel can say which agent asked and link back
 to the session that caused it.
 
-More tools arrive three ways: from a [toolbox](toolboxes.md), whose grants replace this
-list rather than adding to it, from a subagent, which appears as `ask_<id>` (see
+More tools arrive two ways: from a subagent, which appears as `ask_<id>` (see
 [Architecture](architecture.md#subagents)), and from an MCP server.
 
-**A toolbox is a replacement, not an overlay.** An agent that names one can call its
-grants and nothing else — no `exec`, no `read_file`, no `memory`, no ambient MCP or
-extension tool. A toolbox that wants one of those back grants it explicitly, pinned to
-that tool's own definition digest. Delegation is the exception: `ask_<id>` comes from the
-agent's subagent roster and is appended after the scope either way.
+**A [container](containers.md) adds no tools.** It decides _where_ `exec` runs, not what
+an agent may call — the agent's `tools` permission map stays the whole authority, with or
+without one. So an agent gains nothing by being given a container and loses nothing by
+having one taken away, beyond where its commands land.
 
 ## MCP servers
 
@@ -202,14 +200,14 @@ this page to find out what it was. The row then shows whichever description the 
 actually receives, so the list cannot disagree with the payload.
 
 The rewrite happens in `AgentLoop::tool_definitions`, after the subagent definitions are
-appended — one pass covering built-ins, toolbox grants, MCP and extension tools and
-`ask_<id>` alike, and the reason `toolPrompts` beats `subagents[].prompt`. It cannot
+appended — one pass covering built-ins, MCP and extension tools and `ask_<id>` alike, and
+the reason `toolPrompts` beats `subagents[].prompt`. It cannot
 happen in the registry: `definitions()` is memoised and shared by every agent in the
 process, so one agent's wording would become everyone's.
 
 A key naming no tool this agent advertises is an `unknown_tool_prompt` config warning, not
-an error — a tool leaves the list when a toolbox is revoked or `exec` is switched off, and
-neither should stop an agent that was working a moment ago.
+an error — a tool leaves the list when an MCP server goes down or `exec` is switched off,
+and neither should stop an agent that was working a moment ago.
 
 ## Permissions
 

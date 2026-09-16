@@ -10,7 +10,7 @@
 mod common;
 
 use ghostai_core::ErrorKind;
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_security::{
     assert_container_policy, assert_gateway_compatible, manifest_hash, parse_container, weakened_in,
 };
@@ -86,7 +86,7 @@ fn parse_errors_name_the_problem() {
     let empty_image = message_of(&parse_container(&definition_bytes(&json!({"image": ""}))));
     assert!(empty_image.contains("image"), "{empty_image}");
 
-    // A grant list belongs to a toolbox. Naming one here is refused rather
+    // A tool grant belongs to the agent permission map. Naming one here is refused rather
     // than ignored, so the two manifests cannot drift into one.
     let grants = message_of(&parse_container(&definition_bytes(
         &json!({"tools": [{"name": "git_status", "definition": "git-status"}]}),

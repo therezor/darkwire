@@ -53,7 +53,7 @@ use ghostai_runtime::{
     GhostRuntime, PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, open_vault, resolve_agent,
 };
 use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::policy_store::{ContainerListing, PolicyStore, ToolboxListing};
+use ghostai_security::policy_store::{ContainerListing, PolicyStore};
 use ghostai_security::{CredentialVault, ExtensionStore};
 use ghostai_server::runtime::DirectChatInput;
 use ghostai_server::{AgentSummary, AgentView, ExtensionCounts, ServerRuntime};
@@ -379,7 +379,7 @@ impl CliServerRuntime {
         &self.runtime
     }
 
-    /// A store of its own rather than the host's, for the reason the toolbox
+    /// A store of its own rather than the host's, for the reason the container
     /// store is constructed per use: it is a thin object over the shared
     /// connection, and handing the host's out would make the approval gate
     /// reachable from anything holding a host.
@@ -554,10 +554,6 @@ impl ServerRuntime for CliServerRuntime {
     /// moment it changes, and a list cached at boot would keep saying it was
     /// fine until a restart. Constructing the store per call is a directory
     /// read.
-    fn toolboxes(&self) -> Vec<ToolboxListing> {
-        PolicyStore::new(self.runtime.paths().policy_dir).list_toolboxes()
-    }
-
     fn containers(&self) -> Vec<ContainerListing> {
         PolicyStore::new(self.runtime.paths().policy_dir).list_containers()
     }
@@ -603,9 +599,7 @@ impl ServerRuntime for CliServerRuntime {
 
     fn registered_tools(&self) -> Vec<ToolDefinition> {
         // The bare registry, narrowed by nobody. Built-ins, MCP registrations
-        // and extension tools — everything an agent could be granted. Toolbox
-        // programs are absent because they belong to a toolbox rather than the
-        // registry.
+        // and extension tools — everything an agent could be granted.
         self.runtime.tools().definitions().to_vec()
     }
 
@@ -823,8 +817,8 @@ impl AgentView for CliAgentView {
     /// The loop's own list, for the reason the prompt preview defers to it too.
     ///
     /// Narrowing the registry by the agent's allow-list is correct as far as it
-    /// goes and blind to the toolbox tools composed on top of that scope when
-    /// the agent has a toolbox — rebuilt here, a toolbox agent's tools were
+    /// goes and blind to the container tools composed on top of that scope when
+    /// the agent has a container — rebuilt here, a container agent's tools were
     /// absent from the context inspector and from its token count.
     ///
     /// The fallback covers an unconfigured install, where there is no loop and

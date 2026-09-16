@@ -47,7 +47,6 @@ pub mod sandboxes;
 pub mod sessions;
 pub mod settings;
 pub mod system;
-pub mod toolboxes;
 pub mod tools;
 pub mod workspaces;
 pub mod ws;
@@ -223,7 +222,6 @@ fn mount(
 
         RouteId::AgentsList => handler!(agents::list),
         RouteId::ToolsList => handler!(tools::list),
-        RouteId::ToolboxesList => handler!(toolboxes::list_toolboxes),
         RouteId::ContainersList => handler!(containers::list_containers),
         RouteId::SandboxesList => handler!(sandboxes::list_sandboxes),
         RouteId::SandboxesManage => handler!(sandboxes::manage),

@@ -10,16 +10,10 @@
 //! or that exists as a file — or a preset id looked up in the directories
 //! [`crate::presets::preset_dirs`] names, operator's before the catalogue's.
 //! There is one preset format and one place ids are searched; an agent that
-//! needs a container is not a different kind of preset, it is a preset whose
-//! `toolbox.name` and `container.name` are set. The two are independent: a
-//! preset may name either, both or neither.
+//! needs a container names one through `container.name`.
 //!
 //! Two refusals do the real work:
 //!
-//!  - **A preset naming a toolbox that does not resolve is refused.** An enabled
-//!    agent whose toolbox fails to resolve makes the runtime's build fail, so
-//!    accepting the entry would write a config the server refuses to boot on.
-//!    The refusal happens here, where the message can name the fix.
 //!  - **An id that already exists needs `--force`.** The existing entry may
 //!    carry an operator's edits, and a re-run of the catalogue's build plus a
 //!    reinstall must not destroy them silently.
@@ -39,9 +33,7 @@ use ghostai_protocol::{
     AgentPreset, Config, DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, NetworkMode, RESERVED_AGENT_IDS,
     SubagentRef, is_agent_id, preset_to_agent_entry,
 };
-use ghostai_security::{
-    PolicyStore, assert_container_network, assert_gateway_compatible, toolbox::invalid,
-};
+use ghostai_security::{PolicyStore, assert_container_network, assert_gateway_compatible, invalid};
 
 use crate::Streams;
 use crate::catalogue::{
@@ -59,8 +51,7 @@ use crate::skill_install::{SkillInstallRequest, install_skills, skills_target_di
 /// it likes without standing up a whole resolved install.
 #[derive(Debug, Clone, Default)]
 pub struct PresetPaths {
-    /// The operator's policy directory: toolboxes, containers and operation
-    /// definitions.
+    /// The operator's container policy directory.
     pub policy_dir: PathBuf,
     /// `<root>/presets` — an operator's own drop-in directory.
     pub presets_dir: PathBuf,
@@ -180,11 +171,6 @@ pub enum InstallPlan {
 fn check_policy(preset: &AgentPreset, paths: &PresetPaths) -> Result<()> {
     let store = PolicyStore::new(paths.policy_dir.clone());
     if !preset.container.name.is_empty() {
-        if preset.toolbox.name.is_empty() {
-            return Err(invalid(
-                "A container only hosts a toolbox's approved operations; this preset names no toolbox",
-            ));
-        }
         let container = store.require_container(&preset.container.name)?;
         if preset.container.network.mode == NetworkMode::Allowlist {
             assert_gateway_compatible(&container.definition)?;
@@ -195,10 +181,7 @@ fn check_policy(preset: &AgentPreset, paths: &PresetPaths) -> Result<()> {
         ));
     }
     assert_container_network(&preset.container.network, &preset.id)?;
-    if preset.toolbox.name.is_empty() {
-        return Ok(());
-    }
-    store.require_toolbox(&preset.toolbox.name).map(|_| ())
+    Ok(())
 }
 
 /// What installing one preset into `config` would do.
@@ -216,7 +199,7 @@ pub fn plan_install(
     assert_installable_id(&preset.id)?;
 
     // Unconditionally, not only when a name is set. A preset naming neither a
-    // toolbox nor a container can still ask for egress, and skipping the check
+    // container can still ask for egress, and skipping the check
     // for it let exactly the config this guard exists to catch reach
     // `config.yaml` and fail the next boot instead.
     if let Err(error) = check_policy(preset, paths) {
@@ -323,12 +306,6 @@ fn install(
         &preset.label
     };
     line(out, &format!("    label      {label}"))?;
-    let toolbox = if preset.toolbox.name.is_empty() {
-        "none — no toolbox selected"
-    } else {
-        &preset.toolbox.name
-    };
-    line(out, &format!("    toolbox    {toolbox}"))?;
     line(out, &format!("    tools      {} granted", ready.tools))?;
 
     let roster: Vec<&str> = ready
@@ -424,9 +401,6 @@ fn list(config: &Config, paths: &PresetPaths, streams: &mut Streams) -> Result<u
         if !entry.label.is_empty() {
             line(out, &format!("    label      {}", entry.label))?;
         }
-        if !entry.toolbox.name.is_empty() {
-            line(out, &format!("    toolbox    {}", entry.toolbox.name))?;
-        }
         if !entry.subagents.is_empty() {
             let ids: Vec<&str> = entry
                 .subagents
@@ -451,7 +425,7 @@ fn list(config: &Config, paths: &PresetPaths, streams: &mut Streams) -> Result<u
             &format!("Presets not yet installed: {}", available.join(", ")),
         )?;
         // One line rather than one per id, and it names the *other* command,
-        // because that is the one that also builds the toolbox an agent needs.
+        // because that is the one that also builds the container an agent needs.
         // `ghostai agent install <id>` still works and is what a script wants;
         // a person picking from a list wants the picker.
         line(out, "    ghostai preset install")?;

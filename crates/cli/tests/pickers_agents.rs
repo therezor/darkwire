@@ -18,16 +18,14 @@ use std::sync::Mutex;
 use ghostai::i18n::Translations;
 use ghostai::pickers::agents::{agent_items, agent_listing, pick_agent};
 use ghostai::pickers::{MenuRequest, NoMenu, PickerMenu};
-use ghostai_protocol::config::{
-    AgentContainer, AgentSettings, AgentToolbox, PromptMode, ToolsConfig,
-};
+use ghostai_protocol::config::{AgentContainer, AgentSettings, PromptMode, ToolsConfig};
 use ghostai_runtime::EffectiveAgent;
 use indexmap::IndexMap;
 
 /// Only the fields the picker reads.
 ///
 /// A resolved agent carries a dozen more — prompts, tool permissions, a
-/// toolbox, subagent bindings — and a fixture that filled them in would be
+/// container and subagent bindings — and a fixture that filled them in would be
 /// asserting that the picker ignores them, at length.
 fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
     EffectiveAgent {
@@ -37,7 +35,6 @@ fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
         live_prompt: String::new(),
         wrap_up_prompt: String::new(),
         platform_prompt: String::new(),
-        toolbox_prompt: String::new(),
         tool_policy_prompt: String::new(),
         memory_prompt: String::new(),
         skills_prompt: String::new(),
@@ -49,7 +46,6 @@ fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
         },
         tools: IndexMap::default(),
         tools_config: ToolsConfig::default(),
-        toolbox: AgentToolbox::default(),
         container: AgentContainer::default(),
         subagents: Vec::new(),
     }

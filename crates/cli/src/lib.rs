@@ -40,7 +40,6 @@ pub mod container;
 pub mod sandbox_service;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
-pub mod toolbox;
 
 use std::io::Write;
 
@@ -151,7 +150,6 @@ async fn dispatch(
         Subcommand::Chat(args) => chat::run(&globals, *args, env, streams).await,
         Subcommand::Init => init::run(&globals, env, streams).await,
         Subcommand::Serve(args) => serve::run(&globals, *args, env, streams).await,
-        Subcommand::Toolbox => toolbox::run(&globals, env, streams),
         Subcommand::Container => container::run(&globals, env, streams),
         Subcommand::Sandbox {
             action,

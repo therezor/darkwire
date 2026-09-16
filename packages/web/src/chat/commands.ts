@@ -43,7 +43,7 @@ type Values = Readonly<Record<string, string | number>>;
  * answers with a **key**, because this file translates nothing and its copy
  * ships in the locale bundle. An extension's command answers with **text**,
  * because its copy ships with the extension and the translation layer has never
- * seen it — the same rule a toolbox's `notes` follows. Neither can be
+ * seen it — the same rule a container's `notes` follows. Neither can be
  * substituted for the other, so both are in the union rather than one being
  * squeezed into the other's shape.
  */

@@ -18,8 +18,8 @@
 //! ## Nothing here refuses
 //!
 //! A missing sheet, a symlink, a sheet over the bounds: each costs that sheet
-//! and a line in the report. This is deliberately unlike the toolbox half,
-//! which refuses — and the asymmetry is the point. An agent whose toolbox is
+//! and a line in the report. This is deliberately unlike the container half,
+//! which refuses — and the asymmetry is the point. An agent whose container is
 //! missing cannot run at all, so accepting the entry would write a config the
 //! server refuses to boot on. An agent missing a sheet runs, with one fewer
 //! index line.

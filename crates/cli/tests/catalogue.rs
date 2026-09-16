@@ -28,18 +28,16 @@ use std::path::{Path, PathBuf};
 use ghostai::catalogue::{
     CATALOGUE_ENV_VAR, CATALOGUE_PACKAGE, CATALOGUE_RANGE, CatalogueOptions, FetchCatalogueOptions,
     PRESETS_DIR_ENV_VAR, assert_catalogue_layout, catalogue_agents_dir, catalogue_container,
-    catalogue_dir, catalogue_skill, catalogue_skills_dir, catalogue_toolbox,
-    catalogue_toolboxes_dir, fetch_catalogue, fetched_catalogue_dir, sibling_search_roots,
+    catalogue_dir, catalogue_skill, catalogue_skills_dir, fetch_catalogue, fetched_catalogue_dir,
+    sibling_search_roots,
 };
 use ghostai::i18n::Env;
 use tempfile::TempDir;
 
-/// A catalogue in the current layout: `agents/`, one file per toolbox, and one
-/// build-context directory per container.
+/// A catalogue in the current layout: `agents/` and one build-context directory
+/// per optional container.
 fn write_catalogue(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(dir.join("agents")).unwrap();
-    std::fs::create_dir_all(dir.join("toolboxes")).unwrap();
-    std::fs::write(dir.join("toolboxes").join("coding.yaml"), "{}").unwrap();
     let context = dir.join("containers").join("dev");
     std::fs::create_dir_all(&context).unwrap();
     std::fs::write(context.join("Dockerfile"), "FROM scratch\n").unwrap();
@@ -192,12 +190,11 @@ fn ignores_a_sibling_that_is_not_a_catalogue() {
 }
 
 #[test]
-fn names_both_subdirectories_and_nothing_that_is_absent() {
+fn names_the_agents_subdirectory_and_nothing_that_is_absent() {
     let root = TempDir::new().unwrap();
     let dir = write_catalogue(&root.path().join("c"));
 
     assert_eq!(catalogue_agents_dir(&dir), Some(dir.join("agents")));
-    assert_eq!(catalogue_toolboxes_dir(&dir), Some(dir.join("toolboxes")));
     assert_eq!(catalogue_agents_dir(&root.path().join("empty")), None);
 }
 
@@ -232,21 +229,7 @@ fn answers_with_a_build_context_only_when_the_definition_is_there_too() {
 }
 
 #[test]
-fn answers_with_a_toolbox_manifest_as_a_file_of_its_own() {
-    // A toolbox is one file, copied verbatim — there is no directory to walk
-    // and nothing beside it to build.
-    let root = TempDir::new().unwrap();
-    let dir = write_catalogue(&root.path().join("c"));
-
-    assert_eq!(
-        catalogue_toolbox(&dir, "coding"),
-        Some(dir.join("toolboxes").join("coding.yaml"))
-    );
-    assert_eq!(catalogue_toolbox(&dir, "nowhere"), None);
-}
-
-#[test]
-fn treats_skills_as_optional_the_way_toolboxes_is() {
+fn treats_skills_as_optional() {
     // A catalogue that ships only agent presets is an ordinary catalogue, so
     // this is `None` rather than a trip through `assert_catalogue_layout`.
     let root = TempDir::new().unwrap();
@@ -409,18 +392,6 @@ fn an_unnamed_lookup_falls_through_to_the_binary_s_own_ancestors() {
             found.display()
         );
     }
-}
-
-#[test]
-fn names_no_build_context_in_a_catalogue_that_ships_no_toolboxes() {
-    // A preset can name a toolbox a catalogue has never heard of — an
-    // operator's own, or one written against a newer catalogue — and that is a
-    // sentence to print rather than a crash.
-    let root = TempDir::new().unwrap();
-    std::fs::create_dir_all(root.path().join("agents")).unwrap();
-
-    assert_eq!(catalogue_toolboxes_dir(root.path()), None);
-    assert_eq!(catalogue_toolbox(root.path(), "coding"), None);
 }
 
 #[test]

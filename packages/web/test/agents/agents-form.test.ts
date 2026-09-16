@@ -224,16 +224,10 @@ describe('toAgentEntryPatch', () => {
     expect(entry).toMatchObject({ exec: { allowedBinaries: ['git'] } });
   });
 
-  it('drives the toolbox from the form, now that the screen renders it', () => {
-    // The opposite of the case above, and the reason the two are separate tests:
-    // a field the screen shows must come from the screen, or clearing it in the
-    // UI would silently keep the stored value.
+  it('drives the container from the form, now that the screen renders it', () => {
     const stored = AgentEntrySchema.parse({
       provider: 'ollama',
       model: 'llama3',
-      toolbox: {
-        name: 'kali-pentest',
-      },
       container: {
         name: 'dev',
         network: { mode: 'allowlist', allow: ['10.0.0.0/8'] },
@@ -244,7 +238,6 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          toolboxName: 'ghost-research',
           containerName: 'dev',
           containerNetworkMode: 'open',
         }),
@@ -253,63 +246,12 @@ describe('toAgentEntryPatch', () => {
       ),
     );
 
-    expect((entry as { toolbox: Record<string, unknown> }).toolbox).toEqual({
-      name: 'ghost-research',
-      tools: {},
-    });
     expect((entry as { container: Record<string, unknown> }).container).toEqual(
       {
         name: 'dev',
         network: { mode: 'open', allow: [], hosts: [], dns: [] },
       },
     );
-  });
-
-  it('carries the per-box defaults a preset wrote, which it cannot edit', () => {
-    // This screen edits `tools`, which sits above `toolbox.tools`. `toToolbox`
-    // rebuilds the object from named fields, so a field with nowhere to live on
-    // the form is one a save deletes — and an agent installed with two of a
-    // box's programs would quietly acquire the rest the first time somebody
-    // renamed it.
-    const stored = AgentEntrySchema.parse({
-      provider: 'ollama',
-      model: 'llama3',
-      toolbox: {
-        name: 'recon',
-        tools: { '*': 'deny', nmap: 'allow' },
-      },
-    });
-
-    const entry = parsed(
-      toAgentEntryPatch('reviewer', form(toAgentEntryForm(stored)), stored, t),
-    );
-
-    expect(
-      (entry as { toolbox: Record<string, unknown> }).toolbox.tools,
-    ).toEqual({ '*': 'deny', nmap: 'allow' });
-  });
-
-  it('drops the per-box defaults along with the box', () => {
-    // A default for a toolbox the agent no longer works in would take effect
-    // again the moment somebody picked one, which nobody asked for.
-    const stored = AgentEntrySchema.parse({
-      provider: 'ollama',
-      model: 'llama3',
-      toolbox: { name: 'recon', tools: { '*': 'deny' } },
-    });
-
-    const entry = parsed(
-      toAgentEntryPatch(
-        'reviewer',
-        form({ ...toAgentEntryForm(stored), toolboxName: '' }),
-        stored,
-        t,
-      ),
-    );
-
-    expect(
-      (entry as { toolbox: Record<string, unknown> }).toolbox.tools,
-    ).toEqual({});
   });
 
   it('keeps all three egress lists while the mode is an allow-list', () => {
@@ -350,7 +292,6 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          toolboxName: 'kali',
           containerName: 'dev',
           containerNetworkMode: 'none',
           containerAllow: '10.0.0.0/8',
@@ -400,7 +341,7 @@ describe('toAgentEntryPatch', () => {
     });
   });
 
-  it('forces an agent with no toolbox or container onto no network', () => {
+  it('forces an agent with no container onto no network', () => {
     // Egress scoping is enforced by the container's gateway, so it means
     // nothing on the host — and `assertBuildable` refuses the combination
     // outright, which would turn a save into a 400 rather than a setting that
@@ -409,7 +350,6 @@ describe('toAgentEntryPatch', () => {
       toAgentEntryPatch(
         'reviewer',
         form({
-          toolboxName: '',
           containerName: '',
           containerNetworkMode: 'allowlist',
           containerAllow: '10.0.0.0/8',
@@ -421,10 +361,6 @@ describe('toAgentEntryPatch', () => {
       ),
     );
 
-    expect((entry as { toolbox: Record<string, unknown> }).toolbox).toEqual({
-      name: '',
-      tools: {},
-    });
     expect((entry as { container: Record<string, unknown> }).container).toEqual(
       {
         name: '',
@@ -712,15 +648,10 @@ describe('the templates an agent owns', () => {
 
   it('sends a single space through untrimmed, because that is the deletion', () => {
     const patch = parsed(
-      toAgentEntryPatch(
-        'reviewer',
-        form({ platformPrompt: ' ', toolboxPrompt: ' ' }),
-        EMPTY,
-        t,
-      ),
+      toAgentEntryPatch('reviewer', form({ platformPrompt: ' ' }), EMPTY, t),
     );
 
-    expect(patch).toMatchObject({ platformPrompt: ' ', toolboxPrompt: ' ' });
+    expect(patch).toMatchObject({ platformPrompt: ' ' });
   });
 
   it('drops an override that says nothing, and keeps one that says something', () => {

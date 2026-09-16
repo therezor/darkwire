@@ -24,7 +24,6 @@ export const queryKeys = {
   status: ['status'] as const,
   workspaces: ['workspaces'] as const,
   agents: ['agents'] as const,
-  toolboxes: ['toolboxes'] as const,
   containers: ['containers'] as const,
   containerInstances: ['container-instances'] as const,
   /** Live connection state, which is not in the settings tree. See `use-mcp.ts`. */

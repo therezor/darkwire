@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
 use ghostai_security::egress::gateway_rules;
 use serde_json::json;

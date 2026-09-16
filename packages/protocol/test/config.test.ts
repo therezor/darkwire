@@ -286,12 +286,6 @@ describe('AgentEntrySchema', () => {
     expect(agent.memoryPrompt).toBe('');
     expect(agent.enabled).toBe(true);
     expect(agent.tools).toEqual(DEFAULT_AGENT_TOOLS);
-    expect(agent.toolbox).toEqual({
-      name: '',
-      // Empty means "take the manifest's own permission for every program",
-      // which is the only thing an agent that named no toolbox could mean.
-      tools: {},
-    });
     expect(agent.container).toEqual({
       name: '',
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
@@ -378,7 +372,6 @@ describe('AgentsConfigSchema', () => {
     const two = AgentEntrySchema.parse({});
 
     expect(one.tools).not.toBe(two.tools);
-    expect(one.toolbox).not.toBe(two.toolbox);
   });
 
   it('keys agents by an id the operator chooses', () => {
@@ -526,7 +519,7 @@ describe('isLoopbackHost', () => {
   });
 });
 
-describe('ConfigPatchSchema: the toolbox', () => {
+describe('ConfigPatchSchema: containers', () => {
   it('accepts a network patch that changes only the mode', () => {
     // `patchOf` is not recursive, so without the hand-restated `network` this
     // would demand `allow` back — and a panel that never rendered the allow-list
@@ -538,15 +531,6 @@ describe('ConfigPatchSchema: the toolbox', () => {
     expect(patch.agents?.list?.boxed?.container?.network).toEqual({
       mode: 'open',
     });
-  });
-
-  it('accepts a toolbox patch that names only the box', () => {
-    const patch = ConfigPatchSchema.parse({
-      agents: { list: { boxed: { toolbox: { name: 'kali-pentest' } } } },
-    });
-
-    expect(patch.agents?.list?.boxed?.toolbox?.name).toBe('kali-pentest');
-    expect(patch.agents?.list?.boxed?.container).toBeUndefined();
   });
 });
 

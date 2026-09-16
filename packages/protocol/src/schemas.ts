@@ -18,7 +18,7 @@ import * as config from './config.js';
 import * as extension from './extension.js';
 import * as messages from './messages.js';
 import * as preset from './preset.js';
-import * as toolbox from './toolbox.js';
+import * as container from './container.js';
 import * as rest from './rest.js';
 import * as tools from './tools.js';
 import * as subagent from './subagent.js';
@@ -69,7 +69,6 @@ export const PROTOCOL_SCHEMAS = {
   ToolsConfig: config.ToolsConfigSchema,
   ContainerNetwork: config.ContainerNetworkSchema,
   NetworkMode: config.NetworkModeSchema,
-  AgentToolbox: config.AgentToolboxSchema,
   AgentContainer: config.AgentContainerSchema,
   SubagentRef: config.SubagentRefSchema,
   SubagentRunRef: subagent.SubagentRunRefSchema,
@@ -81,15 +80,12 @@ export const PROTOCOL_SCHEMAS = {
   Config: config.ConfigSchema,
   ConfigPatch: config.ConfigPatchSchema,
 
-  // toolbox
-  ToolOperation: toolbox.ToolOperationSchema,
-  ContainerDefinition: toolbox.ContainerDefinitionSchema,
-  ContainerRuntime: toolbox.ContainerRuntimeSchema,
-  ToolGrant: toolbox.ToolGrantSchema,
-  ContainerCaps: toolbox.ContainerCapsSchema,
-  ContainerSecurity: toolbox.ContainerSecuritySchema,
-  ContainerLimits: toolbox.ContainerLimitsSchema,
-  Toolbox: toolbox.ToolboxSchema,
+  // container
+  ContainerDefinition: container.ContainerDefinitionSchema,
+  ContainerRuntime: container.ContainerRuntimeSchema,
+  ContainerCaps: container.ContainerCapsSchema,
+  ContainerSecurity: container.ContainerSecuritySchema,
+  ContainerLimits: container.ContainerLimitsSchema,
 
   // extension
   ExtensionContribution: extension.ExtensionContributionSchema,
@@ -191,10 +187,7 @@ export const PROTOCOL_SCHEMAS = {
   AgentSummary: rest.AgentSummarySchema,
   AgentListResponse: rest.AgentListResponseSchema,
   ToolListResponse: rest.ToolListResponseSchema,
-  ToolboxToolSummary: rest.ToolboxToolSummarySchema,
-  ToolboxSummary: rest.ToolboxSummarySchema,
   ContainerSummary: rest.ContainerSummarySchema,
-  ToolboxListResponse: rest.ToolboxListResponseSchema,
   ContainerListResponse: rest.ContainerListResponseSchema,
   SandboxInstanceSummary: rest.SandboxInstanceSummarySchema,
   SandboxListResponse: rest.SandboxListResponseSchema,

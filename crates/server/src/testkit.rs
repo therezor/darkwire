@@ -36,9 +36,9 @@ use ghostai_protocol::config::{Config, ConfigPatch};
 use ghostai_protocol::rest::SetCredentialRequest;
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::BoxFuture;
+use ghostai_security::ContainerListing;
 use ghostai_security::jail::{JailOptions, WorkspaceJail, single_jail};
 use ghostai_security::random::RandomSource;
-use ghostai_security::{ContainerListing, ToolboxListing};
 use ghostai_tools::{ToolRegistry, ToolScope};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -226,12 +226,6 @@ pub struct FakeRuntimeOptions {
     pub system_prompt: Option<String>,
     /// The trailing turn the loop appends after the history.
     pub runtime_block: Option<String>,
-    /// The toolboxes an operator has installed on this machine.
-    ///
-    /// Empty is the default and is the honest state of a fresh install; a test
-    /// about what the listing *says* supplies entries, including the ones that
-    /// carry a `problem` and so are reported but not usable.
-    pub toolboxes: Vec<ToolboxListing>,
     /// Independently installed container definitions.
     pub containers: Vec<ContainerListing>,
 }
@@ -336,7 +330,6 @@ pub struct FakeRuntime {
     workspaces: Arc<WorkspaceStore>,
     agent: Arc<FakeAgentView>,
     registered_tools: Vec<ToolDefinition>,
-    toolboxes: Vec<ToolboxListing>,
     containers: Vec<ContainerListing>,
     credentials: Mutex<IndexMap<String, bool>>,
     /// Every patch this runtime was asked to apply, in order.
@@ -427,7 +420,6 @@ impl FakeRuntime {
                 .registered_tools
                 .clone()
                 .unwrap_or_else(|| options.tools.clone()),
-            toolboxes: options.toolboxes.clone(),
             containers: options.containers.clone(),
             agent,
             credentials: Mutex::new(options.credentials_present.clone()),
@@ -556,10 +548,6 @@ impl ServerRuntime for FakeRuntime {
             });
         }
         agents
-    }
-
-    fn toolboxes(&self) -> Vec<ToolboxListing> {
-        self.toolboxes.clone()
     }
 
     fn containers(&self) -> Vec<ContainerListing> {

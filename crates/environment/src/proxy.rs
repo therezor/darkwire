@@ -1,6 +1,6 @@
 //! Destination-restricted HTTP proxy. TLS tunnels are not decrypted.
 use ghostai_core::Result;
-use ghostai_security::toolbox::invalid;
+use ghostai_security::container::invalid;
 use ghostai_security::{HickoryResolver, NetworkPolicy, PinnedTarget, validate_target};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{

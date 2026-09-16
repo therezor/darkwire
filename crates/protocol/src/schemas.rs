@@ -24,7 +24,9 @@ use schemars::transform::{Transform, transform_subschemas};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::Value;
 
-use crate::{automation, config, extension, messages, preset, rest, subagent, toolbox, tools, ws};
+use crate::{
+    automation, config, container, extension, messages, preset, rest, subagent, tools, ws,
+};
 
 /// One published schema: the name the browser's registry uses, and how to
 /// generate it.
@@ -322,10 +324,6 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::ContainerNetwork>,
     },
     RegisteredSchema {
-        name: "AgentToolbox",
-        schema: schema_for::<config::AgentToolbox>,
-    },
-    RegisteredSchema {
         name: "AgentContainer",
         schema: schema_for::<config::AgentContainer>,
     },
@@ -365,14 +363,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         name: "ConfigPatch",
         schema: schema_for::<config::ConfigPatch>,
     },
-    // toolbox
-    RegisteredSchema {
-        name: "ToolOperation",
-        schema: schema_for::<toolbox::ToolOperation>,
-    },
+    // container
     RegisteredSchema {
         name: "ContainerDefinition",
-        schema: schema_for::<toolbox::ContainerDefinition>,
+        schema: schema_for::<container::ContainerDefinition>,
     },
     RegisteredSchema {
         name: "NetworkMode",
@@ -380,27 +374,19 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     },
     RegisteredSchema {
         name: "ContainerRuntime",
-        schema: schema_for::<toolbox::ContainerRuntime>,
-    },
-    RegisteredSchema {
-        name: "ToolGrant",
-        schema: schema_for::<toolbox::ToolGrant>,
+        schema: schema_for::<container::ContainerRuntime>,
     },
     RegisteredSchema {
         name: "ContainerCaps",
-        schema: schema_for::<toolbox::ContainerCaps>,
+        schema: schema_for::<container::ContainerCaps>,
     },
     RegisteredSchema {
         name: "ContainerSecurity",
-        schema: schema_for::<toolbox::ContainerSecurity>,
+        schema: schema_for::<container::ContainerSecurity>,
     },
     RegisteredSchema {
         name: "ContainerLimits",
-        schema: schema_for::<toolbox::ContainerLimits>,
-    },
-    RegisteredSchema {
-        name: "Toolbox",
-        schema: schema_for::<toolbox::Toolbox>,
+        schema: schema_for::<container::ContainerLimits>,
     },
     // extension
     RegisteredSchema {
@@ -764,20 +750,8 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<rest::ToolListResponse>,
     },
     RegisteredSchema {
-        name: "ToolboxToolSummary",
-        schema: schema_for::<rest::ToolboxToolSummary>,
-    },
-    RegisteredSchema {
-        name: "ToolboxSummary",
-        schema: schema_for::<rest::ToolboxSummary>,
-    },
-    RegisteredSchema {
         name: "ContainerSummary",
         schema: schema_for::<rest::ContainerSummary>,
-    },
-    RegisteredSchema {
-        name: "ToolboxListResponse",
-        schema: schema_for::<rest::ToolboxListResponse>,
     },
     RegisteredSchema {
         name: "ContainerListResponse",

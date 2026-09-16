@@ -79,7 +79,7 @@ fn every_command_the_page_lists_is_in_the_help() {
         "serve",
         "preset",
         "agent",
-        "toolbox",
+        "container",
         "extension",
         "help",
     ] {
@@ -93,7 +93,6 @@ fn every_command_the_page_lists_is_in_the_help() {
 #[test]
 fn every_subcommand_the_page_lists_is_in_its_parents_help() {
     for (parent, children) in [
-        ("toolbox", &["list"][..]),
         ("container", &["list"][..]),
         ("extension", &["list", "approve", "revoke"][..]),
         ("agent", &["install", "list"][..]),
@@ -143,7 +142,6 @@ fn every_flag_the_page_tabulates_appears_on_some_help_page() {
         help(&["preset", "install"]),
         help(&["agent"]),
         help(&["agent", "install"]),
-        help(&["toolbox"]),
         help(&["extension"]),
         help(&["init"]),
     ]

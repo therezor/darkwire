@@ -24,12 +24,12 @@ use crate::config::{
     SchedulerConfigPatch, ServerConfigPatch, ToolsConfigPatch, UiConfigPatch,
 };
 use crate::config::{Config, ConfigPatch, McpTransport, ReasoningEffort};
+use crate::container::{ContainerLimits, ContainerRuntime};
 use crate::extension::ExtensionContribution;
 use crate::json::{MAX_SAFE_INTEGER, Nullable, True, positive, yes};
 use crate::messages::{StopReason, StoredMessage, Usage};
 use crate::subagent::SubagentRunRef;
-use crate::toolbox::{ContainerLimits, ContainerRuntime};
-use crate::tools::{ToolDefinition, ToolPermission};
+use crate::tools::ToolDefinition;
 use crate::ws::NotificationLevel;
 
 // Envelopes
@@ -905,57 +905,6 @@ pub struct ToolListResponse {
     pub tools: Vec<ToolDefinition>,
 }
 
-/// One granted operation, as the agent editor's permission row needs it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-#[garde(allow_unvalidated)]
-pub struct ToolboxToolSummary {
-    /// The callable name.
-    pub name: String,
-    /// What the operation does, as the model is told.
-    pub description: String,
-    /// The grant's ceiling. An agent's `tools` map may only tighten it.
-    pub permission: ToolPermission,
-}
-
-/// One installed toolbox, as a settings screen needs to see it.
-///
-/// A toolbox is a set of grants and nothing else, so there is no image,
-/// network or hardening to report here — those belong to a container, which is
-/// chosen separately and summarised by [`ContainerSummary`]. `problem` is the
-/// field that decides whether an agent can use it: a manifest that does not
-/// parse, or names an operation that is not installed, reports the sentence
-/// saying so and cannot be selected.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-#[garde(allow_unvalidated)]
-pub struct ToolboxSummary {
-    /// The name.
-    pub name: String,
-    /// For a person.
-    pub label: String,
-    /// The manifest's version.
-    pub version: String,
-    /// Caveats about the set as a whole.
-    pub notes: String,
-    /// What it grants, for the picker to show without a second request.
-    #[garde(dive)]
-    pub tools: Vec<ToolboxToolSummary>,
-    /// Why it cannot be used, when it cannot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub problem: Option<String>,
-}
-
-/// `GET /api/toolboxes`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-#[garde(allow_unvalidated)]
-pub struct ToolboxListResponse {
-    /// Every installed toolbox.
-    #[garde(dive)]
-    pub toolboxes: Vec<ToolboxSummary>,
-}
-
 /// `GET /api/containers`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -1051,33 +1000,8 @@ pub enum SandboxRequest {
     Health,
     /// Live instances.
     List,
-    /// Run one approved operation. Refused over HTTP: a model's tool call
-    /// reaches the service through the agent loop, never through the API.
-    Execute {
-        /// Approved toolbox naming the operation.
-        toolbox: String,
-        /// The digest the caller resolved the toolbox at, so the service can
-        /// tell that it read the same bytes.
-        digest: String,
-        /// Approved container to run it in.
-        container: String,
-        /// The granted operation name.
-        operation: String,
-        /// Registered workspace ID.
-        workspace: String,
-        /// The calling agent.
-        agent: String,
-        /// The conversation.
-        session: String,
-        /// What the agent's container may reach.
-        #[serde(default)]
-        #[schemars(transform = crate::json::prefault)]
-        network: ContainerNetwork,
-        /// Validated against the operation's own schema, service-side.
-        args: serde_json::Value,
-    },
-    /// Run one guarded command. Refused over HTTP for the same reason
-    /// `Execute` is, and it carries argv rather than a plan: `cwd` and the
+    /// Run one guarded command. Refused over HTTP because a model's tool call
+    /// reaches the service through the agent loop. It carries argv rather than a plan: `cwd` and the
     /// resolved environment of the caller's process mean nothing inside a
     /// container, and the service re-guards regardless. The caller guards
     /// first so a refusal reaches the model quickly; the service guards again

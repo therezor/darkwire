@@ -17,7 +17,7 @@
  * The patch this builds *is* the agent: `agents.list.*` is in the merge's
  * `REPLACE_WHOLESALE` list, so a field left out of it is a field cleared. That
  * is why `toAgentEntryPatch` takes the stored entry as well as the form — the
- * settings this screen does not render (the toolbox, the memory scope, the exec
+ * settings this screen does not render (the memory scope and the exec
  * allow-list) have to be carried through by hand, or saving the prompt would
  * quietly delete them.
  *
@@ -105,7 +105,6 @@ export interface AgentEntryForm {
   readonly livePrompt: string;
   readonly wrapUpPrompt: string;
   readonly platformPrompt: string;
-  readonly toolboxPrompt: string;
   readonly toolPolicyPrompt: string;
   readonly memoryPrompt: string;
   readonly skillsPrompt: string;
@@ -173,8 +172,6 @@ export interface AgentEntryForm {
    * `ownFields` drops those rather than sending an id nothing resolves.
    */
   readonly subagents: readonly SubagentRef[];
-  /** A toolbox name, or empty when no toolbox is selected. */
-  readonly toolboxName: string;
   /** An approved container name, or empty to run on the host. */
   readonly containerName: string;
   readonly containerNetworkMode: string;
@@ -184,23 +181,6 @@ export interface AgentEntryForm {
   readonly containerHosts: string;
   /** Comma-separated resolver addresses. Only read when the mode is `allowlist`. */
   readonly containerDns: string;
-  /**
-   * The agent's per-box defaults, carried through this screen rather than
-   * edited on it.
-   *
-   * This screen edits `tools`, which sits *above* this map — a row here is
-   * what a program falls back to when `tools` says nothing about it, and `*`
-   * is the fallback for programs the map does not name at all. Only a preset
-   * can write one, because only a preset file has a place to say "all of
-   * them"; a picker with one row per program does not need the shorthand.
-   *
-   * It is in the form purely so that saving does not delete it. `toToolbox`
-   * rebuilds this object from named fields, so a field with nowhere to live
-   * here is a field a settings save silently drops — which is how an agent
-   * installed with four of a box's twenty-four programs would quietly acquire
-   * the other twenty the first time somebody renamed it.
-   */
-  readonly toolboxTools: Readonly<Record<string, ToolPermission>>;
 }
 
 /**
@@ -238,7 +218,6 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     livePrompt: entry.livePrompt,
     wrapUpPrompt: entry.wrapUpPrompt,
     platformPrompt: entry.platformPrompt,
-    toolboxPrompt: entry.toolboxPrompt,
     toolPolicyPrompt: entry.toolPolicyPrompt,
     memoryPrompt: entry.memoryPrompt,
     skillsPrompt: entry.skillsPrompt,
@@ -260,13 +239,11 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     loopWallTimeoutSeconds: msToSeconds(entry.loopWallTimeoutMs),
     tools: { ...entry.tools },
     subagents: entry.subagents.map((ref) => ({ ...ref })),
-    toolboxName: entry.toolbox.name,
     containerName: entry.container.name,
     containerNetworkMode: entry.container.network.mode,
     containerAllow: entry.container.network.allow.join(', '),
     containerHosts: entry.container.network.hosts.join(', '),
     containerDns: entry.container.network.dns.join(', '),
-    toolboxTools: { ...entry.toolbox.tools },
   };
 }
 
@@ -371,7 +348,6 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     toolTimeoutMs,
     maxToolIterations,
     loopWallTimeoutMs,
-    toolbox,
     subagents,
     ...carried
   } = entry;
@@ -386,7 +362,6 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     livePrompt: form.livePrompt,
     wrapUpPrompt: form.wrapUpPrompt,
     platformPrompt: form.platformPrompt,
-    toolboxPrompt: form.toolboxPrompt,
     toolPolicyPrompt: form.toolPolicyPrompt,
     memoryPrompt: form.memoryPrompt,
     skillsPrompt: form.skillsPrompt,
@@ -415,28 +390,7 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     subagents: form.subagents
       .filter((ref) => ref.id !== '')
       .map((ref) => ({ ...ref, prompt: ref.prompt.trim() })),
-    toolbox: toToolbox(form),
     container: toContainer(form),
-  };
-}
-
-/**
- * The toolbox the form describes.
- *
- * Note what is *not* here: an image, a runtime, a capability set. Those live in
- * the container definition an operator installed and approved, so this screen
- * can point an agent at a toolbox and independently at a container, and cannot
- * alter either.
- */
-function toToolbox(form: AgentEntryForm): AgentEntry['toolbox'] {
-  const name = form.toolboxName.trim();
-  return {
-    name,
-    // Carried, not edited — see `toolboxTools` on the form. Dropped along with
-    // the box when there is no box: a per-program default for a toolbox the
-    // agent no longer works in would take effect again the moment somebody
-    // picked one, which is not something the operator asked for.
-    tools: name === '' ? {} : { ...form.toolboxTools },
   };
 }
 
@@ -625,7 +579,6 @@ export function toNewAgentPatch(
           livePrompt: template.livePrompt,
           wrapUpPrompt: template.wrapUpPrompt,
           platformPrompt: template.platformPrompt,
-          toolboxPrompt: template.toolboxPrompt,
           toolPolicyPrompt: template.toolPolicyPrompt,
           memoryPrompt: template.memoryPrompt,
           skillsPrompt: template.skillsPrompt,
@@ -650,7 +603,6 @@ export function toNewAgentPatch(
           // created afterwards puts a tool in front of each of them, and the
           // model will use it.
           subagents: [],
-          toolbox: { ...template.toolbox },
           container: { ...template.container },
           provider: template.provider,
           model: template.model,

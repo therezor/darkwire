@@ -9,7 +9,7 @@
 //! *reason* a server is down, phrased for a person, and the URL an operator has
 //! to visit when a server wants authorizing.
 //!
-//! Read-only, like `GET /api/toolboxes` next door. A server is created, edited
+//! Read-only, like `GET /api/containers` next door. A server is created, edited
 //! and deleted through `PATCH /api/settings`, because it is configuration; a
 //! route here that could add one would be a second way to write the same file.
 

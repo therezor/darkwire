@@ -165,8 +165,6 @@ pub enum RouteId {
     AgentsList,
     /// `GET /api/tools`
     ToolsList,
-    /// `GET /api/toolboxes`
-    ToolboxesList,
     /// `GET /api/containers`
     ContainersList,
     /// `GET /api/sandboxes`.
@@ -295,7 +293,6 @@ impl RouteId {
             RouteId::SessionsTurns => "sessions.turns",
             RouteId::AgentsList => "agents.list",
             RouteId::ToolsList => "tools.list",
-            RouteId::ToolboxesList => "toolboxes.list",
             RouteId::ContainersList => "containers.list",
             RouteId::SandboxesList => "sandboxes.list",
             RouteId::SandboxesManage => "sandboxes.manage",
@@ -346,7 +343,7 @@ impl RouteId {
 }
 
 /// The routes every build serves.
-const BASE: [Route; 66] = [
+const BASE: [Route; 65] = [
     // Status and health
     Route {
         id: RouteId::SystemHealth,
@@ -555,12 +552,6 @@ const BASE: [Route; 66] = [
         id: RouteId::ToolsList,
         method: RouteMethod::GET,
         path: "/api/tools",
-        auth: RouteAuth::Required,
-    },
-    Route {
-        id: RouteId::ToolboxesList,
-        method: RouteMethod::GET,
-        path: "/api/toolboxes",
         auth: RouteAuth::Required,
     },
     Route {
@@ -837,8 +828,8 @@ const HOOKS: [Route; 5] = [
 
 /// `BASE` followed by `HOOKS`, in const so the manifest stays a `&[Route]`.
 #[cfg(feature = "test-hooks")]
-const fn with_hooks(base: &[Route; 66], hooks: &[Route; 5]) -> [Route; 71] {
-    let mut all = [base[0]; 71];
+const fn with_hooks(base: &[Route; 65], hooks: &[Route; 5]) -> [Route; 70] {
+    let mut all = [base[0]; 70];
     let mut i = 0;
     while i < base.len() {
         all[i] = base[i];
@@ -853,7 +844,7 @@ const fn with_hooks(base: &[Route; 66], hooks: &[Route; 5]) -> [Route; 71] {
 }
 
 #[cfg(feature = "test-hooks")]
-const ALL: [Route; 71] = with_hooks(&BASE, &HOOKS);
+const ALL: [Route; 70] = with_hooks(&BASE, &HOOKS);
 
 /// Every route this build serves, and the only path to one.
 #[cfg(not(feature = "test-hooks"))]

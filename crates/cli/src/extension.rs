@@ -1,12 +1,12 @@
 //! `ghostai extension` — list, approve and revoke extensions.
 //!
-//! The same exception `ghostai toolbox` is, for the same reason: approving code
+//! The same exception `ghostai container` is, for the same reason: approving code
 //! the agent will run is the one operator action that cannot be delegated to
 //! the agent, and an install driven from a terminal needs a way to perform it
 //! without opening a browser.
 //!
 //! `approve` is the whole security model in one verb, and here it is one step
-//! stronger than the toolbox's. A toolbox manifest pins an immutable image, so
+//! stronger than the container's. A container manifest pins an immutable image, so
 //! hashing the manifest hashes the code; an extension manifest names a
 //! *command*, so this records a digest over every byte under the install
 //! directory. Editing any file — including the one the manifest points at —

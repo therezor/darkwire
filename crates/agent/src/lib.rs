@@ -52,9 +52,8 @@ pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
 pub use memory_contributor::{MemoryContributor, render_memory_section};
 pub use prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, Platform,
-    PromptAgent, PromptToolbox, PromptToolboxTool, PromptTools, RuntimePromptContext,
-    StaticPromptContext, build_raw_prompt, build_runtime_block, build_static_prompt,
-    contributor_sections, runtime_reminder, template_or,
+    PromptAgent, PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt,
+    build_runtime_block, build_static_prompt, contributor_sections, runtime_reminder, template_or,
 };
 pub use skills::{
     MAX_DESCRIPTION_CHARS, MAX_SKILLS, SKILL_FILENAME, SKILL_MAX_BYTES, SKILLS_DIRNAME, Skill,

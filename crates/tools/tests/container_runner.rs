@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
 use ghostai_security::ExecPlan;
 use ghostai_tools::{

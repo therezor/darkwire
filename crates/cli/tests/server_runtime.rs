@@ -646,7 +646,6 @@ fn an_install_with_no_mcp_server_and_no_command_reports_neither() {
     assert!(port.mcp_servers().is_empty());
     assert!(port.commands().is_empty());
     assert!(port.extension_statuses().is_empty());
-    assert!(port.toolboxes().is_empty());
 }
 
 #[test]

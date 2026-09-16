@@ -8,9 +8,8 @@
 //! the agent editor, which draws one permission row per entry, so answering
 //! with the *default* agent's list breaks both ways: a tool that agent does not
 //! hold would have no row on any agent and could never be granted to one
-//! (`automation` is absent from its tools on purpose), while its toolbox
-//! programs and subagent delegation tools would appear as grantable rows on
-//! agents that have neither.
+//! (`automation` is absent from its tools on purpose), while its subagent
+//! delegation tools would appear as grantable rows on agents that have none.
 //!
 //! What one agent is actually offered is [`AgentView::tools`], which the
 //! context inspector reads per session and this route has no business

@@ -96,7 +96,6 @@ function mount(
     '/api/providers': [200, { types: [], instances: [] }],
     '/api/models': [200, { models: [], errors: {} }],
     '/api/tools': [200, { tools: [] }],
-    '/api/toolboxes': [200, { toolboxes: [] }],
     '/api/containers': [200, { containers: [] }],
     ...overrides,
   });
@@ -723,7 +722,7 @@ describe('the default agent', () => {
   it('offers every template the prompt is assembled from, not only the first', async () => {
     // The gap this closes: `livePrompt` and `wrapUpPrompt` were config-file-only
     // while the docs said all three were edited here, and the platform note, the
-    // toolbox section and the tool-output policy had no key at all.
+    // tool-output policy had no key at all.
     const { user } = mount('/agents/default');
 
     // The system prompt is the section; the rest are behind the disclosure, so
@@ -882,7 +881,7 @@ describe('the default agent', () => {
     await user.click(screen.getByRole('switch', { name: 'Tool calling' }));
 
     // Every tool-shaped section on screen, which is four here: Running commands,
-    // Tool output policy, Memory and Skills. The fifth — Toolbox — renders only
+    // Tool output policy, Memory and Skills. The container placement is separate.
     // for an agent that has one, and this agent runs on the host.
     //
     // `Running commands` is the one worth pinning, because it is not obviously
@@ -1833,7 +1832,7 @@ describe('a named agent', () => {
 });
 
 /**
- * The toolbox picker.
+ * The container picker.
  *
  * Untested until a one-way door shipped: a `SelectItem` may not carry an empty
  * value — Radix reserves it for "nothing chosen" — so "None" existed only as the
@@ -1841,7 +1840,7 @@ describe('a named agent', () => {
  * not. An agent could be put in a container and never taken out of one without
  * hand-editing the config file.
  */
-describe('choosing a toolbox', () => {
+describe('choosing a container', () => {
   const BOXED = ConfigSchema.parse({
     agents: {
       list: {
@@ -1850,9 +1849,6 @@ describe('choosing a toolbox', () => {
           label: 'Researcher',
           provider: 'ollama',
           model: 'llama3',
-          toolbox: {
-            name: 'web-research',
-          },
           container: {
             name: 'development',
             network: { mode: 'open', allow: [] },
@@ -1862,30 +1858,6 @@ describe('choosing a toolbox', () => {
     },
     providers: { ollama: { type: 'ollama' } },
   });
-
-  /**
-   * One installed toolbox and one installed container, as the wire carries
-   * them.
-   *
-   * Both are parsed by `api.toolboxes` and `api.containers`, so a fixture
-   * trimmed to the fields under test is a failed query rather than a smaller
-   * fixture — and a failed query renders an editor with no picker in it, which
-   * fails every assertion below for the wrong reason.
-   *
-   * Note what is *not* on the toolbox: no image, no network, no hardening. A
-   * toolbox is a set of grants; where those grants run is the container's
-   * answer, and the two are chosen independently on this screen.
-   */
-  const TOOLBOX = {
-    name: 'web-research',
-    label: 'Web research',
-    version: '3.0.0',
-    notes: '',
-    tools: [
-      { name: 'search', description: 'Search the web.', permission: 'allow' },
-      { name: 'fetch', description: 'Read a page.', permission: 'ask' },
-    ],
-  };
 
   const CONTAINER = {
     name: 'development',
@@ -1927,7 +1899,6 @@ describe('choosing a toolbox', () => {
         ],
       },
     ],
-    '/api/toolboxes': [200, { toolboxes: [TOOLBOX] }],
     '/api/containers': [200, { containers: [CONTAINER] }],
   };
 
@@ -1940,22 +1911,9 @@ describe('choosing a toolbox', () => {
     await user.click(await screen.findByRole('option', { name: option }));
   }
 
-  it('offers “no toolbox” as something you can pick, not just as a placeholder', async () => {
-    const { user } = mount('/agents/researcher', ROUTES);
-
-    await user.click(await screen.findByRole('combobox', { name: 'Toolbox' }));
-
-    expect(
-      await screen.findByRole('option', {
-        name: /None — no toolbox selected/,
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it('selects toolboxes and execution containers independently', async () => {
+  it('offers installed containers and the host', async () => {
     const { user } = mount('/agents/researcher', {
       ...ROUTES,
-      '/api/toolboxes': [200, { toolboxes: [] }],
       '/api/containers': [200, { containers: [CONTAINER] }],
     });
 
@@ -1970,7 +1928,7 @@ describe('choosing a toolbox', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('option', {
-        name: /None — run operations on this machine/,
+        name: /None — run commands on this machine/,
       }),
     ).toBeInTheDocument();
   });
@@ -1979,20 +1937,19 @@ describe('choosing a toolbox', () => {
     // The regression. Before the fix the only way out was editing config.yaml.
     const { user, calls } = mount('/agents/researcher', ROUTES);
 
-    await choose(user, 'Toolbox', /None — no toolbox selected/);
+    await choose(user, 'Container', /None — run commands on this machine/);
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
-    expect(patchesOf(calls)[0]?.agents?.list?.researcher?.toolbox?.name).toBe(
+    expect(patchesOf(calls)[0]?.agents?.list?.researcher?.container?.name).toBe(
       '',
     );
   });
 
   it('hides the network field once there is no container to scope', async () => {
-    // Egress is enforced by the container's gateway, so the toolbox has no say
-    // in it any more: taking the *container* away is what leaves nothing to
+    // Egress is enforced by the container's gateway: taking the container away leaves nothing to
     // scope, and offering the control anyway would offer a setting the save
     // refuses.
     const { user } = mount('/agents/researcher', ROUTES);
@@ -2000,28 +1957,11 @@ describe('choosing a toolbox', () => {
     expect(
       await screen.findByRole('combobox', { name: 'Network' }),
     ).toBeInTheDocument();
-    await choose(user, 'Container', /None — run operations on this machine/);
+    await choose(user, 'Container', /None — run commands on this machine/);
 
     expect(
       screen.queryByRole('combobox', { name: 'Network' }),
     ).not.toBeInTheDocument();
-  });
-
-  it('keeps the network field while only the toolbox is taken away', async () => {
-    // The other half of the rule above, and the reason the two are separate
-    // tests: a toolbox says what an agent may call and a container says where
-    // those calls run, so clearing the first must leave the second's network
-    // exactly where it was.
-    const { user } = mount('/agents/researcher', ROUTES);
-
-    expect(
-      await screen.findByRole('combobox', { name: 'Network' }),
-    ).toBeInTheDocument();
-    await choose(user, 'Toolbox', /None — no toolbox selected/);
-
-    expect(
-      screen.getByRole('combobox', { name: 'Network' }),
-    ).toBeInTheDocument();
   });
 
   it('shows the three egress boxes only while the mode is an allow-list', async () => {
@@ -2052,94 +1992,16 @@ describe('choosing a toolbox', () => {
     ).toBeInTheDocument();
   });
 
-  it('gives a toolbox program one row, not one in each list', async () => {
-    // An override of a toolbox program lands in the same map as everything
-    // else, but the program is not in the shared registry — so the built-in
-    // list used to pick it up out of the map and badge it "not installed",
-    // beside the group below that knew perfectly well what it was.
-    //
-    // A toolbox is the agent's whole callable surface now, so the built-in list
-    // is empty for as long as one is chosen: `read_file` is registered *and*
-    // named in this agent's `tools` map, and a row for it would be the same
-    // leak read from the other direction.
-    mount('/agents/researcher', {
-      ...ROUTES,
-      // Registered, so a built-in row appearing at all is a list that ignored
-      // the toolbox rather than a fixture that failed to load.
-      '/api/tools': [
-        200,
-        {
-          tools: [
-            {
-              name: 'read_file',
-              description: '',
-              risk: 'safe',
-              parameters: {},
-            },
-          ],
-        },
-      ],
-      '/api/settings': [
-        200,
-        {
-          config: ConfigSchema.parse({
-            agents: {
-              defaults: {
-                model: 'llama3',
-                provider: 'ollama',
-                maxTokens: 4096,
-              },
-              list: {
-                researcher: {
-                  label: 'Researcher',
-                  provider: 'ollama',
-                  model: 'llama3',
-                  tools: { read_file: 'allow', search: 'deny' },
-                  toolbox: {
-                    name: 'web-research',
-                  },
-                  container: {
-                    name: 'development',
-                    network: { mode: 'open', allow: [] },
-                  },
-                },
-              },
-            },
-            providers: { ollama: { type: 'ollama' } },
-          }),
-          credentialsPresent: { ollama: false },
-        },
-      ],
-    });
-
-    // The heading has to be on screen before the lists mean anything: it is
-    // what proves `/api/toolboxes` landed, and an absence asserted before it
-    // would pass on an empty screen.
-    await screen.findByText('Granted by the Web research toolbox');
-
-    expect(
-      screen.getAllByRole('combobox', { name: 'Permission for search' }),
-    ).toHaveLength(1);
-    expect(
-      screen.queryByRole('combobox', { name: 'Permission for read_file' }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText('not installed')).not.toBeInTheDocument();
-  });
-
-  it('saves the toolbox and container independently, and sends neither sentinel', async () => {
+  it('saves the selected container without the display sentinel', async () => {
     const { user, calls } = mount('/agents/researcher', ROUTES);
 
-    await choose(user, 'Toolbox', /None — no toolbox selected/);
-    await choose(user, 'Toolbox', /Web research/);
+    await choose(user, 'Container', /None — run commands on this machine/);
     await choose(user, 'Container', /development — shared/);
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
-    const name = patchesOf(calls)[0]?.agents?.list?.researcher?.toolbox?.name;
-    expect(name).toBe('web-research');
-    expect(name).not.toContain('none');
     expect(patchesOf(calls)[0]?.agents?.list?.researcher?.container?.name).toBe(
       'development',
     );

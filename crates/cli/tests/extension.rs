@@ -1,4 +1,4 @@
-//! `ghostai extension`, `ghostai toolbox`, and `ghostai container` approvals.
+//! `ghostai extension` approvals and `ghostai container` listings.
 //!
 //! One file for both, because they are one command written twice: the same
 //! three verbs, the same exit codes, the same rule that an approval is a
@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use ghostai::i18n::Env;
 use ghostai::program::{Globals, StoreAction};
-use ghostai::{Streams, container, extension, toolbox};
+use ghostai::{Streams, container, extension};
 
 /// A pair of buffers a command writes into, read back as text.
 #[derive(Clone, Default)]
@@ -56,21 +56,6 @@ fn globals(home: &Path) -> Globals {
     Globals {
         home: Some(home.display().to_string()),
         ..Globals::default()
-    }
-}
-
-fn run_toolbox(home: &Path) -> Run {
-    let out = Sink::default();
-    let err = Sink::default();
-    let mut streams = Streams {
-        out: Box::new(out.clone()),
-        err: Box::new(err.clone()),
-    };
-    let code = toolbox::run(&globals(home), &Env::empty(), &mut streams).unwrap();
-    Run {
-        code,
-        out: out.text(),
-        err: err.text(),
     }
 }
 
@@ -116,46 +101,6 @@ fn policy(home: &Path) -> std::path::PathBuf {
     home.join("policy")
 }
 
-/// A toolbox manifest and the one definition it grants, installed.
-///
-/// The definition travels with it because the approval hash covers both: a
-/// manifest whose definition was missing would resolve to a refusal rather than
-/// to something an operator could review.
-fn install_toolbox(home: &Path, name: &str) {
-    let root = policy(home);
-    std::fs::create_dir_all(root.join("toolboxes")).unwrap();
-    std::fs::create_dir_all(root.join("tool-definitions")).unwrap();
-    std::fs::write(
-        root.join("toolboxes").join(format!("{name}.yaml")),
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "schema": "ghostai.toolbox/1",
-            "name": name,
-            "tools": [{"name": "rg", "definition": "rg", "permission": "ask"}],
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("tool-definitions").join("rg.yaml"),
-        serde_json::to_vec_pretty(&definition("Search the workspace.")).unwrap(),
-    )
-    .unwrap();
-}
-
-/// One operation definition, with the description a review prints.
-fn definition(description: &str) -> serde_json::Value {
-    serde_json::json!({
-        "schema": "ghostai.tool/1",
-        "description": description,
-        "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
-        "implementation": {
-            "kind": "command",
-            "executable": "/usr/bin/rg",
-            "argv": ["--files"],
-        },
-    })
-}
-
 fn install_container(home: &Path, name: &str) {
     let dir = policy(home).join("containers");
     std::fs::create_dir_all(&dir).unwrap();
@@ -192,7 +137,7 @@ fn install_extension(home: &Path, id: &str) {
     std::fs::write(dir.join("index.mjs"), "// nothing").unwrap();
 }
 
-// toolbox
+// container
 
 #[test]
 fn container_list_says_where_it_looked_when_nothing_is_installed() {
@@ -219,73 +164,10 @@ fn container_list_reports_sharing_and_the_rest_of_the_placement() {
         "{}",
         listed.out
     );
-    // What an image, a user and a limit are is the container's half of the
-    // review — none of it appears in a toolbox listing.
+    // The image, user and limits are the placement facts an operator reviews.
     assert!(listed.out.contains("image      "), "{}", listed.out);
     assert!(listed.out.contains("user       "), "{}", listed.out);
     assert!(listed.out.contains("limits     "), "{}", listed.out);
-}
-
-#[test]
-fn toolbox_list_says_where_it_looked_when_nothing_is_installed() {
-    let home = tempfile::tempdir().unwrap();
-    let run = run_toolbox(home.path());
-    assert_eq!(run.code, 0);
-    assert!(
-        run.out.contains("No toolboxes installed under"),
-        "{}",
-        run.out
-    );
-    // The directory itself, so an operator who installed one somewhere else can
-    // see where this build is looking.
-    assert!(run.out.contains("toolboxes"), "{}", run.out);
-}
-
-#[test]
-fn toolbox_list_shows_what_an_operator_has_to_weigh() {
-    // A review that shows only a name is a rubber stamp with extra steps.
-    let home = tempfile::tempdir().unwrap();
-    install_toolbox(home.path(), "sandbox");
-    let run = run_toolbox(home.path());
-
-    assert_eq!(run.code, 0);
-    assert!(run.out.contains("sandbox"), "{}", run.out);
-    // The grant, its ceiling and the definition behind it — two toolboxes can
-    // both grant `rg`, and what is being chosen is the program that runs.
-    assert!(
-        run.out.contains("tool       rg  [ask]  from rg"),
-        "{}",
-        run.out
-    );
-    assert!(run.out.contains("Search the workspace."), "{}", run.out);
-    assert!(run.out.contains("runs /usr/bin/rg --files"), "{}", run.out);
-}
-
-#[test]
-fn editing_a_definition_the_manifest_names_moves_the_toolbox_digest() {
-    // The digest covers the manifest *and* every definition it grants, which is
-    // what makes a shared definition impossible to edit quietly: every toolbox
-    // that reaches it is visibly a different toolbox afterwards.
-    let home = tempfile::tempdir().unwrap();
-    install_toolbox(home.path(), "sandbox");
-    let before = digest_line(&run_toolbox(home.path()).out);
-
-    std::fs::write(
-        policy(home.path()).join("tool-definitions/rg.yaml"),
-        serde_json::to_vec_pretty(&definition("Something else entirely.")).unwrap(),
-    )
-    .unwrap();
-
-    assert_ne!(digest_line(&run_toolbox(home.path()).out), before);
-}
-
-/// The `digest` line out of a `toolbox list`, which is what pins a running
-/// command to the bytes it started under.
-fn digest_line(out: &str) -> String {
-    out.lines()
-        .find(|line| line.trim_start().starts_with("digest"))
-        .unwrap_or_default()
-        .to_owned()
 }
 
 // extension
@@ -321,9 +203,7 @@ fn extension_list_shows_the_command_and_what_it_contributes() {
 
 #[test]
 fn extension_approve_records_a_digest_over_every_byte() {
-    // One step stronger than the toolbox's: a toolbox's hash covers its
-    // manifest and every definition it names, all of them reviewed files; an
-    // extension manifest names a command, so this hashes the whole directory.
+    // An extension manifest names a command, so approval hashes the whole directory.
     let home = tempfile::tempdir().unwrap();
     install_extension(home.path(), "hello");
 

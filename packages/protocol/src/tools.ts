@@ -11,7 +11,7 @@
  * `tool.call` and `tool.approvalRequest` events so a card can badge itself, and
  * it seeds the permission a newly created agent starts a tool at. It decides
  * nothing at call time: a band-to-policy table as the gate would make `search`
- * and a port scanner in the same toolbox one setting, and would leave an
+ * and a port scanner in the same container one setting, and would leave an
  * agent's tool list a separate allow/deny pair that could admit a tool the
  * table then refused.
  */
@@ -56,7 +56,7 @@ export type ToolPermissions = z.infer<typeof ToolPermissionsSchema>;
  *
  * Here rather than in `ghostai-tools`, which is where they are actually
  * defined, because two packages downstream need the *names* without the
- * implementations: `ghostai-security` refuses a toolbox that shadows one, and
+ * implementations: `ghostai-security` refuses a container that shadows one, and
  * `DEFAULT_AGENT_TOOLS` in `config.ts` seeds a new agent with them. Both sit
  * below `tools` in the layer graph. `packages/tools` owns a test that this list
  * still matches `BUILTIN_TOOLS`, which is the only place both are visible.

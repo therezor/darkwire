@@ -17,17 +17,14 @@
 //!    parses, lists and edits; only a *turn* on it is refused. That is what lets
 //!    an operator fix one from the screen that shows it rather than from a
 //!    server that will not boot.
-//!  - **Resolution is where an unbuildable agent is refused.** A toolbox setting
-//!    that cannot be honoured fails here, during a reconfigure, which is
-//!    all-or-nothing — so a settings save naming an unapproved toolbox is a
-//!    refusal that changes nothing, rather than a turn that dies minutes later.
-//!    Only the half decidable from config is checked here.
+//!  - **Resolution is where an unbuildable agent is refused.** Invalid
+//!    container network policy fails during an all-or-nothing reconfigure.
 
 use ghostai_agent::SubagentBinding;
 use ghostai_core::{ErrorKind, GhostError, Result};
 use ghostai_protocol::rest::ConfigWarning;
 use ghostai_protocol::{
-    AgentContainer, AgentEntry, AgentSettings, AgentToolbox, Config, DEFAULT_AGENT_ID,
+    AgentContainer, AgentEntry, AgentSettings, Config, DEFAULT_AGENT_ID,
     DEFAULT_LIVE_STATE_TEMPLATE, NetworkMode, PromptMode, RESERVED_AGENT_IDS, ToolPermission,
     ToolPermissions, ToolPromptOverrides, ToolsConfig, default_agent_tools, is_agent_id,
     names_delimiter, subagent_tool_name,
@@ -53,8 +50,6 @@ pub struct EffectiveAgent {
     pub wrap_up_prompt: String,
     /// The `## Running commands` section.
     pub platform_prompt: String,
-    /// The `## Toolbox: <name>` advertisement.
-    pub toolbox_prompt: String,
     /// The `## Tool output policy` section.
     pub tool_policy_prompt: String,
     /// The `## Memory` section. Empty means the built-in; a space removes it.
@@ -71,9 +66,7 @@ pub struct EffectiveAgent {
     pub tools: ToolPermissions,
     /// `config.tools` with this agent's exec overrides applied.
     pub tools_config: ToolsConfig,
-    /// Where this agent's commands run.
-    pub toolbox: AgentToolbox,
-    /// Where command operations run.
+    /// Where built-in command execution runs.
     pub container: AgentContainer,
     /// The agents this one may delegate to, in the operator's order.
     ///
@@ -343,10 +336,10 @@ fn mode_name(mode: NetworkMode) -> &'static str {
 
 /// What can be decided from the config alone.
 ///
-/// Whether the named toolbox and container *exist and are approved* is not here,
+/// Whether the named container and container *exist and are approved* is not here,
 /// deliberately: that needs the policy store, which is disk, and this is the
 /// pure inheritance rule. It is checked in the runtime's build, which is equally
-/// all-or-nothing, so a settings save naming an unapproved toolbox is still a
+/// all-or-nothing, so a settings save naming an unapproved container is still a
 /// refusal that changes nothing rather than a turn that dies later.
 fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarning>) -> Result<()> {
     // A warning rather than a refusal, and the distinction is the whole design
@@ -425,7 +418,6 @@ fn build(
         live_prompt: source.live_prompt.clone(),
         wrap_up_prompt: source.wrap_up_prompt.clone(),
         platform_prompt: source.platform_prompt.clone(),
-        toolbox_prompt: source.toolbox_prompt.clone(),
         tool_policy_prompt: source.tool_policy_prompt.clone(),
         memory_prompt: source.memory_prompt.clone(),
         skills_prompt: source.skills_prompt.clone(),
@@ -441,7 +433,6 @@ fn build(
             source.tools.clone()
         },
         tools_config: merge_tools_config(&config.tools, entry),
-        toolbox: source.toolbox.clone(),
         container: source.container.clone(),
         subagents: resolve_subagents(config, id, entry, warnings)?,
     };
@@ -450,12 +441,6 @@ fn build(
 }
 
 /// Tool prompt overrides naming a tool this agent will not advertise.
-///
-/// Separate from the buildability check because it needs something the pure
-/// inheritance rule does not have: the toolbox's own programs, which are merged
-/// over the agent's map when the loop is built and are not decidable from
-/// `agents.list` alone. Checking without them would warn about every override on
-/// a toolboxed agent, which is worse than not checking.
 ///
 /// Field names are not checked here for the same reason one step further on —
 /// they need the tool's JSON Schema, which lives in the registry. The editor
@@ -551,8 +536,8 @@ pub fn resolve_agent(config: &Config, id: Option<&str>) -> Result<EffectiveAgent
 /// them is a place where "this install is broken" is a true thing to say.
 ///
 /// It degrades on **absence**, never on **fault**: an agent that exists but
-/// cannot be built — an egress rule that is not a CIDR, a toolbox network with
-/// no toolbox — still fails. Those are settings that were never going to work,
+/// cannot be built — an egress rule that is not a CIDR, a container network with
+/// no container — still fails. Those are settings that were never going to work,
 /// and silently substituting a different agent for them would hide the one thing
 /// the operator needs to see.
 ///

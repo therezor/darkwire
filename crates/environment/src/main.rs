@@ -26,13 +26,6 @@ async fn main() {
                     WorkspaceRegistration {
                         path: "/workspaces/default".into(),
                         daemon_path: host.join("workspaces/default"),
-                        toolboxes: std::env::var("GHOSTAI_SANDBOX_TOOLBOXES")
-                            .unwrap_or_else(|_| "coding,review".into())
-                            .split(',')
-                            .map(str::trim)
-                            .filter(|name| !name.is_empty())
-                            .map(str::to_owned)
-                            .collect(),
                         containers: std::env::var("GHOSTAI_SANDBOX_CONTAINERS")
                             .unwrap_or_else(|_| "dev".into())
                             .split(',')

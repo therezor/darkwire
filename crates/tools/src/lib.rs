@@ -29,7 +29,6 @@ pub mod builtin;
 pub mod container_runner;
 pub mod environment;
 pub mod names;
-pub mod operations;
 pub mod registry;
 pub mod runner;
 pub mod scope;

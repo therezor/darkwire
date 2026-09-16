@@ -3,28 +3,14 @@
 Time: Tuesday, 14 November 2023 at 22:13 (UTC) — 2023-11-14T22:13:20Z
 ## Running commands
 
-This machine runs Linux x64, Node 22.11.0. Your `exec` calls do not: they run inside the
-`web-research` toolbox container described below. The file tools are the other
-way round — they always act on the workspace here, never inside the container.
+`exec` runs on this machine — Linux x64, Node 22.11.0 — as a real process on the real
+filesystem. Unlike the file tools it is therefore *not* confined to the workspace,
+which is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is
+refused rather than resolved inside. Its working directory is already the
+workspace root, so pass relative arguments.
 
-Both reach the same files under different names: what the file tools call
-`notes/todo.md` is `/workspace/notes/todo.md` to a command.
-
----
-
-## Toolbox: web-research
-
-A shell is available in here, so a pipeline goes through `["bash","-lc","…"]`.
-Nothing from this machine is visible except the workspace, so write findings
-there rather than holding them in context. Output too large to return is kept
-in full under `/run/ghost-runs/`; reach it with a shell command, not the file
-tools.
-
-Installed:
-- `search` — Search the web.
-- `curl`
-
-Run `tools` for the full reference.
+- Standard shell tools and UTF-8 are available.
+- Prefer the file tools where they are simpler or more reliable than a command.
 
 ## Tool output policy
 

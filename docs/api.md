@@ -91,13 +91,12 @@ the schema, and changing either revokes every other session.
 | GET                  | `/api/sessions/:key/turns`    | `required` | Per-turn stats: model, provider, iterations, stop reason, tokens.                           |
 | POST                 | `/api/sessions/:key/branch`   | `required` | Forks the session at a message.                                                             |
 
-### Agents, tools, toolboxes
+### Agents, tools, containers
 
 | Method | Path                          | Auth       | Notes                                                                       |
 | ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------- |
 | GET    | `/api/agents`                 | `required` | **Read-only.** Agents are created and edited through `PATCH /api/settings`. |
 | GET    | `/api/tools`                  | `required` | What is registered, with source and risk band.                              |
-| GET    | `/api/toolboxes`              | `required` | Installed toolbox capability policies, with each one's digest.              |
 | GET    | `/api/containers`             | `required` | Independently installed execution-container definitions and their digests.  |
 | GET    | `/api/sandboxes`              | `required` | Live container instances, sharing and busy state.                           |
 | POST   | `/api/sandboxes`              | `required` | Start, stop, restart, or health-check an instance.                          |
@@ -113,7 +112,7 @@ approval records the digest of the bytes on disk at that moment; putting it in
 `config.yaml` would make it survive an edit to the very files it was about. Nothing about
 either is safe to replay across such an edit, which is what rules out `PUT`.
 
-`GET /api/mcp` is read-only, like `/api/toolboxes`: a server is created, edited and
+`GET /api/mcp` is read-only, like `/api/containers`: a server is created, edited and
 deleted through `PATCH /api/settings`, because it is configuration. What this route
 carries is what the settings tree cannot — the state a server is actually in, the reason
 it is not connected, and the URL an operator must visit when it wants authorizing. A

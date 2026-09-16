@@ -7,7 +7,6 @@ services:
       target: service
     environment:
       GHOSTAI_DATA_DIR: ${GHOSTAI_DATA_DIR:?Set an absolute host data directory}
-      GHOSTAI_SANDBOX_TOOLBOXES: ${GHOSTAI_SANDBOX_TOOLBOXES:-coding,review}
       GHOSTAI_SANDBOX_CONTAINERS: ${GHOSTAI_SANDBOX_CONTAINERS:-dev}
       GHOSTAI_GATEWAY_IMAGE: ${GHOSTAI_GATEWAY_IMAGE:-}
     volumes:

@@ -1,19 +1,15 @@
-//! Versioned, bounded Unix-socket protocol for granted container operations.
+//! Versioned, bounded Unix-socket protocol for running a command in a
+//! container.
 use crate::container_pool::{
     ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
 };
 use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::toolbox::{OperationImplementation, ToolOperation};
-use ghostai_protocol::{ContainerNetwork, SandboxRequest, ToolPermission};
-use ghostai_security::toolbox::invalid;
-use ghostai_security::{
-    ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, command_argv, guard_exec,
-    validate_input,
-};
-use ghostai_tools::operations::OperationExecutor;
+use ghostai_protocol::{ContainerNetwork, SandboxRequest};
+use ghostai_security::container::invalid;
+use ghostai_security::{ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, guard_exec};
 use ghostai_tools::{
     BoxFuture, CommandRunner, Environment, OutputStream, OutputTee, PlacementRequest, RunOutcome,
-    RunRequest, ToolContext, ToolExecution,
+    RunRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -98,14 +94,14 @@ impl ServiceConfig {
                 .ok_or_else(|| invalid("Missing socket name"))?,
         );
         let mut protected = vec![self.state_root.clone(), self.socket.clone()];
-        for directory in ["toolboxes", "tool-definitions", "containers"] {
-            let path = self.policy_root.join(directory);
-            protected.push(if path.exists() {
-                path.canonicalize().map_err(|e| invalid(e.to_string()))?
-            } else {
-                path
-            });
-        }
+        let containers = self.policy_root.join("containers");
+        protected.push(if containers.exists() {
+            containers
+                .canonicalize()
+                .map_err(|e| invalid(e.to_string()))?
+        } else {
+            containers
+        });
         for registration in self.workspaces.values_mut() {
             absolute(&registration.path)?;
             absolute(&registration.daemon_path)?;
@@ -135,9 +131,8 @@ impl ServiceConfig {
 
 /// One workspace a client may name, and the policy it may reach from there.
 ///
-/// The app decides which toolbox and container an agent selects; this decides
-/// whether they may be used in this workspace at all. Both have to agree, and
-/// this is the half that owns the engine.
+/// The app decides which container an agent selects; this decides whether it
+/// may be used in this workspace at all.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkspaceRegistration {
@@ -147,8 +142,6 @@ pub struct WorkspaceRegistration {
     /// same string: a bind source is resolved by the daemon, not by this
     /// process.
     pub daemon_path: PathBuf,
-    /// Toolboxes whose operations may be called here.
-    pub toolboxes: Vec<String>,
     /// Containers that may be started here.
     #[serde(default)]
     pub containers: Vec<String>,
@@ -291,55 +284,6 @@ impl Environment for ContainerEnvironment {
     }
 }
 
-impl OperationExecutor for SandboxClient {
-    fn execute<'a>(
-        &'a self,
-        toolbox: &'a str,
-        digest: &'a str,
-        operation: &'a str,
-        args: Value,
-        ctx: &'a ToolContext,
-    ) -> BoxFuture<'a, ToolExecution> {
-        Box::pin(async move {
-            let Some(placement) = &ctx.placement else {
-                return invalid("Missing sandbox identity").into();
-            };
-            let request = SandboxRequest::Execute {
-                toolbox: toolbox.into(),
-                digest: digest.into(),
-                container: placement.container.clone(),
-                operation: operation.into(),
-                workspace: placement.workspace_id.clone(),
-                agent: placement.agent_id.clone(),
-                session: placement.session_key.clone(),
-                network: placement.network.clone(),
-                args,
-            };
-            match self.request(request, &ctx.token).await {
-                Ok(value) => {
-                    let mut result = ToolExecution::ok(
-                        value
-                            .get("content")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default(),
-                    );
-                    result.is_error = value
-                        .get("isError")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    result.details = value
-                        .get("details")
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default();
-                    result
-                }
-                Err(error) => error.into(),
-            }
-        })
-    }
-}
-
 async fn read_frame(socket: &mut UnixStream) -> Result<Value> {
     let length = socket.read_u32().await.map_err(|e| {
         invalid(format!(
@@ -382,19 +326,6 @@ struct Service {
     pool: Arc<ContainerPool>,
 }
 impl Service {
-    fn authorize_toolbox(&self, toolbox: &str, workspace: &str) -> Result<()> {
-        let registration = self
-            .config
-            .workspaces
-            .get(workspace)
-            .ok_or_else(|| invalid("Workspace is not registered with the sandbox service"))?;
-        if registration.toolboxes.iter().any(|name| name == toolbox) {
-            Ok(())
-        } else {
-            Err(invalid("Toolbox is not authorized for this workspace"))
-        }
-    }
-
     /// The placement one request resolves to, checked against this service's
     /// own registration rather than trusted from the client.
     ///
@@ -422,7 +353,6 @@ impl Service {
             agent_id: agent.into(),
             workspace_id: workspace.into(),
             session_key: session.into(),
-            toolbox: String::new(),
             container: container.into(),
             network: network.clone(),
             workspace_root: registration.path.to_string_lossy().into_owned(),
@@ -430,180 +360,16 @@ impl Service {
     }
 }
 
-/// One `Execute` request, after the placement it resolves to is known.
-///
-/// A struct rather than eight parameters: every field is a name the client
-/// supplied, they are all `String`, and a call site that transposed two of them
-/// would type-check and authorise the wrong thing.
-struct ExecuteRequest {
-    spec: PlacementRequest,
-    toolbox: String,
-    digest: String,
-    container: String,
-    operation: String,
-    workspace: String,
-    args: Value,
-}
-
 impl Service {
-    /// Reads back part of a command's own transcript.
-    ///
-    /// The run name is checked against an alphabet rather than joined blind:
-    /// it becomes a path component under a directory holding every run, so a
-    /// separator in it would read another instance's output.
-    fn read_transcript(
-        &self,
-        spec: &PlacementRequest,
-        definition: &ToolOperation,
-        args: &Value,
-    ) -> Result<Value> {
-        use std::io::{Read, Seek};
-        validate_input(definition, args)?;
-        let run = args
-            .get("run")
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid("Transcript run is required"))?;
-        if run.is_empty()
-            || run.len() > 128
-            || !run.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        {
-            return Err(invalid("Invalid transcript run"));
-        }
-        let stream = args
-            .get("stream")
-            .and_then(Value::as_str)
-            .unwrap_or("stdout");
-        if !matches!(stream, "stdout" | "stderr") {
-            return Err(invalid("Invalid transcript stream"));
-        }
-        let root = self.pool.transcript_directory(spec)?;
-        let mut file = std::fs::File::open(root.join(run).join(format!("{stream}.log")))
-            .map_err(|e| invalid(e.to_string()))?;
-        let offset = args
-            .get("offset")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(8192)
-            .min(65536);
-        file.seek(std::io::SeekFrom::Start(offset))
-            .map_err(|e| invalid(e.to_string()))?;
-        let mut bytes = Vec::new();
-        file.take(limit)
-            .read_to_end(&mut bytes)
-            .map_err(|e| invalid(e.to_string()))?;
-        let next = offset.saturating_add(bytes.len() as u64);
-        Ok(
-            json!({"content":String::from_utf8_lossy(&bytes),"isError":false,"details":{"nextOffset":next}}),
-        )
-    }
-
-    /// Runs one granted operation in its container.
-    ///
-    /// Both definitions are re-read here even though the caller resolved them:
-    /// the caller is the app, and the service owns the engine. They are then
-    /// re-read again on a ticker for as long as the command runs, because an
-    /// edit during a twenty-minute scan has to reach the command that is
-    /// already inside the container.
-    async fn execute(
-        &self,
-        request: ExecuteRequest,
-        token: CancellationToken,
-        progress: Option<tokio::sync::mpsc::Sender<Value>>,
-    ) -> Result<Value> {
-        let ExecuteRequest {
-            spec,
-            toolbox,
-            digest,
-            container,
-            operation,
-            workspace,
-            args,
-        } = request;
-        self.authorize_toolbox(&toolbox, &workspace)?;
-        let installed = self.store.require_toolbox(&toolbox)?;
-        if digest != installed.digest() {
-            return Err(invalid(
-                "The toolbox definition changed since the call was prepared",
-            ));
-        }
-        let installed_container = self.store.require_container(&container)?;
-        let grant = installed
-            .resolved
-            .toolbox
-            .tools
-            .iter()
-            .find(|g| g.name == operation && g.permission != ToolPermission::Deny)
-            .ok_or_else(|| invalid("Operation is not granted by the toolbox"))?;
-        let definition = installed
-            .resolved
-            .operations
-            .get(&grant.name)
-            .ok_or_else(|| invalid("Operation is unavailable"))?;
-        if matches!(
-            definition.implementation,
-            OperationImplementation::Transcript
-        ) {
-            return self.read_transcript(&spec, definition, &args);
-        }
-        if !matches!(
-            definition.implementation,
-            OperationImplementation::Command { .. }
-        ) {
-            return Err(invalid("Only command operations run in tool containers"));
-        }
-        let jail = Arc::new(WorkspaceJail::new(JailOptions::new(&spec.workspace_root))?);
-        let command = command_argv(definition, &args, &jail)?;
-        let toolbox_digest = installed.digest().to_owned();
-        let outcome = self
-            .run_guarded(
-                &spec,
-                &command,
-                Bounds::default(),
-                Drift {
-                    toolbox: Some((toolbox.clone(), toolbox_digest)),
-                    container: (container.clone(), installed_container.digest.clone()),
-                },
-                token,
-                progress,
-            )
-            .await?;
-        let content = format!(
-            "{}\n{}\nExit code: {:?}{}",
-            outcome.stdout,
-            outcome.stderr,
-            outcome.code,
-            if outcome.timed_out {
-                " (timed out)"
-            } else {
-                ""
-            }
-        );
-        let run_id = outcome
-            .transcript_dir
-            .as_ref()
-            .and_then(|dir| dir.rsplit('/').next())
-            .map(str::to_owned);
-        Ok(
-            json!({"content":content,"isError":outcome.timed_out || outcome.code != Some(0), "details":{"transcriptDir":outcome.transcript_dir,"run":run_id,"truncated":outcome.truncated}}),
-        )
-    }
-
     /// Guards one argv and runs it in the caller's container.
     ///
-    /// The half both entry points share. `Execute` reaches it with an argv a
-    /// toolbox definition composed; `Exec` reaches it with one the agent's own
-    /// guard already refused to shell out. Either way the guard here is the one
-    /// that counts, because the caller is the app and the service owns the
-    /// engine.
+    /// The service guards again because it, rather than the app, owns the engine.
     async fn run_guarded(
         &self,
         spec: &PlacementRequest,
         command: &[String],
         bounds: Bounds,
-        drift: Drift,
+        drift: (String, String),
         token: CancellationToken,
         progress: Option<tokio::sync::mpsc::Sender<Value>>,
     ) -> Result<RunOutcome> {
@@ -641,7 +407,7 @@ impl Service {
             tokio::select! {
                 outcome = &mut run => return outcome,
                 _ = interval.tick() => {
-                    if token.is_cancelled() || !self.definitions_unchanged(&drift) {
+                    if token.is_cancelled() || !self.definition_unchanged(&drift) {
                         run_token.cancel();
                         let _ = (&mut run).await;
                         return Err(invalid("Cancelled, or a definition changed while this ran"));
@@ -651,19 +417,12 @@ impl Service {
         }
     }
 
-    /// Whether both definitions still hash to what the call was prepared at.
-    fn definitions_unchanged(&self, drift: &Drift) -> bool {
-        let toolbox = drift.toolbox.as_ref().is_none_or(|(name, digest)| {
-            self.store
-                .require_toolbox(name)
-                .is_ok_and(|current| current.digest() == digest)
-        });
-        let (container, digest) = &drift.container;
-        toolbox
-            && self
-                .store
-                .require_container(container)
-                .is_ok_and(|current| &current.digest == digest)
+    /// Whether the container still hashes to what the call was prepared at.
+    fn definition_unchanged(&self, drift: &(String, String)) -> bool {
+        let (container, digest) = drift;
+        self.store
+            .require_container(container)
+            .is_ok_and(|current| &current.digest == digest)
     }
 }
 
@@ -688,20 +447,11 @@ impl Bounds {
     }
 }
 
-/// The definitions a running command is pinned to.
-///
-/// A toolbox operation is pinned to both; a plain command has no toolbox to
-/// drift, so that half is absent rather than empty.
-struct Drift {
-    toolbox: Option<(String, String)>,
-    container: (String, String),
-}
-
 /// The ceilings the service imposes whatever a caller asks for.
 const MAX_OUTPUT_BYTES: u64 = 128 * 1024;
 const MAX_TIMEOUT_MS: u64 = 300_000;
 
-/// How often a running command's two definitions are re-read from disk.
+/// How often a running command's container definition is re-read from disk.
 ///
 /// An in-flight scan is the one place an edit has to reach code that is
 /// already inside the container; the idle sweep cannot see it.
@@ -763,42 +513,12 @@ impl Service {
                             timeout_ms,
                             max_output_bytes,
                         },
-                        Drift {
-                            toolbox: None,
-                            container: (container.clone(), installed.digest.clone()),
-                        },
+                        (container.clone(), installed.digest.clone()),
                         token,
                         progress,
                     )
                     .await?;
                 serde_json::to_value(&outcome).map_err(|e| invalid(e.to_string()))
-            }
-            SandboxRequest::Execute {
-                toolbox,
-                digest,
-                container,
-                operation,
-                workspace,
-                agent,
-                session,
-                network,
-                args,
-            } => {
-                let spec = self.spec(&container, &workspace, &agent, &session, &network)?;
-                self.execute(
-                    ExecuteRequest {
-                        spec,
-                        toolbox,
-                        digest,
-                        container,
-                        operation,
-                        workspace,
-                        args,
-                    },
-                    token,
-                    progress,
-                )
-                .await
             }
         }
     }
@@ -983,8 +703,6 @@ mod tests {
     fn config(root: &std::path::Path) -> ServiceConfig {
         for directory in [
             "policies",
-            "policies/toolboxes",
-            "policies/tool-definitions",
             "policies/containers",
             "state",
             "control",
@@ -1002,7 +720,6 @@ mod tests {
                 WorkspaceRegistration {
                     path: root.join("workspace"),
                     daemon_path: "/daemon/workspace".into(),
-                    toolboxes: vec!["coding".into()],
                     containers: vec!["dev".into()],
                 },
             )]),
@@ -1017,7 +734,7 @@ mod tests {
         assert!(config(root.path()).validate_paths().is_ok());
         let mut overlap = config(root.path());
         overlap.workspaces.get_mut("default").unwrap().path =
-            root.path().join("policies/toolboxes");
+            root.path().join("policies/containers");
         assert!(overlap.validate_paths().is_err());
         let mut daemon_overlap = config(root.path());
         daemon_overlap

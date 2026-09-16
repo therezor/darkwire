@@ -19,7 +19,7 @@
 //!  - **The answer is text, not a resource key.** Every built-in command
 //!    answers with a key its caller renders; an extension's copy ships with the
 //!    extension and the translation layer has never seen it. The same rule a
-//!    toolbox's notes follow.
+//!    container's notes follow.
 //!  - **A command that reports failure is a 200 with `ok: false`.** An
 //!    extension's bug should read as "that did not work" in the composer, not
 //!    as a 500 in the console — and the operator typed a command, which is not

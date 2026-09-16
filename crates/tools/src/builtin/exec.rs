@@ -121,10 +121,9 @@ pub fn effective_timeout(plan: &ExecPlan, requested: Option<u64>) -> u64 {
 
 /// How a command's outcome reads to the model.
 ///
-/// Shared with a toolbox entry exposed as its own tool, which is the same
-/// command with the program fixed: two renderings of "what happened" would
-/// drift — one of them eventually forgetting to mention the transcript, or the
-/// exit code.
+/// One rendering for both placements. A second would drift — eventually
+/// forgetting to mention the transcript, or the exit code — and the model would
+/// have no way to tell which one it was reading.
 pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> ToolOutput {
     let mut sections: Vec<String> = Vec::new();
     if !outcome.stdout.is_empty() {

@@ -66,9 +66,8 @@ pub type ToolPermissions = IndexMap<String, ToolPermission>;
 
 /// The tools that ship in the box.
 ///
-/// Named here, below the crate that implements them, because two things need
-/// the *names* without the implementations: the security layer refuses a
-/// toolbox that shadows one, and the default agent tool map seeds a new agent
+/// Named here, below the crate that implements them, because the default agent
+/// tool map needs the *names* without the implementations, to seed a new agent
 /// with them.
 pub const BUILTIN_TOOL_NAMES: &[&str] = &[
     "read_file",

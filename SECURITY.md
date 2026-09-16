@@ -30,11 +30,10 @@ Anything that lets someone do something the operator did not authorise, in parti
 - Bypassing the approval gate: an `ask` tool that runs without the operator answering.
 - Running an unapproved extension, or getting an extension approval to survive a change
   to the bytes it covers.
-- Running a toolbox operation or a container whose definition has changed under it, or
-  reaching a definition outside `~/.ghostai/policy/`.
+- Running a command in a container whose definition has changed under it, or reaching a
+  definition outside `~/.ghostai/policy/`.
 - Authentication bypass, session fixation, or defeating the login throttle.
-- Escaping a toolbox container, or widening its network mode beyond the manifest's
-  ceiling.
+- Escaping a container, or reaching a host its egress gateway should have refused.
 
 ## What is out of scope, and why
 
@@ -45,7 +44,7 @@ guard is. Reporting one gets you a link back to this list.
   cannot clamp a process. A spawned command is an ordinary process with your user's
   permissions and does not honour the workspace root. The workspace is an organisational
   boundary there, not a security boundary — which is what
-  [toolboxes](docs/toolboxes.md) exist for. `guardExec` _refuses_ outward-shaped argv
+  [containers](docs/containers.md) exist for. `guardExec` _refuses_ outward-shaped argv
   rather than pretending to clamp it.
 - **Extensions.** They are not sandboxed, and the approval dialog says so rather than
   implying otherwise: an extension is ordinary JavaScript in the server process at the

@@ -22,14 +22,14 @@ import {
   McpTransportSchema,
   ReasoningEffortSchema,
 } from './config.js';
-import { ContainerLimitsSchema, ContainerRuntimeSchema } from './toolbox.js';
+import { ContainerLimitsSchema, ContainerRuntimeSchema } from './container.js';
 import {
   StopReasonSchema,
   StoredMessageSchema,
   UsageSchema,
 } from './messages.js';
 import { SubagentRunRefSchema } from './subagent.js';
-import { ToolDefinitionSchema, ToolPermissionSchema } from './tools.js';
+import { ToolDefinitionSchema } from './tools.js';
 import { AutomationJobSchema, AutomationRunSchema } from './automation.js';
 import { ExtensionContributionSchema } from './extension.js';
 
@@ -652,40 +652,8 @@ export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
  * Three fields rather than a bare name, because the editor renders a permission
  * row per grant: it needs something to label the row with and the manifest's own
  * ceiling to show beside what the agent chose. Fetching that separately would
- * mean a second request per toolbox to render one list.
+ * mean a second request per container to render one list.
  */
-export const ToolboxToolSummarySchema = z.object({
-  name: z.string(),
-  /** What the operation does, as the model is told. */
-  description: z.string(),
-  /** The grant's ceiling. An agent's `tools` map may only tighten it. */
-  permission: ToolPermissionSchema,
-});
-export type ToolboxToolSummary = z.infer<typeof ToolboxToolSummarySchema>;
-
-/**
- * One installed toolbox, as a settings screen needs to see it.
- *
- * A toolbox is a set of grants and nothing else, so there is no image, network
- * or hardening to report here — those belong to a container, which is chosen
- * separately and summarised by `ContainerSummary`.
- *
- * `problem` is the field that decides whether an agent can use it: a manifest
- * that does not parse, or that names an operation which is not installed,
- * carries the sentence saying so and cannot be selected.
- */
-export const ToolboxSummarySchema = z.object({
-  name: z.string(),
-  label: z.string(),
-  version: z.string(),
-  /** Caveats about the set as a whole. */
-  notes: z.string(),
-  /** What it grants, for the picker to show without a second request. */
-  tools: z.array(ToolboxToolSummarySchema),
-  problem: z.string().optional(),
-});
-export type ToolboxSummary = z.infer<typeof ToolboxSummarySchema>;
-
 /**
  * One installed container definition.
  *
@@ -714,11 +682,6 @@ export const ContainerSummarySchema = z.object({
   problem: z.string().optional(),
 });
 export type ContainerSummary = z.infer<typeof ContainerSummarySchema>;
-
-export const ToolboxListResponseSchema = z.object({
-  toolboxes: z.array(ToolboxSummarySchema),
-});
-export type ToolboxListResponse = z.infer<typeof ToolboxListResponseSchema>;
 
 export const ContainerListResponseSchema = z.object({
   containers: z.array(ContainerSummarySchema),
@@ -759,20 +722,6 @@ export type SandboxListResponse = z.infer<typeof SandboxListResponseSchema>;
 export const SandboxRequestSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('health') }).strict(),
   z.object({ op: z.literal('list') }).strict(),
-  z
-    .object({
-      op: z.literal('execute'),
-      toolbox: z.string(),
-      digest: z.string(),
-      container: z.string(),
-      operation: z.string(),
-      workspace: z.string(),
-      agent: z.string(),
-      session: z.string(),
-      network: ContainerNetworkSchema.prefault({}),
-      args: z.unknown(),
-    })
-    .strict(),
   z
     .object({
       op: z.literal('exec'),
@@ -983,7 +932,7 @@ export const RunCommandResponseSchema = z.object({
    * What to show the operator, verbatim.
    *
    * Not a resource key: an extension's copy ships with the extension, so the
-   * translation layer has never seen it. The same rule a toolbox's `notes`
+   * translation layer has never seen it. The same rule a container's `notes`
    * follows.
    */
   message: z.string().default(''),

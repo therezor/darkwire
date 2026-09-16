@@ -148,8 +148,7 @@ fn does_nothing_when_there_is_nowhere_to_write() {
 
 #[test]
 fn reports_a_sheet_this_catalogue_does_not_carry_and_installs_the_rest() {
-    // A warning rather than a refusal, unlike the toolbox half: an agent with
-    // one fewer index line runs, and an agent with no toolbox cannot.
+    // A warning rather than a refusal: an agent with one fewer index line still runs.
     let root = TempDir::new().unwrap();
     let skills = catalogue(root.path(), vec![("code-review", Sheet::default())]);
     let target_dir = target(root.path());

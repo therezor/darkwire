@@ -12,7 +12,7 @@ Budget about ten minutes, most of which is a model download.
 | ----------- | ---------------------------------------------------------------------------------------- |
 | **64-bit**  | macOS or Linux, Intel or ARM. There is a build for each of the four.                     |
 | **A model** | Either [Ollama](https://ollama.com) running locally, or an API key for a cloud provider. |
-| **Docker**  | Optional. Only for [toolboxes](toolboxes.md).                                            |
+| **Docker**  | Optional. Only for [containers](containers.md).                                          |
 
 That is the whole list. GhostAI is a single binary with the browser UI compiled into
 it: no runtime to install, no database, no compiler, no second service.
@@ -166,10 +166,9 @@ ghostai preset install
 
 Tick the agents you want and it does the rest — including building the container images
 the ones you ticked need, which is why picking only `nano` needs no Docker at all. The run
-prints what each box may do — its network ceiling, its limits, any hardening it switches
-off — so you can read a manifest before an agent uses it. `ghostai toolbox list` and
-`ghostai container list` print the same thing again at any time.
-[Toolboxes](toolboxes.md) explains what each manifest decides.
+`ghostai container list` then prints what each installed container may do — its limits,
+its capabilities, any hardening it switches off — so you can read a definition before an
+agent uses it. [Containers](containers.md) explains what each definition decides.
 
 ## 4. Your first conversation
 
@@ -250,20 +249,20 @@ See [Tools & permissions](tools.md).
 > **Worth reading once before you turn `exec` to `allow`.** The workspace is an
 > organisational boundary, not a security boundary, wherever host `exec` is enabled — a
 > command it spawns is a normal process on your machine and does not honour the jail.
-> [Toolboxes](toolboxes.md) are the answer to that: `exec` inside a digest-pinned
+> [Containers](containers.md) are the answer to that: `exec` inside a digest-pinned
 > container with caps dropped and a read-only root.
 
 ## 7. Where your things live
 
 Everything is under `~/.ghostai`, or `$GHOSTAI_HOME`:
 
-| Path                        | What                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------- |
-| `config.yaml`               | The settings tree. **Safe to commit** — no credentials are in it.                   |
-| `ghost.db`                  | Sessions, messages, turn stats, auth, notifications, approvals.                     |
-| `vault.json` + `vault.key`  | The encrypted credential vault. The key moves to the OS keychain when there is one. |
-| `workspace/`                | The only tree the agent's file tools can reach.                                     |
-| `toolboxes/`, `extensions/` | Installed manifests — beside the workspace, never inside it.                        |
+| Path                         | What                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `config.yaml`                | The settings tree. **Safe to commit** — no credentials are in it.                   |
+| `ghost.db`                   | Sessions, messages, turn stats, auth, notifications, approvals.                     |
+| `vault.json` + `vault.key`   | The encrypted credential vault. The key moves to the OS keychain when there is one. |
+| `workspace/`                 | The only tree the agent's file tools can reach.                                     |
+| `containers/`, `extensions/` | Installed manifests — beside the workspace, never inside it.                        |
 
 API keys never go in `config.yaml`. They go to the vault, keyed by provider instance, so
 you can commit your settings and share them.

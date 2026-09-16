@@ -71,7 +71,6 @@ fn request(agent_id: &str, session_key: &str, workspace_id: &str) -> PlacementRe
         agent_id: agent_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         session_key: session_key.to_owned(),
-        toolbox: String::new(),
         container: String::new(),
         network: ContainerNetwork::default(),
         workspace_root: "/tmp".to_owned(),

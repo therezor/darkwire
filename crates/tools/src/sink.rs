@@ -22,7 +22,7 @@ pub trait ToolSink: Send + Sync {
     /// Replaces everything `owner_id` currently holds.
     ///
     /// Returns the names it could not register — a collision with a built-in, a
-    /// toolbox program or another owner. Returned rather than failed: one clash
+    /// container program or another owner. Returned rather than failed: one clash
     /// must not cost an owner its other thirty-nine tools, and the caller is the
     /// one that knows where to report it.
     fn replace(&self, owner_id: &str, tools: Vec<AnyTool>) -> Vec<String>;

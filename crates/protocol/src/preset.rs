@@ -1,6 +1,6 @@
 //! An agent preset: an installable agent definition.
 //!
-//! A preset is a JSON file — beside a catalogue's toolbox and container
+//! A preset is a JSON file — beside a catalogue's container
 //! definitions, or bundled with the CLI — that `ghostai agent install` turns
 //! into an entry in `agents.list`.
 //! After install it is ordinary agent config: the operator edits it in the UI,
@@ -12,7 +12,7 @@
 //! point: no model, provider, temperature or token caps, because those describe
 //! an install and a preset describes a role; no `exec` patch and no `enabled`
 //! flag, because installing a disabled agent is a contradiction; and the
-//! toolbox and container references are the same names an agent carries, with
+//! container references are the same names an agent carries, with
 //! everything that could widen a boundary living in the approved container
 //! definition, so a preset can express nothing a settings save could not. `tools_enabled` is
 //! the one settings knob a preset may set, because one preset exists to switch
@@ -23,9 +23,7 @@ use garde::Validate;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{
-    AgentContainer, AgentEntry, AgentToolbox, PromptMode, SubagentRef, default_agent_tools,
-};
+use crate::config::{AgentContainer, AgentEntry, PromptMode, SubagentRef, default_agent_tools};
 use crate::ids::SLUG_ID_PATTERN;
 use crate::json::{literal, prefault};
 use crate::tools::ToolPermissions;
@@ -51,9 +49,7 @@ pub struct AgentPreset {
     /// Shown in the UI. Empty falls back to the id.
     #[serde(default)]
     pub label: String,
-    /// The whole static prompt. A preset's is where a toolbox's tool
-    /// documentation lives, so it carries its own heading and workspace
-    /// section.
+    /// The whole static prompt.
     #[serde(default)]
     pub system_prompt: String,
     /// See [`AgentEntry::live_prompt`].
@@ -65,9 +61,6 @@ pub struct AgentPreset {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default)]
     pub platform_prompt: String,
-    /// See [`AgentEntry::toolbox_prompt`].
-    #[serde(default)]
-    pub toolbox_prompt: String,
     /// See [`AgentEntry::tool_policy_prompt`].
     #[serde(default)]
     pub tool_policy_prompt: String,
@@ -86,12 +79,7 @@ pub struct AgentPreset {
     /// Replaces, never merges — the same rule as [`AgentEntry::tools`].
     #[serde(default = "default_agent_tools")]
     pub tools: ToolPermissions,
-    /// Where `exec` runs.
-    #[serde(default)]
-    #[schemars(transform = prefault)]
-    #[garde(dive)]
-    pub toolbox: AgentToolbox,
-    /// Command placement, selected independently of the toolbox.
+    /// Command placement for built-in `exec`.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
@@ -126,14 +114,12 @@ pub fn preset_to_agent_entry(preset: &AgentPreset) -> AgentEntry {
         live_prompt: preset.live_prompt.clone(),
         wrap_up_prompt: preset.wrap_up_prompt.clone(),
         platform_prompt: preset.platform_prompt.clone(),
-        toolbox_prompt: preset.toolbox_prompt.clone(),
         tool_policy_prompt: preset.tool_policy_prompt.clone(),
         memory_prompt: preset.memory_prompt.clone(),
         skills_prompt: preset.skills_prompt.clone(),
         prompt_mode: preset.prompt_mode,
         enabled: true,
         tools: preset.tools.clone(),
-        toolbox: preset.toolbox.clone(),
         container: preset.container.clone(),
         subagents: preset.subagents.clone(),
         ..AgentEntry::default()

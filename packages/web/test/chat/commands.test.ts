@@ -489,7 +489,7 @@ describe('a command an extension contributed', () => {
 
   it('answers with the extension’s own words, not a key', async () => {
     // Its copy ships with the extension and the locale bundle has never seen
-    // it. The same rule a toolbox's `notes` follows.
+    // it.
     const ctx = context({
       extensionCommands: ['slack'],
       runExtensionCommand: () =>

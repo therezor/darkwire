@@ -123,48 +123,6 @@ async fn a_bare_word_is_a_message_rather_than_a_command_nobody_defined() {
 }
 
 #[tokio::test]
-async fn a_refused_command_reports_the_sentence_the_error_carries() {
-    // `toolbox approve` with no id: the refusal names what was missing, and
-    // the code is the one the store commands use for a missing argument.
-    //
-    // `--home` is not decoration. The command opens the database before it
-    // looks at the argument, so without a home of its own this case would read
-    // and write the developer's real install.
-    let home = tempfile::tempdir().unwrap();
-    let ran = ran(
-        &[
-            "--home",
-            &home.path().display().to_string(),
-            "toolbox",
-            "approve",
-        ],
-        &Env::empty(),
-    )
-    .await;
-    assert_ne!(ran.code, 0);
-    assert!(!ran.err.is_empty(), "nothing was said about it");
-}
-
-#[tokio::test]
-async fn an_empty_toolbox_lists_nothing_and_succeeds() {
-    // A fresh install is not an error state: there is simply nothing approved
-    // yet, and the exit code has to say so or every setup script fails at the
-    // first check.
-    let home = tempfile::tempdir().unwrap();
-    let ran = ran(
-        &[
-            "--home",
-            &home.path().display().to_string(),
-            "toolbox",
-            "list",
-        ],
-        &Env::empty(),
-    )
-    .await;
-    assert_eq!(ran.code, 0, "{}", ran.err);
-}
-
-#[tokio::test]
 async fn ghostai_debug_adds_the_structured_detail_to_a_failure() {
     // There is no stack to print — the errors here are values, not unwinds —
     // so the debug form shows the kind and the details map instead, which is

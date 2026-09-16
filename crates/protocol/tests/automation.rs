@@ -8,8 +8,8 @@
 )]
 
 use garde::Validate;
-use ghostai_protocol::toolbox::{ContainerDefinition, ContainerLimits};
-use ghostai_protocol::{AutomationJob, AutomationPayload, AutomationSchedule, RunStatus, Toolbox};
+use ghostai_protocol::container::{ContainerDefinition, ContainerLimits};
+use ghostai_protocol::{AutomationJob, AutomationPayload, AutomationSchedule, RunStatus};
 use serde_json::json;
 
 #[test]
@@ -90,26 +90,6 @@ fn a_container_manifest_coerces_its_limits() {
         serde_json::from_value::<ContainerDefinition>(
             json!({"schema": "ghostai.container/2", "name": "x", "image": "i"})
         )
-        .is_err()
-    );
-}
-
-#[test]
-fn a_toolbox_manifest_carries_grants_and_no_image() {
-    let toolbox: Toolbox = serde_json::from_value(json!({
-        "schema": "ghostai.toolbox/1", "name": "recon",
-        "tools": [{"name": "git_status", "definition": "git-status"}],
-    }))
-    .unwrap();
-    assert_eq!(toolbox.tools.len(), 1);
-    assert_eq!(toolbox.tools[0].definition, "git-status");
-    assert!(toolbox.validate().is_ok());
-    // An image belongs to a container, so a toolbox naming one is rejected
-    // rather than quietly ignored.
-    assert!(
-        serde_json::from_value::<Toolbox>(json!({
-            "schema": "ghostai.toolbox/1", "name": "recon", "tools": [], "image": "img",
-        }))
         .is_err()
     );
 }

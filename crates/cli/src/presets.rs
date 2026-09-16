@@ -4,8 +4,8 @@
 //! named `<id>.yaml` — the filename *is* the agent id — and that is true
 //! whether it came from the catalogue or an operator wrote it this morning.
 //! There is no second location and no second format: an agent that works in a
-//! container says so in its own `toolbox.name` and is otherwise an ordinary
-//! preset, which is why one lives beside the toolbox-less ones rather than
+//! container says so in its own `container.name` and is otherwise an ordinary
+//! preset, which is why one lives beside the container-less ones rather than
 //! beside the manifest of the box it names.
 //!
 //! That is the whole of the resolution order, and it is two directories:

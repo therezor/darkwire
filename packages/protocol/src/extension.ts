@@ -1,7 +1,7 @@
 /**
  * An extension: a manifest, the code it names, and what it says it contributes.
  *
- * The shape is deliberately the toolbox manifest's, because the two solve the
+ * The shape is deliberately the container manifest's, because the two solve the
  * same problem. An extension's capabilities are not *settings* — they are the
  * boundary that decides what running it means — so they live in a file outside
  * the config tree, and `config.extensions` carries an id, an on/off and a block

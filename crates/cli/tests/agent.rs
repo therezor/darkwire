@@ -3,7 +3,7 @@
 //! What is asserted here is the *merge*: that a preset lands in `agents.list`
 //! exactly once, that the refusals fire before the write, and that the roster
 //! snapshot offers only specialists that can answer. The preset shape itself is
-//! `ghostai-protocol`'s and the toolbox gate is `ghostai-security`'s — both
+//! `ghostai-protocol`'s and the container gate is `ghostai-security`'s — both
 //! already tested where they live.
 //!
 //! Every run points `GHOSTAI_CATALOGUE` somewhere this file controls, including
@@ -116,39 +116,6 @@ impl Home {
         self.path().join("policy")
     }
 
-    /// A toolbox manifest and the definition it grants. Presets never live
-    /// here — see [`Home::preset`].
-    fn toolbox(&self, name: &str) {
-        let root = self.policy();
-        std::fs::create_dir_all(root.join("toolboxes")).expect("a toolboxes directory");
-        std::fs::create_dir_all(root.join("tool-definitions")).expect("a definitions directory");
-        std::fs::write(
-            root.join("toolboxes").join(format!("{name}.yaml")),
-            json!({
-                "schema": "ghostai.toolbox/1",
-                "name": name,
-                "tools": [{"name": "rg", "definition": "rg", "permission": "ask"}],
-            })
-            .to_string(),
-        )
-        .expect("a manifest");
-        std::fs::write(
-            root.join("tool-definitions").join("rg.yaml"),
-            json!({
-                "schema": "ghostai.tool/1",
-                "description": "Search the workspace.",
-                "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
-                "implementation": {
-                    "kind": "command",
-                    "executable": "/usr/bin/rg",
-                    "argv": ["--files"],
-                },
-            })
-            .to_string(),
-        )
-        .expect("a definition");
-    }
-
     /// A container definition on disk.
     fn container(&self, name: &str) {
         let dir = self.policy().join("containers");
@@ -255,55 +222,21 @@ fn installs_a_preset_from_an_explicit_path() {
 }
 
 #[test]
-fn installs_a_preset_by_its_id_whether_or_not_it_names_a_toolbox() {
-    // One lookup for both kinds. The preset is found by its own id — never
-    // beside the manifest of the box it happens to name.
+fn installs_a_preset_by_its_id() {
     let home = Home::new();
-    home.toolbox("research");
-    home.preset(
-        "scout",
-        &preset_for("scout", &json!({"toolbox": {"name": "research"}})),
-    );
+    home.preset("scout", &preset_for("scout", &json!({})));
 
     let run = home.install("scout");
 
     assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["toolbox"]["name"], json!("research"));
-}
-
-#[test]
-fn refuses_a_preset_whose_toolbox_is_not_installed() {
-    // An enabled agent naming a toolbox that is not there is a config the
-    // server refuses to boot on, so the refusal happens here, before the write.
-    let home = Home::new();
-    home.preset(
-        "scout",
-        &preset_for("scout", &json!({"toolbox": {"name": "research"}})),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 1);
-    assert!(
-        run.errors.contains("No toolbox is installed"),
-        "{}",
-        run.errors
-    );
-    assert!(home.config().is_none(), "nothing was written");
 }
 
 #[test]
 fn refuses_a_preset_whose_container_is_not_installed() {
-    // The two are independent, so an installed toolbox does not carry a
-    // container in with it.
     let home = Home::new();
-    home.toolbox("research");
     home.preset(
         "scout",
-        &preset_for(
-            "scout",
-            &json!({"toolbox": {"name": "research"}, "container": {"name": "dev"}}),
-        ),
+        &preset_for("scout", &json!({"container": {"name": "dev"}})),
     );
 
     let run = home.install("scout");
@@ -318,30 +251,7 @@ fn refuses_a_preset_whose_container_is_not_installed() {
 }
 
 #[test]
-fn installs_a_preset_naming_both_halves() {
-    // A toolbox decides what the agent may call and a container decides what
-    // the machine running those calls may be. Two definitions, one entry.
-    let home = Home::new();
-    home.toolbox("research");
-    home.container("dev");
-    home.preset(
-        "scout",
-        &preset_for(
-            "scout",
-            &json!({"toolbox": {"name": "research"}, "container": {"name": "dev"}}),
-        ),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
-}
-
-#[test]
-fn refuses_a_container_without_a_toolbox_before_writing_config() {
-    // A container only hosts a toolbox's granted operations, so one on its own
-    // would run nothing.
+fn installs_a_preset_naming_a_container() {
     let home = Home::new();
     home.container("dev");
     home.preset(
@@ -351,9 +261,23 @@ fn refuses_a_container_without_a_toolbox_before_writing_config() {
 
     let run = home.install("scout");
 
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("names no toolbox"), "{}", run.errors);
-    assert!(home.config().is_none(), "nothing was written");
+    assert_eq!(run.code, 0, "{}", run.errors);
+    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
+}
+
+#[test]
+fn installs_a_container_for_builtin_exec() {
+    let home = Home::new();
+    home.container("dev");
+    home.preset(
+        "scout",
+        &preset_for("scout", &json!({"container": {"name": "dev"}})),
+    );
+
+    let run = home.install("scout");
+
+    assert_eq!(run.code, 0, "{}", run.errors);
+    assert_eq!(home.agent("scout")["container"]["name"], json!("dev"));
 }
 
 #[test]
@@ -362,12 +286,11 @@ fn refuses_a_network_request_from_a_preset_that_names_no_container() {
     // one means nothing — and silently ignoring it would leave the config
     // saying one thing and the agent doing another.
     let home = Home::new();
-    home.toolbox("research");
     home.preset(
         "scout",
         &preset_for(
             "scout",
-            &json!({"toolbox": {"name": "research"}, "container": {"network": {"mode": "open"}}}),
+            &json!({"container": {"network": {"mode": "open"}}}),
         ),
     );
 
@@ -380,10 +303,7 @@ fn refuses_a_network_request_from_a_preset_that_names_no_container() {
 
 #[test]
 fn refuses_a_network_request_from_a_preset_that_names_nothing_at_all() {
-    // The same refusal, on a preset that names neither a toolbox nor a
-    // container. This is the one the check used to be skipped for: with both
-    // names empty there was nothing to look up, so the egress request went
-    // straight into `config.yaml` and failed the next boot instead.
+    // The same refusal on a preset that names no container.
     let home = Home::new();
     home.preset(
         "scout",
@@ -436,14 +356,12 @@ fn refuses_an_egress_request_nothing_could_enforce() {
         ),
     ] {
         let home = Home::new();
-        home.toolbox("research");
         home.container("dev");
         home.preset(
             "scout",
             &preset_for(
                 "scout",
                 &json!({
-                    "toolbox": {"name": "research"},
                     "container": {"name": "dev", "network": network},
                 }),
             ),
@@ -598,12 +516,7 @@ fn takes_the_model_and_the_endpoint_from_the_default_agent() {
 
 // the roster snapshot
 
-/// The delegator whose roster is under test, plus a toolbox-free stand-in for
-/// each specialist.
-///
-/// Every real specialist needs an approved toolbox, which this file has no
-/// daemon to build — and the roster rule under test is about *which agents
-/// exist*, not about what they run in.
+/// The delegator whose roster is under test, plus a specialist stand-in.
 fn with_lead() -> Home {
     let home = Home::new();
     home.preset(
@@ -818,7 +731,7 @@ fn lists_every_available_operator_preset() {
         run.output
     );
     // One command, not one per id, and it names the picker rather than this
-    // command — that is the one that also builds the toolbox an agent needs.
+    // command — the one that installs an agent configuration.
     assert!(
         run.output.contains("ghostai preset install"),
         "{}",

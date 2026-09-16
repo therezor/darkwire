@@ -145,7 +145,7 @@ pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
 ///
 /// The server's own port is the same two steps plus a credential sweep, and
 /// this is deliberately not a call into that: the REPL never builds a
-/// `ServerRuntime` — it is an HTTP-shaped port with toolbox approvals and
+/// `ServerRuntime` — it is an HTTP-shaped port with container approvals and
 /// credential writes on it — and the sweep only has anything to do when a patch
 /// *removes a provider instance*, which the patches a chat prompt sends never
 /// do.

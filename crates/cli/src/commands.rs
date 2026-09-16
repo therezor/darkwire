@@ -1111,7 +1111,7 @@ fn agent_label(ctx: &SlashContext<'_>, agent_id: &str) -> String {
 /// The patch itself comes from `agent_settings_patch`, which is where the rule
 /// that `agents.list.*` replaces wholesale lives. Do not build one here: a
 /// patch naming `model` alone does not set one field on a named agent, it
-/// replaces the agent and deletes its prompt, tools and toolbox with it.
+/// replaces the agent and deletes its prompt, tools and container with it.
 ///
 /// **It refuses outright under `--model`.** That flag is a statement about this
 /// process that the config cannot move, so a `/model` that appeared to work and

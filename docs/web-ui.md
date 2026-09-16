@@ -189,7 +189,7 @@ long turn to move a bar.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="screenshots/context.light.png">
-  <img alt="The context inspector: 2,456 of 65,536 tokens, broken down into system prompt, tool definitions, session and live state." src="screenshots/context.dark.png">
+  <img alt="The context inspector: 2,456 of 65,536 tokens, broken down into system prompt, tool registry entries, session and live state." src="screenshots/context.dark.png">
 </picture>
 
 ## Files
@@ -231,11 +231,10 @@ Create, rename, enable, delete. Per agent: the model, provider, reasoning effort
 temperature; limits (output tokens, context window, tool iterations, tool timeout, turn
 timeout); the **system prompt** on the screen and the other seven templates behind an
 **Advanced prompt settings** disclosure, each with a warning for stray placeholders; the
-**per-tool permission map**; the independent **toolbox** and **container** selections,
-the toolbox showing one row per grant with the ceiling an agent may only tighten; the
-**network** block, which appears once a container is chosen and shows its allow-lists only
-under `allowlist`; and the **subagent list**, each with its own description and
-permission.
+**per-tool permission map**; the **container** selection, which decides where `exec` runs
+and nothing about what the agent may call; the **network** block, which appears once a
+container is chosen and shows its allow-lists only under `allowlist`; and the **subagent
+list**, each with its own description and permission.
 
 Model and budget live on the agent, not in Settings — they are properties of an agent, and
 an install with several agents has several answers.

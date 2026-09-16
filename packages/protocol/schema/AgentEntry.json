@@ -98,10 +98,6 @@
       "default": "",
       "type": "string"
     },
-    "toolboxPrompt": {
-      "default": "",
-      "type": "string"
-    },
     "toolPolicyPrompt": {
       "default": "",
       "type": "string"
@@ -204,31 +200,6 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
-        }
-      }
-    },
-    "toolbox": {
-      "default": {},
-      "type": "object",
-      "properties": {
-        "name": {
-          "default": "",
-          "type": "string"
-        },
-        "tools": {
-          "default": {},
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {
-            "type": "string",
-            "enum": [
-              "allow",
-              "ask",
-              "deny"
-            ]
-          }
         }
       }
     },

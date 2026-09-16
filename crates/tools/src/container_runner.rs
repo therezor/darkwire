@@ -46,7 +46,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::toolbox::{ContainerDefinition, ContainerRuntime, SeccompProfile};
+use ghostai_protocol::container::{ContainerDefinition, ContainerRuntime, SeccompProfile};
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
 use ghostai_security::{ExecPlan, egress::PROXY_PORT};
 use indexmap::IndexMap;

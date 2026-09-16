@@ -46,12 +46,12 @@ pub const SECTION_SEPARATOR: &str = "\n\n---\n\n";
 /// neither.** Both are host facts, and a model handed one tends to use it: given
 /// the absolute root, a model writes `/Users/you/project/notes/todo.md`, which
 /// the jail resolves *inside* the workspace as a real directory tree of junk;
-/// given the host OS, a toolboxed agent believes its commands run there. They
+/// given the host OS, a containered agent believes its commands run there. They
 /// stay in the list because a custom prompt may reasonably want them, and
 /// removing a placeholder silently changes every stored template that uses it.
 ///
 /// `platformPolicy` is deliberately absent. The command policy is a *section*
-/// placed beside the toolbox advertisement and the tool-output policy; a
+/// placed beside the tool-output policy; a
 /// placeholder cannot express "this section does not apply", because it renders
 /// to a string and an empty one leaves the blank lines around it.
 pub const PROMPT_PLACEHOLDERS: &[&str] = &["name", "workspaceId", "workspaceRoot", "runtime"];
@@ -245,37 +245,15 @@ plain relative form — `notes/todo.md`.
 //
 // A convention the templates below rely on, stated once: **a placeholder that
 // can render to nothing carries its own leading blank line.** `{{notes}}` is
-// "\n\n" plus the notes, or "", never the notes alone — so a toolbox with no
-// notes leaves no gap where the section would have been. The alternative, a
-// pass that collapses runs of blank lines afterwards, would silently rewrite an
-// operator's spacing to fix a problem the renderer created.
+// "\n\n" plus the content, or "", never the content alone.
 
 /// What a *platform policy* template may ask for.
 ///
 /// This section depends on *placement*: whether `exec` lands on this machine or
-/// inside a toolbox container. The two are opposite on every point that matters
-/// — whether the workspace confines the command, whether a shell is there,
-/// which OS's tools exist — which is why there are two defaults. `shellPolicy`
-/// is the generated shell-tooling paragraph for the host OS, with its own
-/// leading blank line; `toolbox` and `workdir` are empty when `exec` runs on
-/// the host.
-pub const PLATFORM_PROMPT_PLACEHOLDERS: &[&str] = &[
-    "runtime",
-    "platform",
-    "workspaceId",
-    "toolbox",
-    "workdir",
-    "shellPolicy",
-];
-
-/// What a *toolbox* template may ask for.
-///
-/// `tools` is the `Installed:` label plus the bullet list with a leading blank
-/// line; `toolList` is just the bullet lines; `notes` is the manifest's notes
-/// with a leading blank line. Both the composed and the raw form are offered
-/// because an operator rewriting the section needs the pieces and one keeping
-/// the default wants the whole block or nothing.
-pub const TOOLBOX_PROMPT_PLACEHOLDERS: &[&str] = &["name", "workdir", "tools", "toolList", "notes"];
+/// inside a container. `shellPolicy` is the generated shell-tooling paragraph
+/// for the host OS, with its own leading blank line.
+pub const PLATFORM_PROMPT_PLACEHOLDERS: &[&str] =
+    &["runtime", "platform", "workspaceId", "shellPolicy"];
 
 /// What a *tool-output policy* template may ask for.
 ///
@@ -302,37 +280,13 @@ which is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is
 refused rather than resolved inside. Its working directory is already the
 workspace root, so pass relative arguments.{{shellPolicy}}";
 
-/// `{{platformPolicy}}` when `exec` runs in a toolbox.
-///
-/// The host is still named, as a fact about the machine rather than about the
-/// commands: an agent asked what it is running on should not have to guess, and
-/// the sentence after it is what stops the model reading that as where `exec`
-/// lands.
-pub const DEFAULT_PLATFORM_TOOLBOX_TEMPLATE: &str = "## Running commands
+/// `{{platformPolicy}}` when `exec` runs in a selected container.
+pub const DEFAULT_PLATFORM_CONTAINER_TEMPLATE: &str = "## Running commands
 
-This machine runs {{runtime}}. Your `exec` calls do not: they run inside the
-`{{toolbox}}` toolbox container described below. The file tools are the other
-way round — they always act on the workspace here, never inside the container.
-
-Both reach the same files under different names: what the file tools call
-`notes/todo.md` is `{{workdir}}/notes/todo.md` to a command.";
-
-/// The toolbox advertisement.
-///
-/// **It does not state where commands run.** That sentence lives in the
-/// platform policy, which says it for both placements, and a model resolving an
-/// apparent contradiction between its prompt and its tools tends to resolve it
-/// by refusing. This is prose composed from a declared list, not a set of tool
-/// schemas: a research image carries hundreds of programs a model already knows
-/// from pretraining, and declaring them as schemas would cost thousands of
-/// tokens on every request to say what forty say once.
-pub const DEFAULT_TOOLBOX_TEMPLATE: &str = "## Toolbox: {{name}}
-
-A shell is available in here, so a pipeline goes through `[\"bash\",\"-lc\",\"…\"]`.
-Nothing from this machine is visible except the workspace, so write findings
-there rather than holding them in context. Output too large to return is kept
-in full under `/run/ghost-runs/`; reach it with a shell command, not the file
-tools.{{tools}}{{notes}}";
+Commands you run with `exec` run inside a container, not on the host. What they
+can reach is fixed by the container definition and the agent's network policy.
+File tools act on the workspace on this machine; the same workspace is mounted
+inside the container.";
 
 /// The section that makes the tool-output delimiters mean something.
 ///
@@ -361,7 +315,7 @@ its slash, and is part of the data.";
 /// What a *skills* template may ask for.
 ///
 /// One generated block: the catalogue. `index` carries its own leading blank
-/// line, the convention the toolbox template keeps; `indexLines` is the same
+/// line, the convention the container template keeps; `indexLines` is the same
 /// lines without it. That is the one way this differs from
 /// [`MEMORY_PROMPT_PLACEHOLDERS`], whose index carries no leading blank line
 /// because the memory section is not placed at all when the folder is empty.
@@ -408,7 +362,7 @@ standing beside its correction.
 ///
 /// In `raw` mode `systemPrompt` **is** the system message. Nothing is
 /// prepended, appended or interleaved — a template that wants the live-state
-/// block, the toolbox section or the tool-output policy names it. The cost is
+/// block or the tool-output policy names it. The cost is
 /// the split this module is organised around: one template is one blob,
 /// rebuilt every iteration, and a `{{time}}` anywhere in it ends the provider's
 /// cache discount for the whole prompt on every request. A raw template that
@@ -416,7 +370,7 @@ standing beside its correction.
 ///
 /// `platformPolicy` is here and not in [`PROMPT_PLACEHOLDERS`]: template mode
 /// places that section itself and can leave it out, raw mode places nothing and
-/// so has to be able to ask for it. `toolbox`, `contributors`,
+/// so has to be able to ask for it. `contributors`,
 /// `runtimeSections` and `correction` each carry a leading blank line;
 /// `toolPolicy` does not, being usually placed alone.
 pub const RAW_PROMPT_PLACEHOLDERS: &[&str] = &[
@@ -433,7 +387,6 @@ pub const RAW_PROMPT_PLACEHOLDERS: &[&str] = &[
     "sessionKey",
     "tag",
     "platformPolicy",
-    "toolbox",
     "toolPolicy",
     "nonce",
     "tag",

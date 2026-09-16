@@ -17,12 +17,12 @@
 use std::fmt::Write as _;
 
 use ghostai_core::Result;
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_protocol::{ContainerNetwork, NetworkMode};
 
 use crate::container::assert_gateway_compatible;
+use crate::container::invalid;
 use crate::parse_cidr;
-use crate::toolbox::invalid;
 
 /// The uid the egress proxy runs as. Reserved: traffic from it is accepted
 /// unfiltered, so a tool container that could become it would be unfiltered too.

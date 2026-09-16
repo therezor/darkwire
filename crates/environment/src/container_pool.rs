@@ -20,7 +20,7 @@
 //! what sharing means — and the network is deliberately present: two agents
 //! reaching different parts of the network are not interchangeable, and an
 //! instance that served the wider of the two requests would quietly hand the
-//! narrower one a reach nobody granted it. Toolbox identity is absent from both
+//! narrower one a reach nobody granted it. Container identity is absent from both
 //! keys, so agents keep their own operation permissions while reusing one
 //! container.
 //!
@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::toolbox::ContainerDefinition;
+use ghostai_protocol::container::ContainerDefinition;
 use ghostai_protocol::{ContainerNetwork, NetworkMode, SandboxInstanceSummary};
 use ghostai_security::{InstalledContainer, PolicyStore, assert_container_network};
 use ghostai_tools::{
@@ -355,28 +355,6 @@ impl ContainerPool {
             .collect()
     }
 
-    /// Transcript directory of the instance this request would run in.
-    ///
-    /// Resolved through the instance key rather than by scanning for a matching
-    /// entry, so it reads transcripts under exactly the sharing rule the pool
-    /// placed them under. Matching on workspace and digest alone let two shared
-    /// instances of one container — separate because they asked for different
-    /// egress — read each other's transcripts.
-    pub fn transcript_directory(&self, request: &PlacementRequest) -> Result<std::path::PathBuf> {
-        let approved = self
-            .container_spec(request)?
-            .ok_or_else(|| GhostError::new(ErrorKind::Config, "No container selected"))?;
-        let key = Self::key_for(request, &approved)?;
-        let live = self.live.lock();
-        let entry = live.entries.get(&key).ok_or_else(|| {
-            GhostError::new(
-                ErrorKind::NotFound,
-                "This container's transcripts are no longer available",
-            )
-        })?;
-        Ok(self.options.runs_dir.join(&entry.name))
-    }
-
     /// Stop an exact managed instance. Busy instances require explicit force.
     pub fn stop_instance(&self, name: &str, force: bool) -> Result<()> {
         let _starting = self.starting.lock();
@@ -525,7 +503,7 @@ impl ContainerPool {
     /// Sweeps orphans once, on the first turn that actually needs a container.
     ///
     /// **Not at construction**, and that is a fix rather than a preference. The
-    /// pool is built whenever any agent names a toolbox, which happens at boot —
+    /// pool is built whenever any agent names a container, which happens at boot —
     /// and listing containers against a socket whose daemon has gone away does
     /// not fail fast, it blocks. Measured at 62 seconds. Sweeping at
     /// construction therefore hung `ghostai serve` for a minute before it bound
@@ -570,8 +548,9 @@ impl ContainerPool {
     /// The definition a request resolves to, or `None` when it names no
     /// container and so runs on the host.
     ///
-    /// The toolbox is not consulted: which operations an agent may call and
-    /// where one runs are two decisions, and the pool only answers the second.
+    /// The agent's tool permissions are not consulted: what an agent may call
+    /// and where a call runs are two decisions, and the pool answers only the
+    /// second.
     fn container_spec(&self, request: &PlacementRequest) -> Result<Option<ContainerSpec>> {
         if request.container.is_empty() {
             return Ok(None);

@@ -161,41 +161,23 @@
           "runtime": "Linux x64, Node 22.0.0",
           "platform": "linux",
           "workspaceId": "acme",
-          "toolbox": "",
-          "workdir": "",
           "shellPolicy": "\n\nA POSIX shell is available through `[\"sh\",\"-c\",\"…\"]`."
         }
       },
       "output": "## Running commands\n\n`exec` runs on this machine — Linux x64, Node 22.0.0 — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.\n\nA POSIX shell is available through `[\"sh\",\"-c\",\"…\"]`."
     },
     {
-      "name": "default: DEFAULT_PLATFORM_TOOLBOX_TEMPLATE",
+      "name": "default: DEFAULT_PLATFORM_CONTAINER_TEMPLATE",
       "input": {
-        "template": "## Running commands\n\nThis machine runs {{runtime}}. Your `exec` calls do not: they run inside the\n`{{toolbox}}` toolbox container described below. The file tools are the other\nway round — they always act on the workspace here, never inside the container.\n\nBoth reach the same files under different names: what the file tools call\n`notes/todo.md` is `{{workdir}}/notes/todo.md` to a command.",
+        "template": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.",
         "values": {
           "runtime": "macOS arm64, Node 22.0.0",
           "platform": "darwin",
           "workspaceId": "acme",
-          "toolbox": "recon",
-          "workdir": "/workspace",
           "shellPolicy": ""
         }
       },
-      "output": "## Running commands\n\nThis machine runs macOS arm64, Node 22.0.0. Your `exec` calls do not: they run inside the\n`recon` toolbox container described below. The file tools are the other\nway round — they always act on the workspace here, never inside the container.\n\nBoth reach the same files under different names: what the file tools call\n`notes/todo.md` is `/workspace/notes/todo.md` to a command."
-    },
-    {
-      "name": "default: DEFAULT_TOOLBOX_TEMPLATE",
-      "input": {
-        "template": "## Toolbox: {{name}}\n\nA shell is available in here, so a pipeline goes through `[\"bash\",\"-lc\",\"…\"]`.\nNothing from this machine is visible except the workspace, so write findings\nthere rather than holding them in context. Output too large to return is kept\nin full under `/run/ghost-runs/`; reach it with a shell command, not the file\ntools.{{tools}}{{notes}}",
-        "values": {
-          "name": "recon",
-          "workdir": "/workspace",
-          "tools": "\n\nInstalled:\n- nmap — Scan a host.\n- dig — Resolve a name.",
-          "toolList": "- nmap — Scan a host.\n- dig — Resolve a name.",
-          "notes": "\n\nNo browser and no JavaScript engine."
-        }
-      },
-      "output": "## Toolbox: recon\n\nA shell is available in here, so a pipeline goes through `[\"bash\",\"-lc\",\"…\"]`.\nNothing from this machine is visible except the workspace, so write findings\nthere rather than holding them in context. Output too large to return is kept\nin full under `/run/ghost-runs/`; reach it with a shell command, not the file\ntools.\n\nInstalled:\n- nmap — Scan a host.\n- dig — Resolve a name.\n\nNo browser and no JavaScript engine."
+      "output": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container."
     },
     {
       "name": "default: DEFAULT_TOOL_POLICY_TEMPLATE",

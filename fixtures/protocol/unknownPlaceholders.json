@@ -77,28 +77,12 @@
     {
       "name": "vocabulary: PLATFORM_PROMPT_PLACEHOLDERS",
       "input": {
-        "template": "## Running commands\n\n`exec` runs on this machine — {{runtime}} — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.{{shellPolicy}}\n## Running commands\n\nThis machine runs {{runtime}}. Your `exec` calls do not: they run inside the\n`{{toolbox}}` toolbox container described below. The file tools are the other\nway round — they always act on the workspace here, never inside the container.\n\nBoth reach the same files under different names: what the file tools call\n`notes/todo.md` is `{{workdir}}/notes/todo.md` to a command.",
+        "template": "## Running commands\n\n`exec` runs on this machine — {{runtime}} — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.{{shellPolicy}}\n## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.",
         "known": [
           "runtime",
           "platform",
           "workspaceId",
-          "toolbox",
-          "workdir",
           "shellPolicy"
-        ]
-      },
-      "output": []
-    },
-    {
-      "name": "vocabulary: TOOLBOX_PROMPT_PLACEHOLDERS",
-      "input": {
-        "template": "## Toolbox: {{name}}\n\nA shell is available in here, so a pipeline goes through `[\"bash\",\"-lc\",\"…\"]`.\nNothing from this machine is visible except the workspace, so write findings\nthere rather than holding them in context. Output too large to return is kept\nin full under `/run/ghost-runs/`; reach it with a shell command, not the file\ntools.{{tools}}{{notes}}",
-        "known": [
-          "name",
-          "workdir",
-          "tools",
-          "toolList",
-          "notes"
         ]
       },
       "output": []
@@ -157,7 +141,6 @@
           "sessionKey",
           "tag",
           "platformPolicy",
-          "toolbox",
           "toolPolicy",
           "nonce",
           "tag",

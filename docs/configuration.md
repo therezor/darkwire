@@ -125,8 +125,7 @@ got here, it is edited the same way afterwards.
 | `systemPrompt`     | string                               | `''`              | The agent's **whole** identity prompt as a template. Empty inherits the built-in. See [Prompts](prompts.md). |
 | `livePrompt`       | string                               | `''`              | The per-iteration live-state block. Empty inherits; a single space deletes the section.                      |
 | `wrapUpPrompt`     | string                               | `''`              | Appended in the last few iterations. Empty inherits; a single space silences it.                             |
-| `platformPrompt`   | string                               | `''`              | Fills `{{platformPolicy}}` — the `## Running commands` section. Two built-ins, host and toolbox.             |
-| `toolboxPrompt`    | string                               | `''`              | The `## Toolbox: <name>` section. Only rendered while `toolbox.name` is set.                                 |
+| `platformPrompt`   | string                               | `''`              | Fills `{{platformPolicy}}` — the `## Running commands` section. Two built-ins, host and container.           |
 | `toolPolicyPrompt` | string                               | `''`              | The tool-output policy. A template naming neither `{{tag}}` nor `{{nonce}}` saves with a warning.            |
 | `memoryPrompt`     | string                               | `''`              | The memory section. Only rendered while the `memory` tool is granted. See [Memory](memory.md).               |
 | `skillsPrompt`     | string                               | `''`              | The skills section. Only rendered while the `skill` tool is granted. See [Skills](skills.md).                |
@@ -135,8 +134,7 @@ got here, it is edited the same way afterwards.
 | `enabled`          | boolean                              | `true`            |                                                                                                              |
 | `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
 | `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `toolbox`          | `{ name, tools }`                    | `{ name: '', … }` | The curated operation surface; empty means no toolbox-defined operations.                                    |
-| `container`        | `{ name, network }`                  | `{ name: '', … }` | Independent command placement; empty means the app environment. See [Toolboxes](toolboxes.md).               |
+| `container`        | `{ name, network }`                  | `{ name: '', … }` | Independent command placement; empty means the app environment. See [Containers](containers.md).             |
 | `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
 The eight prompt templates share one rule: **`''` inherits the built-in, and a single space
@@ -152,7 +150,7 @@ counts as empty there, because an identity-less agent is never what was meant.
 | `description` | string                   | `''`    | Replaces what the tool tells the model it does. Empty inherits; a single space advertises none. |
 | `fields`      | `Record<string, string>` | `{}`    | Top-level argument name → its description. A name the schema does not have is a warning.        |
 
-Keyed by advertised tool name, so it reaches built-ins, toolbox programs, MCP and extension
+Keyed by advertised tool name, so it reaches built-ins, MCP and extension
 tools and `ask_<id>` subagent tools alike — and for a subagent it wins over
 `subagents[].prompt`, being the more specific of the two. **Types, `required` and `enum`
 are not here**: they stay generated from the tool's own argument type, which is also what
@@ -182,13 +180,6 @@ That seeding is the one place a tool's risk band turns into a permission, and it
 at creation where the operator can see the result and change it. Nothing reads a risk band
 at call time.
 
-### `agents.list.<id>.toolbox`
-
-| Key     | Type                               | Default | Notes                                                       |
-| ------- | ---------------------------------- | ------- | ----------------------------------------------------------- |
-| `name`  | string                             | `''`    | An installed toolbox name, or empty for the built-in tools. |
-| `tools` | `Record<string, allow\|ask\|deny>` | `{}`    | Per-grant narrowing; `*` is the fallback. Never widens.     |
-
 ### `agents.list.<id>.container`
 
 | Key             | Type                    | Default  | Notes                                                                   |
@@ -199,12 +190,11 @@ at call time.
 | `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.      |
 | `network.dns`   | string[]                | `[]`     | Resolvers, as non-loopback IP literals.                                 |
 
-**This is the only place egress is configured.** There is no second ceiling in the toolbox
-or the container definition, so what an agent may reach is one value in one file.
+**This is the only place egress is configured.** There is no second ceiling in the
+container definition, so what an agent may reach is one value in one file.
 
-There is no `image`, `runtime`, `caps` or `limits` in either agent selection,
-deliberately. Those live in the independently installed container definition, a file an
-operator writes. A value with no representation in this schema cannot be reached by a
+There is no `image`, `runtime`, `caps` or `limits` here, deliberately. Those live in the
+container definition, a file an operator writes. A value with no representation in this schema cannot be reached by a
 config patch — which is what keeps the hardening operator-only while the egress request
 is not.
 

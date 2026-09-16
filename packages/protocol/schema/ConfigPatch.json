@@ -95,9 +95,6 @@
                   "platformPrompt": {
                     "type": "string"
                   },
-                  "toolboxPrompt": {
-                    "type": "string"
-                  },
                   "toolPolicyPrompt": {
                     "type": "string"
                   },
@@ -186,28 +183,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      }
-                    }
-                  },
-                  "toolbox": {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "type": "string"
-                      },
-                      "tools": {
-                        "type": "object",
-                        "propertyNames": {
-                          "type": "string"
-                        },
-                        "additionalProperties": {
-                          "type": "string",
-                          "enum": [
-                            "allow",
-                            "ask",
-                            "deny"
-                          ]
-                        }
                       }
                     }
                   },

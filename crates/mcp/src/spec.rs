@@ -23,7 +23,7 @@
 //! binaries and classifies every path-shaped argument against the workspace
 //! jail; the fetch guard refuses loopback and private ranges. An MCP entry is
 //! operator configuration in `config.yaml`, in the same trust class as
-//! `providers.<id>.apiBase` or a toolbox image. Its command is almost always
+//! `providers.<id>.apiBase` or a container image. Its command is almost always
 //! `npx`, `uvx`, `docker` or an absolute path to a binary outside the
 //! workspace on purpose, and the single most common MCP deployment is a server
 //! on loopback — every one of which the guards refuse by design. Running them

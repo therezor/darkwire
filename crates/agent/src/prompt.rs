@@ -82,9 +82,9 @@ use chrono::{DateTime, TimeZone as _, Utc};
 use chrono_tz::Tz;
 use ghostai_protocol::json::js_trim;
 use ghostai_protocol::{
-    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_PLATFORM_HOST_TEMPLATE, DEFAULT_PLATFORM_TOOLBOX_TEMPLATE,
-    DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_TOOLBOX_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE, PromptMode,
-    SECTION_SEPARATOR, render_prompt_template, render_wrap_up, tool_policy_uses_nonce,
+    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_PLATFORM_HOST_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    DEFAULT_WRAP_UP_TEMPLATE, PromptMode, SECTION_SEPARATOR, render_prompt_template,
+    render_wrap_up, tool_policy_uses_nonce,
 };
 use ghostai_providers::BoxFuture;
 use ghostai_security::{tool_output_policy, tool_output_tag};
@@ -195,40 +195,12 @@ pub struct PromptAgent {
     pub system_prompt: String,
 }
 
-/// One program a toolbox declares.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PromptToolboxTool {
-    /// What to invoke.
-    pub name: String,
-    /// What it is for. Empty prints the name alone.
-    pub use_for: String,
-}
-
-/// What the prompt needs to know about a toolbox.
-///
-/// A narrow view of two manifests rather than the manifests themselves: this
-/// crate has no business knowing about capability sets or image digests, and
-/// taking the whole thing would make every caller construct one.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PromptToolbox {
-    /// The toolbox's name.
-    pub name: String,
-    /// Where the workspace is mounted inside the container, or empty for an
-    /// agent whose operations run on the host.
-    pub workdir: String,
-    /// What it grants, after the agent's own overrides.
-    pub tools: Vec<PromptToolboxTool>,
-    /// Caveats about the set as a whole.
-    pub notes: String,
-}
-
 /// Everything the prompt says about tools — or, when absent, that it says none
 /// of it.
 ///
 /// **Absence is the meaning.** A turn whose model is sent no tools passes no
 /// `tools` at all, and the three sections that describe tools then have no
-/// inputs to render from: the toolbox advertisement, the tool-output policy,
-/// and the command policy that says where `exec` lands. None of them needs to
+/// inputs to render from: the tool-output policy and the command policy. Neither needs to
 /// be told why. That is the whole reason this is a group rather than three
 /// optional fields beside the agent, and it is why there is no boolean anywhere
 /// below — a builder that branched on "are tools on" would be a builder that
@@ -240,22 +212,6 @@ pub struct PromptToolbox {
 /// made about a section that exists. Whether it exists at all is this object.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PromptTools {
-    /// The toolbox this agent works in, when it has one.
-    ///
-    /// The toolset advertisement, and it is *prose composed from a declared
-    /// list* rather than a set of tool schemas: a research image carries
-    /// hundreds of programs the model already knows from pretraining, and
-    /// declaring them as schemas would cost thousands of tokens every turn to
-    /// say what forty say here. It sits in the static half so a provider caches
-    /// it once per session.
-    ///
-    /// Absent means this agent runs its commands on the host — which is a
-    /// different statement from the whole object being absent, and the command
-    /// policy below reads both.
-    pub toolbox: Option<PromptToolbox>,
-    /// Wording for the toolbox advertisement. Only placed when `toolbox` is
-    /// set.
-    pub toolbox_prompt: Option<String>,
     /// Wording for the tool-output policy — what the delimiters around a result
     /// mean.
     pub policy_prompt: Option<String>,
@@ -433,7 +389,7 @@ pub struct BuildRawPrompt<'a> {
     pub context: &'a RuntimePromptContext,
     /// The agent whose one template this is.
     pub agent: Option<&'a PromptAgent>,
-    /// Absent means this model is sent no tools, so `{{toolbox}}`,
+    /// Absent means this model is sent no tools, so `{{container}}`,
     /// `{{toolPolicy}}` and `{{platformPolicy}}` render to nothing.
     ///
     /// Rendering to nothing rather than being dropped is the only answer raw
@@ -501,72 +457,6 @@ fn values(pairs: impl IntoIterator<Item = (&'static str, String)>) -> IndexMap<S
         .collect()
 }
 
-/// The toolbox section, composed rather than pasted.
-///
-/// The rules that are true of *every* toolbox — that `exec` lands in a
-/// container, that a shell is available, that only the workspace is mounted,
-/// where truncated output goes — are written in the template, where they cannot
-/// drift. A manifest declares only what is specific to it: which programs, and
-/// what to know about them. That split is the whole reason `tools` is a list
-/// and not a paragraph.
-///
-/// **It does not state where commands run.** That sentence lives in
-/// `command_policy`, which is earlier in the prompt and says it for both
-/// placements — so repeating it here would be the same claim twice, and this
-/// section is left to say only what is true of *this* box.
-fn render_toolbox(toolbox: Option<&PromptToolbox>, template: Option<&str>) -> String {
-    let Some(toolbox) = toolbox.filter(|toolbox| !toolbox.name.is_empty()) else {
-        return String::new();
-    };
-
-    let stored = template_or(template, DEFAULT_TOOLBOX_TEMPLATE);
-    if js_trim(stored).is_empty() {
-        return String::new();
-    }
-
-    let tool_list = toolbox
-        .tools
-        .iter()
-        .map(|tool| {
-            if tool.use_for.is_empty() {
-                format!("- `{}`", tool.name)
-            } else {
-                format!("- `{}` — {}", tool.name, tool.use_for)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let notes = js_trim(&toolbox.notes);
-
-    let rendered = render_prompt_template(
-        stored,
-        &values([
-            ("name", toolbox.name.clone()),
-            ("workdir", toolbox.workdir.clone()),
-            // Each of these carries its own leading blank line, so a toolbox
-            // with no notes leaves no gap where the paragraph would have been.
-            (
-                "tools",
-                if tool_list.is_empty() {
-                    String::new()
-                } else {
-                    format!("\n\nInstalled:\n{tool_list}")
-                },
-            ),
-            ("toolList", tool_list.clone()),
-            (
-                "notes",
-                if notes.is_empty() {
-                    String::new()
-                } else {
-                    format!("\n\n{notes}")
-                },
-            ),
-        ]),
-    );
-    js_trim(&rendered).to_owned()
-}
-
 /// Where commands run, and what that place is like.
 ///
 /// Its own section in template mode, and `{{platformPolicy}}` in raw mode. It
@@ -576,7 +466,7 @@ fn render_toolbox(toolbox: Option<&PromptToolbox>, template: Option<&str>) -> St
 /// are opposite on every point that matters: whether the workspace confines the
 /// command, whether a shell is available, and which OS's tools exist.
 ///
-/// Getting that wrong is not cosmetic. The host wording sent to a toolboxed
+/// Getting that wrong is not cosmetic. The host wording sent to a containered
 /// agent tells it its commands run on macOS (they run in Alpine), that they are
 /// *not* confined to the workspace (only the workspace is mounted, so they
 /// are), and on a Windows host that GNU tools might be missing (the container
@@ -596,33 +486,15 @@ fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) 
         return String::new();
     };
 
-    let boxed = tools
-        .toolbox
-        .as_ref()
-        .filter(|toolbox| !toolbox.name.is_empty());
-
-    // The branch survives only to pick which default applies. An *override*
-    // needs no branch: placement is the toolbox name, a config fact, so an
-    // operator writing this for one agent is writing the one sentence that is
-    // true of it.
     let stored = template_or(
         tools.platform_prompt.as_deref(),
-        if boxed.is_some() {
-            DEFAULT_PLATFORM_TOOLBOX_TEMPLATE
-        } else {
-            DEFAULT_PLATFORM_HOST_TEMPLATE
-        },
+        DEFAULT_PLATFORM_HOST_TEMPLATE,
     );
     if js_trim(stored).is_empty() {
         return String::new();
     }
 
-    // A toolboxed agent gets none: its shell is the container's, and the
-    // toolbox section describes that one. Emitting the host's would name tools
-    // that may not exist in the image and omit ones that do.
-    let shell = if boxed.is_some() {
-        String::new()
-    } else if host.platform == Platform::Windows {
+    let shell = if host.platform == Platform::Windows {
         "\n\n- Do not assume GNU tools such as `grep`, `sed` or `awk` are installed.
 - Prefer the file tools over shelling out; prefer Windows-native commands when you must.
 - If command output comes back garbled, re-run it with UTF-8 output enabled."
@@ -645,20 +517,6 @@ fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) 
             ("runtime", host.runtime_label.clone()),
             ("platform", host.platform.as_str().to_owned()),
             ("workspaceId", workspace_id.to_owned()),
-            // `boxed` already proved the toolbox is there and named — the empty
-            // strings are the host case, where there is no container.
-            (
-                "toolbox",
-                boxed
-                    .map(|toolbox| toolbox.name.clone())
-                    .unwrap_or_default(),
-            ),
-            (
-                "workdir",
-                boxed
-                    .map(|toolbox| toolbox.workdir.clone())
-                    .unwrap_or_default(),
-            ),
             ("shellPolicy", shell),
         ]),
     );
@@ -760,27 +618,9 @@ pub async fn build_static_prompt(options: BuildStaticPrompt<'_>) -> String {
         vec![rendered.to_owned()]
     };
 
-    // Ahead of the toolbox advertisement, which says "the container described
-    // below" and means this one: the policy states where commands land, the
-    // advertisement says what is in the box. Reversing them makes the second
-    // sentence point backwards.
     let commands = command_policy(&options.host, &options.context.workspace_id, options.tools);
     if !commands.is_empty() {
         sections.push(commands);
-    }
-
-    // Before contributors, after the identity: it describes the environment
-    // every later section is talking about, and a model told what it can run
-    // before it is told what to do needs fewer turns to discover the
-    // difference.
-    let toolbox = render_toolbox(
-        options.tools.and_then(|tools| tools.toolbox.as_ref()),
-        options
-            .tools
-            .and_then(|tools| tools.toolbox_prompt.as_deref()),
-    );
-    if !toolbox.is_empty() {
-        sections.push(toolbox);
     }
 
     // The tool-output policy, when it names no delimiter — which the default
@@ -1081,10 +921,10 @@ pub fn runtime_reminder(block: &str) -> String {
 /// The whole system message, from one template.
 ///
 /// Nothing is placed for the operator here — no separator, no live-state block,
-/// no toolbox section, no tool-output policy. A template that wants one names
+/// no tool-output policy. A template that wants one names
 /// its placeholder, and a template that names none gets exactly what it says.
 ///
-/// The section *templates* still apply: `{{platformPolicy}}`, `{{toolbox}}` and
+/// The section *templates* still apply: `{{platformPolicy}}` and
 /// `{{toolPolicy}}` render from the agent's own overrides, so raw mode decides
 /// the layout rather than throwing the wording away. `live_prompt` is the one
 /// field it ignores, because its entire content is `{{time}}{{wrapUp}}` and
@@ -1122,12 +962,6 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
         stored
     };
 
-    let toolbox = render_toolbox(
-        options.tools.and_then(|tools| tools.toolbox.as_ref()),
-        options
-            .tools
-            .and_then(|tools| tools.toolbox_prompt.as_deref()),
-    );
     let runtime_sections = runtime_sections_of(options.contributors, context);
     let statics = options.static_sections.join(SECTION_SEPARATOR);
     let correction = js_trim(options.correction.unwrap_or(""));
@@ -1157,18 +991,6 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
                 &context.static_context.workspace_id,
                 options.tools,
             ),
-        ),
-        // The section placeholders carry their own leading blank line, so one
-        // that does not apply to this agent vanishes instead of leaving a gap.
-        // The policy is the exception: it is usually placed on its own, where a
-        // leading break would be the template's to write.
-        (
-            "toolbox",
-            if toolbox.is_empty() {
-                String::new()
-            } else {
-                format!("{SECTION_SEPARATOR}{toolbox}")
-            },
         ),
         // Self-contained, and with the nonce: raw mode is one blob placed by
         // the operator, so there is no cached half to keep a delimiter out of.

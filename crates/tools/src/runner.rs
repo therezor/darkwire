@@ -124,12 +124,8 @@ pub trait CommandRunner: Send + Sync {
 
 /// What a turn needs in order to be given the right container.
 ///
-/// Carries both selections because they answer different questions and are
-/// checked against different approvals: `toolbox` decides which operations may
-/// be called at all, `container` and `network` decide where one runs and what
-/// it reaches. Either may be empty, and the two empty cases are not the same —
-/// no toolbox is an agent with only built-in tools, no container is an agent
-/// whose operations run on the host.
+/// Carries the independently selected container and network policy. An empty
+/// container means commands run on the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementRequest {
     /// The agent running the turn.
@@ -138,8 +134,6 @@ pub struct PlacementRequest {
     pub workspace_id: String,
     /// The conversation.
     pub session_key: String,
-    /// The agent's toolbox name. Controls operations, not placement.
-    pub toolbox: String,
     /// The agent's container name; empty means the host.
     pub container: String,
     /// What the agent asked its container to reach. Part of an instance's
