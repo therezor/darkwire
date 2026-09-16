@@ -704,6 +704,31 @@ function Editor({
     [form.subagents],
   );
 
+  /**
+   * The agents that delegate to this one with inheritance on.
+   *
+   * Their choice beats the picker below, so the section has to say so. Without
+   * it the confusion the switch was added to end would just move one page over:
+   * an operator picks an environment here, saves, and watches the agent run
+   * somewhere else with nothing on screen explaining why.
+   *
+   * Read off the stored list rather than the form, because these are other
+   * agents' settings and nothing on this page can edit them.
+   */
+  const inheritingCallers = useMemo(
+    () =>
+      Object.entries(list)
+        .filter(
+          ([id, other]) =>
+            id !== agentId &&
+            other.subagents.some(
+              (ref) => ref.id === agentId && ref.inheritEnvironment,
+            ),
+        )
+        .map(([id, other]) => (other.label === '' ? id : other.label)),
+    [list, agentId],
+  );
+
   const providerOptions = useMemo(() => {
     const instances = (providers.data?.instances ?? []).filter(
       (instance) => instance.enabled,
@@ -1238,6 +1263,13 @@ function Editor({
         )}
         {environments.data?.environments.length === 0 && (
           <p className="page__note">{t('agents.environmentNoProfiles')}</p>
+        )}
+        {inheritingCallers.length > 0 && (
+          <p className="page__note">
+            {t('agents.environmentInherited', {
+              agents: inheritingCallers.join(', '),
+            })}
+          </p>
         )}
 
         <FieldGrid>

@@ -1937,6 +1937,84 @@ describe('choosing an environment', () => {
     ).toBeInTheDocument();
   });
 
+  it('says when a delegation overrides the environment chosen here', async () => {
+    // The other half of the subagent switch. Without this sentence an operator
+    // picks an environment, saves, and watches the agent run somewhere else
+    // with nothing on screen explaining why.
+    const delegating = ConfigSchema.parse({
+      agents: {
+        list: {
+          default: {
+            model: 'llama3',
+            provider: 'ollama',
+            maxTokens: 4096,
+            label: 'Coordinator',
+            subagents: [{ id: 'researcher', inheritEnvironment: true }],
+          },
+          researcher: {
+            label: 'Researcher',
+            provider: 'ollama',
+            model: 'llama3',
+            environment: { name: 'development', network: { mode: 'open' } },
+          },
+        },
+      },
+      providers: { ollama: { type: 'ollama' } },
+    });
+
+    mount('/agents/researcher', {
+      ...ROUTES,
+      '/api/settings': [
+        200,
+        { config: delegating, credentialsPresent: { ollama: false } },
+      ],
+    });
+
+    expect(
+      await screen.findByText(
+        /Ignored while Coordinator delegates to this agent/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('stays quiet when every delegation to it runs on its own', async () => {
+    const own = ConfigSchema.parse({
+      agents: {
+        list: {
+          default: {
+            model: 'llama3',
+            provider: 'ollama',
+            maxTokens: 4096,
+            label: 'Coordinator',
+            subagents: [{ id: 'researcher', inheritEnvironment: false }],
+          },
+          researcher: {
+            label: 'Researcher',
+            provider: 'ollama',
+            model: 'llama3',
+            environment: { name: 'development', network: { mode: 'open' } },
+          },
+        },
+      },
+      providers: { ollama: { type: 'ollama' } },
+    });
+
+    mount('/agents/researcher', {
+      ...ROUTES,
+      '/api/settings': [
+        200,
+        { config: own, credentialsPresent: { ollama: false } },
+      ],
+    });
+
+    // Waits for the section itself, so the absence below is a rendered page
+    // rather than one that had not arrived yet.
+    expect(
+      await screen.findByRole('combobox', { name: 'Environment' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Ignored while/)).not.toBeInTheDocument();
+  });
+
   it('takes an agent back out of its environment', async () => {
     // The regression. Before the fix the only way out was editing config.yaml.
     const { user, calls } = mount('/agents/researcher', ROUTES);

@@ -27,6 +27,7 @@
     "environmentHost": "Host (commands run on this machine)",
     "environmentHosts": "Allowed host names",
     "environmentHostsHint": "Exact DNS names, comma separated: api.example.com. Enforced by the egress proxy, which sees the name rather than the address it resolved to. Choose these or networks, not both.",
+    "environmentInherited": "Ignored while {{agents}} delegates to this agent with inheritance on. Those turns run where the delegating agent runs.",
     "environmentLoading": "Loading environments…",
     "environmentNetwork": "Network",
     "environmentNetworkAllowlist": "Only what I list",
