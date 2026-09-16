@@ -37,7 +37,7 @@ import {
 import { useCallback, useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { AutomationJob, RunStatus } from '@ghostwire/protocol';
+import type { AutomationJob, RunStatus } from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';

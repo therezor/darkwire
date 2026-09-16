@@ -38,7 +38,7 @@ const IMAGE = `sha256:${'a'.repeat(64)}`;
  * not a smaller fixture but a failed query.
  */
 const DEFINITION = {
-  schema: 'ghostai.environment/1',
+  schema: 'darkwire.environment/1',
   kind: 'container',
   name: 'dev',
   prompt: '',
@@ -132,7 +132,7 @@ describe('the environments panel', () => {
 
   it('opens the editor from the row, and offers a create', async () => {
     // The panel was read-only until the policy directory got a door: the only
-    // way to author one was hand-written YAML or `ghostai preset install`.
+    // way to author one was hand-written YAML.
     mount({ '/api/environments': [200, { environments: [ENVIRONMENT] }] });
 
     expect(
@@ -200,7 +200,7 @@ describe('the environments panel', () => {
     const instances = {
       instances: [
         {
-          id: 'ghost-sbx-1',
+          id: 'dw-sbx-1',
           workspace: 'default',
           environment: 'dev',
           busy: 0,

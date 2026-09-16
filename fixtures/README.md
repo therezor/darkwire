@@ -25,13 +25,25 @@ The three live families come from `packages/protocol`, which is still TypeScript
 because the browser parses it. They regenerate the way they always did:
 
 ```bash
-GHOSTAI_UPDATE_FIXTURES=1 pnpm test
+DARKWIRE_UPDATE_FIXTURES=1 pnpm test
 ```
 
 `packages/protocol/test/fixtures.test.ts` owns all three. With the variable set it
 rewrites its files from the implementation; without it, it reads them and asserts
 the implementation still produces exactly those bytes. A change that moves one is
 therefore visible in `git diff` as a behaviour change.
+
+## The rename moved two of them
+
+`extension/digest/expected.json` and `vault/envelope.json` were re-derived when the
+project was renamed, and the reason is that the rename changed their *inputs* rather
+than the behaviour they record. The digest is taken over file names and file bytes, and
+the manifest in that tree is now `darkwire.extension.json` holding
+`darkwire.extension/1`; the vault's envelope is sealed with the AAD
+`darkwire-vault-v1`, which is a different string from the one the recorded ciphertext
+was sealed with. A fixture whose input moved and whose output did not is not a record of
+anything. Both were regenerated from the implementation in this repository, and they
+pin its behaviour from here on.
 
 **Editing a frozen fixture by hand is a last resort and needs a reason in the
 commit message.** The whole value of the directory is that nothing in the Rust

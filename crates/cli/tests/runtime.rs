@@ -17,13 +17,13 @@
 
 use std::sync::Arc;
 
-use ghostai::i18n::Env;
-use ghostai::program::Globals;
-use ghostai::runtime::{create_chat_runtime, env_map, load_options, save_settings, settings_of};
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{LoadConfigOptions, load_config, parse_config};
-use ghostai_protocol::config::ConfigPatch;
-use ghostai_runtime::{RuntimeOptions, VaultChoice};
+use darkwire::i18n::Env;
+use darkwire::program::Globals;
+use darkwire::runtime::{create_chat_runtime, env_map, load_options, save_settings, settings_of};
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{LoadConfigOptions, load_config, parse_config};
+use darkwire_protocol::config::ConfigPatch;
+use darkwire_runtime::{RuntimeOptions, VaultChoice};
 
 fn home() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
@@ -34,7 +34,7 @@ fn home() -> tempfile::TempDir {
 /// The vault is refused rather than left to its default, because resolving a
 /// key mints a keychain entry the first time it runs — and a test suite must
 /// not put anything in a developer's keychain.
-fn runtime(dir: &tempfile::TempDir, options: RuntimeOptions) -> Arc<ghostai_runtime::GhostRuntime> {
+fn runtime(dir: &tempfile::TempDir, options: RuntimeOptions) -> Arc<darkwire_runtime::WireRuntime> {
     create_chat_runtime(RuntimeOptions {
         home: Some(dir.path().display().to_string()),
         vault: VaultChoice::None,
@@ -50,7 +50,7 @@ fn load_options_carry_the_home_flag() {
         home: Some("/srv/ghost".to_owned()),
         ..Globals::default()
     };
-    let resolved: ResolveGhostPaths = load_options(&globals, None, &Env::empty());
+    let resolved: ResolveWirePaths = load_options(&globals, None, &Env::empty());
     assert_eq!(resolved.root.as_deref(), Some("/srv/ghost"));
     assert_eq!(resolved.workspace, None);
 }
@@ -67,7 +67,7 @@ fn load_options_keep_the_two_workspace_ideas_apart() {
 #[test]
 fn the_environment_map_carries_the_variables_the_core_reads() {
     let env: Env = [
-        ("GHOSTAI_HOME", "/srv/ghost"),
+        ("DARKWIRE_HOME", "/srv/ghost"),
         ("HOME", "/home/someone"),
         ("SOMETHING_ELSE", "ignored"),
     ]
@@ -75,7 +75,7 @@ fn the_environment_map_carries_the_variables_the_core_reads() {
     .collect();
     let map = env_map(&env);
     assert_eq!(
-        map.get("GHOSTAI_HOME").map(String::as_str),
+        map.get("DARKWIRE_HOME").map(String::as_str),
         Some("/srv/ghost")
     );
     assert_eq!(map.get("HOME").map(String::as_str), Some("/home/someone"));
@@ -89,7 +89,7 @@ fn load_options_carry_a_provider_key_variable_the_table_names() {
     // Resolution consults an exported key when no config names a provider, so
     // the variable has to reach it — and which variables those are is the
     // provider table's decision rather than this file's.
-    let key = ghostai_providers::PROVIDERS
+    let key = darkwire_providers::PROVIDERS
         .iter()
         .find_map(|spec| spec.env_key.clone())
         .expect("some provider declares a key variable");
@@ -135,7 +135,7 @@ fn refuses_the_turn_and_not_the_runtime_when_nothing_names_a_provider() {
         "{}",
         error.message
     );
-    assert!(error.message.contains("ghostai init"), "{}", error.message);
+    assert!(error.message.contains("darkwire init"), "{}", error.message);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn save_settings_reports_a_file_it_could_not_write_as_a_storage_failure() {
     let patch: ConfigPatch =
         serde_json::from_value(serde_json::json!({"ui": {"timezone": "Europe/Berlin"}})).unwrap();
     let error = save_settings(&built, &patch).unwrap_err();
-    assert_eq!(error.kind, ghostai_core::ErrorKind::Storage);
+    assert_eq!(error.kind, darkwire_core::ErrorKind::Storage);
     assert!(
         error.message.contains("live for this run"),
         "{}",
@@ -193,10 +193,10 @@ fn settings_of_answers_the_schema_default_for_an_id_naming_nothing() {
     // that named none of these fields would have got.
     let dir = home();
     let loaded = load_config(LoadConfigOptions {
-        paths: ResolveGhostPaths {
+        paths: ResolveWirePaths {
             root: Some(dir.path().display().to_string()),
             env: Some(std::collections::HashMap::new()),
-            ..ResolveGhostPaths::default()
+            ..ResolveWirePaths::default()
         },
         file: None,
     })
@@ -211,10 +211,10 @@ fn settings_of_answers_the_schema_default_for_an_id_naming_nothing() {
 fn settings_of_reads_an_empty_id_as_the_default_agent() {
     let dir = home();
     let loaded = load_config(LoadConfigOptions {
-        paths: ResolveGhostPaths {
+        paths: ResolveWirePaths {
             root: Some(dir.path().display().to_string()),
             env: Some(std::collections::HashMap::new()),
-            ..ResolveGhostPaths::default()
+            ..ResolveWirePaths::default()
         },
         file: None,
     })

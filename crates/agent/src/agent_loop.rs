@@ -51,28 +51,28 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures::{Stream, StreamExt as _};
-use ghostai_core::history::HistoryOptions;
-use ghostai_core::messages::Content;
-use ghostai_core::messages::{AssistantOptions, assistant_message, system_message, user_message};
-use ghostai_core::session_store::{AppendOptions, CreateSession, UpdateSession};
-use ghostai_core::session_title::derive_session_title;
-use ghostai_core::{
-    Clock, ErrorKind, GhostError, Result, SessionRecord, SessionStore, SystemClock,
-    TurnStatsRecord, text_of,
+use darkwire_core::history::HistoryOptions;
+use darkwire_core::messages::Content;
+use darkwire_core::messages::{AssistantOptions, assistant_message, system_message, user_message};
+use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
+use darkwire_core::session_title::derive_session_title;
+use darkwire_core::{
+    Clock, ErrorKind, Result, SessionRecord, SessionStore, SystemClock, TurnStatsRecord, WireError,
+    text_of,
 };
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{
     AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
     ToolPromptOverrides, ToolsConfig, Usage, apply_tool_prompts, with_subagent_run,
 };
-use ghostai_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
-use ghostai_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
-use ghostai_tools::{
+use darkwire_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
+use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
+use darkwire_tools::{
     AutomationResolver, EnvironmentResolver, Placed, PlacementRequest, ToolContext, ToolScope,
 };
+use futures::{Stream, StreamExt as _};
 use indexmap::IndexMap;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -98,7 +98,7 @@ use crate::subagent::{
 use crate::text_tool_call::{text_tool_call_correction, text_tool_call_name};
 
 /// The head+tail budget for one tool result before it enters history.
-const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = ghostai_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
+const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 
 fn max_iterations_text(max_iterations: u64) -> String {
     format!(
@@ -337,7 +337,7 @@ impl AgentLoopOptions {
 fn uuid_like() -> String {
     let mut bytes = [0u8; 10];
     OsRandom.fill(&mut bytes);
-    ghostai_protocol::new_uuid(u64::try_from(SystemClock.now_ms()).unwrap_or(0), &bytes)
+    darkwire_protocol::new_uuid(u64::try_from(SystemClock.now_ms()).unwrap_or(0), &bytes)
 }
 
 /// What starts a turn.
@@ -502,7 +502,7 @@ impl Turn {
             // The task ended without answering, which means it was cancelled
             // between the last event and the send. Nothing finished, so there
             // is nothing to report.
-            Err(_) => Err(GhostError::aborted("Turn")),
+            Err(_) => Err(WireError::aborted("Turn")),
         }
     }
 
@@ -514,7 +514,7 @@ impl Turn {
         }
         let result = match self.result.try_recv() {
             Ok(result) => result,
-            Err(_) => Err(GhostError::aborted("Turn")),
+            Err(_) => Err(WireError::aborted("Turn")),
         };
         (events, result)
     }
@@ -727,7 +727,7 @@ impl AgentLoop {
             .clone()
             .unwrap_or_else(|| options.config.model.clone());
         if model.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 "No model configured for the agent loop",
             )
@@ -946,7 +946,7 @@ impl AgentLoop {
     fn is_raw(&self) -> bool {
         matches!(
             self.inner.agent.as_ref().and_then(|a| a.prompt.prompt_mode),
-            Some(ghostai_protocol::PromptMode::Raw)
+            Some(darkwire_protocol::PromptMode::Raw)
         )
     }
 
@@ -1359,8 +1359,8 @@ impl AgentLoop {
         // turn no client had seen start, the transcript invented an orphan turn
         // with no first seq, and the one thing the reader wanted — a way to
         // re-run it — was the one thing there was no address for.
-        sink.emit(ghostai_protocol::TurnStart {
-            tag: ghostai_protocol::TurnStartTag,
+        sink.emit(darkwire_protocol::TurnStart {
+            tag: darkwire_protocol::TurnStartTag,
             session_key: turn.scope.session_key.clone(),
             turn_id: turn.turn_id.clone(),
             first_seq: u64::try_from(state.first_seq).ok(),
@@ -1621,7 +1621,7 @@ impl AgentLoop {
                 Ok(ChatStreamEvent::Text(text)) => {
                     if !text.is_empty() {
                         sink.emit(AssistantDelta {
-                            tag: ghostai_protocol::AssistantDeltaTag,
+                            tag: darkwire_protocol::AssistantDeltaTag,
                             turn_id: turn.turn_id.clone(),
                             text,
                         })
@@ -1631,7 +1631,7 @@ impl AgentLoop {
                 Ok(ChatStreamEvent::Reasoning(text)) => {
                     if !text.is_empty() {
                         sink.emit(ReasoningDelta {
-                            tag: ghostai_protocol::ReasoningDeltaTag,
+                            tag: darkwire_protocol::ReasoningDeltaTag,
                             turn_id: turn.turn_id.clone(),
                             text,
                         })
@@ -1651,7 +1651,7 @@ impl AgentLoop {
                         "provider request failed"
                     );
                     sink.emit(ErrorEvent {
-                        tag: ghostai_protocol::ErrorTag,
+                        tag: darkwire_protocol::ErrorTag,
                         code: error_code_for(error.kind),
                         message: error.message.clone(),
                         retryable: error.retryable,
@@ -1670,7 +1670,7 @@ impl AgentLoop {
                 // empty answer would silently end the turn on a transport bug.
                 let message = "The provider ended the stream without a result.".to_owned();
                 sink.emit(ErrorEvent {
-                    tag: ghostai_protocol::ErrorTag,
+                    tag: darkwire_protocol::ErrorTag,
                     code: ErrorCode::ProviderError,
                     message: message.clone(),
                     retryable: true,
@@ -1727,8 +1727,8 @@ impl AgentLoop {
                 tool = %attempted,
                 "model wrote a tool call as text; correcting it"
             );
-            sink.emit(ghostai_protocol::Notice {
-                tag: ghostai_protocol::NoticeTag,
+            sink.emit(darkwire_protocol::Notice {
+                tag: darkwire_protocol::NoticeTag,
                 kind: NoticeKind::Degraded,
                 message: format!(
                     "The model wrote a call to `{attempted}` as text instead of calling it. \
@@ -1815,8 +1815,8 @@ impl AgentLoop {
                 prompt,
                 context_window_tokens: inner.config.context_window_tokens,
             })?;
-            sink.emit(ghostai_protocol::ContextUsage {
-                tag: ghostai_protocol::ContextUsageTag,
+            sink.emit(darkwire_protocol::ContextUsage {
+                tag: darkwire_protocol::ContextUsageTag,
                 session_key: turn.scope.session_key.clone(),
                 estimated_tokens: u64::try_from(report.estimated_tokens).unwrap_or(u64::MAX),
                 context_window_tokens: report.context_window_tokens,
@@ -1848,7 +1848,7 @@ impl AgentLoop {
         let stop_reason = state.stop_reason.unwrap_or(StopReason::MaxIterations);
 
         if sink.is_closed() {
-            return Err(GhostError::aborted("Turn"));
+            return Err(WireError::aborted("Turn"));
         }
 
         if matches!(
@@ -1875,7 +1875,7 @@ impl AgentLoop {
             )?;
             state.last_seq = written.seq;
             sink.emit(AssistantDelta {
-                tag: ghostai_protocol::AssistantDeltaTag,
+                tag: darkwire_protocol::AssistantDeltaTag,
                 turn_id: turn.turn_id.clone(),
                 text: state.final_text.clone(),
             })
@@ -1906,8 +1906,8 @@ impl AgentLoop {
             error: state.error_message.clone(),
         });
 
-        sink.emit(ghostai_protocol::TurnEnd {
-            tag: ghostai_protocol::TurnEndTag,
+        sink.emit(darkwire_protocol::TurnEnd {
+            tag: darkwire_protocol::TurnEndTag,
             turn_id: turn.turn_id.clone(),
             stop_reason,
             usage: Some(state.usage),
@@ -1943,11 +1943,11 @@ enum Streamed {
 impl SubagentDelegate for AgentLoop {
     fn delegate<'a>(
         &'a self,
-        call: &'a ghostai_protocol::ToolCall,
+        call: &'a darkwire_protocol::ToolCall,
         binding: &'a SubagentBinding,
         turn: &'a TurnScope,
         sink: &'a EventSink,
-    ) -> ghostai_providers::BoxFuture<'a, Result<ghostai_tools::ToolExecution>> {
+    ) -> darkwire_providers::BoxFuture<'a, Result<darkwire_tools::ToolExecution>> {
         Box::pin(self.run_subagent(call, binding, turn, sink))
     }
 }
@@ -1981,11 +1981,11 @@ impl AgentLoop {
     ///    for.
     async fn run_subagent(
         &self,
-        call: &ghostai_protocol::ToolCall,
+        call: &darkwire_protocol::ToolCall,
         binding: &SubagentBinding,
         turn: &TurnScope,
         sink: &EventSink,
-    ) -> Result<ghostai_tools::ToolExecution> {
+    ) -> Result<darkwire_tools::ToolExecution> {
         let inner = &self.inner;
 
         if let Some(refusal) = refuse_delegation(&turn.chain, &binding.agent_id) {
@@ -2018,7 +2018,7 @@ impl AgentLoop {
 
         let args = parse_tool_args(&call.arguments_json);
         let Some(task) = parse_task(&args) else {
-            let mut execution = ghostai_tools::ToolExecution::error(
+            let mut execution = darkwire_tools::ToolExecution::error(
                 ErrorKind::InvalidInput,
                 format!(
                     "Invalid arguments for {}: \"task\" must be a non-empty string describing \
@@ -2101,7 +2101,7 @@ impl AgentLoop {
         session_key: &str,
         binding: &SubagentBinding,
         turn: &TurnScope,
-        call: &ghostai_protocol::ToolCall,
+        call: &darkwire_protocol::ToolCall,
         depth: usize,
     ) -> Result<()> {
         let inner = &self.inner;
@@ -2200,8 +2200,8 @@ fn wrap_subagent_event(
         }
         AgentEvent::ContextUsage(_) => None,
         AgentEvent::Nested(inner) => {
-            Some(AgentEvent::Subagent(ghostai_protocol::SubagentEventBody {
-                tag: ghostai_protocol::SubagentEventTag,
+            Some(AgentEvent::Subagent(darkwire_protocol::SubagentEventBody {
+                tag: darkwire_protocol::SubagentEventTag,
                 turn_id: turn.turn_id.clone(),
                 parent_session_key: turn.session_key.clone(),
                 parent_call_id: call_id.to_owned(),

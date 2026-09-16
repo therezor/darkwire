@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="color-scheme" content="dark light" />
-    <title>GhostAI</title>
+    <title>DarkWire</title>
 
     <!--
       Same-origin and shipped in the tarball, like the fonts. An SVG rather than
@@ -51,7 +51,7 @@
           }
         };
 
-        var stored = read('ghostai.theme');
+        var stored = read('darkwire.theme');
         var light =
           stored === 'light' ||
           (stored !== 'dark' &&
@@ -62,7 +62,7 @@
         /* `system`, or absent, means "ask the browser" — the same three-state
            preference the theme has, resolved the same way. Only the language
            subtag is compared, so `de-AT` matches a `de` bundle. */
-        var locale = read('ghostai.locale');
+        var locale = read('darkwire.locale');
         var supported = ['en'];
         var wanted =
           locale && locale !== 'system'

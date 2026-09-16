@@ -9,10 +9,10 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{ErrorKind, Result};
-use ghostai_protocol::{ToolPermission, ToolPermissions, ToolSource};
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result};
+use darkwire_protocol::{ToolPermission, ToolPermissions, ToolSource};
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolInvocation, ToolOutput, ToolRegistry,
     ToolScope, ToolSpec, TypedTool, is_enabled, permission_for,
 };

@@ -23,7 +23,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ghostai_core::{ErrorKind, GhostError, Result};
+use darkwire_core::{ErrorKind, Result, WireError};
 use hmac::{Hmac, KeyInit as _, Mac as _};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -178,7 +178,7 @@ fn encode_uri_component(value: &str) -> String {
 /// alike.
 pub fn assert_signing_key(secret: &str) -> Result<()> {
     if secret.is_empty() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             "The media signing key is empty",
         ));

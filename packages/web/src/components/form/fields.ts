@@ -14,7 +14,7 @@
  * cleared field unrepresentable, so the input fights the user as they type.
  */
 
-import type { ConfigPatch } from '@ghostwire/protocol';
+import type { ConfigPatch } from '@darkwire/protocol';
 import type { TFunction } from 'i18next';
 
 interface NumberConstraint {

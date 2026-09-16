@@ -6,7 +6,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::session_title::{
+use darkwire_core::session_title::{
     MAX_TITLE_CHARS, derive_session_title, derive_session_title_within,
 };
 

@@ -20,7 +20,7 @@
 
 use std::collections::HashSet;
 
-use ghostai_protocol::ChatMessage;
+use darkwire_protocol::ChatMessage;
 
 use crate::errors::Result;
 

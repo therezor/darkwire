@@ -21,7 +21,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type JSX, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DEFAULT_USERNAME } from '@ghostwire/protocol';
+import { DEFAULT_USERNAME } from '@darkwire/protocol';
 
 import { ApiError, api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

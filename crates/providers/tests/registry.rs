@@ -10,7 +10,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use ghostai_providers::{
+use darkwire_providers::{
     GatewayHints, ModelOverride, PROVIDERS, ProviderSpec, ResolveProviderOptions, WIRE_PROTOCOLS,
     WireProtocol, describe_provider, find_builtin, find_gateway, find_provider,
     find_provider_by_model, is_provider_id, model_override_for, provider_ids, resolve_model_id,

@@ -15,25 +15,27 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use ghostai_core::Database;
-use ghostai_core::session_store::IdSource;
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::automation::{
+use darkwire_core::Database;
+use darkwire_core::session_store::IdSource;
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::automation::{
     AtKind, AtSchedule, AutomationPayload, AutomationSchedule, CronKind, CronSchedule, EveryKind,
     EverySchedule, HeartbeatKind, HeartbeatPayload, RunStatus, ScheduledKind, ScheduledPayload,
 };
-use ghostai_protocol::config::Config;
-use ghostai_protocol::messages::{AssistantMessage, AssistantRole, StopReason, ToolCall, Usage};
-use ghostai_protocol::rest::Notification;
-use ghostai_protocol::ws::{
+use darkwire_protocol::config::Config;
+use darkwire_protocol::messages::{AssistantMessage, AssistantRole, StopReason, ToolCall, Usage};
+use darkwire_protocol::rest::Notification;
+use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ClientMessage, ErrorCode, ErrorEvent, ErrorTag,
     NotificationLevel, Sequenced, ServerMessage, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
-use ghostai_providers::{ChatResult, FinishReason};
-use ghostai_server::automation_store::{AutomationStore, CreateJobInput, FinishRunInput, ListRuns};
-use ghostai_server::heartbeat::MAX_TASK_FILE_BYTES;
-use ghostai_server::notifications::{CreateNotificationInput, NotificationStore};
-use ghostai_server::scheduler::{
+use darkwire_providers::{ChatResult, FinishReason};
+use darkwire_server::automation_store::{
+    AutomationStore, CreateJobInput, FinishRunInput, ListRuns,
+};
+use darkwire_server::heartbeat::MAX_TASK_FILE_BYTES;
+use darkwire_server::notifications::{CreateNotificationInput, NotificationStore};
+use darkwire_server::scheduler::{
     ChatFn, DirectChat, MAX_ARM_MS, NotificationBroadcast, ReadFileFn, ReadTaskFile, Scheduler,
     SchedulerConnectOptions, SchedulerConnection, SchedulerOptions, SchedulerPort, TurnCollector,
     first_run_at, next_run_after,
@@ -467,7 +469,7 @@ async fn a_finished_scheduled_job_notifies_and_broadcasts() {
 
     let raised: Vec<Notification> = h
         .notes
-        .list(&ghostai_server::notifications::ListNotifications::default())
+        .list(&darkwire_server::notifications::ListNotifications::default())
         .unwrap();
     assert_eq!(raised.len(), 1);
     assert_eq!(raised[0].title, "watch finished");
@@ -615,7 +617,7 @@ async fn running_a_job_out_of_band_answers_the_pending_row() {
 
     // A second one while the first is in flight is a conflict.
     let again = h.scheduler.run_now(&created.id).unwrap_err();
-    assert_eq!(again.kind, ghostai_core::ErrorKind::Conflict);
+    assert_eq!(again.kind, darkwire_core::ErrorKind::Conflict);
 
     h.scheduler.stop();
     settle(&h).await;
@@ -626,7 +628,7 @@ async fn running_a_job_that_does_not_exist_is_a_not_found() {
     let h = harness(false);
     h.scheduler.start().unwrap();
     let error = h.scheduler.run_now("nope").unwrap_err();
-    assert_eq!(error.kind, ghostai_core::ErrorKind::NotFound);
+    assert_eq!(error.kind, darkwire_core::ErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -862,7 +864,7 @@ async fn a_failed_turn_always_notifies() {
 
     let raised = h
         .notes
-        .list(&ghostai_server::notifications::ListNotifications::default())
+        .list(&darkwire_server::notifications::ListNotifications::default())
         .unwrap();
     assert_eq!(raised.len(), 1);
     assert_eq!(raised[0].title, "watch failed");
@@ -1069,8 +1071,8 @@ fn scripted_chat(answers: Vec<ChatResult>) -> (ChatFn, Arc<Mutex<Vec<DirectChatS
         let answer = queue.lock().next();
         Box::pin(async move {
             answer.ok_or_else(|| {
-                ghostai_core::GhostError::new(
-                    ghostai_core::ErrorKind::Provider,
+                darkwire_core::WireError::new(
+                    darkwire_core::ErrorKind::Provider,
                     "the script ran out of answers",
                 )
             })
@@ -1083,10 +1085,10 @@ struct DirectChatSeen {
     model: Option<String>,
     agent_id: Option<String>,
     tool: Option<String>,
-    messages: Vec<ghostai_protocol::messages::ChatMessage>,
+    messages: Vec<darkwire_protocol::messages::ChatMessage>,
 }
 
-fn file_returning(contents: Result<String, ghostai_core::GhostError>) -> ReadFileFn {
+fn file_returning(contents: Result<String, darkwire_core::WireError>) -> ReadFileFn {
     let contents = Arc::new(Mutex::new(Some(contents)));
     Arc::new(move |_request: ReadTaskFile| {
         let taken = contents.lock().take();
@@ -1145,7 +1147,7 @@ async fn a_heartbeat_that_decides_to_skip_never_starts_a_turn() {
     assert_eq!(seen.lock().len(), 1);
     assert_eq!(seen.lock()[0].tool.as_deref(), Some("heartbeat"));
     // The decision carries the clock's instant, so "tomorrow" means something.
-    let ghostai_protocol::messages::ChatMessage::System(system) = &seen.lock()[0].messages[0]
+    let darkwire_protocol::messages::ChatMessage::System(system) = &seen.lock()[0].messages[0]
     else {
         panic!("the first message should be the system one");
     };
@@ -1203,7 +1205,7 @@ async fn a_heartbeat_that_decides_to_run_drives_a_turn_and_then_evaluates_it() {
 
     let raised = h
         .notes
-        .list(&ghostai_server::notifications::ListNotifications::default())
+        .list(&darkwire_server::notifications::ListNotifications::default())
         .unwrap();
     assert_eq!(raised[0].title, "Deployed");
     assert_eq!(raised[0].body, "All green.");
@@ -1240,7 +1242,7 @@ async fn an_evaluation_that_says_no_raises_nothing() {
     );
     assert!(
         h.notes
-            .list(&ghostai_server::notifications::ListNotifications::default())
+            .list(&darkwire_server::notifications::ListNotifications::default())
             .unwrap()
             .is_empty()
     );
@@ -1255,8 +1257,8 @@ async fn a_heartbeat_with_no_task_file_is_a_normal_idle_state_and_costs_nothing(
     let h = harness_with(
         false,
         Some(chat),
-        Some(file_returning(Err(ghostai_core::GhostError::new(
-            ghostai_core::ErrorKind::NotFound,
+        Some(file_returning(Err(darkwire_core::WireError::new(
+            darkwire_core::ErrorKind::NotFound,
             "no such file",
         )))),
     );
@@ -1323,10 +1325,10 @@ async fn a_task_file_past_the_cap_is_truncated_and_the_run_says_so() {
     );
     // The model saw exactly the cap, not the whole file.
     let seen = seen.lock();
-    let ghostai_protocol::messages::ChatMessage::User(user) = &seen[0].messages[1] else {
+    let darkwire_protocol::messages::ChatMessage::User(user) = &seen[0].messages[1] else {
         panic!("the second message should be the user one");
     };
-    let ghostai_protocol::messages::ContentPart::Text(text) = &user.content[0] else {
+    let darkwire_protocol::messages::ContentPart::Text(text) = &user.content[0] else {
         panic!("the user message should be text");
     };
     assert_eq!(text.text.matches('x').count(), MAX_TASK_FILE_BYTES);
@@ -1365,8 +1367,8 @@ async fn a_read_failure_that_is_not_a_missing_file_fails_the_run() {
     let h = harness_with(
         false,
         Some(chat),
-        Some(file_returning(Err(ghostai_core::GhostError::new(
-            ghostai_core::ErrorKind::JailEscape,
+        Some(file_returning(Err(darkwire_core::WireError::new(
+            darkwire_core::ErrorKind::JailEscape,
             "that path is outside the workspace",
         )))),
     );

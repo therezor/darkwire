@@ -22,7 +22,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ClientMessage, ServerMessage } from '@ghostwire/protocol';
+import type { ClientMessage, ServerMessage } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
@@ -1391,7 +1391,7 @@ describe('reworking a session', () => {
 describe('the context strip', () => {
   const CONTEXT = {
     sessionKey: SESSION,
-    systemPrompt: 'You are GhostAI.',
+    systemPrompt: 'You are DarkWire.',
     runtimeBlock: '',
     tools: [],
     messages: [],

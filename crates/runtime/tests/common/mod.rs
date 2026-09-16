@@ -19,23 +19,23 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, GhostError, Result};
-use ghostai_protocol::{Config, ToolDefinition, ToolRisk};
-use ghostai_providers::testkit::ScriptedProvider;
-use ghostai_providers::{ChatProvider, CreateProviderOptions, ProviderSpec, WireProtocol};
-use ghostai_runtime::provider_cache::{ProviderCache, ProviderFactory};
-use ghostai_runtime::{
-    ExtensionChoice, GhostRuntime, McpChoice, RuntimeOptions, VaultChoice, create_runtime,
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, Result, WireError};
+use darkwire_protocol::{Config, ToolDefinition, ToolRisk};
+use darkwire_providers::testkit::ScriptedProvider;
+use darkwire_providers::{ChatProvider, CreateProviderOptions, ProviderSpec, WireProtocol};
+use darkwire_runtime::provider_cache::{ProviderCache, ProviderFactory};
+use darkwire_runtime::{
+    ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, WireRuntime, create_runtime,
 };
-use ghostai_tools::{AnyTool, BoxFuture, Tool, ToolContext, ToolExecution};
+use darkwire_tools::{AnyTool, BoxFuture, Tool, ToolContext, ToolExecution};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 /// The frozen wall clock every fixture starts at.
 pub const NOW: i64 = 1_700_000_000_000;
 
-/// A temporary `GHOSTAI_HOME` with a config file in it.
+/// A temporary `DARKWIRE_HOME` with a config file in it.
 pub struct Install {
     /// Kept so the directory outlives the test.
     pub temp: TempDir,
@@ -108,7 +108,7 @@ impl Install {
     }
 
     /// A runtime over this install.
-    pub fn runtime(&self) -> Result<Arc<GhostRuntime>> {
+    pub fn runtime(&self) -> Result<Arc<WireRuntime>> {
         create_runtime(self.options())
     }
 }
@@ -144,8 +144,8 @@ impl CountingProviders {
 /// The spec a factory call names, whichever way it was addressed.
 fn spec_of(options: &CreateProviderOptions) -> ProviderSpec {
     match &options.provider {
-        ghostai_providers::ProviderRef::Spec(spec) => (**spec).clone(),
-        ghostai_providers::ProviderRef::Id(id) => local_spec(id),
+        darkwire_providers::ProviderRef::Spec(spec) => (**spec).clone(),
+        darkwire_providers::ProviderRef::Id(id) => local_spec(id),
     }
 }
 
@@ -163,7 +163,7 @@ pub fn local_spec(id: &str) -> ProviderSpec {
         wire: WireProtocol::OpenaiChat,
         is_local: true,
         default_api_base: Some(format!("http://{id}.test/v1")),
-        ..ghostai_providers::PROVIDERS
+        ..darkwire_providers::PROVIDERS
             .iter()
             .find(|spec| spec.id == "ollama")
             .unwrap()
@@ -182,7 +182,7 @@ pub fn configured(model: &str) -> Value {
 }
 
 /// One error out of a result, or a failure naming what came instead.
-pub fn err<T: std::fmt::Debug>(result: Result<T>) -> GhostError {
+pub fn err<T: std::fmt::Debug>(result: Result<T>) -> WireError {
     match result {
         Ok(value) => panic!("expected an error, got {value:?}"),
         Err(error) => error,
@@ -230,7 +230,7 @@ pub fn tool(name: &str) -> AnyTool {
         description: String::new(),
         parameters: indexmap::IndexMap::new(),
         risk: ToolRisk::Safe,
-        source: ghostai_protocol::ToolSource::Builtin,
+        source: darkwire_protocol::ToolSource::Builtin,
         annotations: None,
     }))
 }

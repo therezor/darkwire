@@ -8,14 +8,14 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::messages::StopReason;
-use ghostai_protocol::ws::{
+use darkwire_protocol::messages::StopReason;
+use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, NestedAgentEvent,
     NotificationBody, NotificationLevel, NotificationTag, ReasoningDelta, ReasoningDeltaTag,
     Sequenced, ServerMessage, SessionStatus, SessionStatusTag, SubagentEventBody, SubagentEventTag,
     ToolResult, ToolResultTag, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
-use ghostai_server::turn_log::TurnLog;
+use darkwire_server::turn_log::TurnLog;
 use indexmap::IndexMap;
 
 const TURN: &str = "turn-1";

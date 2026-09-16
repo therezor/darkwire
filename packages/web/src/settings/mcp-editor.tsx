@@ -25,7 +25,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, ExternalLink, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { McpServerStatus, McpTransport } from '@ghostwire/protocol';
+import type { McpServerStatus, McpTransport } from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';

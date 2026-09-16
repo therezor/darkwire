@@ -1,7 +1,7 @@
 //! `channels.telegram`, parsed by the channel that reads it.
 //!
 //! The channels config is deliberately a loose object precisely so this can
-//! live here rather than in `ghostai-protocol`: a channel owns its own block,
+//! live here rather than in `darkwire-protocol`: a channel owns its own block,
 //! and a bad one is reported by refusing to start rather than by behaving oddly
 //! later.
 //!
@@ -10,7 +10,7 @@
 //! vault and no environment by design, and a token is the one setting that
 //! should not be sitting in a world-readable JSON file.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
+use darkwire_core::{ErrorKind, Result, WireError};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -122,8 +122,8 @@ fn default_api_base() -> String {
     DEFAULT_API_BASE.to_owned()
 }
 
-fn unusable(detail: impl std::fmt::Display) -> GhostError {
-    GhostError::new(
+fn unusable(detail: impl std::fmt::Display) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!("channels.telegram is not usable — {detail}"),
     )

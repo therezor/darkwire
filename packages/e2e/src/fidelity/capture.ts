@@ -1,7 +1,7 @@
 /**
  * Both screens, side by side, and the difference between them.
  *
- * `pnpm --filter @ghostwire/e2e baseline` writes three files per screen into
+ * `pnpm --filter @darkwire/e2e baseline` writes three files per screen into
  * `artifacts/fidelity/`: the reference, the replacement, and a diff map with
  * every changed pixel marked. It prints the percentage and exits zero.
  *
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
   if (!referenceAvailable()) {
     process.stderr.write(
       `No reference build at ${DEFAULT_ORIGINAL_ROOT}.\n` +
-        'Set GHOSTAI_FIDELITY_ORIGINAL to the product being replaced.\n',
+        'Set DARKWIRE_FIDELITY_ORIGINAL to the product being replaced.\n',
     );
     process.exitCode = 1;
     return;

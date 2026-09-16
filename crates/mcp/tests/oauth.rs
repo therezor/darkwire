@@ -10,15 +10,15 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, ErrorKind};
-use ghostai_mcp::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, ErrorKind};
+use darkwire_mcp::{
     ClientInformation, EndpointGuard, InvalidationScope, McpSecretSlot, McpSecretStore,
     MemorySecretStore, OAuthFlow, OAuthFlowOptions, StoredTokens,
 };
-use ghostai_protocol::McpOAuthConfig;
-use ghostai_security::testkit::{FixedRandom, StaticResolver};
-use ghostai_security::{DnsResolver, NetworkPolicy};
+use darkwire_protocol::McpOAuthConfig;
+use darkwire_security::testkit::{FixedRandom, StaticResolver};
+use darkwire_security::{DnsResolver, NetworkPolicy};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
@@ -91,12 +91,12 @@ fn tokens(access: &str, refresh: Option<&str>, expires_at_ms: Option<i64>) -> St
 }
 
 #[test]
-fn describes_ghostai_as_a_public_client_using_pkce() {
+fn describes_darkwire_as_a_public_client_using_pkce() {
     // Nowhere to keep a client secret the operator cannot already read, which
     // is what `token_endpoint_auth_method: none` says out loud.
     let built = standard();
     let metadata = built.flow.client_metadata();
-    assert_eq!(metadata.client_name, "GhostAI");
+    assert_eq!(metadata.client_name, "DarkWire");
     assert_eq!(
         metadata.redirect_uris,
         ["http://127.0.0.1:33418/mcp/callback"]
@@ -458,7 +458,7 @@ async fn discovers_registers_and_builds_the_authorization_link() {
         .await;
     Mock::given(method("POST"))
         .and(path("/register"))
-        .and(body_string_contains("\"client_name\":\"GhostAI\""))
+        .and(body_string_contains("\"client_name\":\"DarkWire\""))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "client_id": "issued-id" })))
         .mount(&server)
         .await;

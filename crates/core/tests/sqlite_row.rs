@@ -8,7 +8,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::{Database, ErrorKind, GhostError, Result, RowReader, parse_metadata};
+use darkwire_core::{Database, ErrorKind, Result, RowReader, WireError, parse_metadata};
 use serde_json::json;
 
 const READ: RowReader = RowReader::new("fixture");
@@ -32,7 +32,7 @@ fn with_row<T>(
     f(row)
 }
 
-fn details(error: &GhostError, key: &str) -> String {
+fn details(error: &WireError, key: &str) -> String {
     error.details[key].as_str().unwrap().to_owned()
 }
 

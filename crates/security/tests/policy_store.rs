@@ -9,8 +9,8 @@
 
 mod common;
 
-use ghostai_core::ErrorKind;
-use ghostai_security::PolicyStore;
+use darkwire_core::ErrorKind;
+use darkwire_security::PolicyStore;
 use serde_json::{Value, json};
 
 use common::message_of;
@@ -18,7 +18,7 @@ use common::message_of;
 const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 fn definition() -> Value {
-    json!({"schema": "ghostai.environment/1", "name": "dev", "image": DIGEST, "shared": true})
+    json!({"schema": "darkwire.environment/1", "name": "dev", "image": DIGEST, "shared": true})
 }
 
 fn fixture() -> (tempfile::TempDir, PolicyStore) {
@@ -162,7 +162,7 @@ mod saving {
     /// fields a minimal definition carries.
     fn full() -> Value {
         json!({
-            "schema": "ghostai.environment/1",
+            "schema": "darkwire.environment/1",
             "kind": "container",
             "name": "dev",
             "prompt": "Rust and Node are installed.",
@@ -193,7 +193,7 @@ mod saving {
     #[test]
     fn a_saved_definition_loads_back_field_for_field() {
         let (_root, store) = empty();
-        let written: ghostai_protocol::environment::EnvironmentDefinition =
+        let written: darkwire_protocol::environment::EnvironmentDefinition =
             serde_json::from_value(full()).unwrap();
 
         let digest = store.save_environment(&written).unwrap();
@@ -221,7 +221,7 @@ mod saving {
     #[test]
     fn a_second_save_replaces_the_first_and_moves_the_digest() {
         let (_root, store) = empty();
-        let mut definition: ghostai_protocol::environment::EnvironmentDefinition =
+        let mut definition: darkwire_protocol::environment::EnvironmentDefinition =
             serde_json::from_value(definition()).unwrap();
         let first = store.save_environment(&definition).unwrap();
 

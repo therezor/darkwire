@@ -20,7 +20,7 @@
 
 use std::sync::LazyLock;
 
-use ghostai_protocol::json::js_trim;
+use darkwire_protocol::json::js_trim;
 use regex::Regex;
 
 /// The character budget for a derived title, in UTF-16 code units.

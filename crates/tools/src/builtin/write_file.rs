@@ -11,8 +11,8 @@
 //! refusing to create them would leave the model to call a directory tool it
 //! does not have.
 
-use ghostai_core::Result;
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_core::Result;
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

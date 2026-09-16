@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-core"
+name = "darkwire-core"
 description = "The shared spine: errors, clock, paths, SQLite stores, config, history windowing, logger"
 version.workspace = true
 edition.workspace = true
@@ -17,8 +17,8 @@ workspace = true
 testkit = []
 
 [dependencies]
-ghostai-protocol.workspace = true
-ghostai-i18n.workspace = true
+darkwire-protocol.workspace = true
+darkwire-i18n.workspace = true
 garde.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
@@ -41,4 +41,4 @@ serde_path_to_error.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 # The crate's own tests reach `ManualClock` the way other crates do.
-ghostai-core = { path = ".", features = ["testkit"] }
+darkwire-core = { path = ".", features = ["testkit"] }

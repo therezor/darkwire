@@ -9,7 +9,7 @@
 
 use std::thread;
 
-use ghostai_core::{Database, ErrorKind, GhostError};
+use darkwire_core::{Database, ErrorKind, WireError};
 
 fn pragma(db: &Database, name: &str) -> String {
     db.lock()
@@ -32,7 +32,7 @@ fn count(db: &Database) -> i64 {
 #[test]
 fn open_creates_the_directory_and_sets_the_pragmas() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("nested").join("deeper").join("ghost.db");
+    let file = dir.path().join("nested").join("deeper").join("darkwire.db");
 
     let db = Database::open(&file).unwrap();
 
@@ -50,7 +50,7 @@ fn open_creates_the_directory_private_to_the_user() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("private").join("ghost.db");
+    let file = dir.path().join("private").join("darkwire.db");
     Database::open(&file).unwrap();
 
     let mode = std::fs::metadata(dir.path().join("private"))
@@ -66,7 +66,7 @@ fn open_fails_where_the_directory_cannot_be_created() {
     let blocker = dir.path().join("file");
     std::fs::write(&blocker, "not a directory").unwrap();
 
-    let error = Database::open(&blocker.join("ghost.db")).unwrap_err();
+    let error = Database::open(&blocker.join("darkwire.db")).unwrap_err();
     assert!(matches!(
         error.kind,
         ErrorKind::Storage | ErrorKind::NotFound
@@ -135,7 +135,7 @@ fn a_transaction_rolls_back_when_the_closure_fails() {
     let error = db
         .transaction(|conn| {
             conn.execute("INSERT INTO t VALUES (1)", [])?;
-            Err::<(), _>(GhostError::new(ErrorKind::Conflict, "changed my mind"))
+            Err::<(), _>(WireError::new(ErrorKind::Conflict, "changed my mind"))
         })
         .unwrap_err();
 
@@ -178,7 +178,7 @@ fn a_nested_transaction_joins_the_outer_one() {
                 Ok(())
             })?;
             assert_eq!(count(&db), 2);
-            Err::<(), _>(GhostError::new(ErrorKind::Aborted, "outer gave up"))
+            Err::<(), _>(WireError::new(ErrorKind::Aborted, "outer gave up"))
         })
         .unwrap_err();
 
@@ -193,7 +193,7 @@ fn an_inner_failure_does_not_end_the_outer_transaction() {
 
     db.transaction(|conn| {
         conn.execute("INSERT INTO t VALUES (1)", [])?;
-        let inner = db.transaction(|_| Err::<(), _>(GhostError::new(ErrorKind::Tool, "inner")));
+        let inner = db.transaction(|_| Err::<(), _>(WireError::new(ErrorKind::Tool, "inner")));
         assert_eq!(inner.unwrap_err().kind, ErrorKind::Tool);
         conn.execute("INSERT INTO t VALUES (2)", [])?;
         Ok(())

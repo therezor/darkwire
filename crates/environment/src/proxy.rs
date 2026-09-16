@@ -1,7 +1,7 @@
 //! Destination-restricted HTTP proxy. TLS tunnels are not decrypted.
-use ghostai_core::Result;
-use ghostai_security::environment::invalid;
-use ghostai_security::{HickoryResolver, NetworkPolicy, PinnedTarget, validate_target};
+use darkwire_core::Result;
+use darkwire_security::environment::invalid;
+use darkwire_security::{HickoryResolver, NetworkPolicy, PinnedTarget, validate_target};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -216,7 +216,7 @@ pub async fn serve(hosts: Vec<String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{approved_destination, forwarded_request};
-    use ghostai_security::PinnedTarget;
+    use darkwire_security::PinnedTarget;
 
     /// A destination already validated, as `forwarded_request` receives one.
     fn target(url: &str) -> PinnedTarget {
@@ -232,7 +232,7 @@ mod tests {
 
     /// The header block as it arrives, minus the request line the caller has
     /// already consumed.
-    fn forward(headers: &[&str], url: &str) -> ghostai_core::Result<(String, usize)> {
+    fn forward(headers: &[&str], url: &str) -> darkwire_core::Result<(String, usize)> {
         forwarded_request("GET", headers.iter().copied(), &target(url))
     }
 

@@ -22,7 +22,7 @@ import type {
   ConfigPatch,
   McpServerConfig,
   McpTransport,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import {
   formatList,
@@ -88,7 +88,7 @@ export const EMPTY_MCP_FORM: McpForm = {
  * `type` is optional in the schema — it is inferred from `command` versus `url`
  * — so the form has to run the same inference the client does, or opening an
  * entry that left it out would show the wrong half of the form. This mirrors
- * `resolve_spec` in `ghostai-mcp`, which is where the rule is enforced.
+ * `resolve_spec` in `darkwire-mcp`, which is where the rule is enforced.
  */
 export function transportOf(config: McpServerConfig | undefined): McpTransport {
   if (config?.type !== undefined) return config.type;

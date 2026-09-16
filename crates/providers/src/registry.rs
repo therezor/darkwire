@@ -17,7 +17,7 @@
 
 use std::sync::LazyLock;
 
-use ghostai_protocol::ProviderInfo;
+use darkwire_protocol::ProviderInfo;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -249,7 +249,7 @@ fn build_table() -> Vec<ProviderSpec> {
             detect_by_base_keyword: Some("openrouter".to_owned()),
             // OpenRouter ranks callers by attribution header; it is not
             // authentication.
-            default_headers: IndexMap::from([("X-Title".to_owned(), "GhostAI".to_owned())]),
+            default_headers: IndexMap::from([("X-Title".to_owned(), "DarkWire".to_owned())]),
             supports_prompt_caching: true,
             supports_model_listing: true,
             // OpenRouter normalises reasoning across every upstream model

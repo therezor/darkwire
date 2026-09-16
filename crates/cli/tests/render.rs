@@ -15,14 +15,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use ghostai::i18n::Translations;
-use ghostai::render::{
+use darkwire::i18n::Translations;
+use darkwire::render::{
     DEFAULT_ARG_SUMMARY_CHARS, RenderTarget, TurnRenderer, TurnRendererOptions, clip, format_count,
     format_duration, format_rate, summarise_args,
 };
-use ghostai_agent::AgentEvent;
-use ghostai_core::TurnStatsRecord;
-use ghostai_protocol::{StopReason, TurnTiming, Usage};
+use darkwire_agent::AgentEvent;
+use darkwire_core::TurnStatsRecord;
+use darkwire_protocol::{StopReason, TurnTiming, Usage};
 use serde_json::{Value, json};
 
 /// A target a test can read back, which is the whole reason [`RenderTarget`] is
@@ -486,7 +486,7 @@ fn writes_its_own_notes_in_the_same_line_discipline() {
 
 #[test]
 fn says_a_tool_is_waiting_for_an_approval_it_cannot_answer() {
-    // `ghostai chat` installs no gate, so reaching here means the CLI is
+    // `darkwire chat` installs no gate, so reaching here means the CLI is
     // watching a turn some other surface is driving. Saying so beats a gap.
     let text = plain(&[
         start(),

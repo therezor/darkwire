@@ -13,7 +13,7 @@
  * `agents-form.ts` is where it is edited — see the header of `tools-panel.tsx`.
  */
 
-import type { ToolsConfig } from '@ghostwire/protocol';
+import type { ToolsConfig } from '@darkwire/protocol';
 import type { TFunction } from 'i18next';
 
 import {

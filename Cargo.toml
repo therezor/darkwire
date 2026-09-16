@@ -5,19 +5,19 @@
 #
 # One version for the whole workspace, read by every crate through
 # `env!("CARGO_PKG_VERSION")`. It must equal the `version` in the root
-# package.json; a test in the `ghostai` crate asserts that, which replaces the
+# package.json; a test in the `darkwire` crate asserts that, which replaces the
 # old hand-edited VERSION / SERVER_VERSION literals.
 [workspace]
 resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.97"
-repository = "https://github.com/therezor/GhostAI"
-homepage = "https://github.com/therezor/GhostAI"
+repository = "https://github.com/therezor/darkwire"
+homepage = "https://github.com/therezor/darkwire"
 publish = false
 
 # One version per dependency for the whole workspace. Pinned exact on purpose,
@@ -26,20 +26,20 @@ publish = false
 # quietly. Bump them deliberately, in their own commit.
 [workspace.dependencies]
 # workspace crates
-ghostai-protocol = { path = "crates/protocol" }
-ghostai-i18n = { path = "crates/i18n" }
-ghostai-tui = { path = "crates/tui" }
-ghostai-core = { path = "crates/core" }
-ghostai-security = { path = "crates/security" }
-ghostai-providers = { path = "crates/providers" }
-ghostai-tools = { path = "crates/tools" }
-ghostai-mcp = { path = "crates/mcp" }
-ghostai-agent = { path = "crates/agent" }
-ghostai-channels = { path = "crates/channels" }
-ghostai-extension-host = { path = "crates/extension-host" }
-ghostai-runtime = { path = "crates/runtime" }
-ghostai-environment = { path = "crates/environment" }
-ghostai-server = { path = "crates/server" }
+darkwire-protocol = { path = "crates/protocol" }
+darkwire-i18n = { path = "crates/i18n" }
+darkwire-tui = { path = "crates/tui" }
+darkwire-core = { path = "crates/core" }
+darkwire-security = { path = "crates/security" }
+darkwire-providers = { path = "crates/providers" }
+darkwire-tools = { path = "crates/tools" }
+darkwire-mcp = { path = "crates/mcp" }
+darkwire-agent = { path = "crates/agent" }
+darkwire-channels = { path = "crates/channels" }
+darkwire-extension-host = { path = "crates/extension-host" }
+darkwire-runtime = { path = "crates/runtime" }
+darkwire-environment = { path = "crates/environment" }
+darkwire-server = { path = "crates/server" }
 
 # async
 tokio = { version = "=1.53.1", features = ["full"] }

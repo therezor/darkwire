@@ -3,7 +3,7 @@
 //! `GET /api/providers` answers two questions at once, because the settings
 //! panel asks both: `types` is the catalogue an operator adds an endpoint from,
 //! projected from the provider table, and `instances` is what they have
-//! actually configured. Both projections live in `ghostai-providers` beside the
+//! actually configured. Both projections live in `darkwire-providers` beside the
 //! table itself, so adding a provider stays a one-line table entry rather than
 //! a table entry plus a route change — and this route supplies the one thing
 //! neither can know: whether a credential exists, which is the vault's business
@@ -14,10 +14,10 @@ use std::collections::HashSet;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
-use ghostai_protocol::rest::{
+use darkwire_protocol::rest::{
     ModelInfo, ModelsResponse, ProviderTestRequest, ProviderTestResponse, ProvidersResponse,
 };
-use ghostai_providers::{PROVIDERS, describe_instance, describe_provider, list_instances};
+use darkwire_providers::{PROVIDERS, describe_instance, describe_provider, list_instances};
 use indexmap::IndexMap;
 
 use crate::errors::HttpError;

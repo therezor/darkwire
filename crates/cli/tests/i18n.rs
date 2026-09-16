@@ -2,7 +2,7 @@
 //!
 //! The order is the thing under test rather than the answer: with one locale
 //! shipped, every request resolves to English, so a test that only asserted the
-//! result could not tell a right precedence from a wrong one. `ghostai-i18n`
+//! result could not tell a right precedence from a wrong one. `darkwire-i18n`
 //! publishes the candidate list for exactly that reason, and this asserts it.
 
 // `allow-unwrap-in-tests` covers a `#[test]` body; the fixture helpers beside
@@ -16,9 +16,9 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::{Env, Translations, describe_error};
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_i18n::{DEFAULT_LOCALE, args, cli_locale_candidates, keys, resolve_cli_locale};
+use darkwire::i18n::{Env, Translations, describe_error};
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_i18n::{DEFAULT_LOCALE, args, cli_locale_candidates, keys, resolve_cli_locale};
 
 fn env(pairs: &[(&str, &str)]) -> Env {
     pairs.iter().copied().collect()
@@ -30,10 +30,10 @@ fn candidates(env: &Env, configured: Option<&str>) -> Vec<Option<String>> {
 }
 
 #[test]
-fn ghostai_lang_outranks_the_shell() {
+fn darkwire_lang_outranks_the_shell() {
     // The override exists for a script that wants one language regardless of
     // the machine it lands on.
-    let env = env(&[("GHOSTAI_LANG", "en"), ("LANG", "de_DE.UTF-8")]);
+    let env = env(&[("DARKWIRE_LANG", "en"), ("LANG", "de_DE.UTF-8")]);
     let order = candidates(&env, None);
     assert_eq!(order[0].as_deref(), Some("en"));
     assert!(
@@ -53,7 +53,7 @@ fn the_configured_locale_outranks_the_shell_and_not_the_override() {
     let order = candidates(&shell, Some("en"));
     assert_eq!(order[1].as_deref(), Some("en"));
 
-    let both = env(&[("GHOSTAI_LANG", "fr"), ("LANG", "de_DE.UTF-8")]);
+    let both = env(&[("DARKWIRE_LANG", "fr"), ("LANG", "de_DE.UTF-8")]);
     let order = candidates(&both, Some("en"));
     assert_eq!(order[0].as_deref(), Some("fr"));
     assert_eq!(order[1].as_deref(), Some("en"));
@@ -124,7 +124,6 @@ fn every_key_a_command_reaches_for_is_in_the_bundle() {
         keys::environment::DESCRIPTION,
         keys::extension::DESCRIPTION,
         keys::agent::DESCRIPTION,
-        keys::preset::DESCRIPTION,
         keys::help::USAGE,
         keys::help::OPTIONS,
         keys::help::COMMANDS,
@@ -140,7 +139,7 @@ fn every_key_a_command_reaches_for_is_in_the_bundle() {
 fn describe_error_reports_the_message_the_error_carries() {
     // A funnel rather than a translation: logs, pipes and `curl` all want the
     // same original, so the sentence is authoritative.
-    let error = GhostError::new(ErrorKind::Internal, "something specific went wrong");
+    let error = WireError::new(ErrorKind::Internal, "something specific went wrong");
     assert_eq!(describe_error(&error), "something specific went wrong");
 }
 
@@ -148,25 +147,25 @@ fn describe_error_reports_the_message_the_error_carries() {
 fn describe_error_says_nothing_about_the_structured_detail() {
     // The details map is for a log line. A person reading a refusal wants the
     // sentence, and the sentence already names the file and what to do next.
-    let error = GhostError::new(ErrorKind::Config, "no provider could be resolved")
+    let error = WireError::new(ErrorKind::Config, "no provider could be resolved")
         .with_detail("file", "/tmp/config.yaml");
     assert_eq!(describe_error(&error), "no provider could be resolved");
 }
 
 #[test]
 fn an_empty_variable_is_set_but_not_usable() {
-    // The difference matters: `GHOSTAI_PASSWORD=` is an operator clearing a
+    // The difference matters: `DARKWIRE_PASSWORD=` is an operator clearing a
     // variable in a wrapper script, and the caller that cares treats it as
     // absent explicitly rather than by accident.
-    let env = env(&[("GHOSTAI_PASSWORD", "")]);
-    assert_eq!(env.get("GHOSTAI_PASSWORD"), Some(""));
-    assert_eq!(env.non_empty("GHOSTAI_PASSWORD"), None);
+    let env = env(&[("DARKWIRE_PASSWORD", "")]);
+    assert_eq!(env.get("DARKWIRE_PASSWORD"), Some(""));
+    assert_eq!(env.non_empty("DARKWIRE_PASSWORD"), None);
 }
 
 #[test]
-fn ghostai_debug_is_any_non_empty_value() {
+fn darkwire_debug_is_any_non_empty_value() {
     assert!(!Env::empty().debug());
-    assert!(!env(&[("GHOSTAI_DEBUG", "")]).debug());
-    assert!(env(&[("GHOSTAI_DEBUG", "0")]).debug());
-    assert!(env(&[("GHOSTAI_DEBUG", "1")]).debug());
+    assert!(!env(&[("DARKWIRE_DEBUG", "")]).debug());
+    assert!(env(&[("DARKWIRE_DEBUG", "0")]).debug());
+    assert!(env(&[("DARKWIRE_DEBUG", "1")]).debug());
 }

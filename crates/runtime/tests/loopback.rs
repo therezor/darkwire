@@ -8,7 +8,7 @@
 //! What it establishes, and why each half matters:
 //!
 //!  - **One turn, two doors.** The hub below is the only thing a transport adds
-//!    over [`ghostai_runtime::GhostRuntime`]: it opens a connection, hands the
+//!    over [`darkwire_runtime::WireRuntime`]: it opens a connection, hands the
 //!    loop a [`TurnInput`], and stamps a `seq` on each event. A browser's
 //!    WebSocket does exactly that and nothing more, so a channel reply and a
 //!    browser reply come out of the same `AgentLoop::run`.
@@ -36,18 +36,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use common::{Install, configured};
-use ghostai_agent::testkit::{ScriptedProvider, ScriptedTurn};
-use ghostai_agent::{AgentLoop, TurnInput};
-use ghostai_channels::manager::{
+use darkwire_agent::testkit::{ScriptedProvider, ScriptedTurn};
+use darkwire_agent::{AgentLoop, TurnInput};
+use darkwire_channels::manager::{
     ChannelHub, ChannelHubConnectOptions, ChannelHubConnection, ChannelManager,
     ChannelManagerOptions, SendEvent,
 };
-use ghostai_channels::testkit::{counter_ids, flush};
-use ghostai_core::Clock;
-use ghostai_protocol::{ClientMessage, ServerMessage};
-use ghostai_providers::ChatProvider;
-use ghostai_runtime::provider_cache::{ProviderCache, ProviderFactory};
-use ghostai_runtime::{GhostRuntime, RuntimeOptions, create_runtime};
+use darkwire_channels::testkit::{counter_ids, flush};
+use darkwire_core::Clock;
+use darkwire_protocol::{ClientMessage, ServerMessage};
+use darkwire_providers::ChatProvider;
+use darkwire_runtime::provider_cache::{ProviderCache, ProviderFactory};
+use darkwire_runtime::{RuntimeOptions, WireRuntime, create_runtime};
 use tokio_util::sync::CancellationToken;
 
 #[path = "../../channels/examples/loopback.rs"]
@@ -62,7 +62,7 @@ use loopback::{Loopback, LoopbackOptions, loopback_channel};
 /// a socket, a replay ring and an approval gate to this and changes none of it,
 /// which is what makes "the same turn" a claim rather than a hope.
 struct RuntimeHub {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
 }
 
 impl ChannelHub for RuntimeHub {
@@ -85,7 +85,7 @@ struct RuntimeConnection {
     agent_id: Option<String>,
     workspace_id: Option<String>,
     send: SendEvent,
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     seq: AtomicU64,
 }
 
@@ -132,7 +132,7 @@ fn answering(text: &'static str) -> ProviderFactory {
 }
 
 /// A runtime whose every turn answers `text`.
-fn runtime(install: &Install, text: &'static str) -> Arc<GhostRuntime> {
+fn runtime(install: &Install, text: &'static str) -> Arc<WireRuntime> {
     create_runtime(RuntimeOptions {
         providers: Some(Arc::new(ProviderCache::with_factory(8, answering(text)))),
         ..install.options()
@@ -189,11 +189,11 @@ async fn a_channel_turn_is_the_turn_a_browser_gets() {
     // model's answer are both appended, in order.
     let history = runtime
         .store()
-        .messages(&key, &ghostai_core::session_store::ReadMessages::default())
+        .messages(&key, &darkwire_core::session_store::ReadMessages::default())
         .unwrap();
     let texts: Vec<String> = history
         .iter()
-        .map(|record| ghostai_core::text_of(&record.message))
+        .map(|record| darkwire_core::text_of(&record.message))
         .collect();
     assert!(
         texts.iter().any(|text| text.contains("Are you there?")),
@@ -262,7 +262,7 @@ async fn two_messages_in_one_conversation_share_the_session_the_loop_created() {
     let key = keys.into_iter().next().unwrap();
     let history = runtime
         .store()
-        .messages(&key, &ghostai_core::session_store::ReadMessages::default())
+        .messages(&key, &darkwire_core::session_store::ReadMessages::default())
         .unwrap();
     assert!(
         history.len() >= 4,
@@ -274,7 +274,7 @@ async fn two_messages_in_one_conversation_share_the_session_the_loop_created() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unconfigured_install_leaves_the_channel_running_and_answers_nothing() {
-    // The unconfigured state end to end: `ghostai serve` comes up on a bare
+    // The unconfigured state end to end: `darkwire serve` comes up on a bare
     // machine, the channel starts, and only the *turn* is missing.
     let install = Install::bare();
     let runtime = install.runtime().unwrap();

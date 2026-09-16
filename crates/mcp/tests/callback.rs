@@ -15,17 +15,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use ghostai_core::ErrorKind;
-use ghostai_mcp::{
+use darkwire_core::ErrorKind;
+use darkwire_mcp::{
     CALLBACK_PATH, CallbackListener, CallbackListenerOptions, DEFAULT_CALLBACK_PORT,
 };
-use ghostai_security::OsRandom;
+use darkwire_security::OsRandom;
+use futures::FutureExt as _;
 
 fn listener() -> CallbackListener {
     CallbackListener::new(CallbackListenerOptions {
         random: Arc::new(OsRandom),
-        // Ephemeral, so a developer running the suite while a GhostAI is up
+        // Ephemeral, so a developer running the suite while a DarkWire is up
         // does not collide with its fixed port.
         port: Some(0),
     })

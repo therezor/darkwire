@@ -25,7 +25,7 @@ import type {
   AgentSummary,
   ModelInfo,
   ReasoningEffort,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { commandRows, findCommand } from './commands.js';
 

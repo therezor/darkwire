@@ -3,7 +3,7 @@
 mod common;
 
 use common::FakeOutput;
-use ghostai_tui::{CLEAR_ALL, CLEAR_SCREEN, CURSOR_MARKER, Component, Renderer, RendererOptions};
+use darkwire_tui::{CLEAR_ALL, CLEAR_SCREEN, CURSOR_MARKER, Component, Renderer, RendererOptions};
 
 const ESC: &str = "\x1b";
 

@@ -1,7 +1,7 @@
 {
   "type": "string",
   "enum": [
-    "ghostai.extension/1",
-    "ghostai.extension/2"
+    "darkwire.extension/1",
+    "darkwire.extension/2"
   ]
 }

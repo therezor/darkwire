@@ -10,7 +10,7 @@ import { AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { unknownPlaceholders } from '@ghostwire/protocol';
+import { unknownPlaceholders } from '@darkwire/protocol';
 
 import { Button } from '@/components/ui/button.js';
 import { NoticeBlock } from '@/components/ui/notice.js';

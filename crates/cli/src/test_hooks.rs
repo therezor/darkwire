@@ -1,8 +1,8 @@
-//! The seams `ghostai serve` opens for the end-to-end suite, and nothing else.
+//! The seams `darkwire serve` opens for the end-to-end suite, and nothing else.
 //!
 //! **Two independent switches, and both are needed**, the same rule the hook
 //! routes follow: the `test-hooks` cargo feature decides whether this module is
-//! compiled at all, and `GHOSTAI_TEST_HOOKS=1` decides whether anything in it is
+//! compiled at all, and `DARKWIRE_TEST_HOOKS=1` decides whether anything in it is
 //! reached. A release artefact is built without the feature, so the environment
 //! variable finds nothing; the binary CI hands to Playwright *was* built with it
 //! and still behaves like a shipping one until the harness says otherwise.
@@ -28,12 +28,12 @@
 
 use std::sync::Arc;
 
-use ghostai_core::paths::GhostPaths;
-use ghostai_core::{GhostError, Result};
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
-use ghostai_security::{CredentialVault, KeyFileStore, KeyStore, OsRandom, resolve_vault_key};
-use ghostai_server::auth_store::PasswordHasher;
-use ghostai_tools::tool::{
+use darkwire_core::paths::WirePaths;
+use darkwire_core::{Result, WireError};
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::{CredentialVault, KeyFileStore, KeyStore, OsRandom, resolve_vault_key};
+use darkwire_server::auth_store::PasswordHasher;
+use darkwire_tools::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
 };
 use parking_lot::Mutex;
@@ -41,7 +41,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 /// The environment variable that arms the seams at run time.
-pub const TEST_HOOKS_ENV: &str = "GHOSTAI_TEST_HOOKS";
+pub const TEST_HOOKS_ENV: &str = "DARKWIRE_TEST_HOOKS";
 
 /// Whether the environment armed them.
 ///
@@ -61,8 +61,8 @@ pub fn armed() -> bool {
 /// written, which the caller treats the way it treats a vault that will not
 /// open.
 ///
-/// [`VaultChoice::Default`]: ghostai_runtime::VaultChoice::Default
-pub fn vault(paths: &GhostPaths) -> Option<Arc<Mutex<CredentialVault>>> {
+/// [`VaultChoice::Default`]: darkwire_runtime::VaultChoice::Default
+pub fn vault(paths: &WirePaths) -> Option<Arc<Mutex<CredentialVault>>> {
     if !armed() {
         return None;
     }
@@ -114,7 +114,7 @@ impl ToolHandler for Wait {
             let slept = tokio::time::sleep(std::time::Duration::from_millis(args.ms));
             tokio::select! {
                 () = slept => Ok(ToolOutput::text(format!("waited {}ms", args.ms))),
-                () = ctx.token.cancelled() => Err(GhostError::aborted("e2e_wait")),
+                () = ctx.token.cancelled() => Err(WireError::aborted("e2e_wait")),
             }
         })
     }

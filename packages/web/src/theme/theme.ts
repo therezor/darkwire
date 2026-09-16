@@ -23,7 +23,7 @@ export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
 
 /** Shared with the pre-paint script in `index.html`, which cannot import it. */
-export const THEME_STORAGE_KEY = 'ghostai.theme';
+export const THEME_STORAGE_KEY = 'darkwire.theme';
 
 /** The media query both implementations ask. */
 const LIGHT_QUERY = '(prefers-color-scheme: light)';

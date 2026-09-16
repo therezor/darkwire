@@ -7,8 +7,8 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::json::{MAX_SAFE_INTEGER, Nullable, True, coerce_f64, coerce_u64, js_trim};
-use ghostai_protocol::{ContentPart, TextTag, protocol_generator};
+use darkwire_protocol::json::{MAX_SAFE_INTEGER, Nullable, True, coerce_f64, coerce_u64, js_trim};
+use darkwire_protocol::{ContentPart, TextTag, protocol_generator};
 use serde::Deserialize;
 use serde_json::json;
 

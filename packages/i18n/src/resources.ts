@@ -16,7 +16,7 @@
  * compiling with nothing checked — which is the entire guarantee this package
  * exists to provide.
  *
- * `@ghostwire/i18n/locales/…` resolves through this package's own `exports` map
+ * `@darkwire/i18n/locales/…` resolves through this package's own `exports` map
  * instead, which reads the same from `src`, from `dist`, and from a consumer
  * three packages away. A copy step would have fixed the built output and *not*
  * `pnpm typecheck`, which emits declarations without ever running the bundler.
@@ -25,8 +25,8 @@
  * JSON import in an ES module without it.
  */
 
-import cli from '@ghostwire/i18n/locales/en/cli.json' with { type: 'json' };
-import web from '@ghostwire/i18n/locales/en/web.json' with { type: 'json' };
+import cli from '@darkwire/i18n/locales/en/cli.json' with { type: 'json' };
+import web from '@darkwire/i18n/locales/en/web.json' with { type: 'json' };
 
 export const EN = { web, cli } as const;
 

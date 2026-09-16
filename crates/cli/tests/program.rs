@@ -16,18 +16,17 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::{Env, Translations};
-use ghostai::program::{
-    AgentCommand, ChatArgs, Globals, Invocation, Parsed, PresetAction, StoreAction, Subcommand,
-    VERSION, parse,
+use darkwire::i18n::{Env, Translations};
+use darkwire::program::{
+    AgentCommand, ChatArgs, Globals, Invocation, Parsed, StoreAction, Subcommand, VERSION, parse,
 };
-use ghostai_core::LogLevel;
+use darkwire_core::LogLevel;
 
 /// Parses one command line with an empty environment.
 fn run(args: &[&str]) -> Parsed {
     let env = Env::empty();
     let t = Translations::default();
-    let mut line = vec!["ghostai"];
+    let mut line = vec!["darkwire"];
     line.extend_from_slice(args);
     parse(line, &env, &t)
 }
@@ -35,7 +34,7 @@ fn run(args: &[&str]) -> Parsed {
 /// Parses one command line against a supplied environment.
 fn run_in(args: &[&str], env: &Env) -> Parsed {
     let t = Translations::default();
-    let mut line = vec!["ghostai"];
+    let mut line = vec!["darkwire"];
     line.extend_from_slice(args);
     parse(line, env, &t)
 }
@@ -77,13 +76,13 @@ fn version_matches_the_manifest() {
 fn prints_help_and_exits_zero() {
     let (text, code) = printed(&["--help"]);
     assert_eq!(code, 0);
-    assert!(text.contains("Usage: ghost"), "{text}");
+    assert!(text.contains("Usage: darkwire"), "{text}");
     assert!(text.contains("chat"), "{text}");
 }
 
 #[test]
 fn prints_the_bare_version() {
-    // The bare number, not `ghostai 0.8.1`: a script reading `$(ghostai -v)`
+    // The bare number, not `darkwire 0.8.1`: a script reading `$(darkwire -v)`
     // parses what this prints.
     let (text, code) = printed(&["--version"]);
     assert_eq!(code, 0);
@@ -123,47 +122,13 @@ fn environment_is_a_listing_with_nothing_to_decide() {
 }
 
 #[test]
-fn offers_agent_the_preset_installer() {
+fn offers_agent_with_its_listing() {
     let (root, _) = printed(&["--help"]);
     assert!(root.contains("agent"));
 
     let (help, code) = printed(&["agent", "--help"]);
     assert_eq!(code, 0);
-    assert!(help.contains("install"));
     assert!(help.contains("list"));
-}
-
-#[test]
-fn offers_preset_with_its_three_subcommands_and_flags() {
-    let (root, _) = printed(&["--help"]);
-    assert!(root.contains("preset"));
-
-    let (help, _) = printed(&["preset", "--help"]);
-    for name in ["install", "list", "update"] {
-        assert!(help.contains(name), "{name} missing from {help}");
-    }
-
-    let (install, code) = printed(&["preset", "install", "--help"]);
-    assert_eq!(code, 0);
-    for flag in ["--from", "--refresh", "--offline", "--force"] {
-        assert!(install.contains(flag), "{flag} missing from {install}");
-    }
-    // Nothing to approve any more: installing a definition is the decision.
-    assert!(!install.contains("--approve"), "{install}");
-}
-
-#[test]
-fn reads_a_preset_subcommands_options_whether_or_not_it_takes_arguments() {
-    // `install` takes a variadic argument and `list` takes none. This is the
-    // case that catches the options being read off the wrong level: with them
-    // misread, `--from` would be absent and the run would try to fetch.
-    let invocation = invocation(&["preset", "list", "--from", "/somewhere"]);
-    match invocation.command {
-        Subcommand::Preset(catalogue, PresetAction::List) => {
-            assert_eq!(catalogue.from.as_deref(), Some("/somewhere"));
-        }
-        other => panic!("expected preset list, got {other:?}"),
-    }
 }
 
 #[test]
@@ -271,7 +236,7 @@ fn leaves_the_log_level_unset_without_verbose() {
 
 #[test]
 fn verbose_asks_for_the_installs_own_reporting() {
-    // Before the subcommand: it is a global, listed on `ghostai --help`, which
+    // Before the subcommand: it is a global, listed on `darkwire --help`, which
     // is where someone looks for it because `chat` is the default command.
     let (globals, _) = chat(&["--verbose", "chat", "hi"]);
     assert_eq!(globals.chat_log_level(), Some(LogLevel::Info));
@@ -279,7 +244,7 @@ fn verbose_asks_for_the_installs_own_reporting() {
 
 #[test]
 fn takes_verbose_after_the_subcommand_too() {
-    // Where a hand lands: `ghostai chat --verbose` is what someone types who has
+    // Where a hand lands: `darkwire chat --verbose` is what someone types who has
     // already started the sentence.
     let (globals, _) = chat(&["chat", "--verbose", "hi"]);
     assert_eq!(globals.chat_log_level(), Some(LogLevel::Info));
@@ -327,7 +292,7 @@ fn rejects_silent_which_the_flag_does_not_offer() {
 
 #[test]
 fn accepts_every_level_the_help_lists() {
-    for level in ghostai::program::LOG_LEVELS {
+    for level in darkwire::program::LOG_LEVELS {
         let (globals, _) = chat(&["--log-level", level, "chat", "hi"]);
         assert_eq!(globals.log_level, LogLevel::parse(level));
     }
@@ -355,18 +320,10 @@ fn a_bare_extension_command_lists() {
 }
 
 #[test]
-fn agent_install_carries_its_flags() {
-    match invocation(&["agent", "install", "coder", "--force", "-W", "acme"]).command {
-        Subcommand::Agent(AgentCommand::Install {
-            name,
-            force,
-            workspace_id,
-        }) => {
-            assert_eq!(name, "coder");
-            assert!(force);
-            assert_eq!(workspace_id.as_deref(), Some("acme"));
-        }
-        other => panic!("expected agent install, got {other:?}"),
+fn a_bare_agent_command_lists() {
+    match invocation(&["agent"]).command {
+        Subcommand::Agent(AgentCommand::List) => {}
+        other => panic!("expected agent list, got {other:?}"),
     }
 
     match invocation(&["agent", "list"]).command {
@@ -385,7 +342,7 @@ fn a_missing_required_argument_is_refused_rather_than_defaulted() {
 
 // serve
 
-fn serve(args: &[&str], env: &Env) -> ghostai::program::ServeArgs {
+fn serve(args: &[&str], env: &Env) -> darkwire::program::ServeArgs {
     let mut line = vec!["serve"];
     line.extend_from_slice(args);
     match run_in(&line, env).into_run() {
@@ -448,7 +405,9 @@ fn serve_takes_the_short_forms_too() {
 
 #[test]
 fn serve_reads_the_password_from_the_environment() {
-    let env: Env = [("GHOSTAI_PASSWORD", "from-the-env")].into_iter().collect();
+    let env: Env = [("DARKWIRE_PASSWORD", "from-the-env")]
+        .into_iter()
+        .collect();
     assert_eq!(
         serve(&[], &env).password.as_deref(),
         Some("from-the-env"),
@@ -458,7 +417,7 @@ fn serve_reads_the_password_from_the_environment() {
 
 #[test]
 fn serve_leaves_an_empty_environment_credential_unset() {
-    let env: Env = [("GHOSTAI_PASSWORD", ""), ("GHOSTAI_USERNAME", "")]
+    let env: Env = [("DARKWIRE_PASSWORD", ""), ("DARKWIRE_USERNAME", "")]
         .into_iter()
         .collect();
     let args = serve(&[], &env);
@@ -475,8 +434,8 @@ fn serve_passes_the_username_through_from_either_source() {
     assert_eq!(flag.username.as_deref(), Some("operator"));
 
     let env: Env = [
-        ("GHOSTAI_PASSWORD", "hunter2hunter2"),
-        ("GHOSTAI_USERNAME", "operator"),
+        ("DARKWIRE_PASSWORD", "hunter2hunter2"),
+        ("DARKWIRE_USERNAME", "operator"),
     ]
     .into_iter()
     .collect();

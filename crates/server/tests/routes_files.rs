@@ -27,11 +27,11 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use ghostai_core::Clock as _;
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_server::runtime::ServerRuntime as _;
-use ghostai_server::signing::{MEDIA_SECRET_NAME, MediaClaim, sign_media_token};
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_core::Clock as _;
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_server::runtime::ServerRuntime as _;
+use darkwire_server::signing::{MEDIA_SECRET_NAME, MediaClaim, sign_media_token};
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
@@ -362,7 +362,7 @@ async fn an_upload_that_tried_to_escape_is_clamped_and_says_where_it_landed() {
 #[tokio::test]
 async fn an_upload_past_the_cap_is_refused_rather_than_buffered() {
     let test = server();
-    let oversized = vec![0u8; ghostai_server::routes::files::MAX_UPLOAD_BYTES + 1];
+    let oversized = vec![0u8; darkwire_server::routes::files::MAX_UPLOAD_BYTES + 1];
     let answer = raw(
         &test,
         "POST",
@@ -688,7 +688,7 @@ async fn a_write_body_past_the_cap_is_refused() {
     let test = server();
     let body = json!({
         "path": "big.md",
-        "content": "a".repeat(ghostai_server::routes::files::MAX_TEXT_BODY_BYTES),
+        "content": "a".repeat(darkwire_server::routes::files::MAX_TEXT_BODY_BYTES),
     });
     let answer = raw(
         &test,
@@ -1033,7 +1033,7 @@ async fn an_executable_type_is_never_served_inline() {
         );
         assert_eq!(
             answer.header(header::CONTENT_TYPE),
-            ghostai_server::workspace::DEFAULT_MIME_TYPE,
+            darkwire_server::workspace::DEFAULT_MIME_TYPE,
             "{name}"
         );
     }

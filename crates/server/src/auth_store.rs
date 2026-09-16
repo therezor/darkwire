@@ -31,13 +31,13 @@ use std::sync::{Arc, OnceLock};
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordVerifier as _, Version};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use garde::Validate as _;
-use ghostai_core::{Clock, Database, ErrorKind, GhostError, Result, RowReader, SystemClock};
-use ghostai_protocol::json::js_trim;
-use ghostai_protocol::rest::{
+use darkwire_core::{Clock, Database, ErrorKind, Result, RowReader, SystemClock, WireError};
+use darkwire_protocol::json::js_trim;
+use darkwire_protocol::rest::{
     DEFAULT_USERNAME, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, Username,
 };
-use ghostai_security::random::{OsRandom, RandomSource};
+use darkwire_security::random::{OsRandom, RandomSource};
+use garde::Validate as _;
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
@@ -187,7 +187,7 @@ impl PasswordHasher for Argon2Hasher {
             .hash_password(password.as_bytes())
             .map(|hash| hash.to_string())
             .map_err(|error| {
-                GhostError::new(ErrorKind::Internal, "Could not hash the password")
+                WireError::new(ErrorKind::Internal, "Could not hash the password")
                     .with_detail("reason", error.to_string())
             })
     }
@@ -328,7 +328,7 @@ impl AuthStore {
                     || "does not meet the rules".to_owned(),
                     |(_, e)| e.to_string(),
                 );
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     format!("Invalid username: {reason}"),
                 ));
@@ -338,7 +338,7 @@ impl AuthStore {
                 // manager, not here. This is the one case where a "password" is
                 // a value the operator has already typed into a field that is
                 // not masked and may be in a log.
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     "The password must not be the username",
                 ));
@@ -384,7 +384,7 @@ impl AuthStore {
     /// and an alternative credential would only widen the ways in.
     pub fn issue_setup_code(&self) -> Result<String> {
         if self.has_password()? {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "A password is already set; there is nothing to claim",
             ));
@@ -549,7 +549,7 @@ impl AuthStore {
     /// changed it would replace the login name with 32 random bytes.
     pub fn ensure_secret(&self, name: &str) -> Result<String> {
         if matches!(name, PASSWORD_SECRET | SETUP_CODE_SECRET | USERNAME_SECRET) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!("{name} is not a readable secret"),
             ));
@@ -701,7 +701,7 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
 /// The bounds a new password must clear, in the one place both callers reach.
 ///
 /// The HTTP body is parsed with a schema that says the same thing — but
-/// `--password` and `GHOSTAI_PASSWORD` come in through the composition root and
+/// `--password` and `DARKWIRE_PASSWORD` come in through the composition root and
 /// never touch it, and a policy that the command line can walk around is a
 /// policy that describes the interface rather than the install.
 ///
@@ -711,7 +711,7 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
 fn assert_password_policy(password: &str) -> Result<()> {
     let length = password.encode_utf16().count();
     if length < PASSWORD_MIN_LENGTH {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             format!(
                 "Password must be at least {PASSWORD_MIN_LENGTH} characters. \
@@ -720,7 +720,7 @@ fn assert_password_policy(password: &str) -> Result<()> {
         ));
     }
     if length > PASSWORD_MAX_LENGTH {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             format!("Password must be at most {PASSWORD_MAX_LENGTH} characters"),
         ));

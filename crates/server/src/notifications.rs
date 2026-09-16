@@ -1,6 +1,6 @@
 //! Notifications, on the connection everything else shares.
 //!
-//! They live in this crate rather than in `ghostai-core` for the same reason
+//! They live in this crate rather than in `darkwire-core` for the same reason
 //! the auth tables do: nothing below the transport raises one. A notification
 //! is something a *user interface* shows — an automation run that finished
 //! while the tab was closed, an approval that expired unanswered — and the
@@ -21,20 +21,20 @@
 
 use std::sync::Arc;
 
-use ghostai_core::clock::Clock;
-use ghostai_core::db::Database;
-use ghostai_core::errors::Result;
-use ghostai_core::session_store::IdSource;
-use ghostai_core::sqlite_row::RowReader;
-use ghostai_protocol::rest::Notification;
-use ghostai_protocol::ws::NotificationLevel;
+use darkwire_core::clock::Clock;
+use darkwire_core::db::Database;
+use darkwire_core::errors::Result;
+use darkwire_core::session_store::IdSource;
+use darkwire_core::sqlite_row::RowReader;
+use darkwire_protocol::rest::Notification;
+use darkwire_protocol::ws::NotificationLevel;
 use rusqlite::{Row, params};
 
 /// The `notifications` table.
 ///
 /// `read_at_ms` is nullable because "unread" is the absence of a read time
 /// rather than a flag beside one. No comment may appear inside the column list;
-/// see [`ghostai_core::db`].
+/// see [`darkwire_core::db`].
 pub const NOTIFICATIONS_TABLE: &str = "CREATE TABLE IF NOT EXISTS notifications (
   id            TEXT    PRIMARY KEY,
   title         TEXT    NOT NULL,

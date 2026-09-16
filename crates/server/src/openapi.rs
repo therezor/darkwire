@@ -615,7 +615,7 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
     },
     RouteDoc {
         id: RouteId::WsConnect,
-        summary: "Upgrade to the GhostAI WebSocket protocol",
+        summary: "Upgrade to the DarkWire WebSocket protocol",
         body: None,
         query: Some(QueryShape::WsQuery),
         params: None,
@@ -643,9 +643,9 @@ pub fn openapi_document() -> Value {
     json!({
         "openapi": "3.1.0",
         "info": {
-            "title": "GhostAI",
+            "title": "DarkWire",
             "version": SERVER_VERSION,
-            "description": "Generated from the schemas in ghostai-protocol.",
+            "description": "Generated from the schemas in darkwire-protocol.",
         },
         "paths": Value::Object(paths),
         "components": {
@@ -788,7 +788,7 @@ fn parameters_from(schema: &Value, location: &str) -> Vec<Value> {
 /// The generated schema for one query shape, with the same settings the
 /// protocol pool uses so a parameter reads like the rest of the document.
 fn query_schema(shape: QueryShape) -> Value {
-    let mut generator = ghostai_protocol::schemas::protocol_generator();
+    let mut generator = darkwire_protocol::schemas::protocol_generator();
     match shape {
         QueryShape::PageQuery => schema_of::<PageQuery>(&mut generator),
         QueryShape::SessionListQuery => schema_of::<SessionListQuery>(&mut generator),
@@ -803,7 +803,7 @@ fn query_schema(shape: QueryShape) -> Value {
 
 /// The generated schema for one path-parameter shape.
 fn path_schema(shape: PathShape) -> Value {
-    let mut generator = ghostai_protocol::schemas::protocol_generator();
+    let mut generator = darkwire_protocol::schemas::protocol_generator();
     match shape {
         PathShape::SessionParams => schema_of::<crate::queries::SessionParams>(&mut generator),
         PathShape::IdParams => schema_of::<crate::queries::IdParams>(&mut generator),

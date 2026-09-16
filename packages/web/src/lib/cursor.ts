@@ -26,7 +26,7 @@
  * nobody asks.
  */
 
-const KEY = 'ghostai.cursor';
+const KEY = 'darkwire.cursor';
 
 interface Cursor {
   readonly sessionKey: string;

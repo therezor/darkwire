@@ -21,7 +21,7 @@ import {
   ConfigSchema,
   type AutomationJob,
   type AutomationRun,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';

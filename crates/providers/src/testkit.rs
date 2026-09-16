@@ -29,13 +29,13 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
-use futures::stream::{BoxStream, StreamExt};
-use ghostai_core::messages::{
+use darkwire_core::messages::{
     AssistantOptions, ImageSource, ToolOptions, assistant_message, image_part, system_message,
     text_part, tool_message, user_message,
 };
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ChatMessage, ModelInfo, ReasoningEffort, ToolCall};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ChatMessage, ModelInfo, ReasoningEffort, ToolCall};
+use futures::stream::{BoxStream, StreamExt};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -56,7 +56,7 @@ pub enum ScriptedStep {
     /// `chat` returns this; `stream` yields it as the one `Done`.
     Result(ChatResult),
     /// Both call styles fail with this.
-    Error(GhostError),
+    Error(WireError),
     /// `stream` yields these in order; `chat` returns the `Done` among them.
     Events(Vec<Result<ChatStreamEvent>>),
 }
@@ -120,7 +120,7 @@ impl ScriptedProvider {
             .lock()
             .unwrap()
             .pop_front()
-            .ok_or_else(|| GhostError::new(ErrorKind::Internal, format!("unscripted call {call}")))
+            .ok_or_else(|| WireError::new(ErrorKind::Internal, format!("unscripted call {call}")))
     }
 }
 
@@ -194,9 +194,9 @@ pub fn result_of(text: &str) -> ChatResult {
     }
 }
 
-/// A provider error with `reason`, as the one `GhostError`.
-pub fn provider_error(reason: ProviderErrorReason, message: &str) -> GhostError {
-    ProviderError::new(reason, message).into_ghost()
+/// A provider error with `reason`, as the one `WireError`.
+pub fn provider_error(reason: ProviderErrorReason, message: &str) -> WireError {
+    ProviderError::new(reason, message).into_wire()
 }
 
 // Fixtures: the `openai-chat` wire
@@ -752,7 +752,7 @@ pub fn reason_of<T>(result: &Result<T>) -> Option<ProviderErrorReason> {
 
 fn hello() -> Vec<ChatMessage> {
     vec![
-        ChatMessage::System(system_message("You are GhostAI.")),
+        ChatMessage::System(system_message("You are DarkWire.")),
         ChatMessage::User(user_message("hello")),
     ]
 }
@@ -1089,7 +1089,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
 
     // Drops the oldest turns when the request exceeds the context window.
     {
-        let mut long = vec![ChatMessage::System(system_message("You are GhostAI."))];
+        let mut long = vec![ChatMessage::System(system_message("You are DarkWire."))];
         for index in 0..12 {
             long.push(ChatMessage::User(user_message(
                 format!("question {index} ").repeat(40),

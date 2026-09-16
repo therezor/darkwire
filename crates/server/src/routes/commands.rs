@@ -30,7 +30,7 @@
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use ghostai_protocol::rest::{CommandListResponse, RunCommandRequest, RunCommandResponse};
+use darkwire_protocol::rest::{CommandListResponse, RunCommandRequest, RunCommandResponse};
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::HttpError;

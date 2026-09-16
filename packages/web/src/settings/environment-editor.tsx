@@ -11,7 +11,7 @@
  * what they needed. Nothing here can widen what the file already refuses: the
  * server validates a save exactly as it validates a file, so an image that is
  * not digest-pinned and a capability that is never grantable come back as the
- * same sentence they would from `ghostai environment list`.
+ * same sentence they would from `darkwire environment list`.
  *
  * **The warnings are the last saved state, not the form's.** `weakened` and
  * `gatewayProblem` are resolved on the server so the terminal and the browser
@@ -25,7 +25,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type { EnvironmentSummary } from '@ghostwire/protocol';
+import type { EnvironmentSummary } from '@darkwire/protocol';
 
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';

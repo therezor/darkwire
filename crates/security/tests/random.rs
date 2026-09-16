@@ -7,8 +7,8 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_security::testkit::FixedRandom;
-use ghostai_security::{OsRandom, RandomSource};
+use darkwire_security::testkit::FixedRandom;
+use darkwire_security::{OsRandom, RandomSource};
 
 #[test]
 fn the_os_source_fills_every_byte_and_does_not_repeat() {

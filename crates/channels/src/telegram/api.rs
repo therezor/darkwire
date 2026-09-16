@@ -1,6 +1,6 @@
 //! The Bot API, as much of it as a chat channel needs.
 //!
-//! Hand-written over an HTTP seam, the way `ghostai-providers` writes the
+//! Hand-written over an HTTP seam, the way `darkwire-providers` writes the
 //! `openai-chat` adapter, and for the same two reasons: the surface actually
 //! used here is seven methods, and a dependency that wraps the whole API brings
 //! its own update loop, its own session store and its own opinion about
@@ -23,7 +23,7 @@
 
 use std::time::Duration;
 
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -42,7 +42,7 @@ pub struct HttpResponse {
 /// The transport one [`BotApi`] speaks over.
 ///
 /// Declared here rather than imported: the guarded fetch lives in
-/// `ghostai-security`, which this crate does not depend on and should not start
+/// `darkwire-security`, which this crate does not depend on and should not start
 /// depending on for one trait.
 pub trait HttpClient: Send + Sync {
     /// Posts a JSON body and reads the answer whole.
@@ -55,7 +55,7 @@ pub trait HttpClient: Send + Sync {
         url: &'a str,
         body: String,
         token: &'a CancellationToken,
-    ) -> BoxFuture<'a, Result<HttpResponse, GhostError>>;
+    ) -> BoxFuture<'a, Result<HttpResponse, WireError>>;
 }
 
 /// The real transport.
@@ -70,12 +70,12 @@ impl ReqwestHttpClient {
     /// Telegram holds `getUpdates` open for up to fifty seconds, so a timeout
     /// anywhere near that would turn every idle poll into an error and a
     /// backoff.
-    pub fn new() -> Result<ReqwestHttpClient, GhostError> {
+    pub fn new() -> Result<ReqwestHttpClient, WireError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_mins(2))
             .build()
             .map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Network,
                     format!("the Telegram HTTP client could not be built: {error}"),
                 )
@@ -90,7 +90,7 @@ impl HttpClient for ReqwestHttpClient {
         url: &'a str,
         body: String,
         token: &'a CancellationToken,
-    ) -> BoxFuture<'a, Result<HttpResponse, GhostError>> {
+    ) -> BoxFuture<'a, Result<HttpResponse, WireError>> {
         Box::pin(async move {
             let request = self
                 .client
@@ -98,22 +98,22 @@ impl HttpClient for ReqwestHttpClient {
                 .header("content-type", "application/json")
                 .body(body);
             let response = tokio::select! {
-                () = token.cancelled() => return Err(GhostError::aborted("Telegram request")),
+                () = token.cancelled() => return Err(WireError::aborted("Telegram request")),
                 response = request.send() => response,
             };
             let response = response.map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Network,
                     format!("the Telegram API could not be reached: {}", why(&error)),
                 )
             })?;
             let status = response.status().as_u16();
             let body = tokio::select! {
-                () = token.cancelled() => return Err(GhostError::aborted("Telegram request")),
+                () = token.cancelled() => return Err(WireError::aborted("Telegram request")),
                 body = response.text() => body,
             };
             let body = body.map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Network,
                     format!("the Telegram response could not be read: {}", why(&error)),
                 )
@@ -145,10 +145,10 @@ fn why(error: &reqwest::Error) -> &'static str {
 
 /// What the Bot API said went wrong.
 ///
-/// Its own type rather than a [`GhostError`] because two of the three things
+/// Its own type rather than a [`WireError`] because two of the three things
 /// read off it are Telegram's wire and nobody else's: a 409 that means a second
 /// poller, and the `message is not modified` description that an edit changing
-/// nothing earns. Converting to a `GhostError` at the channel boundary is what
+/// nothing earns. Converting to a `WireError` at the channel boundary is what
 /// keeps "never branch on a message substring" true of everything above this
 /// file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,31 +192,31 @@ impl TelegramApiError {
     /// text re-renders to the same string, and Telegram calls that a 400. The
     /// only signal it gives is the description, so this is the one place in the
     /// crate that reads one — and it stays here, on Telegram's own error type,
-    /// rather than reaching a `GhostError` where the rule is that nothing
+    /// rather than reaching a `WireError` where the rule is that nothing
     /// branches on a message.
     pub fn is_not_modified(&self) -> bool {
         self.description.contains("message is not modified")
     }
 }
 
-impl From<TelegramApiError> for GhostError {
-    fn from(error: TelegramApiError) -> GhostError {
+impl From<TelegramApiError> for WireError {
+    fn from(error: TelegramApiError) -> WireError {
         let kind = match error.code {
             401 | 403 => ErrorKind::PermissionDenied,
             409 => ErrorKind::Conflict,
             429 => ErrorKind::RateLimited,
             _ => ErrorKind::Network,
         };
-        let mut ghost = GhostError::new(kind, error.to_string())
+        let mut wire = WireError::new(kind, error.to_string())
             .with_detail("method", error.method)
             .with_detail("code", i64::from(error.code));
         if let Some(retry_after) = error.retry_after_sec {
-            ghost = ghost.with_detail(
+            wire = wire.with_detail(
                 "retryAfterSec",
                 i64::try_from(retry_after).unwrap_or(i64::MAX),
             );
         }
-        ghost
+        wire
     }
 }
 
@@ -226,7 +226,7 @@ pub enum BotApiError {
     /// The Bot API answered, and said no.
     Api(TelegramApiError),
     /// The request never got an answer.
-    Transport(GhostError),
+    Transport(WireError),
 }
 
 impl BotApiError {
@@ -253,8 +253,8 @@ impl std::fmt::Display for BotApiError {
     }
 }
 
-impl From<BotApiError> for GhostError {
-    fn from(error: BotApiError) -> GhostError {
+impl From<BotApiError> for WireError {
+    fn from(error: BotApiError) -> WireError {
         match error {
             BotApiError::Api(api) => api.into(),
             BotApiError::Transport(transport) => transport,

@@ -41,12 +41,12 @@
 //! from the folder rather than read from `MEMORY.md`, removing a file by hand
 //! takes effect on the very next turn.
 
-use ghostai_core::Result;
-use ghostai_core::memory::{
+use darkwire_core::Result;
+use darkwire_core::memory::{
     MAX_MEMORY_DESCRIPTION_CHARS, MAX_MEMORY_NAME_CHARS, MemoryInput, MemoryType, memory_slug,
     save_memory,
 };
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

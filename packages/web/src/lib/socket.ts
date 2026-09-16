@@ -27,7 +27,7 @@ import {
   ServerMessageSchema,
   type ClientMessage,
   type ServerMessage,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 export type ConnectionStatus =
   'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -36,7 +36,7 @@ export type ConnectionStatus =
  * The delays between reconnect attempts, in milliseconds; the last one repeats.
  *
  * The first is short because the overwhelmingly common cause is a server that
- * restarted under `ghostai serve --watch`, and a user staring at "Reconnecting"
+ * restarted under `darkwire serve --watch`, and a user staring at "Reconnecting"
  * for five seconds after a one-second outage assumes the app broke. The tail is
  * long because the other common cause is a laptop that closed its lid.
  */

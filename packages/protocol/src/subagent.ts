@@ -23,7 +23,7 @@ import { z } from 'zod';
  * store hides these rows. It does not: `listSessions` returns every origin
  * unless a caller narrows, deliberately, because a delegated run's turn is the
  * thing anyone debugging a bad answer has to read and a row nothing lists is a
- * transcript with no way in. See `session_filter` in `ghostai-core` for the
+ * transcript with no way in. See `session_filter` in `darkwire-core` for the
  * time that was got wrong.
  *
  * What it bears instead is the narrowing itself, in both directions: the web

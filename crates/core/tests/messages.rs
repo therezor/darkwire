@@ -6,12 +6,12 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::messages::{
+use darkwire_core::messages::{
     AssistantOptions, FileDetails, ImageSource, ToolOptions, assistant_message, file_part,
     has_images, image_part, system_message, text_of, text_part, tool_message, user_message,
     without_images,
 };
-use ghostai_protocol::{ChatMessage, ContentPart, ToolCall};
+use darkwire_protocol::{ChatMessage, ContentPart, ToolCall};
 use serde_json::{Value, json};
 
 fn png() -> ContentPart {

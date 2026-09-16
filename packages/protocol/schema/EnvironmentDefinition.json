@@ -3,7 +3,7 @@
   "properties": {
     "schema": {
       "type": "string",
-      "const": "ghostai.environment/1"
+      "const": "darkwire.environment/1"
     },
     "kind": {
       "default": "container",

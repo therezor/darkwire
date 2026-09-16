@@ -22,16 +22,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai::models::{
+use darkwire::models::{
     MODEL_CACHE_TTL_MS, MODEL_FETCH_TIMEOUT_MS, ModelCatalogue, ModelCatalogueOptions, ProbeResult,
     ProbeTarget, create_model_catalogue, probe_endpoint,
 };
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, SystemClock};
-use ghostai_providers::testkit::{ScriptedResponse, ScriptedServer, models_body};
-use ghostai_providers::{ProviderSpec, find_builtin};
-use ghostai_runtime::{
-    ExtensionChoice, GhostRuntime, McpChoice, RuntimeOptions, VaultChoice, create_runtime,
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, SystemClock};
+use darkwire_providers::testkit::{ScriptedResponse, ScriptedServer, models_body};
+use darkwire_providers::{ProviderSpec, find_builtin};
+use darkwire_runtime::{
+    ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, WireRuntime, create_runtime,
 };
 use indexmap::IndexMap;
 use serde_json::json;
@@ -188,7 +188,7 @@ fn the_manual_clock_measures_the_cache_rather_than_the_wall() {
 // ------------------------------------------------------------ the listing
 
 /// An install whose `config.yaml` is the value given.
-fn install(config: &serde_json::Value) -> (TempDir, Arc<GhostRuntime>) {
+fn install(config: &serde_json::Value) -> (TempDir, Arc<WireRuntime>) {
     let temp = TempDir::new().expect("a temporary home");
     std::fs::write(
         temp.path().join("config.yaml"),
@@ -211,7 +211,7 @@ fn install(config: &serde_json::Value) -> (TempDir, Arc<GhostRuntime>) {
 }
 
 /// A catalogue over that runtime with no credentials and a hand-moved clock.
-fn catalogue(runtime: &Arc<GhostRuntime>, clock: &Arc<ManualClock>) -> ModelCatalogue {
+fn catalogue(runtime: &Arc<WireRuntime>, clock: &Arc<ManualClock>) -> ModelCatalogue {
     create_model_catalogue(
         Arc::clone(runtime),
         ModelCatalogueOptions {

@@ -13,13 +13,13 @@
 use std::fs;
 use std::sync::Arc;
 
-use ghostai_agent::attachments::{
+use darkwire_agent::attachments::{
     AttachmentCache, MAX_INLINE_TEXT_BYTES, MaterialiseOptions, materialise_attachments,
     materialise_file_part,
 };
-use ghostai_core::messages::{FileDetails, file_part, text_part, user_message};
-use ghostai_protocol::{ChatMessage, ContentPart, FilePart, ImagePart};
-use ghostai_security::{JailOptions, WorkspaceJail};
+use darkwire_core::messages::{FileDetails, file_part, text_part, user_message};
+use darkwire_protocol::{ChatMessage, ContentPart, FilePart, ImagePart};
+use darkwire_security::{JailOptions, WorkspaceJail};
 use tempfile::TempDir;
 
 struct Fixture {
@@ -321,7 +321,7 @@ fn a_message_with_nothing_to_do_comes_back_unchanged() {
     let fixture = Fixture::new();
     let messages = vec![
         ChatMessage::User(user_message("hello")),
-        ChatMessage::System(ghostai_core::messages::system_message("be helpful")),
+        ChatMessage::System(darkwire_core::messages::system_message("be helpful")),
     ];
 
     let out = materialise_attachments(
@@ -341,7 +341,7 @@ fn a_legacy_relative_image_url_is_replaced_rather_than_retried() {
     let message = ChatMessage::User(user_message(vec![
         text_part("look at this"),
         ContentPart::Image(ImagePart {
-            tag: ghostai_protocol::ImageTag,
+            tag: darkwire_protocol::ImageTag,
             mime_type: "image/png".to_owned(),
             data: None,
             url: Some("/api/media/abc123".to_owned()),
@@ -370,7 +370,7 @@ fn a_legacy_relative_image_url_is_replaced_rather_than_retried() {
 fn an_absolute_image_url_is_left_for_the_provider_to_fetch() {
     let fixture = Fixture::new();
     let image = ContentPart::Image(ImagePart {
-        tag: ghostai_protocol::ImageTag,
+        tag: darkwire_protocol::ImageTag,
         mime_type: "image/png".to_owned(),
         data: None,
         url: Some("https://example.com/a.png".to_owned()),
@@ -397,11 +397,11 @@ fn a_tool_result_is_never_materialised() {
     // An attachment arrives with the message a person typed; a tool result
     // comes from the network and is fenced instead.
     let fixture = Fixture::new();
-    let tool = ChatMessage::Tool(ghostai_core::messages::tool_message(
+    let tool = ChatMessage::Tool(darkwire_core::messages::tool_message(
         "c1",
         "read_file",
         "contents",
-        ghostai_core::messages::ToolOptions::default(),
+        darkwire_core::messages::ToolOptions::default(),
     ));
 
     let out = materialise_attachments(

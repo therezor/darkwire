@@ -18,7 +18,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import type {
   EnvironmentDefinition,
   EnvironmentListResponse,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

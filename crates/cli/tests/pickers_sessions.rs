@@ -20,10 +20,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::sessions::{pick_session, session_items};
-use ghostai::pickers::{MenuRequest, NoMenu, PickerMenu};
-use ghostai_core::session_store::{SessionRecord, SessionSummaryRecord};
+use darkwire::i18n::Translations;
+use darkwire::pickers::sessions::{pick_session, session_items};
+use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire_core::session_store::{SessionRecord, SessionSummaryRecord};
 
 fn session(key: &str, title: &str, messages: usize) -> SessionSummaryRecord {
     SessionSummaryRecord {

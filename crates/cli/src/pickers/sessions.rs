@@ -6,9 +6,9 @@
 //! numeric argument is the page size in both cases, which is what keeps a script
 //! and a person asking the same question of the same rows.
 
-use ghostai_core::session_store::SessionSummaryRecord;
-use ghostai_i18n::{args, keys};
-use ghostai_tui::SelectItem;
+use darkwire_core::session_store::SessionSummaryRecord;
+use darkwire_i18n::{args, keys};
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from, position_of, with_current};

@@ -10,14 +10,14 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::{ChannelContext, ChannelControlFrame};
-use ghostai_core::SystemClock;
-use ghostai_core::message_bus::PublishResult;
-use ghostai_extension_host::methods::{
+use darkwire_channels::{ChannelContext, ChannelControlFrame};
+use darkwire_core::SystemClock;
+use darkwire_core::message_bus::PublishResult;
+use darkwire_extension_host::methods::{
     CHANNELS_CONTROL, CHANNELS_PUBLISH, ContextSections, HostMethods, SECRET, control_frame_of,
 };
-use ghostai_extension_host::rpc::RpcHandler;
-use ghostai_protocol::ClientMessage;
+use darkwire_extension_host::rpc::RpcHandler;
+use darkwire_protocol::ClientMessage;
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -94,7 +94,7 @@ async fn the_secret_method_takes_no_arguments_and_answers_this_extensions_own() 
 #[tokio::test]
 async fn every_other_host_method_is_method_not_found() {
     let host = HostMethods::new("slack", None);
-    for method in ["ghostai/vault/read", "ghostai/config/patch", "tools/call"] {
+    for method in ["darkwire/vault/read", "darkwire/config/patch", "tools/call"] {
         let error = host
             .request(method.to_owned(), json!({}))
             .await

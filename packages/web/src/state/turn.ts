@@ -25,7 +25,7 @@ import type {
   ServerMessage,
   StoredMessage,
   SubagentRunRef,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import {
   appendPendingUserMessage,

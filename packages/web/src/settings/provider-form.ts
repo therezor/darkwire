@@ -29,7 +29,7 @@ import type {
   ConfigPatch,
   ProviderConfig,
   ProviderTestRequest,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { formatList, parseList } from '@/components/form/fields.js';
 
@@ -123,7 +123,7 @@ export function toCreateProviderPatch(
 /**
  * A `-2`, `-3`, … suffix, added only when the bare type is taken.
  *
- * The same rule as `next_instance_id` in `ghostai-providers`, restated here
+ * The same rule as `next_instance_id` in `darkwire-providers`, restated here
  * because the client needs an id *before* the round trip that would tell it one
  * — the server accepts whatever the patch names, so proposing a free one is the
  * client's job. A collision is not silent if it happens: the patch would merge

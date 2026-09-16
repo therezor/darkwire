@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { ServerMessage, StoredMessage } from '@ghostwire/protocol';
+import type { ServerMessage, StoredMessage } from '@darkwire/protocol';
 
 import {
   appendPendingUserMessage,

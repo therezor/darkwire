@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{Install, configured};
-use ghostai_core::{Clock, SystemClock};
-use ghostai_protocol::ToolSource;
-use ghostai_runtime::{ExtensionChoice, GhostRuntime, RuntimeOptions, create_runtime};
-use ghostai_security::ExtensionStore;
+use darkwire_core::{Clock, SystemClock};
+use darkwire_protocol::ToolSource;
+use darkwire_runtime::{ExtensionChoice, RuntimeOptions, WireRuntime, create_runtime};
+use darkwire_security::ExtensionStore;
 use serde_json::{Value, json};
 
 fn fixture(id: &str) -> PathBuf {
@@ -71,7 +71,7 @@ fn options(install: &Install) -> RuntimeOptions {
 }
 
 /// A runtime with the greeter installed and approved.
-async fn with_greeter(install: &Install) -> Arc<GhostRuntime> {
+async fn with_greeter(install: &Install) -> Arc<WireRuntime> {
     install_extension(&install.root, "greeter");
     approve(install, "greeter");
     let runtime = create_runtime(options(install)).unwrap();

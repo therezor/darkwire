@@ -256,7 +256,7 @@ The split of responsibility is worth knowing:
   `tool.approvalRequest` for `ask`, and owns the deadline.
 - **The gate decides the answer.** It is whatever the transport installed.
 
-**With no gate installed, `ask` runs the tool.** That is what keeps `ghostai chat` in a
+**With no gate installed, `ask` runs the tool.** That is what keeps `darkwire chat` in a
 terminal unchanged — the operator typing the request _is_ the approval, and a prompt with
 no UI to answer it would deadlock. Any transport that exposes the agent beyond its
 operator's keyboard must install a gate; the server does.

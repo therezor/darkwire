@@ -9,9 +9,9 @@
 
 use std::path::Path;
 
-use ghostai_agent::memory_contributor::{MemoryContributor, render_memory_section};
-use ghostai_agent::prompt::{ContextContributor, StaticPromptContext};
-use ghostai_core::memory::{Memory, MemoryInput, MemoryType, save_memory};
+use darkwire_agent::memory_contributor::{MemoryContributor, render_memory_section};
+use darkwire_agent::prompt::{ContextContributor, StaticPromptContext};
+use darkwire_core::memory::{Memory, MemoryInput, MemoryType, save_memory};
 use tempfile::TempDir;
 
 fn memory(name: &str, description: &str, kind: MemoryType) -> Memory {
@@ -105,7 +105,7 @@ async fn the_contributor_reads_the_workspace_every_turn() {
     assert!(section.contains("memory/units.md"));
     // Nothing about memory varies per message, so there is no runtime half.
     assert_eq!(
-        contributor.runtime_section(&ghostai_agent::prompt::RuntimePromptContext::default()),
+        contributor.runtime_section(&darkwire_agent::prompt::RuntimePromptContext::default()),
         None
     );
 }

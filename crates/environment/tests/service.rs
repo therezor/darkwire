@@ -24,9 +24,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use ghostai_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
-use ghostai_protocol::rest::SandboxRequest;
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
+use darkwire_protocol::rest::SandboxRequest;
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -50,7 +50,7 @@ impl Drop for Harness {
 }
 
 fn container() -> Value {
-    json!({"schema": "ghostai.environment/1", "name": "dev", "image": DIGEST})
+    json!({"schema": "darkwire.environment/1", "name": "dev", "image": DIGEST})
 }
 
 impl Harness {
@@ -110,7 +110,7 @@ impl Harness {
         }
     }
 
-    async fn ask(&self, request: SandboxRequest) -> ghostai_core::Result<Value> {
+    async fn ask(&self, request: SandboxRequest) -> darkwire_core::Result<Value> {
         self.client
             .request(request, &CancellationToken::new())
             .await
@@ -121,7 +121,7 @@ fn no_network() -> EnvironmentNetwork {
     EnvironmentNetwork::default()
 }
 
-fn message(result: ghostai_core::Result<Value>) -> String {
+fn message(result: darkwire_core::Result<Value>) -> String {
     match result {
         Ok(value) => panic!("expected a refusal, got {value}"),
         Err(error) => error.message,
@@ -177,7 +177,7 @@ async fn refuses_a_container_this_workspace_was_not_given() {
     let harness = Harness::start().await;
     write(
         &harness.root.join("policy/environments/other.yaml"),
-        json!({"schema": "ghostai.environment/1", "name": "other", "image": DIGEST}).to_string(),
+        json!({"schema": "darkwire.environment/1", "name": "other", "image": DIGEST}).to_string(),
     );
 
     let refusal = harness
@@ -233,14 +233,14 @@ async fn refuses_to_stop_an_instance_that_does_not_exist() {
     let harness = Harness::start().await;
     let refusal = harness
         .ask(SandboxRequest::Stop {
-            instance: "ghost-sbx-nope".to_owned(),
+            instance: "dw-sbx-nope".to_owned(),
         })
         .await;
     assert!(message(refusal).contains("Unknown managed container"));
 
     let restart = harness
         .ask(SandboxRequest::Restart {
-            instance: "ghost-sbx-nope".to_owned(),
+            instance: "dw-sbx-nope".to_owned(),
         })
         .await;
     assert!(message(restart).contains("Unknown managed container"));

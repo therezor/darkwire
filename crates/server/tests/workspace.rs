@@ -18,8 +18,8 @@
 use std::fs;
 use std::path::Path;
 
-use ghostai_security::jail::{JailOptions, WorkspaceJail};
-use ghostai_server::workspace::{inline_safe, list_directory, mime_type_for};
+use darkwire_security::jail::{JailOptions, WorkspaceJail};
+use darkwire_server::workspace::{inline_safe, list_directory, mime_type_for};
 
 fn workspace() -> (tempfile::TempDir, WorkspaceJail) {
     let dir = tempfile::tempdir().unwrap();

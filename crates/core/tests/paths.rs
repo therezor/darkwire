@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ghostai_core::paths::{
-    GhostPaths, HOME_ENV_VAR, ResolveGhostPaths, ensure_dir, expand_home, extension_data_dir_for,
+use darkwire_core::paths::{
+    HOME_ENV_VAR, ResolveWirePaths, WirePaths, ensure_dir, expand_home, extension_data_dir_for,
     extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,
 };
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 
 const HOME: &str = "/home/ghost";
 
@@ -21,8 +21,8 @@ fn home() -> PathBuf {
     PathBuf::from(HOME)
 }
 
-fn options() -> ResolveGhostPaths {
-    ResolveGhostPaths {
+fn options() -> ResolveWirePaths {
+    ResolveWirePaths {
         root: None,
         workspace: None,
         env: Some(HashMap::new()),
@@ -30,11 +30,11 @@ fn options() -> ResolveGhostPaths {
     }
 }
 
-fn default_paths() -> GhostPaths {
-    GhostPaths::resolve(options()).unwrap()
+fn default_paths() -> WirePaths {
+    WirePaths::resolve(options()).unwrap()
 }
 
-fn err<T: std::fmt::Debug>(result: Result<T, GhostError>) -> GhostError {
+fn err<T: std::fmt::Debug>(result: Result<T, WireError>) -> WireError {
     match result {
         Ok(value) => panic!("expected an error, got {value:?}"),
         Err(error) => error,
@@ -52,8 +52,8 @@ mod expand_home_tests {
     #[test]
     fn expands_a_tilde_rooted_path() {
         assert_eq!(
-            expand_home("~/.ghostai/workspace", &home()),
-            home().join(".ghostai/workspace")
+            expand_home("~/.darkwire/workspace", &home()),
+            home().join(".darkwire/workspace")
         );
     }
 
@@ -131,25 +131,23 @@ mod resolve_path_tests {
     }
 }
 
-mod resolve_ghost_paths {
+mod resolve_wire_paths {
     use super::*;
 
     #[test]
     fn derives_everything_from_the_default_root() {
         let paths = default_paths();
-        let root = home().join(".ghostai");
+        let root = home().join(".darkwire");
         assert_eq!(
             paths,
-            GhostPaths {
+            WirePaths {
                 root: root.clone(),
                 workspace: root.join("workspace"),
                 shared_dir: root.join("shared"),
                 policy_dir: root.join("policy"),
-                presets_dir: root.join("presets"),
-                catalogue_dir: root.join("catalogue"),
                 runs_dir: root.join("runs"),
                 config_file: root.join("config.yaml"),
-                db_file: root.join("ghost.db"),
+                db_file: root.join("darkwire.db"),
                 logs_dir: root.join("logs"),
                 extensions_dir: root.join("extensions"),
                 extension_data_dir: root.join("extension-data"),
@@ -160,18 +158,16 @@ mod resolve_ghost_paths {
     }
 
     #[test]
-    fn keeps_presets_and_the_catalogue_out_of_what_the_file_tools_can_write() {
-        // A preset names an agent's system prompt and its tool permissions, so
-        // one writable through `write_file` would let prompt injection compose
-        // the agent that runs next.
+    fn keeps_the_policy_directory_out_of_what_the_file_tools_can_write() {
+        // A definition names what a container may do, so one writable through
+        // `write_file` would let prompt injection widen the box it runs in.
         let paths = default_paths();
-        assert!(!paths.presets_dir.starts_with(&paths.workspace));
-        assert!(!paths.catalogue_dir.starts_with(&paths.workspace));
+        assert!(!paths.policy_dir.starts_with(&paths.workspace));
     }
 
     #[test]
     fn honours_the_home_environment_variable() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             env: Some(HashMap::from([(
                 HOME_ENV_VAR.to_owned(),
                 "/srv/ghost".to_owned(),
@@ -180,12 +176,12 @@ mod resolve_ghost_paths {
         })
         .unwrap();
         assert_eq!(paths.root, PathBuf::from("/srv/ghost"));
-        assert_eq!(paths.db_file, PathBuf::from("/srv/ghost/ghost.db"));
+        assert_eq!(paths.db_file, PathBuf::from("/srv/ghost/darkwire.db"));
     }
 
     #[test]
     fn expands_a_tilde_in_the_environment_variable() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             env: Some(HashMap::from([(
                 HOME_ENV_VAR.to_owned(),
                 "~/ghost-data".to_owned(),
@@ -198,7 +194,7 @@ mod resolve_ghost_paths {
 
     #[test]
     fn lets_an_explicit_root_win_over_the_environment() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             env: Some(HashMap::from([(
                 HOME_ENV_VAR.to_owned(),
                 "/from/env".to_owned(),
@@ -212,7 +208,7 @@ mod resolve_ghost_paths {
 
     #[test]
     fn resolves_a_relative_root_against_the_working_directory() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some("relative-root".to_owned()),
             ..options()
         })
@@ -227,7 +223,7 @@ mod resolve_ghost_paths {
     fn resolves_a_relative_workspace_against_the_root_not_the_cwd() {
         // A service restarted from a different directory must not end up with a
         // different workspace while the database still points at the old one.
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some("/srv/ghost".to_owned()),
             workspace: Some("files".to_owned()),
             ..options()
@@ -238,7 +234,7 @@ mod resolve_ghost_paths {
 
     #[test]
     fn accepts_an_absolute_workspace_outside_the_root() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some("/srv/ghost".to_owned()),
             workspace: Some("/mnt/data".to_owned()),
             ..options()
@@ -249,7 +245,7 @@ mod resolve_ghost_paths {
 
     #[test]
     fn expands_a_tilde_in_the_workspace() {
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             workspace: Some("~/projects".to_owned()),
             ..options()
         })

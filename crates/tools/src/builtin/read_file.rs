@@ -18,8 +18,8 @@
 //! `offset`/`limit` are lines rather than bytes because that is the unit the
 //! model reasons in, and because a byte range can split a codepoint.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt as _;
@@ -62,7 +62,7 @@ fn window(text: &str, offset: Option<u64>, limit: Option<u64>, where_: &str) -> 
     let lines: Vec<&str> = text.split('\n').collect();
     let from = usize::try_from(offset.unwrap_or(1).saturating_sub(1)).unwrap_or(usize::MAX);
     if from >= lines.len() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             format!(
                 "{where_} has {} lines; offset {} is past the end.",
@@ -107,7 +107,7 @@ impl ToolHandler for ReadFile {
                 .await
                 .map_err(|error| fs_failure(&error, where_, &note))?;
             if stats.is_dir() {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     format!("{where_} is a directory. Use list_dir instead."),
                 )
@@ -127,7 +127,7 @@ impl ToolHandler for ReadFile {
                 .map_err(|error| fs_failure(&error, where_, &note))?;
 
             if bytes.contains(&0) {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     format!(
                         "{where_} looks like a binary file ({} bytes) and was not read.",

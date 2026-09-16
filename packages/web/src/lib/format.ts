@@ -9,7 +9,7 @@
  *
  * **The locale is a parameter, never the machine's.** The arithmetic — where a
  * minute becomes an hour, when an interval stops beating a date — lives in
- * `@ghostwire/i18n` because the CLI decides it identically. What stays here is the
+ * `@darkwire/i18n` because the CLI decides it identically. What stays here is the
  * *wording*, which the two surfaces deliberately disagree about: this renders
  * `8,192` where the terminal renders `1.2k`, and `just now` where bare `Intl`
  * would say `now`.
@@ -21,7 +21,7 @@ import {
   formatDate as formatDateIn,
   formatDateTime as formatDateTimeIn,
   relativeSpan,
-} from '@ghostwire/i18n';
+} from '@darkwire/i18n';
 import type { TFunction } from 'i18next';
 
 /**

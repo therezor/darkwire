@@ -27,9 +27,9 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{GhostPaths, Result, workspace_dir_for};
-use ghostai_protocol::DEFAULT_WORKSPACE_ID;
-use ghostai_security::{JailOptions, JailResolver, WorkspaceJail};
+use darkwire_core::{Result, WirePaths, workspace_dir_for};
+use darkwire_protocol::DEFAULT_WORKSPACE_ID;
+use darkwire_security::{JailOptions, JailResolver, WorkspaceJail};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
@@ -45,7 +45,7 @@ pub type JailFactory = Arc<dyn Fn(&std::path::Path) -> Result<WorkspaceJail> + S
 
 /// Live jails, keyed by workspace id.
 pub struct JailCache {
-    paths: GhostPaths,
+    paths: WirePaths,
     max: usize,
     create: JailFactory,
     /// Insertion-ordered, which is what makes the first key the LRU victim.
@@ -64,7 +64,7 @@ impl std::fmt::Debug for JailCache {
 
 impl JailCache {
     /// A cache over `paths`, with the default workspace's jail already built.
-    pub fn new(paths: GhostPaths) -> Result<JailCache> {
+    pub fn new(paths: WirePaths) -> Result<JailCache> {
         JailCache::with_factory(
             paths,
             MAX_CACHED_JAILS,
@@ -73,7 +73,7 @@ impl JailCache {
     }
 
     /// A cache with its own bound and jail factory.
-    pub fn with_factory(paths: GhostPaths, max: usize, create: JailFactory) -> Result<JailCache> {
+    pub fn with_factory(paths: WirePaths, max: usize, create: JailFactory) -> Result<JailCache> {
         // The default is built here rather than lazily, so an unusable
         // workspace is a construction failure — which is what keeps a
         // reconfigure all-or-nothing.

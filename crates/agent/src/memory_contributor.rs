@@ -29,10 +29,10 @@
 
 use std::path::Path;
 
-use ghostai_core::memory::{MEMORY_DIRNAME, Memory, read_memories};
-use ghostai_protocol::json::js_trim;
-use ghostai_protocol::{DEFAULT_MEMORY_TEMPLATE, render_prompt_template};
-use ghostai_providers::BoxFuture;
+use darkwire_core::memory::{MEMORY_DIRNAME, Memory, read_memories};
+use darkwire_protocol::json::js_trim;
+use darkwire_protocol::{DEFAULT_MEMORY_TEMPLATE, render_prompt_template};
+use darkwire_providers::BoxFuture;
 use indexmap::IndexMap;
 
 use crate::prompt::{ContextContributor, StaticPromptContext, template_or};
@@ -88,7 +88,7 @@ pub fn render_memory_section(memories: &[Memory], template: Option<&str>) -> Str
 
 /// The path first, because that is the string handed back to `read_file`.
 ///
-/// `render_index` in `ghostai-core` writes the same memories as relative
+/// `render_index` in `darkwire-core` writes the same memories as relative
 /// markdown links, and the two are deliberately different: `MEMORY.md` sits
 /// inside `memory/` and is read by a person, while this is read by a model that
 /// has to pass the path to a tool. A prefix it reconstructs is one it can

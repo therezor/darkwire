@@ -10,30 +10,30 @@ reconnect-and-fall-back-to-HTTP client that would need.
 Fourteen, plus the four TypeScript packages that stayed. Each crate has its own
 tests and its own coverage bar.
 
-| Crate                    | Does                                                                                                                              |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ghostai-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                            |
-| `ghostai-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                              |
-| `ghostai-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing             |
-| `ghostai-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, environment policy and extension approvals |
-| `ghostai-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                            |
-| `ghostai-tools`          | The `Tool` trait and registry, the built-in tools, the `Environment` seam and the local runner                                    |
-| `ghostai-environment`    | The isolated environment service/client, its container backend and lifecycle pool, and the egress gateway                         |
-| `ghostai-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                                |
-| `ghostai-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                          |
-| `ghostai-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                               |
-| `ghostai-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                    |
-| `ghostai-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                                |
-| `ghostai-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                     |
-| `ghostai-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                    |
-| `ghostai`                | **The binary.** Every command and flag, and the UI compiled into it.                                                              |
+| Crate                     | Does                                                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `darkwire-protocol`       | The wire types as serde + schemars, mirroring the zod schemas. No I/O.                                                            |
+| `darkwire-i18n`           | i18next-compatible lookup over the shipped locale bundles, with typed key constants.                                              |
+| `darkwire-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing             |
+| `darkwire-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, environment policy and extension approvals |
+| `darkwire-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                            |
+| `darkwire-tools`          | The `Tool` trait and registry, the built-in tools, the `Environment` seam and the local runner                                    |
+| `darkwire-environment`    | The isolated environment service/client, its container backend and lifecycle pool, and the egress gateway                         |
+| `darkwire-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                                |
+| `darkwire-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                          |
+| `darkwire-channels`       | The `Channel` contract, `ChannelManager`, `TurnProjection` and the Telegram adapter                                               |
+| `darkwire-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                    |
+| `darkwire-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                                |
+| `darkwire-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                     |
+| `darkwire-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                    |
+| `darkwire`                | **The binary.** Every command and flag, and the UI compiled into it.                                                              |
 
-| Still TypeScript      | Does                                                 |
-| --------------------- | ---------------------------------------------------- |
-| `@ghostwire/web`      | The React SPA                                        |
-| `@ghostwire/protocol` | Zod schemas → types, JSON Schema and OpenAPI         |
-| `@ghostwire/i18n`     | The i18next instance, locale negotiation, typed keys |
-| `@ghostwire/e2e`      | Playwright, plus the optional design-fidelity gate   |
+| Still TypeScript     | Does                                                 |
+| -------------------- | ---------------------------------------------------- |
+| `@darkwire/web`      | The React SPA                                        |
+| `@darkwire/protocol` | Zod schemas → types, JSON Schema and OpenAPI         |
+| `@darkwire/i18n`     | The i18next instance, locale negotiation, typed keys |
+| `@darkwire/e2e`      | Playwright, plus the optional design-fidelity gate   |
 
 **`protocol` and `i18n` exist twice on purpose.** The browser is the reason: it
 parses those schemas on every response and every WebSocket frame, and it reads
@@ -48,7 +48,7 @@ claim rather than an intention.
 ```
 { protocol, i18n } → core → security → { providers, tools } → { mcp, agent, environment } ─┬→ runtime ──┐
                                                                               │            │
-                     core → channels ──────→ extension-host ──────────────────┘            ├→ ghostai
+                     core → channels ──────→ extension-host ──────────────────┘            ├→ darkwire
                                                                                            │  (binary)
         { protocol, i18n } → web (TypeScript)          agent … → server ───────────────────┘
                              tui
@@ -69,7 +69,7 @@ what pnpm's isolated `node_modules` used to do — the manifests _are_ the layer
 graph, and an undeclared import fails to compile rather than merely to lint.
 
 One consequence is visible in the subagent design below: delegation lives in
-`AgentLoop` rather than in a tool, because `ghostai-tools` sits underneath it
+`AgentLoop` rather than in a tool, because `darkwire-tools` sits underneath it
 and a tool's context has no event sink.
 
 ## A turn
@@ -194,12 +194,12 @@ the part that decides when the model reaches for it.
 
 ## What is on disk
 
-Everything under `~/.ghostai`, or `$GHOSTAI_HOME`. Directories are created `0700`.
+Everything under `~/.darkwire`, or `$DARKWIRE_HOME`. Directories are created `0700`.
 
 | Path                      | Contents                                                                                                           |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `config.yaml`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                         |
-| `ghost.db`                | One SQLite file, one connection, one WAL.                                                                          |
+| `darkwire.db`             | One SQLite file, one connection, one WAL.                                                                          |
 | `vault.json`, `vault.key` | The encrypted credential vault.                                                                                    |
 | `workspace/`              | The jail root. Named workspaces are subdirectories of it.                                                          |
 | `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told. |

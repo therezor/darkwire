@@ -10,17 +10,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_mcp::testkit::{FakeServer, echo_tool};
-use ghostai_mcp::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_mcp::testkit::{FakeServer, echo_tool};
+use darkwire_mcp::{
     BackoffOptions, McpConnection, McpConnectionOptions, McpConnectionSpec, McpToolDescriptor,
     resolve_spec,
 };
-use ghostai_protocol::{McpServerConfig, McpServerState};
-use ghostai_security::testkit::FixedRandom;
-use ghostai_tools::AnyTool;
-use ghostai_tools::testkit::TestWorkspace;
+use darkwire_protocol::{McpServerConfig, McpServerState};
+use darkwire_security::testkit::FixedRandom;
+use darkwire_tools::AnyTool;
+use darkwire_tools::testkit::TestWorkspace;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
@@ -59,7 +59,7 @@ impl Harness {
             }),
             on_status_changed: Some(Arc::new(move || *counter.lock() += 1)),
             authorization: None,
-            clock: Arc::clone(&clock) as Arc<dyn ghostai_core::Clock>,
+            clock: Arc::clone(&clock) as Arc<dyn darkwire_core::Clock>,
             random: Arc::new(FixedRandom::constant(0)),
             // No jitter, so the cadence is the thing under test rather than a
             // distribution over it.
@@ -95,8 +95,8 @@ async fn advance(ms: u64) {
     settle().await;
 }
 
-fn refused() -> GhostError {
-    GhostError::new(ErrorKind::Network, "ECONNREFUSED")
+fn refused() -> WireError {
+    WireError::new(ErrorKind::Network, "ECONNREFUSED")
 }
 
 #[tokio::test(start_paused = true)]
@@ -122,7 +122,7 @@ async fn records_when_it_last_connected_for_the_status_row() {
     settle().await;
     assert_eq!(
         test.connection.status().last_connected_at_ms,
-        Some(u64::try_from(ghostai_core::Clock::now_ms(&*test.clock)).unwrap())
+        Some(u64::try_from(darkwire_core::Clock::now_ms(&*test.clock)).unwrap())
     );
     test.connection.close().await;
 }
@@ -220,7 +220,7 @@ async fn never_waits_longer_than_the_ceiling() {
 async fn does_not_retry_a_server_that_needs_an_operator_to_authorize() {
     let server = FakeServer::default();
     server.fail_connects(
-        GhostError::new(ErrorKind::PermissionDenied, "authorize me")
+        WireError::new(ErrorKind::PermissionDenied, "authorize me")
             .with_detail("needsAuthorization", true),
     );
     let test = Harness::new(None, Some(server.clone()));
@@ -372,7 +372,7 @@ async fn refuses_a_call_once_the_server_has_gone_rather_than_hanging() {
     let tool = test.connection.tools().into_iter().next().expect("a tool");
 
     test.server
-        .drop_session(Some(GhostError::new(ErrorKind::Network, "reset")));
+        .drop_session(Some(WireError::new(ErrorKind::Network, "reset")));
     settle().await;
     assert_eq!(
         test.connection.status().last_error.as_deref(),

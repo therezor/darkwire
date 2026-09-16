@@ -1,6 +1,6 @@
 //! A frame per tick, never a timer.
 
-use ghostai_tui::{SPINNER_FRAMES, SPINNER_INTERVAL_MS, spinner_frame, visible_width};
+use darkwire_tui::{SPINNER_FRAMES, SPINNER_INTERVAL_MS, spinner_frame, visible_width};
 
 #[test]
 fn walks_the_frames_in_order_and_wraps_round() {

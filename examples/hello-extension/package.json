@@ -1,5 +1,5 @@
 {
-  "name": "@ghostwire/example-hello-extension",
+  "name": "@darkwire/example-hello-extension",
   "version": "0.0.0",
   "description": "A reference extension: the shortest complete implementation of the extension contract.",
   "private": true,

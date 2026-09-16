@@ -32,14 +32,14 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ghostai_core::{Clock, GhostError, Result, SystemClock};
-use ghostai_protocol::config::ProvidersConfig;
-use ghostai_protocol::{ModelInfo, ModelsResponse};
-use ghostai_providers::{
+use darkwire_core::{Clock, Result, SystemClock, WireError};
+use darkwire_protocol::config::ProvidersConfig;
+use darkwire_protocol::{ModelInfo, ModelsResponse};
+use darkwire_providers::{
     CreateProviderOptions, PROVIDERS, ProviderError, ProviderInstance, ProviderRef, ProviderSpec,
     Resilience, create_provider, list_instances, resolve_connection,
 };
-use ghostai_runtime::GhostRuntime;
+use darkwire_runtime::WireRuntime;
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -125,7 +125,7 @@ impl std::fmt::Debug for ModelCatalogueOptions {
 
 /// The models this install can reach, cached for [`MODEL_CACHE_TTL_MS`].
 pub struct ModelCatalogue {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     credential_for: CredentialFor,
     timeout_ms: u64,
     clock: Arc<dyn Clock>,
@@ -142,7 +142,7 @@ impl std::fmt::Debug for ModelCatalogue {
 
 /// Builds a catalogue over one runtime.
 pub fn create_model_catalogue(
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     options: ModelCatalogueOptions,
 ) -> ModelCatalogue {
     ModelCatalogue {
@@ -333,7 +333,7 @@ fn tagged(models: Vec<ModelInfo>, instance: &ProviderInstance) -> Vec<ModelInfo>
 }
 
 /// Why a probe did not produce a catalogue, keeping the classification.
-fn describe_failure(error: &GhostError) -> ProbeResult {
+fn describe_failure(error: &WireError) -> ProbeResult {
     let reason = if ProviderError::is_provider_error(error) {
         ProviderError::reason_of(error).as_str().to_owned()
     } else {

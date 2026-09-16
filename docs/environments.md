@@ -1,7 +1,7 @@
 # Environments
 
 An environment is **where an agent's commands run**. Every agent has one: the default is
-the host, which is the machine GhostAI itself runs on, and naming an installed definition
+the host, which is the machine DarkWire itself runs on, and naming an installed definition
 moves `exec` into a container instead.
 
 Environments do not grant capabilities. An agent's `tools` permission map is the complete
@@ -15,7 +15,7 @@ only decides whether a restricted allow-list can be enforced around it at all.
 ## Definitions
 
 Definitions live under `policy/environments/<name>.yaml`. Each uses
-`ghostai.environment/1` and pins an image digest. `ghostai environment list` reports the
+`darkwire.environment/1` and pins an image digest. `darkwire environment list` reports the
 installed definitions and their hardening; the **Environments** tab in Settings shows the
 same list and is where one is authored, edited or removed. The environment service
 re-resolves a definition before use and stops work if it has drifted.
@@ -34,7 +34,7 @@ one are lost the first time it is saved from Settings. That also moves the diges
 is correct: the digest is identity, and an edited definition is a different one.
 
 ```yaml
-schema: ghostai.environment/1
+schema: darkwire.environment/1
 kind: container
 name: dev
 image: sha256:…
@@ -116,15 +116,15 @@ costs is the container's own ephemeral filesystem, since two commands may write 
 Commands are not queued behind each other.
 
 The environment service owns the lifecycle and exposes inspection and stop operations
-through `ghostai sandbox` and the Environments settings tab. Containers are reaped when
+through `darkwire sandbox` and the Environments settings tab. Containers are reaped when
 they go idle and on reconfigure.
 
-## Migrating from `ghostai.container/1`
+## Migrating from `darkwire.container/1`
 
 Definitions written against the old tag do not load. Three steps:
 
-1. `mv ~/.ghostai/policy/containers ~/.ghostai/policy/environments`
-2. Change each definition's `schema:` line to `ghostai.environment/1`.
+1. `mv ~/.darkwire/policy/containers ~/.darkwire/policy/environments`
+2. Change each definition's `schema:` line to `darkwire.environment/1`.
 3. Rename `container:` to `environment:` under each `agents.list.<id>` in `config.yaml`.
 
-`ghostai environment list` says so when it finds the old directory still in place.
+`darkwire environment list` says so when it finds the old directory still in place.

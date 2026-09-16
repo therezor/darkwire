@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{ErrorKind, Result};
-use ghostai_protocol::{ToolRisk, ToolSource};
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result};
+use darkwire_protocol::{ToolRisk, ToolSource};
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     BoxFuture, Tool, ToolContext, ToolExecution, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted, is_tool_name,
 };
@@ -271,7 +271,7 @@ fn outputs_convert_into_executions() {
     assert!(!ok.is_error);
     assert_eq!(ok.content, "text");
 
-    let failed: ToolExecution = Err(ghostai_core::GhostError::new(ErrorKind::Tool, "boom")).into();
+    let failed: ToolExecution = Err(darkwire_core::WireError::new(ErrorKind::Tool, "boom")).into();
     assert_eq!(failed.kind, Some(ErrorKind::Tool));
     assert!(!failed.is_aborted());
     assert!(ToolExecution::error(ErrorKind::Aborted, "x").is_aborted());

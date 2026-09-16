@@ -1,6 +1,6 @@
 //! What the channel remembers about one chat, and how a conversation moves.
 
-use ghostai_channels::telegram::chats::{
+use darkwire_channels::telegram::chats::{
     ChatBook, RenderPrefs, default_session_key, new_session_key, owns_session_key,
 };
 

@@ -1,6 +1,6 @@
 //! The queue that holds a correction until the loop can absorb it.
 
-use ghostai_agent::steering::{
+use darkwire_agent::steering::{
     MAX_PENDING_STEER, STEERING_PREFIX, SteeringMessage, SteeringQueue, steering_text,
 };
 

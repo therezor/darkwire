@@ -8,11 +8,11 @@
 
 mod common;
 
-use ghostai_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
-use ghostai_providers::wire_encode::{
+use darkwire_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
+use darkwire_providers::wire_encode::{
     WireContent, WireContentPart, encode_content, encode_message, encode_part, encode_tools,
 };
-use ghostai_providers::{ChatRequest, build_body};
+use darkwire_providers::{ChatRequest, build_body};
 use serde_json::{Value, json};
 
 #[test]

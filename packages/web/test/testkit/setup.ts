@@ -11,7 +11,7 @@
 
 import '@testing-library/jest-dom/vitest';
 
-import { createWebI18n } from '@ghostwire/i18n/web';
+import { createWebI18n } from '@darkwire/i18n/web';
 import { setI18n } from 'react-i18next';
 
 import { cleanup, configure } from '@testing-library/react';

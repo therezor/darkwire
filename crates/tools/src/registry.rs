@@ -30,10 +30,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::history::truncate_head_tail;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{ToolDefinition, ToolPermission, ToolPermissions, ToolSource};
-use ghostai_security::{WrapToolOutputOptions, wrap_tool_output};
+use darkwire_core::history::truncate_head_tail;
+use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::{ToolDefinition, ToolPermission, ToolPermissions, ToolSource};
+use darkwire_security::{WrapToolOutputOptions, wrap_tool_output};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
@@ -269,7 +269,7 @@ impl ToolRegistry {
                 .ok()
                 .and_then(|value| value.as_str().map(str::to_owned))
                 .unwrap_or_default();
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!("Tool {name} is already registered by {existing_source}"),
             )
@@ -630,7 +630,7 @@ fn parse_arguments(arguments_json: Option<&str>) -> Result<Value> {
         return Ok(Value::Object(Map::new()));
     };
     serde_json::from_str(text).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::InvalidInput,
             format!("Tool arguments are not valid JSON: {text}"),
         )

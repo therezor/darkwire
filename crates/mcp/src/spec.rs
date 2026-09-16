@@ -36,8 +36,8 @@
 //! [`crate::oauth`]. Discovery can move the token exchange to a host the
 //! operator never typed, and what is being handed to it is a credential.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{McpOAuthConfig, McpServerConfig, McpTransport};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{McpOAuthConfig, McpServerConfig, McpTransport};
 use indexmap::IndexMap;
 use reqwest::Url;
 use serde_json::json;
@@ -106,8 +106,8 @@ impl McpConnectionSpec {
     }
 }
 
-fn refuse(server_id: &str, message: &str) -> GhostError {
-    GhostError::new(
+fn refuse(server_id: &str, message: &str) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!("MCP server \"{server_id}\": {message}"),
     )

@@ -1,9 +1,9 @@
 //! The workspace jail.
 //!
 //! Every path that reaches the filesystem from a model, a channel, an extension or
-//! an MCP server passes through here first. It is the only thing in GhostAI
+//! an MCP server passes through here first. It is the only thing in DarkWire
 //! permitted to decide that an agent-supplied path is acceptable, which is why
-//! `ghostai-core` documents its own path helpers as *not* being a safety check.
+//! `darkwire-core` documents its own path helpers as *not* being a safety check.
 //!
 //! The workspace is a **root**, in the `chroot` sense. `/etc/passwd` addresses
 //! `<workspace>/etc/passwd`; `../../secrets` addresses `<workspace>/secrets`;
@@ -57,7 +57,7 @@ use std::io;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_core::{ErrorKind, GhostError, Result, ensure_dir};
+use darkwire_core::{ErrorKind, Result, WireError, ensure_dir};
 use serde::{Deserialize, Serialize};
 
 /// Why a path was refused. Carried in the error's `details` for the audit log.
@@ -480,7 +480,7 @@ impl WorkspaceJail {
             case_insensitive,
         } = options;
         let unusable = |requested: &Path, error: io::Error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Config,
                 format!("Workspace root is unusable: {}", requested.display()),
             )
@@ -491,7 +491,7 @@ impl WorkspaceJail {
             .map_err(|error| unusable(&requested_root, error))?;
         if create {
             ensure_dir(&requested).map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Config,
                     format!("Workspace root is unusable: {}", requested.display()),
                 )
@@ -571,7 +571,7 @@ impl WorkspaceJail {
                 } else {
                     ErrorKind::JailEscape
                 };
-                Err(GhostError::new(kind, message)
+                Err(WireError::new(kind, message)
                     .with_detail("path", input)
                     .with_detail("rejection", rejection.as_str()))
             }
@@ -585,7 +585,7 @@ impl WorkspaceJail {
 
     /// Whether an already-absolute path lies inside the root.
     ///
-    /// This is for paths GhostAI produced itself — the session database, a media
+    /// This is for paths DarkWire produced itself — the session database, a media
     /// file being served over HTTP. It does **not** canonicalise, so it is not a
     /// check for agent-supplied input; [`check`](Self::check) and
     /// [`accept`](Self::accept) are. Containment is component-wise, never a
@@ -600,7 +600,7 @@ impl WorkspaceJail {
     pub fn relative(&self, absolute: &Path) -> Result<String> {
         let resolved = lexical_absolute(absolute);
         if !self.contains(&resolved) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::JailEscape,
                 format!("Path is outside the workspace: {}", absolute.display()),
             )

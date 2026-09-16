@@ -88,24 +88,24 @@ describe('the reconnect cursor', () => {
 
   it('is absent for an entry that is not a cursor', () => {
     expect(
-      readCursor('web:1', memory({ 'ghostai.cursor': 'not json' })),
+      readCursor('web:1', memory({ 'darkwire.cursor': 'not json' })),
     ).toBeUndefined();
     expect(
       readCursor(
         'web:1',
-        memory({ 'ghostai.cursor': '{"sessionKey":"web:1"}' }),
+        memory({ 'darkwire.cursor': '{"sessionKey":"web:1"}' }),
       ),
     ).toBeUndefined();
     expect(
       readCursor(
         'web:1',
-        memory({ 'ghostai.cursor': '{"sessionKey":"web:1","lastSeq":-2}' }),
+        memory({ 'darkwire.cursor': '{"sessionKey":"web:1","lastSeq":-2}' }),
       ),
     ).toBeUndefined();
     expect(
       readCursor(
         'web:1',
-        memory({ 'ghostai.cursor': '{"sessionKey":"web:1","lastSeq":1.5}' }),
+        memory({ 'darkwire.cursor': '{"sessionKey":"web:1","lastSeq":1.5}' }),
       ),
     ).toBeUndefined();
   });

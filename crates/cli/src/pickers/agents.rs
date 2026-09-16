@@ -9,9 +9,9 @@
 //! label is documented as never empty; adopting it would be adopting a
 //! translation nobody here has to make.
 
-use ghostai_i18n::keys;
-use ghostai_runtime::EffectiveAgent;
-use ghostai_tui::SelectItem;
+use darkwire_i18n::keys;
+use darkwire_runtime::EffectiveAgent;
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from, position_of, with_current};

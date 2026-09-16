@@ -31,8 +31,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::time::Duration;
 
+use darkwire_core::{ErrorKind, Result, WireError};
 use futures::stream::{Stream, StreamExt};
-use ghostai_core::{ErrorKind, GhostError, Result};
 use reqwest::header::HeaderMap;
 use reqwest::{Method, StatusCode, Url};
 use serde_json::Value;
@@ -60,7 +60,7 @@ impl HickoryResolver {
     /// A resolver over the system configuration.
     pub fn new() -> Result<HickoryResolver> {
         let cannot = |error: hickory_resolver::net::NetError| {
-            GhostError::new(ErrorKind::Network, "Cannot configure the DNS resolver")
+            WireError::new(ErrorKind::Network, "Cannot configure the DNS resolver")
                 .with_source(error)
         };
         let inner = hickory_resolver::TokioResolver::builder_tokio()
@@ -78,7 +78,7 @@ impl DnsResolver for HickoryResolver {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<IpAddr>>> + Send + 'a>> {
         Box::pin(async move {
             let lookup = self.inner.lookup_ip(host).await.map_err(|error| {
-                GhostError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
+                WireError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
                     .with_source(error)
             })?;
             Ok(lookup.iter().collect())
@@ -226,8 +226,8 @@ const REDIRECT_STATUSES: [u16; 5] = [301, 302, 303, 307, 308];
 /// Explicitly not retryable: `network` defaults to retryable because DNS and TCP
 /// failures are transient, but a blocked target will be blocked again and a
 /// retry loop against it is just a slower refusal.
-fn blocked(message: impl Into<String>) -> GhostError {
-    GhostError::new(ErrorKind::Network, message).with_retryable(false)
+fn blocked(message: impl Into<String>) -> WireError {
+    WireError::new(ErrorKind::Network, message).with_retryable(false)
 }
 
 fn detail_list(items: &[String]) -> Value {
@@ -276,7 +276,7 @@ pub async fn validate_target(
     resolver: &dyn DnsResolver,
 ) -> Result<PinnedTarget> {
     let url = Url::parse(raw_url).map_err(|error| {
-        GhostError::new(ErrorKind::InvalidInput, format!("Not a URL: {raw_url}")).with_source(error)
+        WireError::new(ErrorKind::InvalidInput, format!("Not a URL: {raw_url}")).with_source(error)
     })?;
 
     if url.scheme() != "http" && url.scheme() != "https" {
@@ -320,14 +320,14 @@ pub async fn validate_target(
     }
 
     let answers = resolver.resolve(&host).await.map_err(|error| {
-        GhostError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
+        WireError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
             .with_detail("url", raw_url)
             .with_detail("host", host.as_str())
             .with_source(error)
     })?;
     if answers.is_empty() {
         return Err(
-            GhostError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
+            WireError::new(ErrorKind::Network, format!("Cannot resolve host: {host}"))
                 .with_detail("url", raw_url)
                 .with_detail("host", host.as_str()),
         );
@@ -378,12 +378,12 @@ struct Deadline {
 }
 
 impl Deadline {
-    fn aborted() -> GhostError {
-        GhostError::aborted("Fetch")
+    fn aborted() -> WireError {
+        WireError::aborted("Fetch")
     }
 
-    fn timed_out(&self) -> GhostError {
-        GhostError::new(
+    fn timed_out(&self) -> WireError {
+        WireError::new(
             ErrorKind::Timeout,
             format!(
                 "Request to {} timed out after {} ms",
@@ -434,7 +434,7 @@ fn pinned_client(target: &PinnedTarget) -> Result<reqwest::Client> {
         builder = builder.resolve_to_addrs(domain, &addresses);
     }
     builder.build().map_err(|error| {
-        GhostError::new(ErrorKind::Network, "Cannot build the HTTP client").with_source(error)
+        WireError::new(ErrorKind::Network, "Cannot build the HTTP client").with_source(error)
     })
 }
 
@@ -453,7 +453,7 @@ fn cap_body(response: reqwest::Response, max_bytes: u64, deadline: Deadline) -> 
             let next = deadline.race(inner.next()).await?;
             match next {
                 None => Ok(None),
-                Some(Err(error)) => Err(GhostError::new(
+                Some(Err(error)) => Err(WireError::new(
                     ErrorKind::Network,
                     format!("Response body from {host} failed"),
                 )
@@ -504,7 +504,7 @@ async fn send_hop(
         request = request.body(body.clone());
     }
     let response = deadline.race(request.send()).await?.map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Network,
             format!("Request to {} failed", target.host),
         )

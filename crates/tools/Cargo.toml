@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-tools"
+name = "darkwire-tools"
 description = "The Tool trait, the registry, the built-in tools and the local and container runners"
 version.workspace = true
 edition.workspace = true
@@ -12,15 +12,15 @@ publish.workspace = true
 workspace = true
 
 [features]
-# `TestWorkspace` and the tool conformance suite, which `ghostai-mcp`'s tests
+# `TestWorkspace` and the tool conformance suite, which `darkwire-mcp`'s tests
 # run over bridged tools too; excluded from coverage. Free of any
 # test-framework dependency.
 testkit = ["dep:tempfile"]
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-security.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-security.workspace = true
 chrono.workspace = true
 futures.workspace = true
 indexmap.workspace = true
@@ -40,9 +40,9 @@ tempfile = { workspace = true, optional = true }
 [dev-dependencies]
 # The crate's own test doubles, and the clock and random doubles of the crates
 # below, reach the tests through the feature the gate does not otherwise turn on.
-ghostai-tools = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
 proptest.workspace = true
 tempfile.workspace = true
 # Paused time for the registry timeout tests.

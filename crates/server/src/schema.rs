@@ -7,7 +7,7 @@
 //! document worse than none.
 //!
 //! [`PROTOCOL_COMPONENTS`] is the `$defs` pool: every schema in
-//! `ghostai_protocol::PROTOCOL_SCHEMAS`, generated once and published under
+//! `darkwire_protocol::PROTOCOL_SCHEMAS`, generated once and published under
 //! `components.schemas`. A route whose response *is* a registered protocol
 //! schema emits a `$ref` to it; anything else inlines.
 //!
@@ -18,8 +18,8 @@
 
 use std::sync::LazyLock;
 
+use darkwire_protocol::schemas::{PROTOCOL_SCHEMAS, registered};
 use garde::Validate;
-use ghostai_protocol::schemas::{PROTOCOL_SCHEMAS, registered};
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;

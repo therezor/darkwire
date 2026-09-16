@@ -9,8 +9,8 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ghostai_core::ErrorKind;
-use ghostai_server::signing::{
+use darkwire_core::ErrorKind;
+use darkwire_server::signing::{
     MediaClaim, assert_signing_key, media_url, sign_media_token, verify_media_token,
 };
 use hmac::{Hmac, KeyInit as _, Mac as _};

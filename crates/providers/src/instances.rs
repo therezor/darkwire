@@ -10,7 +10,7 @@
 //! Nothing here narrows `ProvidersConfig` to a known-ids map. An instance id
 //! is an operator's label; the registry has no opinion about it.
 
-use ghostai_protocol::{ProviderConfig, ProviderInstanceInfo, ProvidersConfig};
+use darkwire_protocol::{ProviderConfig, ProviderInstanceInfo, ProvidersConfig};
 
 use crate::registry::{
     GatewayHints, PROVIDERS, ProviderSpec, find_gateway, find_provider, find_provider_by_model,
@@ -116,7 +116,7 @@ pub fn find_instance(
 
 /// An instance for a type that has none configured.
 ///
-/// `ghostai chat --provider ollama` has to work on a machine with no config
+/// `darkwire chat --provider ollama` has to work on a machine with no config
 /// file, and it did before instances existed. Rather than special-casing that
 /// path everywhere downstream, resolution synthesises the instance the old
 /// code was effectively using: id = the type, so even its vault lookup lands

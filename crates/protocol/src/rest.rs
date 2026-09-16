@@ -162,7 +162,7 @@ pub enum HealthCheckStatus {
     Skipped,
 }
 
-/// One line of `ghostai doctor`.
+/// One line of `darkwire doctor`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -1646,7 +1646,7 @@ pub struct AutomationRunListResponse {
 /// breath adds a second thing to invent at the one moment the operator has
 /// least context. The sign-in form prefills it and the CLI names it in help
 /// text; changing it is done from the same form that changes the password.
-pub const DEFAULT_USERNAME: &str = "ghost";
+pub const DEFAULT_USERNAME: &str = "darkwire";
 
 /// The shortest login name.
 pub const USERNAME_MIN_LENGTH: usize = 1;

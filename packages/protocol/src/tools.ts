@@ -54,7 +54,7 @@ export type ToolPermissions = z.infer<typeof ToolPermissionsSchema>;
 /**
  * The tools that ship in the box.
  *
- * Here rather than in `ghostai-tools`, which is where they are actually
+ * Here rather than in `darkwire-tools`, which is where they are actually
  * defined, because `DEFAULT_AGENT_TOOLS` in `config.ts` needs the *names*
  * without the implementations, to seed a new agent with them, and sits below
  * `tools` in the layer graph. `packages/tools` owns a test that this list still

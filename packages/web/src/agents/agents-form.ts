@@ -39,7 +39,7 @@ import {
   type SubagentRef,
   type ToolPermission,
   type ToolPromptOverride,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import {
   msToSeconds,
@@ -66,7 +66,7 @@ export const UNSET_VALUE = '__unset__';
  * reads as though the screen could offer "Resolved automatically". That
  * sentence is about the **provider**: `resolve_instance` uses the model as a
  * hint when picking an endpoint. The model itself is never invented —
- * `GhostRuntime` turns an empty one into `no_model_error`, hands the loop no
+ * `WireRuntime` turns an empty one into `no_model_error`, hands the loop no
  * provider, and the agent cannot run a turn at all.
  *
  * Such an option would offer an unconfigured install as though it were a

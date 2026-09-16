@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ghostai_core::{GhostPaths, Result};
-use ghostai_providers::ProviderInstance;
-use ghostai_security::{
+use darkwire_core::{Result, WirePaths};
+use darkwire_providers::ProviderInstance;
+use darkwire_security::{
     CredentialVault, KeyFileStore, KeyStore, KeychainOptions, KeychainStore, OsRandom,
     resolve_vault_key,
 };
@@ -52,7 +52,7 @@ impl std::fmt::Debug for VaultChoice {
 /// Exported so a caller that already knows it needs credentials — the settings
 /// route writing a key the operator just typed — does not have to reproduce the
 /// store order to get the same file.
-pub fn open_vault(paths: &GhostPaths) -> Result<CredentialVault> {
+pub fn open_vault(paths: &WirePaths) -> Result<CredentialVault> {
     let random = Arc::new(OsRandom);
     let keychain = KeychainStore::new(KeychainOptions::default());
     let key_file = KeyFileStore::new(paths.key_file.clone());
@@ -77,7 +77,7 @@ pub fn open_vault(paths: &GhostPaths) -> Result<CredentialVault> {
 /// The vault is opened only when one already exists on disk, and that condition
 /// is doing real work rather than saving a file read. Resolving the vault key
 /// writes one to the OS keychain the first time it runs, so opening the vault on
-/// every `ghostai chat` against a local Ollama would be a keychain entry created
+/// every `darkwire chat` against a local Ollama would be a keychain entry created
 /// for an install that never stores a credential.
 ///
 /// That check replaces a narrower one — "skip the vault entirely for a local
@@ -92,7 +92,7 @@ pub fn open_vault(paths: &GhostPaths) -> Result<CredentialVault> {
 /// some shell must not silently override the credential the operator stored.
 pub fn find_credential<S: std::hash::BuildHasher>(
     instance: &ProviderInstance,
-    paths: &GhostPaths,
+    paths: &WirePaths,
     env: &HashMap<String, String, S>,
     vault: &VaultChoice,
 ) -> Result<Option<String>> {

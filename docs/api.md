@@ -2,7 +2,7 @@
 
 REST and WebSocket on the same port as the UI. Default `http://127.0.0.1:3000`.
 
-Every schema in this document exists twice: as a Zod object in `@ghostwire/protocol`,
+Every schema in this document exists twice: as a Zod object in `@darkwire/protocol`,
 which is what the browser parses, and as the Rust type the server validates against. The
 **OpenAPI 3.1 document is generated from the server's own route manifest and those Rust
 types** — served at `/api/openapi.json` — rather than written by hand, because a document
@@ -18,7 +18,7 @@ a variant that one side has and the other does not fails CI.
 ## Authentication
 
 `POST /api/auth/login` with a username and password sets an `httpOnly; SameSite=Strict`
-cookie named `ghost_session`. There is **no token in the response body**.
+cookie named `darkwire_session`. There is **no token in the response body**.
 
 A `Bearer` header is also accepted and wins over the cookie, for scripts. Browser clients
 should send `credentials: 'same-origin'` and nothing else.
@@ -59,7 +59,7 @@ Listing endpoints use cursor pagination, never offset.
 | POST   | `/api/setup/claim`    | `public`   | Takes the one-time console code.                      |
 | POST   | `/api/setup/password` | `required` | The wizard's first password and every later rotation. |
 
-Passwords are at least 12 characters. The username defaults to `ghost`, is lower-cased by
+Passwords are at least 12 characters. The username defaults to `darkwire`, is lower-cased by
 the schema, and changing either revokes every other session.
 
 ### Settings

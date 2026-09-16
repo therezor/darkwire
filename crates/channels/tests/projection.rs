@@ -14,12 +14,12 @@ use common::{
     nested_turn_start, notice, queued, reasoning, session_status, subagent, tool_call, tool_result,
     turn_end, turn_start,
 };
-use ghostai_channels::projection::{
+use darkwire_channels::projection::{
     APPROVAL_METADATA_KEY, ApprovalDraftDetail, OutboundDraft, TurnProjection,
     TurnProjectionOptions,
 };
-use ghostai_core::message_bus::OutboundKind;
-use ghostai_protocol::{ServerMessage, StopReason};
+use darkwire_core::message_bus::OutboundKind;
+use darkwire_protocol::{ServerMessage, StopReason};
 
 fn hints() -> TurnProjectionOptions {
     TurnProjectionOptions {

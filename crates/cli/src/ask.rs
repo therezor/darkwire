@@ -18,16 +18,16 @@
 //!    long-lived prompt object with a caller that also wants to print.
 //!
 //! End of input is not an answer. Ctrl-D closing stdin arrives here as a
-//! `GhostError` of kind `aborted`, which the wizard above turns into "nothing
+//! `WireError` of kind `aborted`, which the wizard above turns into "nothing
 //! was written" — because a reader that answered every remaining question with
 //! an empty line would write a configuration nobody chose.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, Write};
 
-use ghostai_core::{GhostError, Result};
-use ghostai_i18n::{args, keys};
-use ghostai_tui::{Palette, palette_for};
+use darkwire_core::{Result, WireError};
+use darkwire_i18n::{args, keys};
+use darkwire_tui::{Palette, palette_for};
 
 use crate::i18n::Translations;
 
@@ -79,7 +79,7 @@ impl LineReader for StdinReader {
     }
 
     fn read_secret(&mut self) -> Result<Option<String>> {
-        use ghostai_tui::{Key, KeyName, StandardInput, TerminalInput, open_keyboard};
+        use darkwire_tui::{Key, KeyName, StandardInput, TerminalInput, open_keyboard};
 
         if !StandardInput.supports_raw_mode() {
             return self.read_line();
@@ -329,7 +329,7 @@ impl<'a> Ask<'a> {
                 Some(token) => {
                     let notice = self
                         .t
-                        .tr(keys::preset::NOT_AN_OPTION, args!["name" => token]);
+                        .tr(keys::prompt::NOT_AN_OPTION, args!["name" => token]);
                     writeln!(out, "{}", self.palette.yellow.apply(&format!("  {notice}")))?;
                 }
             }
@@ -416,8 +416,8 @@ impl<'a> Ask<'a> {
 ///
 /// `aborted` rather than `invalid_input`: nothing was typed wrongly, the person
 /// left — and the caller's whole job on this path is to write nothing.
-fn end_of_input() -> GhostError {
-    GhostError::aborted("the prompt")
+fn end_of_input() -> WireError {
+    WireError::aborted("the prompt")
 }
 
 /// `answer` as a 1-based index into a list of `len`, or `None`.

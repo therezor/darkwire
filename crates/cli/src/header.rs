@@ -17,8 +17,8 @@
 //! context budget and the model — are the ones anchored to the right edge and
 //! the workspace name is what gets truncated when the window is narrow.
 
-use ghostai_i18n::keys;
-use ghostai_tui::{Theme, justify, pad_to_width, rule, truncate_to_width, visible_width};
+use darkwire_i18n::keys;
+use darkwire_tui::{Theme, justify, pad_to_width, rule, truncate_to_width, visible_width};
 
 use crate::i18n::Translations;
 
@@ -100,7 +100,7 @@ pub fn startup_header(
         .unwrap_or(0);
 
     let mut lines = Vec::with_capacity(labels.len() + 4);
-    lines.push(theme.title.apply(&theme.accent.apply("  ghost")));
+    lines.push(theme.title.apply(&theme.accent.apply("  darkwire")));
     for (label, (_, value)) in labels.iter().zip(rows_for(view)) {
         let padded = theme.dim.apply(&pad_to_width(label, column));
         lines.push(truncate_to_width(

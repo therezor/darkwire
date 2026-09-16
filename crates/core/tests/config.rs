@@ -10,12 +10,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ghostai_core::config::{
+use darkwire_core::config::{
     LoadConfigOptions, load_config, parse_config, render_config, save_config, validation_issues,
 };
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_protocol::Config;
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_protocol::Config;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -36,7 +36,7 @@ fn write_config(root: &Path, value: &str) -> PathBuf {
 
 fn options(root: &Path) -> LoadConfigOptions {
     LoadConfigOptions {
-        paths: ResolveGhostPaths {
+        paths: ResolveWirePaths {
             root: Some(root.to_string_lossy().into_owned()),
             env: Some(HashMap::new()),
             home: Some(PathBuf::from("/home/someone-else")),
@@ -46,7 +46,7 @@ fn options(root: &Path) -> LoadConfigOptions {
     }
 }
 
-fn err(result: Result<impl std::fmt::Debug, GhostError>) -> GhostError {
+fn err(result: Result<impl std::fmt::Debug, WireError>) -> WireError {
     match result {
         Ok(value) => panic!("expected an error, got {value:?}"),
         Err(error) => error,
@@ -183,8 +183,8 @@ mod load {
 
     #[test]
     fn keeps_the_workspace_under_the_root_when_the_config_names_none() {
-        // A default of the literal `~/.ghostai/workspace` would restate the
-        // *default* root, so an install relocated with GHOSTAI_HOME would point
+        // A default of the literal `~/.darkwire/workspace` would restate the
+        // *default* root, so an install relocated with DARKWIRE_HOME would point
         // the agent's tools back at the home directory it thought it had left.
         let root = temp();
         let loaded = load_config(options(root.path())).unwrap();
@@ -282,11 +282,11 @@ mod load {
         let root = temp();
         write_config(root.path(), &json!({"server": {"port": 4100}}).to_string());
         let options = LoadConfigOptions {
-            paths: ResolveGhostPaths {
+            paths: ResolveWirePaths {
                 root: None,
                 workspace: None,
                 env: Some(HashMap::from([(
-                    "GHOSTAI_HOME".to_owned(),
+                    "DARKWIRE_HOME".to_owned(),
                     root.path().to_string_lossy().into_owned(),
                 )])),
                 home: Some(PathBuf::from("/home/someone-else")),

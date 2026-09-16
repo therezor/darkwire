@@ -1,4 +1,4 @@
-//! `ghostai init` — the terminal half of first-run setup.
+//! `darkwire init` — the terminal half of first-run setup.
 //!
 //! The browser gets a wizard behind a one-time code; this is the same handful
 //! of questions for someone who never intends to open one. It writes exactly
@@ -10,7 +10,7 @@
 //! Three decisions worth stating:
 //!
 //!  - **No prompt library.** The helpers are in [`crate::ask`], which is where
-//!    they moved when `ghostai preset install` needed the same four, and they
+//!    they moved when the setup flow needed the same four, and they
 //!    take their streams as arguments so a test drives them without a terminal.
 //!
 //!  - **Nothing is written until every question is answered.** An operator who
@@ -35,20 +35,20 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-use ghostai_core::{
-    ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, ensure_dir, load_config,
+use darkwire_core::{
+    ErrorKind, LoadConfigOptions, LoadedConfig, Result, WireError, ensure_dir, load_config,
     save_config,
 };
-use ghostai_i18n::{DEFAULT_LOCALE, Locale, SUPPORTED_LOCALES, keys};
-use ghostai_protocol::DEFAULT_AGENT_ID;
-use ghostai_protocol::config::{Config, ProviderConfig};
-use ghostai_providers::{
+use darkwire_i18n::{DEFAULT_LOCALE, Locale, SUPPORTED_LOCALES, keys};
+use darkwire_protocol::DEFAULT_AGENT_ID;
+use darkwire_protocol::config::{Config, ProviderConfig};
+use darkwire_providers::{
     BoxFuture, CreateProviderOptions, PROVIDERS, ProviderSpec, Resilience, create_provider,
     next_instance_id,
 };
-use ghostai_runtime::{PROVIDER_CREDENTIAL_NAMESPACE, open_vault};
-use ghostai_security::CredentialVault;
-use ghostai_tui::{Palette, TerminalInput, palette_for};
+use darkwire_runtime::{PROVIDER_CREDENTIAL_NAMESPACE, open_vault};
+use darkwire_security::CredentialVault;
+use darkwire_tui::{Palette, TerminalInput, palette_for};
 use tokio_util::sync::CancellationToken;
 
 use crate::Streams;
@@ -136,13 +136,13 @@ pub trait CredentialSink {
 /// The real one: the install's own vault, opened on first write.
 #[derive(Debug)]
 pub struct VaultCredentials {
-    paths: ghostai_core::GhostPaths,
+    paths: darkwire_core::WirePaths,
 }
 
 impl VaultCredentials {
     /// A sink over the vault at these paths.
     #[must_use]
-    pub fn new(paths: ghostai_core::GhostPaths) -> VaultCredentials {
+    pub fn new(paths: darkwire_core::WirePaths) -> VaultCredentials {
         VaultCredentials { paths }
     }
 }
@@ -194,7 +194,7 @@ impl CredentialSink for RecordedCredentials {
 
 /// Everything the wizard is injected with.
 pub struct InitOptions<'a> {
-    /// `--home`, which beats `$GHOSTAI_HOME`.
+    /// `--home`, which beats `$DARKWIRE_HOME`.
     pub home: Option<String>,
     /// The environment to read.
     pub env: &'a Env,
@@ -232,7 +232,7 @@ pub async fn run(globals: &Globals, env: &Env, streams: &mut Streams) -> Result<
             home: globals.home.clone(),
             env,
             colors: globals.color,
-            interactive: ghostai_tui::StandardInput.is_tty(),
+            interactive: darkwire_tui::StandardInput.is_tty(),
             reader: &mut reader,
             models: &models,
             credentials: &mut credentials,
@@ -274,7 +274,7 @@ pub async fn init(options: InitOptions<'_>, streams: &mut Streams) -> Result<u8>
     if !interactive {
         write!(
             streams.err,
-            "✖ `ghostai init` needs a terminal.\n  Edit {} directly, or run `ghostai serve` and \
+            "✖ `darkwire init` needs a terminal.\n  Edit {} directly, or run `darkwire serve` and \
              use the browser wizard.\n",
             loaded.file.display()
         )?;
@@ -341,8 +341,8 @@ pub async fn init(options: InitOptions<'_>, streams: &mut Streams) -> Result<u8>
     writeln!(
         streams.out,
         "\nRun {} to talk to it, or {} for the UI.",
-        palette.cyan.apply("ghostai chat"),
-        palette.cyan.apply("ghostai serve")
+        palette.cyan.apply("darkwire chat"),
+        palette.cyan.apply("darkwire serve")
     )?;
     Ok(0)
 }
@@ -448,7 +448,7 @@ fn ask_provider<'s>(
     )?;
     specs
         .get(chosen)
-        .ok_or_else(|| GhostError::new(ErrorKind::Config, "No provider chosen"))
+        .ok_or_else(|| WireError::new(ErrorKind::Config, "No provider chosen"))
 }
 
 /// Which model the default agent runs.

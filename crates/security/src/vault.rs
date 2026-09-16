@@ -1,7 +1,7 @@
 //! The credential vault.
 //!
 //! Provider API keys, OAuth refresh tokens and channel bot tokens are the most
-//! valuable things GhostAI holds, and the config file is the wrong place for them:
+//! valuable things DarkWire holds, and the config file is the wrong place for them:
 //! it gets pasted into issues, copied between machines, and read back and
 //! rewritten by the settings UI. They live here instead — AES-256-GCM, one file,
 //! `0600`.
@@ -32,7 +32,7 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use ghostai_core::{ErrorKind, GhostError, Result, ensure_dir};
+use darkwire_core::{ErrorKind, Result, WireError, ensure_dir};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -50,7 +50,7 @@ const VAULT_ALGORITHM: &str = "aes-256-gcm";
 
 /// Bound into the authentication tag, so a file from an older format or another
 /// application cannot be replayed into this one even with the right key.
-const VAULT_AAD: &[u8] = b"ghostai-vault-v1";
+const VAULT_AAD: &[u8] = b"darkwire-vault-v1";
 
 // Key stores
 
@@ -86,7 +86,7 @@ impl KeyFileStore {
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&self.file)?.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "Vault key file is readable by other users (mode {mode:o}): {}. Run chmod 600 on it, or delete it to generate a new key — every stored credential is lost with the old one.",
@@ -117,7 +117,7 @@ impl KeyStore for KeyFileStore {
         self.assert_private()?;
         let key = STANDARD.decode(raw.trim()).unwrap_or_default();
         if key.len() != VAULT_KEY_BYTES {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "Vault key file is not a {VAULT_KEY_BYTES}-byte key: {}",
@@ -202,7 +202,7 @@ pub fn resolve_vault_key(
         }
     }
     Err(
-        GhostError::new(ErrorKind::Config, "No key store accepted the new vault key").with_detail(
+        WireError::new(ErrorKind::Config, "No key store accepted the new vault key").with_detail(
             "stores",
             serde_json::Value::Array(
                 stores
@@ -229,8 +229,8 @@ struct VaultEnvelope {
 /// Namespace → key → value, in insertion order.
 type VaultContents = IndexMap<String, IndexMap<String, String>>;
 
-fn corrupt(file: &Path, reason: &str) -> GhostError {
-    GhostError::new(
+fn corrupt(file: &Path, reason: &str) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!(
             "Vault at {} could not be read ({reason}). This means the wrong key or a modified file; it is never an empty vault. Restore the file, or delete it to start over and lose every stored credential.",
@@ -263,7 +263,7 @@ impl CredentialVault {
     /// key, so a first run leaves no file behind.
     pub fn open(file: &Path, key: &[u8], random: Arc<dyn RandomSource>) -> Result<CredentialVault> {
         if key.len() != VAULT_KEY_BYTES {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!(
                     "Vault key must be {VAULT_KEY_BYTES} bytes, got {}",
@@ -297,7 +297,7 @@ impl CredentialVault {
     /// Writes through to disk. A credential that only reached memory is not stored.
     pub fn set(&mut self, namespace: &str, key: &str, value: &str) -> Result<()> {
         if namespace.is_empty() || key.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "Vault namespace and key must be non-empty",
             ));
@@ -466,11 +466,11 @@ impl CredentialVault {
 
     fn write(&self) -> Result<()> {
         let plaintext = serde_json::to_string(&self.contents)
-            .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+            .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
         let mut iv = [0u8; IV_BYTES];
         self.random.fill(&mut iv);
         let cipher = Aes256Gcm::new_from_slice(&self.key)
-            .map_err(|_| GhostError::new(ErrorKind::Internal, "Vault key is not 32 bytes"))?;
+            .map_err(|_| WireError::new(ErrorKind::Internal, "Vault key is not 32 bytes"))?;
         let sealed = cipher
             .encrypt(
                 &Nonce::from(iv),
@@ -479,7 +479,7 @@ impl CredentialVault {
                     aad: VAULT_AAD,
                 },
             )
-            .map_err(|_| GhostError::new(ErrorKind::Internal, "Vault encryption failed"))?;
+            .map_err(|_| WireError::new(ErrorKind::Internal, "Vault encryption failed"))?;
         let split = sealed.len().saturating_sub(TAG_BYTES);
         let (data, tag) = sealed.split_at(split);
 
@@ -491,10 +491,10 @@ impl CredentialVault {
             data: STANDARD.encode(data),
         };
         let text = serde_json::to_string(&envelope)
-            .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+            .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
 
         let cannot_write = |error: std::io::Error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!("Cannot write the vault at {}", self.file.display()),
             )
@@ -503,7 +503,7 @@ impl CredentialVault {
         };
         if let Some(parent) = self.file.parent() {
             ensure_dir(parent).map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Storage,
                     format!("Cannot write the vault at {}", self.file.display()),
                 )

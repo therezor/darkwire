@@ -10,19 +10,19 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use ghostai_core::Database;
-use ghostai_core::session_store::{CreateSession, IdSource, SessionStore};
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::automation::{
+use darkwire_core::Database;
+use darkwire_core::session_store::{CreateSession, IdSource, SessionStore};
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::automation::{
     AUTOMATION_ORIGIN, AutomationPayload, AutomationSchedule, CreateAutomationJob, CronKind,
     CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, ScheduledKind,
     ScheduledPayload,
 };
-use ghostai_protocol::config::EnvironmentNetwork;
-use ghostai_server::automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
-use ghostai_server::automation_store::AutomationStore;
-use ghostai_tools::automation::{AutomationRefusal, AutomationResolver};
-use ghostai_tools::runner::PlacementRequest;
+use darkwire_protocol::config::EnvironmentNetwork;
+use darkwire_server::automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
+use darkwire_server::automation_store::AutomationStore;
+use darkwire_tools::automation::{AutomationRefusal, AutomationResolver};
+use darkwire_tools::runner::PlacementRequest;
 use indexmap::IndexMap;
 
 const NOW: i64 = 1_700_000_000_000;
@@ -306,7 +306,7 @@ fn an_agent_sees_only_its_own_jobs() {
         .unwrap();
     // And one the operator made through the panel.
     h.jobs
-        .create_job(&ghostai_server::automation_store::CreateJobInput {
+        .create_job(&darkwire_server::automation_store::CreateJobInput {
             name: "operator's".to_owned(),
             schedule: every(60_000),
             payload: scheduled_payload(),
@@ -357,7 +357,7 @@ fn deleting_someone_elses_job_and_deleting_nothing_give_the_same_answer() {
 fn an_operator_made_job_is_invisible_to_every_agent() {
     let h = harness();
     h.jobs
-        .create_job(&ghostai_server::automation_store::CreateJobInput {
+        .create_job(&darkwire_server::automation_store::CreateJobInput {
             name: "operator's".to_owned(),
             schedule: every(60_000),
             payload: scheduled_payload(),

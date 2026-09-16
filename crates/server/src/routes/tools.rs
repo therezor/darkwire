@@ -19,7 +19,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use ghostai_protocol::rest::ToolListResponse;
+use darkwire_protocol::rest::ToolListResponse;
 
 use crate::errors::HttpError;
 use crate::routes::AppState;

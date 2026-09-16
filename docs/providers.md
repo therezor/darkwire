@@ -64,7 +64,7 @@ An agent's `provider` takes one of three forms:
 
 1. **An instance id.** Exact, and the common case.
 2. **A bare provider type.** Means "any enabled instance of that type, or a default one if
-   none is configured", which is what keeps `ghostai chat --provider ollama` working on a
+   none is configured", which is what keeps `darkwire chat --provider ollama` working on a
    machine with no config file.
 3. **`auto`.** Runs the resolution order: gateway and local detection by key prefix or
    base URL, then model-name keywords.

@@ -3,14 +3,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_channels::telegram::menus::{
+use darkwire_channels::telegram::menus::{
     CallbackLookup, CallbackPayload, CallbackRefusal, CallbackStore, DEFAULT_PAGE_SIZE,
     MAX_CALLBACK_ENTRIES, MenuKind, PickerRow, approval_keyboard, confirm_keyboard, picker,
     picker_keyboard,
 };
-use ghostai_core::clock::Clock;
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::ApprovalScope;
+use darkwire_core::clock::Clock;
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::ApprovalScope;
 
 const NOW: i64 = 1_700_000_000_000;
 

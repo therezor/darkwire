@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-mcp"
+name = "darkwire-mcp"
 description = "The MCP client: connection lifecycle, OAuth, and the bridge from a remote tool onto Tool"
 version.workspace = true
 edition.workspace = true
@@ -12,15 +12,15 @@ publish.workspace = true
 workspace = true
 
 [features]
-# The fake server and its descriptors, which `ghostai-runtime`'s tests drive
+# The fake server and its descriptors, which `darkwire-runtime`'s tests drive
 # too; excluded from coverage. Free of any test-framework dependency.
 testkit = []
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-security.workspace = true
-ghostai-tools.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-security.workspace = true
+darkwire-tools.workspace = true
 axum.workspace = true
 base64.workspace = true
 futures.workspace = true
@@ -38,10 +38,10 @@ tracing.workspace = true
 parking_lot.workspace = true
 
 [dev-dependencies]
-ghostai-mcp = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
-ghostai-tools = { workspace = true, features = ["testkit"] }
+darkwire-mcp = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
 # The in-process server the connector test speaks to over an in-memory pipe.
 rmcp = { workspace = true, features = ["server"] }
 # `start_paused` for the backoff and timeout tests: nothing sleeps for real.

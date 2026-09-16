@@ -12,9 +12,9 @@ mod common;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ghostai_core::{ErrorKind, Result};
-use ghostai_protocol::ExecToolConfig;
-use ghostai_security::{
+use darkwire_core::{ErrorKind, Result};
+use darkwire_protocol::ExecToolConfig;
+use darkwire_security::{
     ExecGuardOptions, ExecPlan, JailOptions, OutputCap, SHELL_BINARIES, WorkspaceJail, binary_name,
     guard_exec,
 };

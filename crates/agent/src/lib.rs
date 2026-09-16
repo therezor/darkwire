@@ -5,7 +5,7 @@
 //! History is append-only, an error response is never appended, a denied tool
 //! call still gets a `tool` message, and one cancellation token threads from the
 //! transport to the child process. Delegation lives here rather than in a tool
-//! because `ghostai-tools` sits below this crate.
+//! because `darkwire-tools` sits below this crate.
 #![forbid(unsafe_code)]
 
 pub mod approval;
@@ -72,6 +72,6 @@ pub use text_tool_call::{text_tool_call_correction, text_tool_call_name};
 /// The separator between top-level sections of the assembled prompt.
 ///
 /// Re-exported rather than declared: it is defined beside the prompt template
-/// in `ghostai-protocol`, so the template and the separator that joins its
+/// in `darkwire-protocol`, so the template and the separator that joins its
 /// sections cannot drift.
-pub use ghostai_protocol::SECTION_SEPARATOR;
+pub use darkwire_protocol::SECTION_SEPARATOR;

@@ -20,7 +20,7 @@
 //! a reference: a method generic over the row's type could not be, and every
 //! caller already holds the list it offered.
 
-use ghostai_tui::{SelectItem, SelectLabels, TerminalInput, TerminalOutput, columns_of};
+use darkwire_tui::{SelectItem, SelectLabels, TerminalInput, TerminalOutput, columns_of};
 
 use crate::i18n::Env;
 

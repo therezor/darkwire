@@ -10,10 +10,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ghostai_core::session_store::{IdSource, SessionStore};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Database, Result};
-use ghostai_protocol::messages::{
+use darkwire_core::session_store::{IdSource, SessionStore};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Database, Result};
+use darkwire_protocol::messages::{
     AssistantMessage, AssistantRole, ChatMessage, ContentPart, TextPart, TextTag, ToolCall,
     ToolMessage, ToolRole, UserMessage, UserRole,
 };

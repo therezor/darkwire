@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates package.json + tsconfig.yaml for each workspace package.
+ * Generates package.json + tsconfig.json for each workspace package.
  * Idempotent — safe to re-run when the package graph changes.
  *
  * The `development` export condition points at ./src/index.ts so `tsx` runs
@@ -37,8 +37,8 @@ const { version: VERSION } = JSON.parse(
  * because a manifest that says where it came from costs nothing and a workspace
  * package has no other header.
  */
-const REPOSITORY_URL = 'git+https://github.com/therezor/GhostAI.git';
-const HOMEPAGE = 'https://github.com/therezor/GhostAI';
+const REPOSITORY_URL = 'git+https://github.com/therezor/darkwire.git';
+const HOMEPAGE = 'https://github.com/therezor/darkwire';
 
 /** Write a file through Prettier so regenerating never fails `format:check`. */
 async function writeFormatted(path, contents) {
@@ -52,7 +52,7 @@ async function writeFormatted(path, contents) {
 /**
  * Injects `//` comments above named keys of a serialized tsconfig.
  *
- * JSON has no syntax for a comment and `tsconfig.yaml` does, so the rationale
+ * JSON has no syntax for a comment and `tsconfig.json` does, so the rationale
  * for an override cannot survive `JSON.stringify`. Without this, re-running the
  * generator silently deletes the explanation for every deviation from the base
  * config — which is the half of the file worth reading.
@@ -85,7 +85,7 @@ function withNotes(json, notes) {
 const PACKAGES = {
   protocol: {
     description:
-      'Zod schemas and derived types shared by every GhostAI package.',
+      'Zod schemas and derived types shared by every DarkWire package.',
     deps: { zod: '^4.0.0' },
     // The browser's half of the schema drift gate: one JSON Schema document
     // per registered schema, committed under `schema/` and diffed in CI.
@@ -112,13 +112,13 @@ const PACKAGES = {
  * The workspace name for a package directory.
  *
  * A plain prefix now. There used to be a `PUBLISHED_AS` table beside this, and
- * it had exactly one row: `cli` published as `@ghostwire/ghostai`, because the
+ * it had exactly one row: `cli` published as `@darkwire/darkwire`, because the
  * CLI was the one package a person typed. The command line is a Rust binary
  * released from GitHub rather than an npm package, so the exception it existed
  * for is gone and the directory name is the package name everywhere.
  */
 function packageName(dir) {
-  return `@ghostwire/${dir}`;
+  return `@darkwire/${dir}`;
 }
 
 for (const [name, cfg] of Object.entries(PACKAGES)) {
@@ -191,19 +191,19 @@ for (const [name, cfg] of Object.entries(PACKAGES)) {
     },
     include: ['src/**/*'],
     // The file, not the directory. `tsc -b` accepts either and resolves a
-    // directory to the `tsconfig.yaml` inside it; Playwright's config loader
+    // directory to the `tsconfig.json` inside it; Playwright's config loader
     // reads these same files to find path aliases and only accepts the explicit
     // form, so a reference written the short way makes the end-to-end suite
     // fail to start with an error about a package it never imported.
     references: (cfg.internal ?? []).map((dep) => ({
-      path: `../${dep}/tsconfig.yaml`,
+      path: `../${dep}/tsconfig.json`,
     })),
   };
 
   // Without a config of its own, a package running `vitest run` from its own
   // directory finds the *root* config and inherits its `projects` globs — which
   // are relative to the root, match nothing from inside `packages/x`, and fail
-  // with "No projects were found". So `pnpm --filter @ghostwire/x test` was broken
+  // with "No projects were found". So `pnpm --filter @darkwire/x test` was broken
   // everywhere, which is why the build plan noticed it for `protocol` alone: it
   // is the package a contributor is most likely to run on its own.
   //
@@ -241,7 +241,7 @@ export default defineConfig({
 
   await writeFormatted(join(dir, 'package.json'), JSON.stringify(pkg, null, 2));
   await writeFormatted(
-    join(dir, 'tsconfig.yaml'),
+    join(dir, 'tsconfig.json'),
     withNotes(JSON.stringify(tsconfig, null, 2), cfg.tsconfigNotes ?? {}),
   );
   await writeFormatted(join(dir, 'tsup.config.ts'), tsup);
@@ -265,7 +265,7 @@ export default defineConfig({
  * an **exact** number, so a stale manifest published a dependency that resolved
  * to nothing, and `i18n` was once found sitting at `0.0.0` while everything else
  * had moved. Nothing publishes now, so the stake is smaller: what is left is
- * that `ghostai --version`, the root `Cargo.toml` and every manifest in the
+ * that `darkwire --version`, the root `Cargo.toml` and every manifest in the
  * repository should agree, because a reader who checks one of them has no way to
  * know it is the odd one out.
  *

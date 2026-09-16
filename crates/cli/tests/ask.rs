@@ -17,8 +17,8 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::ask::{Ask, LineReader, ScriptedReader, StdinReader};
-use ghostai::i18n::Translations;
+use darkwire::ask::{Ask, LineReader, ScriptedReader, StdinReader};
+use darkwire::i18n::Translations;
 
 /// The three rows every case in this file chooses from.
 ///

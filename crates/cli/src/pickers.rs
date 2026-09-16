@@ -25,7 +25,7 @@ pub mod workspaces;
 use std::future::Future;
 use std::pin::Pin;
 
-use ghostai_tui::{SelectItem, SelectLabels};
+use darkwire_tui::{SelectItem, SelectLabels};
 
 use crate::i18n::Translations;
 
@@ -105,8 +105,8 @@ fn indexed<T>(items: &[SelectItem<T>]) -> Vec<SelectItem<usize>> {
 fn labels(title: &str, t: &Translations) -> SelectLabels {
     SelectLabels {
         title: title.to_owned(),
-        empty: t.t(ghostai_i18n::keys::menu::EMPTY),
-        footer: t.t(ghostai_i18n::keys::menu::FOOTER),
+        empty: t.t(darkwire_i18n::keys::menu::EMPTY),
+        footer: t.t(darkwire_i18n::keys::menu::FOOTER),
         filter_prefix: None,
     }
 }
@@ -139,7 +139,7 @@ fn position_of<T: PartialEq>(items: &[SelectItem<T>], value: &T) -> Option<usize
 /// The hint a row carries when it is the one in force, appended to whatever it
 /// already said.
 fn with_current(hint: &str, t: &Translations) -> String {
-    let current = t.t(ghostai_i18n::keys::menu::CURRENT);
+    let current = t.t(darkwire_i18n::keys::menu::CURRENT);
     if hint.is_empty() {
         current
     } else {

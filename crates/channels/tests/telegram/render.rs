@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::telegram::api::{
+use darkwire_channels::telegram::api::{
     BotApi, HttpClient, InlineKeyboardButton, InlineKeyboardMarkup,
 };
-use ghostai_channels::telegram::chats::{ChatState, RenderPrefs};
-use ghostai_channels::telegram::render::{RenderOutcome, RenderRequest, TelegramRenderer};
-use ghostai_core::clock::Clock;
-use ghostai_core::message_bus::OutboundKind;
-use ghostai_core::testkit::ManualClock;
+use darkwire_channels::telegram::chats::{ChatState, RenderPrefs};
+use darkwire_channels::telegram::render::{RenderOutcome, RenderRequest, TelegramRenderer};
+use darkwire_core::clock::Clock;
+use darkwire_core::message_bus::OutboundKind;
+use darkwire_core::testkit::ManualClock;
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;

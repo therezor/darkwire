@@ -10,7 +10,7 @@
  *    `<a>` is a same-origin document in every browser that still honours it. A
  *    refused scheme renders as text, so nothing is hidden — the user can still
  *    read the URL, they just cannot click it into existence.
- *  - **Images must be same-origin.** GhostAI is self-hosted and some installs
+ *  - **Images must be same-origin.** DarkWire is self-hosted and some installs
  *    have no route out; an `<img>` pointing at a third party would leak the
  *    reader's IP to whoever wrote the markdown, which in a tool result is not
  *    the user and not us. Off-origin images render as a link to click

@@ -26,10 +26,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use darkwire_core::{Clock, Result};
+use darkwire_protocol::{McpOAuthConfig, McpServerConfig, McpServerState, McpServerStatus};
+use darkwire_security::{CredentialVault, RandomSource};
 use futures::future::BoxFuture;
-use ghostai_core::{Clock, Result};
-use ghostai_protocol::{McpOAuthConfig, McpServerConfig, McpServerState, McpServerStatus};
-use ghostai_security::{CredentialVault, RandomSource};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
@@ -45,10 +45,10 @@ use crate::store::{McpSecretStore, MemorySecretStore, VaultSecretStore};
 
 /// Where a server's tools go.
 ///
-/// `ToolSink` in `ghostai-tools`, under this crate's own name for it: "the sink
+/// `ToolSink` in `darkwire-tools`, under this crate's own name for it: "the sink
 /// a server's tools go to" is how every call site here reads. Implemented in
-/// `ghostai-runtime`, the only place that knows both this and the registry.
-pub use ghostai_tools::ToolSink as McpToolSink;
+/// `darkwire-runtime`, the only place that knows both this and the registry.
+pub use darkwire_tools::ToolSink as McpToolSink;
 
 /// Everything the manager needs.
 pub struct McpManagerOptions {

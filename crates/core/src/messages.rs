@@ -1,6 +1,6 @@
 //! Constructors and accessors for the canonical message union.
 //!
-//! The shapes themselves live in `ghostai-protocol`: they cross the wire, so
+//! The shapes themselves live in `darkwire-protocol`: they cross the wire, so
 //! the schema is their single source of truth. What lives here is the small set
 //! of operations everything downstream would otherwise reimplement: building a
 //! user message from a string, and reading the text back out of one.
@@ -11,7 +11,7 @@
 //! inline, that is a filter/map/join that gets subtly different at every call
 //! site, and the differences only show up on multimodal input.
 
-use ghostai_protocol::{
+use darkwire_protocol::{
     AssistantMessage, AssistantRole, ChatMessage, ContentPart, FilePart, FileTag, ImagePart,
     ImageTag, SystemMessage, SystemRole, TextPart, TextTag, ToolCall, ToolMessage, ToolRole,
     UserMessage, UserRole,

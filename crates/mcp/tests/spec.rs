@@ -7,11 +7,11 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_mcp::{
+use darkwire_core::ErrorKind;
+use darkwire_mcp::{
     McpConnectionSpec, McpTransportSpec, exposure_fingerprint, resolve_spec, transport_fingerprint,
 };
-use ghostai_protocol::{McpServerConfig, McpTransport};
+use darkwire_protocol::{McpServerConfig, McpTransport};
 use serde_json::{Value, json};
 
 /// The schema's defaults, so a case states only what it is about.

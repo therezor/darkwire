@@ -1,5 +1,5 @@
 ---
-schema: ghostai.container/1
+schema: darkwire.container/1
 name: dev
 image: REPLACE_WITH_DOCKER_IMAGE_ID
 shared: true

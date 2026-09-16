@@ -15,13 +15,13 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_server::manifest::{ROUTE_MANIFEST, RouteAuth, RouteId, RouteMethod};
+use darkwire_server::manifest::{ROUTE_MANIFEST, RouteAuth, RouteId, RouteMethod};
 
 /// The routes every build serves. The `test-hooks` entries are extra, and the
 /// feature is on for this test binary, so the base set is what is filtered for.
 const BASE_ROUTES: usize = 67;
 
-fn base() -> Vec<&'static ghostai_server::manifest::Route> {
+fn base() -> Vec<&'static darkwire_server::manifest::Route> {
     ROUTE_MANIFEST
         .iter()
         .filter(|route| !route.path.starts_with("/api/_test/"))
@@ -201,7 +201,7 @@ fn every_dotted_name_names_the_resource_its_path_serves() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn the_test_hook_routes_are_in_the_manifest_and_are_authenticated() {
-    let hooks: Vec<&ghostai_server::manifest::Route> = ROUTE_MANIFEST
+    let hooks: Vec<&darkwire_server::manifest::Route> = ROUTE_MANIFEST
         .iter()
         .filter(|route| route.path.starts_with("/api/_test/"))
         .collect();

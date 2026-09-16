@@ -6,7 +6,7 @@ import {
   RunCommandResponseSchema,
 } from '#src/index.js';
 
-const MINIMAL = { schema: 'ghostai.extension/1', id: 'slack' };
+const MINIMAL = { schema: 'darkwire.extension/1', id: 'slack' };
 
 describe('ExtensionManifestSchema', () => {
   it('needs only a schema tag and an id', () => {
@@ -18,7 +18,7 @@ describe('ExtensionManifestSchema', () => {
     expect(manifest.entry).toBe('dist/index.js');
     expect(manifest.version).toBe('0.0.0');
     expect(manifest.contributes).toEqual([]);
-    expect(manifest.engines.ghostai).toBe('');
+    expect(manifest.engines.darkwire).toBe('');
   });
 
   it('refuses a schema tag it does not recognise', () => {
@@ -26,7 +26,10 @@ describe('ExtensionManifestSchema', () => {
     // a breaking format change has to fail loudly on the old file rather than
     // parse it into something that means something else now.
     expect(() =>
-      ExtensionManifestSchema.parse({ ...MINIMAL, schema: 'ghostai.plugin/1' }),
+      ExtensionManifestSchema.parse({
+        ...MINIMAL,
+        schema: 'darkwire.plugin/1',
+      }),
     ).toThrow();
   });
 

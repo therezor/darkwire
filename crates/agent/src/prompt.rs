@@ -45,7 +45,7 @@
 //! live state and the prose is cached.
 //!
 //! **The identity text is not in this file.** It is a template in
-//! `ghostai-protocol`, because an agent owns its whole system prompt and the
+//! `darkwire-protocol`, because an agent owns its whole system prompt and the
 //! browser edits it — so the wording and the substitution rules have to be one
 //! definition. This module owns the *facts* it is rendered with, which are the
 //! ones only the host knows: the platform, the architecture and the version.
@@ -80,14 +80,14 @@ use std::sync::LazyLock;
 
 use chrono::{DateTime, TimeZone as _, Utc};
 use chrono_tz::Tz;
-use ghostai_protocol::json::js_trim;
-use ghostai_protocol::{
+use darkwire_protocol::json::js_trim;
+use darkwire_protocol::{
     DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
     DEFAULT_PLATFORM_HOST_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE,
     PromptMode, SECTION_SEPARATOR, render_prompt_template, render_wrap_up, tool_policy_uses_nonce,
 };
-use ghostai_providers::BoxFuture;
-use ghostai_security::{tool_output_policy, tool_output_tag};
+use darkwire_providers::BoxFuture;
+use darkwire_security::{tool_output_policy, tool_output_tag};
 use indexmap::IndexMap;
 use regex::{Captures, Regex};
 
@@ -176,7 +176,7 @@ pub trait ContextContributor: Send + Sync {
 /// of from a flag someone remembered to thread through.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PromptAgent {
-    /// Empty falls back to `GhostAI`. Fills `{{name}}`.
+    /// Empty falls back to `DarkWire`. Fills `{{name}}`.
     pub label: String,
     /// This agent's live-state template. Empty means the built-in.
     pub live_prompt: Option<String>,
@@ -293,7 +293,7 @@ impl Platform {
 pub struct Host {
     /// Where a command would run.
     pub platform: Platform,
-    /// The `<os> <arch>, GhostAI <version>` line, or an override.
+    /// The `<os> <arch>, DarkWire <version>` line, or an override.
     pub runtime_label: String,
 }
 
@@ -301,7 +301,7 @@ impl Default for Host {
     fn default() -> Host {
         let platform = Platform::host();
         let runtime_label = format!(
-            "{} {}, GhostAI {}",
+            "{} {}, DarkWire {}",
             platform.label(),
             std::env::consts::ARCH,
             env!("CARGO_PKG_VERSION")
@@ -318,7 +318,7 @@ pub struct BuildStaticPrompt<'a> {
     /// The session.
     pub context: &'a StaticPromptContext,
     /// Absent is the unnamed default agent: the built-in template, rendered as
-    /// `GhostAI`.
+    /// `DarkWire`.
     pub agent: Option<&'a PromptAgent>,
     /// Sections the loop knows nothing about.
     pub contributors: &'a [&'a dyn ContextContributor],
@@ -567,7 +567,7 @@ pub async fn contributor_sections(
 
 /// The identity section, rendered from whatever template this agent carries.
 ///
-/// The text itself lives in `ghostai-protocol`, not here, and an agent that
+/// The text itself lives in `darkwire-protocol`, not here, and an agent that
 /// stores its own replaces it wholesale — heading, workspace rules, platform
 /// note, guidelines and all.
 ///
@@ -575,7 +575,7 @@ pub async fn contributor_sections(
 /// block**, on the grounds that the workspace semantics and the guidelines are
 /// "not an operator's to replace by writing a persona". That objection does not
 /// survive contact with what those sentences actually are: prose telling the
-/// model what is true. The jail and the exec guard live in `ghostai-security`, are
+/// model what is true. The jail and the exec guard live in `darkwire-security`, are
 /// enforced on every call, and have never read a word of this. An operator who
 /// deletes the workspace paragraph gets an agent that is less well informed
 /// about a sandbox that is exactly as tight as it was before — and in exchange,
@@ -603,7 +603,7 @@ fn identity(context: &StaticPromptContext, host: &Host, agent: Option<&PromptAge
             (
                 "name",
                 if label.is_empty() {
-                    "GhostAI".to_owned()
+                    "DarkWire".to_owned()
                 } else {
                     label.to_owned()
                 },
@@ -992,7 +992,7 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
         (
             "name",
             if label.is_empty() {
-                "GhostAI".to_owned()
+                "DarkWire".to_owned()
             } else {
                 label.to_owned()
             },

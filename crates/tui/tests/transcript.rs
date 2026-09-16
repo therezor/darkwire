@@ -1,6 +1,6 @@
 //! Fragments become logical lines, refolded per width, styles carried across breaks, bounded.
 
-use ghostai_tui::{Component, Transcript};
+use darkwire_tui::{Component, Transcript};
 
 const ESC: &str = "\x1b";
 const DIM: &str = "\x1b[2m";

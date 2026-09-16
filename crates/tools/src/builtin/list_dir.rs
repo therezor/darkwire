@@ -14,8 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostai_core::Result;
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_core::Result;
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use walkdir::WalkDir;

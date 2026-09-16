@@ -1,6 +1,6 @@
 # Configuration
 
-One YAML file: `~/.ghostai/config.yaml`, or `$GHOSTAI_HOME/config.yaml`, or
+One YAML file: `~/.darkwire/config.yaml`, or `$DARKWIRE_HOME/config.yaml`, or
 `--home <dir>/config.yaml`. No JSON, no TOML, no XDG.
 
 **A missing file is normal.** The schema produces a complete tree from `{}`, so every key
@@ -19,7 +19,7 @@ Writes are atomic: validate, write `config.yaml.tmp` at mode `0600`, rename.
 - Every nested object is prefaulted, so `{}` parses to a fully populated tree.
 - There are no schema transforms anywhere, so the whole thing stays representable as JSON
   Schema and the OpenAPI document is generated rather than written.
-- A relative path resolves against the GhostAI root, never against the process working
+- A relative path resolves against the DarkWire root, never against the process working
   directory.
 
 ---
@@ -37,9 +37,9 @@ own one: the folder is a property of the session, and several agents with separa
 identities opening the same one is what the feature is built around. `agents.list.<id>`
 therefore has no such key.
 
-Empty means `<root>/workspace`, where the root is `GHOSTAI_HOME` or `~/.ghostai`.
-Deliberately not defaulted to the literal `~/.ghostai/workspace`: that string restates
-the default root, so an install relocated with `GHOSTAI_HOME` would keep its workspace
+Empty means `<root>/workspace`, where the root is `DARKWIRE_HOME` or `~/.darkwire`.
+Deliberately not defaulted to the literal `~/.darkwire/workspace`: that string restates
+the default root, so an install relocated with `DARKWIRE_HOME` would keep its workspace
 back under the home directory. A relative path is resolved against the root, never
 against the process working directory. `--workspace` wins over this for one run.
 
@@ -114,10 +114,10 @@ than what a turn on it sends.
 `workspace` is not among them, and cannot be: the working folder is root-level and shared
 by every agent that opens it. See [`workspace`](#workspace).
 
-Entries are created three ways, and they all land in the same shape: the web UI's agent
-editor, editing this file by hand, and `ghostai agent install`, which merges a preset —
-a shipped agent definition — into this map ([CLI](cli.md#ghost-agent)). However an entry
-got here, it is edited the same way afterwards.
+Entries are created two ways, and both land in the same shape: the web UI's agent
+editor, and editing this file by hand. `darkwire agent list` prints what is here
+([CLI](cli.md#darkwire-agent)). However an entry got here, it is edited the same way
+afterwards.
 
 | Key                | Type                                 | Default           | Notes                                                                                                        |
 | ------------------ | ------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -541,7 +541,7 @@ Full detail in [Extensions](extensions.md).
 
 | Key                        | Type     | Default | Notes                                                                 |
 | -------------------------- | -------- | ------- | --------------------------------------------------------------------- |
-| `extensions.load`          | string[] | `[]`    | Extra directories, beside `~/.ghostai/extensions`. Paths, not specs.  |
+| `extensions.load`          | string[] | `[]`    | Extra directories, beside `~/.darkwire/extensions`. Paths, not specs. |
 | `extensions.disabled`      | string[] | `[]`    | Ids. A disabled extension is discovered and not loaded.               |
 | `extensions.allowOverride` | boolean  | `false` | Lets a later-discovered id shadow an earlier one instead of erroring. |
 | `extensions.settings.<id>` | object   | `{}`    | One extension's own block, loose — it parses its own.                 |
@@ -585,15 +585,15 @@ Agents are created, renamed and deleted through `PATCH /api/settings` (which car
 
 ## Environment variables
 
-| Variable                    | Does                                                                       |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `GHOSTAI_HOME`              | The root directory. Same as `--home`.                                      |
-| `GHOSTAI_PASSWORD`          | Fallback for `ghostai serve --password`.                                   |
-| `GHOSTAI_USERNAME`          | Fallback for `ghostai serve --username`.                                   |
-| `GHOSTAI_LANG`              | Locale override. Ranks above `config.ui.locale`, which ranks above `LANG`. |
-| `GHOSTAI_LOG_LEVEL`         | Then `LOG_LEVEL`, then `info`.                                             |
-| `GHOSTAI_DEBUG`             | Any non-empty value prints stack traces instead of the friendly message.   |
-| `GHOSTAI_FIDELITY_ORIGINAL` | Path used by the optional e2e design-fidelity gate. Without it, it skips.  |
+| Variable                     | Does                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `DARKWIRE_HOME`              | The root directory. Same as `--home`.                                      |
+| `DARKWIRE_PASSWORD`          | Fallback for `darkwire serve --password`.                                  |
+| `DARKWIRE_USERNAME`          | Fallback for `darkwire serve --username`.                                  |
+| `DARKWIRE_LANG`              | Locale override. Ranks above `config.ui.locale`, which ranks above `LANG`. |
+| `DARKWIRE_LOG_LEVEL`         | Then `LOG_LEVEL`, then `info`.                                             |
+| `DARKWIRE_DEBUG`             | Any non-empty value prints stack traces instead of the friendly message.   |
+| `DARKWIRE_FIDELITY_ORIGINAL` | Path used by the optional e2e design-fidelity gate. Without it, it skips.  |
 
 Provider keys — read only when the vault has no entry for that instance, because **the
 vault wins over the environment**:
@@ -613,7 +613,7 @@ and works. See [Providers](providers.md).
 
 | Flag                        | Overrides                                                |
 | --------------------------- | -------------------------------------------------------- |
-| `--home <dir>`              | The root. Same as `GHOSTAI_HOME`.                        |
+| `--home <dir>`              | The root. Same as `DARKWIRE_HOME`.                       |
 | `--host` / `--port`         | `server.host` / `server.port`.                           |
 | `--workspace <dir>`         | The workspace root — moves the whole tree.               |
 | `--workspace-id <id>`       | Which workspace new sessions land in. A different thing. |

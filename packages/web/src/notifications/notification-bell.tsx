@@ -24,7 +24,7 @@ import { Bell } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { Notification } from '@ghostwire/protocol';
+import type { Notification } from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';

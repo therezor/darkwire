@@ -23,11 +23,11 @@
 
 use std::sync::Arc;
 
+use darkwire_core::{Result, WireError};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{ToolDefinition, ToolRisk, ToolSource};
+use darkwire_tools::{AnyTool, Tool, ToolContext, ToolExecution, assert_not_aborted};
 use futures::future::BoxFuture;
-use ghostai_core::{GhostError, Result};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{ToolDefinition, ToolRisk, ToolSource};
-use ghostai_tools::{AnyTool, Tool, ToolContext, ToolExecution, assert_not_aborted};
 use serde_json::Value;
 
 use crate::names::flatten_tool_name;
@@ -247,7 +247,7 @@ impl Tool for RemoteTool {
             let parsed = match self.validator.parse(Some(args)) {
                 Ok(parsed) => parsed,
                 Err(failure) => {
-                    return GhostError::from(failure)
+                    return WireError::from(failure)
                         .with_detail("tool", self.definition.name.as_str())
                         .into();
                 }
@@ -289,7 +289,7 @@ pub fn bridge_tool(
     session: Arc<dyn McpCallTarget>,
     options: BridgeOptions,
 ) -> BridgedTool {
-    let refused = |error: GhostError| BridgedTool {
+    let refused = |error: WireError| BridgedTool {
         tool: None,
         upstream_name: descriptor.name.clone(),
         issues: vec![SchemaIssue {

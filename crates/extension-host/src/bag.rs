@@ -9,7 +9,7 @@
 //!    removing an extension is removing exactly what that bag named. Nothing
 //!    has to be diffed and nothing can be missed.
 //!  - **A partial activation installs nothing.** An extension whose
-//!    `tools/list` answers and whose `ghostai/commands/list` dies leaves no
+//!    `tools/list` answers and whose `darkwire/commands/list` dies leaves no
 //!    trace, because the bag is discarded whole. The alternative — registering
 //!    each kind as it arrives — leaves four tools registered by an extension
 //!    that is not running.
@@ -42,11 +42,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use ghostai_agent::ContextContributor;
-use ghostai_channels::ChannelFactory;
-use ghostai_protocol::{ExtensionCommand, ExtensionContribution, ExtensionManifest};
-use ghostai_providers::ProviderSpec;
-use ghostai_tools::AnyTool;
+use darkwire_agent::ContextContributor;
+use darkwire_channels::ChannelFactory;
+use darkwire_protocol::{ExtensionCommand, ExtensionContribution, ExtensionManifest};
+use darkwire_providers::ProviderSpec;
+use darkwire_tools::AnyTool;
 
 /// Everything one extension contributed, and what was refused on the way.
 #[derive(Default)]

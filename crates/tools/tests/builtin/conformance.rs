@@ -13,8 +13,8 @@
 
 use std::fs;
 
-use ghostai_tools::testkit::{TestWorkspace, ToolConformance, tool_conformance};
-use ghostai_tools::{
+use darkwire_tools::testkit::{TestWorkspace, ToolConformance, tool_conformance};
+use darkwire_tools::{
     AnyTool, ToolContext, edit_file_tool, exec_tool, list_dir_tool, read_file_tool, write_file_tool,
 };
 use serde_json::{Map, Value, json};

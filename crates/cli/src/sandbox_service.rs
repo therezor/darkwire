@@ -1,4 +1,4 @@
-//! The sandbox service, started inside `ghostai serve` when none is deployed.
+//! The sandbox service, started inside `darkwire serve` when none is deployed.
 //!
 //! The app never holds a container engine handle — that separation is the whole
 //! point of the service — but a single-binary install still has to be able to
@@ -8,7 +8,7 @@
 //! and the engine still owned by one component.
 //!
 //! **Nothing is started when the operator has deployed a service themselves.**
-//! `GHOSTAI_SANDBOX_SOCKET` naming one, or a socket already listening at the
+//! `DARKWIRE_SANDBOX_SOCKET` naming one, or a socket already listening at the
 //! default path, means this returns without binding: two services over one
 //! state directory would both try to reap the other's containers, and the lock
 //! the service takes would refuse the second anyway.
@@ -30,11 +30,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use ghostai_core::paths::workspace_dir_for;
-use ghostai_core::workspace_store::WorkspaceStore;
-use ghostai_core::{GhostPaths, Result};
-use ghostai_environment::service::{ServiceConfig, WorkspaceRegistration, socket_path};
-use ghostai_security::PolicyStore;
+use darkwire_core::paths::workspace_dir_for;
+use darkwire_core::workspace_store::WorkspaceStore;
+use darkwire_core::{Result, WirePaths};
+use darkwire_environment::service::{ServiceConfig, WorkspaceRegistration, socket_path};
+use darkwire_security::PolicyStore;
 
 use crate::i18n::Env;
 
@@ -51,11 +51,11 @@ const BIND_TIMEOUT_MS: u64 = 2_000;
 /// the server runs. `None` means somebody else owns the socket, or nothing
 /// installed could ask for an environment.
 pub async fn start_embedded(
-    paths: &GhostPaths,
+    paths: &WirePaths,
     workspaces: &WorkspaceStore,
     env: &Env,
 ) -> Option<Arc<tokio::task::JoinHandle<Result<()>>>> {
-    let socket = socket_path(env.get("GHOSTAI_SANDBOX_SOCKET"), paths);
+    let socket = socket_path(env.get("DARKWIRE_SANDBOX_SOCKET"), paths);
     // A live socket is a service somebody else is running, whether they
     // configured one or left an earlier `serve` running. Connecting is the only
     // reliable test: a stale socket file outlives the process that bound it.
@@ -63,7 +63,7 @@ pub async fn start_embedded(
         tracing::info!(socket = %socket.display(), "using the sandbox service already listening");
         return None;
     }
-    if env.get("GHOSTAI_SANDBOX_SOCKET").is_some() {
+    if env.get("DARKWIRE_SANDBOX_SOCKET").is_some() {
         // Named but not answering. Started here it would bind a path the
         // operator pointed elsewhere for a reason, so the refusal is left to
         // the first command that needs an environment, where it can name the
@@ -91,16 +91,16 @@ pub async fn start_embedded(
         socket: socket.clone(),
         policy_root: paths.policy_dir.clone(),
         state_root: state_root.clone(),
-        // GhostAI is on the host here, so the daemon sees the same paths this
-        // process does. A containerised GhostAI has to deploy the service
+        // DarkWire is on the host here, so the daemon sees the same paths this
+        // process does. A containerised DarkWire has to deploy the service
         // separately and map them explicitly.
         daemon_state_root: state_root,
         engine: env
-            .get("GHOSTAI_CONTAINER_ENGINE")
+            .get("DARKWIRE_CONTAINER_ENGINE")
             .unwrap_or("docker")
             .to_owned(),
         gateway_image: env
-            .get("GHOSTAI_GATEWAY_IMAGE")
+            .get("DARKWIRE_GATEWAY_IMAGE")
             .filter(|value| !value.is_empty())
             .map(str::to_owned),
         workspaces: registrations,
@@ -109,7 +109,7 @@ pub async fn start_embedded(
         // A failure here is not a boot failure. Everything that does not need an
         // environment keeps working, and the first command that does gets a
         // sentence naming the socket that was not there.
-        if let Err(error) = ghostai_environment::service::serve(config).await {
+        if let Err(error) = darkwire_environment::service::serve(config).await {
             tracing::warn!(error = %error.message, "the embedded sandbox service stopped");
             return Err(error);
         }
@@ -126,7 +126,7 @@ pub async fn start_embedded(
 /// hand, and refusing to start the server over one is a worse answer than
 /// refusing the turn that names it.
 fn registrations(
-    paths: &GhostPaths,
+    paths: &WirePaths,
     workspaces: &WorkspaceStore,
     environments: &[String],
 ) -> BTreeMap<String, WorkspaceRegistration> {

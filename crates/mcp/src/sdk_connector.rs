@@ -11,9 +11,9 @@
 //!   configuration and do not go through the exec guard — [`crate::spec`]
 //!   argues why. What *is* enforced: the environment is a minimal inherited
 //!   set plus what the entry names, never this process's whole environment, so
-//!   a provider API key in `ghostai serve`'s environment does not silently
+//!   a provider API key in `darkwire serve`'s environment does not silently
 //!   land inside third-party code; stderr is piped to the log under a budget
-//!   rather than interleaved into GhostAI's own output; and the child is
+//!   rather than interleaved into DarkWire's own output; and the child is
 //!   killed when the session closes.
 //! - **Streamable HTTP** is the default for a `url`.
 //! - **SSE**, the legacy HTTP transport, has no client in this SDK version.
@@ -37,10 +37,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{McpTransport, ToolAnnotations};
 use futures::future::BoxFuture;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{McpTransport, ToolAnnotations};
 use rmcp::ClientHandler;
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, CancelledNotificationParam,
@@ -70,8 +70,8 @@ use crate::session::{
 };
 use crate::spec::{McpConnectionSpec, McpTransportSpec};
 
-/// What GhostAI calls itself in the MCP initialise handshake.
-pub const CLIENT_NAME: &str = "ghostai";
+/// What DarkWire calls itself in the MCP initialise handshake.
+pub const CLIENT_NAME: &str = "darkwire";
 
 /// Beyond this many stderr bytes per server, logging stops. The stream is
 /// still drained so the child never blocks on a full pipe.
@@ -250,11 +250,11 @@ enum AttemptError {
     /// The server wants OAuth; the challenge, when it sent one.
     NeedsAuthorization(Option<String>),
     /// Anything else.
-    Failed(GhostError),
+    Failed(WireError),
 }
 
 impl AttemptError {
-    fn into_ghost(self) -> GhostError {
+    fn into_wire(self) -> WireError {
         match self {
             AttemptError::Failed(error) => error,
             AttemptError::NeedsAuthorization(challenge) => needs_authorization(challenge),
@@ -264,8 +264,8 @@ impl AttemptError {
 
 /// The SDK's signal that the operator now has to go somewhere — a state, not a
 /// failure to retry — tagged so the connection can tell.
-fn needs_authorization(challenge: Option<String>) -> GhostError {
-    let error = GhostError::new(
+fn needs_authorization(challenge: Option<String>) -> WireError {
+    let error = WireError::new(
         ErrorKind::PermissionDenied,
         "The MCP server requires authorization",
     )
@@ -277,25 +277,25 @@ fn needs_authorization(challenge: Option<String>) -> GhostError {
 }
 
 /// The SDK's request-level failures as the taxonomy.
-fn service_error(error: ServiceError) -> GhostError {
+fn service_error(error: ServiceError) -> WireError {
     match error {
-        ServiceError::Timeout { timeout } => GhostError::new(
+        ServiceError::Timeout { timeout } => WireError::new(
             ErrorKind::Timeout,
             format!(
                 "The MCP server did not answer within {} ms",
                 timeout.as_millis()
             ),
         ),
-        ServiceError::Cancelled { .. } => GhostError::aborted("MCP call"),
-        ServiceError::McpError(data) => GhostError::new(
+        ServiceError::Cancelled { .. } => WireError::aborted("MCP call"),
+        ServiceError::McpError(data) => WireError::new(
             ErrorKind::Tool,
             format!("The MCP server refused the call: {}", data.message),
         )
         .with_detail("code", data.code.0),
         ServiceError::TransportClosed => {
-            GhostError::new(ErrorKind::Network, "The MCP server closed the connection")
+            WireError::new(ErrorKind::Network, "The MCP server closed the connection")
         }
-        other => GhostError::new(ErrorKind::Network, other.to_string()),
+        other => WireError::new(ErrorKind::Network, other.to_string()),
     }
 }
 
@@ -432,7 +432,7 @@ impl SdkConnector {
     ) -> Result<SessionTransport> {
         if let Some(pipe) = &self.pipe {
             let (read, write) = pipe().map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Network,
                     format!("Could not open the MCP transport: {error}"),
                 )
@@ -452,7 +452,7 @@ impl SdkConnector {
                     .stderr(Stdio::piped())
                     .spawn()
                     .map_err(|error| {
-                        GhostError::new(
+                        WireError::new(
                             ErrorKind::Network,
                             format!("Could not start \"{command}\": {error}"),
                         )
@@ -530,8 +530,8 @@ impl SdkConnector {
                     );
                 }
                 AttemptError::Failed(match error {
-                    ClientInitializeError::Cancelled => GhostError::aborted("MCP connect"),
-                    other => GhostError::new(ErrorKind::Network, other.to_string())
+                    ClientInitializeError::Cancelled => WireError::aborted("MCP connect"),
+                    other => WireError::new(ErrorKind::Network, other.to_string())
                         .with_detail("server", spec.server_id.as_str()),
                 })
             })?;
@@ -550,11 +550,11 @@ impl SdkConnector {
                 }
                 let error = match quit {
                     Ok(QuitReason::Closed | QuitReason::Cancelled) => None,
-                    Ok(other) => Some(Arc::new(GhostError::new(
+                    Ok(other) => Some(Arc::new(WireError::new(
                         ErrorKind::Network,
                         format!("The MCP session ended: {other:?}"),
                     ))),
-                    Err(join) => Some(Arc::new(GhostError::new(
+                    Err(join) => Some(Arc::new(WireError::new(
                         ErrorKind::Network,
                         format!("The MCP session task failed: {join}"),
                     ))),
@@ -602,9 +602,9 @@ impl SdkConnector {
                 let token = auth.access_token(url).await?;
                 self.attempt(&spec, &context, token.as_deref())
                     .await
-                    .map_err(AttemptError::into_ghost)
+                    .map_err(AttemptError::into_wire)
             }
-            Err(failed) => Err(failed.into_ghost()),
+            Err(failed) => Err(failed.into_wire()),
         };
         outcome.map_err(|error| note_sse(&spec, error))
     }
@@ -617,7 +617,7 @@ impl SdkConnector {
 /// speaks SSE is precisely the one that then fails. Without this the operator
 /// reads a bare network error and has no way to connect the two facts; the
 /// successful case carries the same sentence as a warning on its status row.
-fn note_sse(spec: &McpConnectionSpec, mut error: GhostError) -> GhostError {
+fn note_sse(spec: &McpConnectionSpec, mut error: WireError) -> WireError {
     if spec.kind() == McpTransport::Sse && !error.is_aborted() {
         error.message.push_str(
             " (configured as SSE, which this build cannot speak; \
@@ -627,8 +627,8 @@ fn note_sse(spec: &McpConnectionSpec, mut error: GhostError) -> GhostError {
     error
 }
 
-fn bad_header(server_id: &str, name: &str) -> GhostError {
-    GhostError::new(
+fn bad_header(server_id: &str, name: &str) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!("MCP server \"{server_id}\": header \"{name}\" is not a valid HTTP header"),
     )
@@ -674,7 +674,7 @@ impl McpSession for SdkSession {
     ) -> BoxFuture<'_, Result<Vec<McpToolDescriptor>>> {
         Box::pin(async move {
             tokio::select! {
-                () = token.cancelled() => Err(GhostError::aborted("MCP tools/list")),
+                () = token.cancelled() => Err(WireError::aborted("MCP tools/list")),
                 listed = self.peer.list_all_tools() => listed
                     .map(|tools| tools.into_iter().map(descriptor).collect())
                     .map_err(service_error),
@@ -693,7 +693,7 @@ impl McpSession for SdkSession {
         Box::pin(async move {
             if options.timeout_ms == 0 {
                 return tokio::select! {
-                    () = options.token.cancelled() => Err(GhostError::aborted("MCP tools/call")),
+                    () = options.token.cancelled() => Err(WireError::aborted("MCP tools/call")),
                     result = self.peer.call_tool(params) => result.map(call_result).map_err(service_error),
                 };
             }
@@ -721,11 +721,11 @@ impl McpSession for SdkSession {
                             Some("The turn was cancelled".to_owned()),
                         ))
                         .await;
-                    Err(GhostError::aborted("MCP tools/call"))
+                    Err(WireError::aborted("MCP tools/call"))
                 }
                 response = handle.await_response() => match response.map_err(service_error)? {
                     ServerResult::CallToolResult(result) => Ok(call_result(result)),
-                    _ => Err(GhostError::new(
+                    _ => Err(WireError::new(
                         ErrorKind::Network,
                         "The MCP server answered tools/call with something else",
                     )),

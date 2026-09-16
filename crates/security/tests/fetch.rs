@@ -17,9 +17,9 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_security::testkit::StaticResolver;
-use ghostai_security::{
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_security::testkit::StaticResolver;
+use darkwire_security::{
     DnsResolver, GuardedFetchOptions, GuardedFetchResult, HickoryResolver, NetworkPolicy,
     guarded_fetch, validate_target,
 };
@@ -49,7 +49,7 @@ fn kind_of<T>(result: &Result<T>) -> ErrorKind {
     result.as_ref().err().map(|e| e.kind).expect("an error")
 }
 
-fn expect_blocked<T>(result: Result<T>, needle: &str) -> GhostError {
+fn expect_blocked<T>(result: Result<T>, needle: &str) -> WireError {
     let error = result.err().expect("a refusal");
     assert_eq!(error.kind, ErrorKind::Network, "{}", error.message);
     // A blocked target stays blocked; retrying it only burns time.

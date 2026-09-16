@@ -12,7 +12,7 @@ mod common;
 use std::collections::HashSet;
 use std::net::IpAddr;
 
-use ghostai_security::{
+use darkwire_security::{
     AddressCategory, BLOCKED_RANGES, IpFamily, ParsedIp, cidr_contains, classify_address,
     parse_cidr, parse_ip_literal,
 };

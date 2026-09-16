@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-channels"
+name = "darkwire-channels"
 description = "The Channel contract, ChannelManager, TurnProjection and the Telegram adapter"
 version.workspace = true
 edition.workspace = true
@@ -18,8 +18,8 @@ workspace = true
 testkit = []
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true
@@ -35,8 +35,8 @@ tracing.workspace = true
 [dev-dependencies]
 # The crate's own conformance suite, and core's manual clock, reach the tests
 # through the feature the coverage gate does not otherwise turn on.
-ghostai-channels = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
+darkwire-channels = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
 proptest.workspace = true
 tempfile.workspace = true
 # `start_paused` for the poll-backoff tests: nothing sleeps for real.

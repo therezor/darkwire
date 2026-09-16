@@ -7,9 +7,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::config::Config;
-use ghostai_server::boot::assert_boot_policy;
+use darkwire_core::ErrorKind;
+use darkwire_protocol::config::Config;
+use darkwire_server::boot::assert_boot_policy;
 
 /// A settings tree with `server.host`, `server.port` and `server.auth.enabled`
 /// set, and every other field at its default.

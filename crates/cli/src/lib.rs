@@ -1,4 +1,4 @@
-//! The `ghostai` command line, as a library.
+//! The `darkwire` command line, as a library.
 //!
 //! The binary is a shim: it builds a tokio runtime, calls [`run`], and turns
 //! the answer into an exit code. Everything else is here, because a test in
@@ -13,7 +13,6 @@
 
 pub mod agent;
 pub mod ask;
-pub mod catalogue;
 pub mod chat;
 pub mod commands;
 pub mod environment;
@@ -26,15 +25,12 @@ pub mod menu;
 pub mod messages;
 pub mod models;
 pub mod pickers;
-pub mod preset;
-pub mod presets;
 pub mod program;
 pub mod render;
 pub mod runtime;
 pub mod sandbox_service;
 pub mod serve;
 pub mod server_runtime;
-pub mod skill_install;
 pub mod telegram;
 // Compiled only into a `test-hooks` build, and armed only by the environment on
 // top of that. See the module for the two-switch rule.
@@ -43,7 +39,7 @@ pub mod test_hooks;
 
 use std::io::Write;
 
-use ghostai_core::GhostError;
+use darkwire_core::WireError;
 
 use crate::i18n::{Env, Translations, describe_error};
 use crate::program::{Invocation, Parsed, SandboxAction, Subcommand};
@@ -124,12 +120,12 @@ where
 
 /// The sentence, or the sentence plus what the error carried.
 ///
-/// Under `GHOSTAI_DEBUG` the structured detail is what was asked for; otherwise
+/// Under `DARKWIRE_DEBUG` the structured detail is what was asked for; otherwise
 /// the sentence the error carries is the whole of what a person needs. There is
 /// no stack to print — the errors here are values, not unwinds — so the debug
 /// form shows the kind and the details map instead, which is the same
 /// information a log line would have held.
-fn failure_text(error: &GhostError, env: &Env) -> String {
+fn failure_text(error: &WireError, env: &Env) -> String {
     if !env.debug() {
         return describe_error(error);
     }
@@ -144,7 +140,7 @@ async fn dispatch(
     invocation: Invocation,
     env: &Env,
     streams: &mut Streams,
-) -> Result<u8, GhostError> {
+) -> Result<u8, WireError> {
     let Invocation { globals, command } = invocation;
     match command {
         Subcommand::Chat(args) => chat::run(&globals, *args, env, streams).await,
@@ -158,12 +154,12 @@ async fn dispatch(
             workspace,
             socket,
         } => {
-            use ghostai_environment::service::{SandboxClient, socket_path};
-            use ghostai_protocol::SandboxRequest;
+            use darkwire_environment::service::{SandboxClient, socket_path};
+            use darkwire_protocol::SandboxRequest;
             let required = |value: Option<String>, field: &str| {
                 value.ok_or_else(|| {
-                    GhostError::new(
-                        ghostai_core::ErrorKind::InvalidInput,
+                    WireError::new(
+                        darkwire_core::ErrorKind::InvalidInput,
                         format!("Missing {field}"),
                     )
                 })
@@ -181,7 +177,7 @@ async fn dispatch(
                     workspace: required(workspace, "--workspace")?,
                     agent: "operator".into(),
                     session: "operator".into(),
-                    network: ghostai_protocol::EnvironmentNetwork::default(),
+                    network: darkwire_protocol::EnvironmentNetwork::default(),
                 },
                 SandboxAction::Stop => SandboxRequest::Stop {
                     instance: required(id, "instance id")?,
@@ -190,14 +186,14 @@ async fn dispatch(
                     instance: required(id, "instance id")?,
                 },
             };
-            let loaded = ghostai_core::load_config(ghostai_core::LoadConfigOptions {
+            let loaded = darkwire_core::load_config(darkwire_core::LoadConfigOptions {
                 paths: runtime::load_options(&globals, None, env),
                 file: None,
             })?;
             let socket = socket_path(
                 socket
                     .as_deref()
-                    .or_else(|| env.get("GHOSTAI_SANDBOX_SOCKET")),
+                    .or_else(|| env.get("DARKWIRE_SANDBOX_SOCKET")),
                 &loaded.paths,
             );
             let result = SandboxClient::new(socket)
@@ -206,20 +202,17 @@ async fn dispatch(
             writeln!(
                 streams.out,
                 "{}",
-                serde_json::to_string_pretty(&result).map_err(|e| GhostError::new(
-                    ghostai_core::ErrorKind::Internal,
+                serde_json::to_string_pretty(&result).map_err(|e| WireError::new(
+                    darkwire_core::ErrorKind::Internal,
                     e.to_string()
                 ))?
             )
-            .map_err(GhostError::from)?;
+            .map_err(WireError::from)?;
             Ok(0)
         }
         Subcommand::Extension(action, id) => {
             extension::run(&globals, action, id.as_deref(), env, streams)
         }
         Subcommand::Agent(command) => agent::run(&globals, &command, env, streams),
-        Subcommand::Preset(catalogue, action) => {
-            preset::run(&globals, &catalogue, action, env, streams).await
-        }
     }
 }

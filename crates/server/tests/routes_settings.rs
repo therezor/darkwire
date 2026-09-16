@@ -18,8 +18,8 @@
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_protocol::config::Config;
-use ghostai_server::testkit::{
+use darkwire_protocol::config::Config;
+use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
 use serde_json::{Value, json};
@@ -103,7 +103,7 @@ fn with_provider() -> Config {
             "local": {"type": "ollama", "models": ["llama3"]},
         },
     });
-    ghostai_protocol::config::parse_config(raw).expect("a parseable config")
+    darkwire_protocol::config::parse_config(raw).expect("a parseable config")
 }
 
 // GET /api/settings
@@ -320,7 +320,7 @@ fn with_agent(id: &str) -> Config {
             },
         },
     });
-    ghostai_protocol::config::parse_config(raw).expect("a parseable config")
+    darkwire_protocol::config::parse_config(raw).expect("a parseable config")
 }
 
 #[tokio::test]
@@ -408,7 +408,7 @@ async fn a_rename_onto_a_taken_id_is_a_conflict() {
             },
         },
     });
-    let config = ghostai_protocol::config::parse_config(raw).expect("a parseable config");
+    let config = darkwire_protocol::config::parse_config(raw).expect("a parseable config");
     let test = server(TestServerOptions {
         config: Some(config),
         ..TestServerOptions::default()
@@ -511,7 +511,7 @@ async fn two_renames_move_in_one_save() {
             },
         },
     });
-    let config = ghostai_protocol::config::parse_config(raw).expect("a parseable config");
+    let config = darkwire_protocol::config::parse_config(raw).expect("a parseable config");
     let test = server(TestServerOptions {
         config: Some(config),
         ..TestServerOptions::default()
@@ -546,7 +546,7 @@ async fn a_delegation_to_a_renamed_agent_follows_it() {
             },
         },
     });
-    let config = ghostai_protocol::config::parse_config(raw).expect("a parseable config");
+    let config = darkwire_protocol::config::parse_config(raw).expect("a parseable config");
     let test = server(TestServerOptions {
         config: Some(config),
         ..TestServerOptions::default()

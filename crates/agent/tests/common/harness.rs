@@ -10,24 +10,24 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use ghostai_agent::approval::{ApprovalDecision, ApprovalGate, ApprovalRequest};
-use ghostai_agent::prompt::{ContextContributor, Host, Platform};
-use ghostai_agent::testkit::{
+use darkwire_agent::approval::{ApprovalDecision, ApprovalGate, ApprovalRequest};
+use darkwire_agent::prompt::{ContextContributor, Host, Platform};
+use darkwire_agent::testkit::{
     CountingIds, FixedRandom, ScriptedProvider, ScriptedTurn, TokioClock,
 };
-use ghostai_agent::{
+use darkwire_agent::{
     AgentEvent, AgentLoop, AgentLoopOptions, LoopAgent, LoopResolver, SteeringQueue,
     SubagentBinding, TurnInput, TurnResult,
 };
-use ghostai_core::{Database, Result, SessionStore};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{
+use darkwire_core::{Database, Result, SessionStore};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{
     AgentEnvironment, AgentSettings, ToolDefinition, ToolPermission, ToolPermissions, ToolRisk,
     ToolsConfig,
 };
-use ghostai_providers::BoxFuture;
-use ghostai_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
-use ghostai_tools::{
+use darkwire_providers::BoxFuture;
+use darkwire_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
+use darkwire_tools::{
     AnyTool, BoxFuture as ToolFuture, EnvironmentResolver, Placed, PlacementRequest, Tool,
     ToolContext, ToolExecution, ToolInvocation, ToolRegistry, ToolScope,
 };
@@ -107,7 +107,7 @@ impl FakeTool {
                 description: format!("The {name} tool."),
                 parameters: object_schema(),
                 risk,
-                source: ghostai_protocol::ToolSource::Builtin,
+                source: darkwire_protocol::ToolSource::Builtin,
                 annotations: None,
             },
             risk,
@@ -155,7 +155,7 @@ impl Tool for FakeTool {
             match &self.behaviour {
                 Behaviour::Answer(text) => ToolExecution::ok(text.clone()),
                 Behaviour::Fail(text) => {
-                    ToolExecution::error(ghostai_core::ErrorKind::Tool, text.clone())
+                    ToolExecution::error(darkwire_core::ErrorKind::Tool, text.clone())
                 }
                 Behaviour::Slow(ms, text) => {
                     tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
@@ -163,7 +163,7 @@ impl Tool for FakeTool {
                 }
                 Behaviour::Hang => {
                     ctx.token.cancelled().await;
-                    ToolExecution::error(ghostai_core::ErrorKind::Aborted, "Tool aborted")
+                    ToolExecution::error(darkwire_core::ErrorKind::Aborted, "Tool aborted")
                 }
             }
         })
@@ -220,8 +220,8 @@ impl ApprovalGate for ScriptedGate {
             match answer {
                 Answer::Allow => Ok(ApprovalDecision::allow()),
                 Answer::Refuse => Ok(ApprovalDecision::refuse()),
-                Answer::Fail => Err(ghostai_core::GhostError::new(
-                    ghostai_core::ErrorKind::Internal,
+                Answer::Fail => Err(darkwire_core::WireError::new(
+                    darkwire_core::ErrorKind::Internal,
                     "the gate fell over",
                 )),
                 Answer::Silent => {
@@ -369,14 +369,14 @@ impl Harness {
         );
 
         let registry = Arc::new(ToolRegistry::with_options(
-            ghostai_tools::ToolRegistryOptions {
+            darkwire_tools::ToolRegistryOptions {
                 clock: Some(clock.clone()),
-                ..ghostai_tools::ToolRegistryOptions::default()
+                ..darkwire_tools::ToolRegistryOptions::default()
             },
         ));
         for tool in &setup.tools {
             registry
-                .register(Arc::clone(tool), ghostai_protocol::ToolSource::Builtin)
+                .register(Arc::clone(tool), darkwire_protocol::ToolSource::Builtin)
                 .expect("a unique tool name");
         }
 
@@ -391,7 +391,7 @@ impl Harness {
 
         let provider = ScriptedProvider::new(setup.turns);
         let steering = Arc::new(SteeringQueue::new());
-        let subagents = ghostai_agent::subagent_map(setup.subagents).expect("unique tool names");
+        let subagents = darkwire_agent::subagent_map(setup.subagents).expect("unique tool names");
 
         let agent_loop = AgentLoop::new(AgentLoopOptions {
             config: setup.config,
@@ -412,7 +412,7 @@ impl Harness {
             },
             host: Host {
                 platform: Platform::Linux,
-                runtime_label: "Linux x64, GhostAI test".to_owned(),
+                runtime_label: "Linux x64, DarkWire test".to_owned(),
             },
             time_zone: Some(Arc::new(|| "UTC".to_owned())),
             tool_heartbeat_ms: setup.heartbeat_ms,
@@ -462,11 +462,11 @@ impl Harness {
     }
 
     /// Every message stored for a session, in order.
-    pub fn stored(&self, session_key: &str) -> Vec<ghostai_protocol::ChatMessage> {
+    pub fn stored(&self, session_key: &str) -> Vec<darkwire_protocol::ChatMessage> {
         self.store
             .messages(
                 session_key,
-                &ghostai_core::session_store::ReadMessages::default(),
+                &darkwire_core::session_store::ReadMessages::default(),
             )
             .expect("stored messages")
             .into_iter()

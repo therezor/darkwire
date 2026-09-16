@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use ghostai_core::{GhostError, Result};
+use darkwire_core::{Result, WireError};
 
 /// The frozen wall clock every fixture starts at.
 pub const NOW: i64 = 1_700_000_000_000;
@@ -24,7 +24,7 @@ pub fn write(path: &Path, contents: impl AsRef<[u8]>) {
 }
 
 /// One error out of a result, or a failure naming what came instead.
-pub fn err<T: std::fmt::Debug>(result: Result<T>) -> GhostError {
+pub fn err<T: std::fmt::Debug>(result: Result<T>) -> WireError {
     match result {
         Ok(value) => panic!("expected an error, got {value:?}"),
         Err(error) => error,

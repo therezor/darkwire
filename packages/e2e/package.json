@@ -1,5 +1,5 @@
 {
-  "name": "@ghostwire/e2e",
+  "name": "@darkwire/e2e",
   "version": "0.0.0",
   "description": "End-to-end browser tests and the design-fidelity gate.",
   "type": "module",
@@ -14,8 +14,8 @@
     "baseline": "tsx src/fidelity/capture.ts"
   },
   "dependencies": {
-    "@ghostwire/protocol": "workspace:*",
-    "@ghostwire/web": "workspace:*"
+    "@darkwire/protocol": "workspace:*",
+    "@darkwire/web": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

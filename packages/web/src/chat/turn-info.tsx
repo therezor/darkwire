@@ -8,7 +8,7 @@
  * which is exactly why the server persists `turn_stats` — so those are fetched
  * once per conversation and looked up by turn id.
  *
- * `turnRate` comes from `@ghostwire/protocol` rather than being computed here,
+ * `turnRate` comes from `@darkwire/protocol` rather than being computed here,
  * because the terminal reports the same figure and two implementations of one
  * division eventually disagree about what to do with a zero — or, now, about
  * which of two divisors to prefer.
@@ -24,7 +24,7 @@ import {
   turnRate,
   type StopReason,
   type Usage,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { formatDuration } from '@/lib/format.js';

@@ -12,7 +12,7 @@
 //!    the first line. Every one of those is a `state` on a row with a sentence
 //!    beside it, because a boot that refuses because of one extension out of
 //!    five is a worse outcome than a boot that runs with four.
-//!  - **Status is a list, not a log.** The panel and `ghostai extension list`
+//!  - **Status is a list, not a log.** The panel and `darkwire extension list`
 //!    read [`status`](ExtensionHost::status); nothing has to grep anything.
 //!
 //! What it does *not* do is apply anything. `tools()`, `channels()`,
@@ -51,18 +51,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ghostai_agent::ContextContributor;
-use ghostai_channels::ChannelFactory;
-use ghostai_core::Result;
-use ghostai_mcp::{McpCallOptions, McpCallResult, McpCallTarget, McpToolDescriptor};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{
+use darkwire_agent::ContextContributor;
+use darkwire_channels::ChannelFactory;
+use darkwire_core::Result;
+use darkwire_mcp::{McpCallOptions, McpCallResult, McpCallTarget, McpToolDescriptor};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{
     ExtensionCommand, ExtensionContribution, ExtensionManifest, ExtensionState, ExtensionStatus,
     ExtensionsConfig,
 };
-use ghostai_providers::ProviderSpec;
-use ghostai_security::{ExtensionResolution, ExtensionResolutionState, ExtensionStore};
-use ghostai_tools::AnyTool;
+use darkwire_providers::ProviderSpec;
+use darkwire_security::{ExtensionResolution, ExtensionResolutionState, ExtensionStore};
+use darkwire_tools::AnyTool;
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -72,7 +72,7 @@ use crate::manifest::{V1_UNSUPPORTED, discover, refuses_version, settings_for};
 use crate::methods::{self, ChannelList, CommandList, ExtensionContributor, HostMethods, SecretFn};
 use crate::process::{self, SpawnOptions};
 use crate::registration::{add_bridged_tool, add_provider};
-use crate::rpc::{GhostaiInit, RpcClient, RpcFailure};
+use crate::rpc::{DarkwireInit, RpcClient, RpcFailure};
 
 /// How long each stage of a life is given.
 ///
@@ -623,7 +623,7 @@ impl Inner {
         } = process::spawn(options).map_err(|error| error.message)?;
 
         // Bound to this extension's own id at construction, which is what makes
-        // `ghostai/secret` unable to name anyone else's.
+        // `darkwire/secret` unable to name anyone else's.
         let lookup = self.options.secret_for.clone();
         let own_id = id.clone();
         let secret: Option<SecretFn> =
@@ -636,7 +636,7 @@ impl Inner {
             &CancellationToken::new(),
         );
 
-        let init = GhostaiInit {
+        let init = DarkwireInit {
             extension_id: id,
             settings: settings.clone(),
             data_dir: data_dir.to_string_lossy().into_owned(),
@@ -1034,7 +1034,7 @@ impl McpCallTarget for ExtensionTarget {
             match call {
                 Ok(value) => Ok(serde_json::from_value(value).unwrap_or_else(|error| {
                     McpCallResult {
-                        content: vec![ghostai_mcp::McpContentPart::text(format!(
+                        content: vec![darkwire_mcp::McpContentPart::text(format!(
                             "The extension answered with a result this host could not read: {error}"
                         ))],
                         is_error: Some(true),
@@ -1042,7 +1042,7 @@ impl McpCallTarget for ExtensionTarget {
                     }
                 })),
                 Err(RpcFailure::Peer(error)) => Ok(McpCallResult {
-                    content: vec![ghostai_mcp::McpContentPart::text(error.message)],
+                    content: vec![darkwire_mcp::McpContentPart::text(error.message)],
                     is_error: Some(true),
                     structured_content: None,
                 }),

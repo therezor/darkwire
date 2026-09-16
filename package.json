@@ -1,6 +1,6 @@
 {
-  "name": "ghostai-monorepo",
-  "version": "0.9.0",
+  "name": "darkwire-monorepo",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.22.0",
@@ -19,12 +19,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "screenshots": "pnpm build && cargo build -p ghostai --features test-hooks && pnpm --filter @ghostwire/e2e exec playwright install chromium && pnpm --filter @ghostwire/e2e screenshots",
-    "demo": "pnpm build && cargo build --release -p ghostai && node scripts/demo-cast.mjs",
+    "screenshots": "pnpm build && cargo build -p darkwire --features test-hooks && pnpm --filter @darkwire/e2e exec playwright install chromium && pnpm --filter @darkwire/e2e screenshots",
+    "demo": "pnpm build && cargo build --release -p darkwire && node scripts/demo-cast.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "i18n:extract": "i18next 'packages/web/src/**/*.{ts,tsx}' --config i18next-parser.web.js",
     "i18n:check": "pnpm i18n:extract && git diff --exit-code -- 'packages/i18n/locales/*/web.json'",
-    "protocol:check": "pnpm --filter @ghostwire/protocol exec tsx scripts/emit-schemas.ts && git diff --exit-code -- packages/protocol/schema"
+    "protocol:check": "pnpm --filter @darkwire/protocol exec tsx scripts/emit-schemas.ts && git diff --exit-code -- packages/protocol/schema"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

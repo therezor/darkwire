@@ -11,20 +11,20 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::StreamExt;
-use futures::stream::BoxStream;
-use ghostai_core::Result;
-use ghostai_core::messages::{ImageSource, image_part, text_part};
-use ghostai_protocol::{ChatMessage, ModelInfo, ReasoningEffort};
-use ghostai_providers::testkit::{
+use darkwire_core::Result;
+use darkwire_core::messages::{ImageSource, image_part, text_part};
+use darkwire_protocol::{ChatMessage, ModelInfo, ReasoningEffort};
+use darkwire_providers::testkit::{
     ScriptedProvider, ScriptedStep, collect, provider_error, result_of,
 };
-use ghostai_providers::{
+use darkwire_providers::{
     BackoffOptions, BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent,
     DEFAULT_DEGRADATION_STEPS, NoticeKind, ProviderError, ProviderErrorReason, ProviderSpec,
     ResilienceNotice, ResilienceOptions, ToolChoice, backoff_delay_ms, synthesise_stream,
     truncate_oldest_turns, with_resilience,
 };
+use futures::StreamExt;
+use futures::stream::BoxStream;
 use tokio_util::sync::CancellationToken;
 
 fn spec() -> ProviderSpec {
@@ -43,7 +43,7 @@ fn err_param(reason: ProviderErrorReason, param: &str) -> ScriptedStep {
     ScriptedStep::Error(
         ProviderError::new(reason, "no")
             .with_param(Some(param.into()))
-            .into_ghost(),
+            .into_wire(),
     )
 }
 
@@ -142,8 +142,8 @@ async fn classifies_an_untyped_failure_before_deciding() {
     let inner = ScriptedProvider::new(
         spec(),
         vec![
-            ScriptedStep::Error(ghostai_core::GhostError::new(
-                ghostai_core::ErrorKind::Network,
+            ScriptedStep::Error(darkwire_core::WireError::new(
+                darkwire_core::ErrorKind::Network,
                 "connection reset",
             )),
             ok("recovered"),
@@ -194,7 +194,7 @@ async fn the_default_jitter_lands_in_the_upper_half() {
     let provider = with_resilience(
         inner,
         ResilienceOptions {
-            random: Some(Arc::new(ghostai_security::testkit::FixedRandom::constant(
+            random: Some(Arc::new(darkwire_security::testkit::FixedRandom::constant(
                 0,
             ))),
             on_notice: Some(Arc::new(move |notice| sink.lock().unwrap().push(notice))),

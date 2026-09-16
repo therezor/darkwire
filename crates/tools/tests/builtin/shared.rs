@@ -7,9 +7,9 @@
 
 use std::io;
 
-use ghostai_core::ErrorKind;
-use ghostai_tools::builtin::shared::fs_failure;
-use ghostai_tools::format_bytes;
+use darkwire_core::ErrorKind;
+use darkwire_tools::builtin::shared::fs_failure;
+use darkwire_tools::format_bytes;
 use nix::errno::Errno;
 use serde_json::json;
 

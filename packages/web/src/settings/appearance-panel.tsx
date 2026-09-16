@@ -2,7 +2,7 @@
  * Language, timezone and theme — three preferences, and not all the same kind.
  *
  * **The language and the timezone are the install's**, stored in `config.ui` and
- * read by `ghostai chat` and the scheduler on the same server. **The theme is this
+ * read by `darkwire chat` and the scheduler on the same server. **The theme is this
  * browser's**, stored in `localStorage` and never written to the config. Putting
  * them on one screen is right — they are all "what this looks and reads like" —
  * but the difference is why only two thirds of this panel has a `SaveBar`: the
@@ -25,7 +25,7 @@
 import { useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SUPPORTED_LOCALES } from '@ghostwire/i18n';
+import { SUPPORTED_LOCALES } from '@darkwire/i18n';
 
 import { useAppLocale } from '@/i18n/i18n-context.js';
 import { SYSTEM } from '@/i18n/locale-preference.js';

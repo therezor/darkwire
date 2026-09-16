@@ -4,7 +4,7 @@
  * `fixtures/` at the repository root is the language-neutral record of what
  * the TypeScript implementation does, and the Rust port asserts equality
  * against it. Each test here regenerates its file when
- * `GHOSTAI_UPDATE_FIXTURES=1` is set and otherwise asserts that the
+ * `DARKWIRE_UPDATE_FIXTURES=1` is set and otherwise asserts that the
  * implementation still produces the committed bytes — the *bytes*, not a
  * parsed equivalent, because byte-equality is what the Rust side checks.
  *
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
 
 export const UPDATE_FIXTURES: boolean =
-  process.env.GHOSTAI_UPDATE_FIXTURES === '1';
+  process.env.DARKWIRE_UPDATE_FIXTURES === '1';
 
 /** Absolute path of a file under the repository's `fixtures/` directory. */
 export function fixturePath(relative: string): string {
@@ -44,7 +44,7 @@ export function checkFixture(relative: string, produced: string): void {
   }
   if (!existsSync(file)) {
     throw new Error(
-      `Missing fixture ${relative}; run the suite once with GHOSTAI_UPDATE_FIXTURES=1 to generate it`,
+      `Missing fixture ${relative}; run the suite once with DARKWIRE_UPDATE_FIXTURES=1 to generate it`,
     );
   }
   expect(readFileSync(file, 'utf8')).toBe(produced);

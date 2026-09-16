@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database};
-use ghostai_server::login_throttle::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database};
+use darkwire_server::login_throttle::{
     ACCOUNT_SCOPE, DECAY_MS, FREE_ATTEMPTS, LoginThrottle, MAX_ACCOUNT_DELAY_MS,
     MAX_ADDRESS_DELAY_MS, SCHEMA, delay_for,
 };

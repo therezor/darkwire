@@ -8,8 +8,8 @@
 
 mod common;
 
-use ghostai_protocol::{ProviderConfig, ProvidersConfig};
-use ghostai_providers::{
+use darkwire_protocol::{ProviderConfig, ProvidersConfig};
+use darkwire_providers::{
     PROVIDERS, ProviderSpec, ResolveInstanceOptions, WireProtocol, describe_instance,
     find_instance, instance_label, list_instances, next_instance_id, resolve_instance,
 };

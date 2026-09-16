@@ -1,4 +1,4 @@
-//! What may name a directory GhostAI creates from user input.
+//! What may name a directory DarkWire creates from user input.
 //!
 //! Two things are named this way — a workspace and an agent — and both arrive
 //! over HTTP. A workspace id becomes a path; an agent id no longer does, but it

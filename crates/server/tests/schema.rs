@@ -14,9 +14,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::PROTOCOL_SCHEMAS;
-use ghostai_protocol::rest::{AgentRename, CredentialNamespace, SetCredentialRequest};
-use ghostai_server::schema::{
+use darkwire_protocol::PROTOCOL_SCHEMAS;
+use darkwire_protocol::rest::{AgentRename, CredentialNamespace, SetCredentialRequest};
+use darkwire_server::schema::{
     PROTOCOL_COMPONENTS, component_ref, inline_for, parse_body, ref_for, validated,
 };
 use serde_json::json;

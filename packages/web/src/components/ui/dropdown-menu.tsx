@@ -54,7 +54,7 @@ export function DropdownMenuItem({
  *
  * The indicator is rendered *after* the children and sits at the trailing edge.
  * A tick in a left-hand gutter, in the accent colour, at icon size collides
- * with a row's own icon and makes the one green mark in the panel the least
+ * with a row's own icon and makes the one accent mark in the panel the least
  * important thing in it. Trailing and muted, the row reads label-first and the
  * tick is confirmation rather than decoration. `menu.css` carries the rest.
  */

@@ -20,7 +20,7 @@
 //!    told it had missed nothing. Its history is gone; that is precisely the case
 //!    `complete: false` exists for.
 
-use ghostai_protocol::ws::ServerMessage;
+use darkwire_protocol::ws::ServerMessage;
 
 /// What a client resuming at some `seq` still needs.
 #[derive(Debug, Clone, PartialEq)]

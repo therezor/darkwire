@@ -4,11 +4,11 @@
 //! "session", "conversation" and "chat" — and "session" won because everything
 //! underneath already said it. So "conversation" is banned outright, and "chat"
 //! is banned as a noun for a session while staying allowed for the two other
-//! things it genuinely names: `ghostai chat` is a command, and the `chat.*`
+//! things it genuinely names: `darkwire chat` is a command, and the `chat.*`
 //! namespace belongs to that subcommand. Key paths are checked as well as
 //! values, because a key is what the next person greps for.
 
-use ghostai_i18n::{Bundle, BundleError, CLI_NAMESPACE, DEFAULT_LOCALE, Locale, cli_bundle};
+use darkwire_i18n::{Bundle, BundleError, CLI_NAMESPACE, DEFAULT_LOCALE, Locale, cli_bundle};
 
 #[test]
 fn the_cli_bundle_is_embedded_for_the_default_locale_and_nothing_else() {
@@ -62,7 +62,7 @@ fn from_json_refuses_what_is_not_a_bundle() {
     let _: &dyn std::error::Error = &error;
 }
 
-/// Namespaces whose *paths* legitimately contain "chat": the `ghostai chat`
+/// Namespaces whose *paths* legitimately contain "chat": the `darkwire chat`
 /// subcommand's own strings. Their values are still checked.
 const CHAT_NAMESPACES: &[&str] = &["chat."];
 

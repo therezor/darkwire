@@ -1,5 +1,5 @@
 {
-  "schema": "ghostai.extension/2",
+  "schema": "darkwire.extension/2",
   "id": "absent",
   "command": ["node", "index.mjs"],
   "contributes": ["tools", "commands", "context"]

@@ -31,8 +31,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use ghostai::i18n::Translations;
-use ghostai::program::render_help;
+use darkwire::i18n::Translations;
+use darkwire::program::render_help;
 
 /// The page, read from the repository rather than embedded.
 fn docs() -> String {
@@ -41,7 +41,7 @@ fn docs() -> String {
         .unwrap_or_else(|error| panic!("could not read {}: {error}", path.display()))
 }
 
-/// One command's help page, by the path `ghostai help <path>` would take.
+/// One command's help page, by the path `darkwire help <path>` would take.
 fn help(path: &[&str]) -> String {
     let t = Translations::default();
     let owned: Vec<String> = path.iter().map(|part| (*part).to_owned()).collect();
@@ -71,13 +71,12 @@ fn documented_flags(page: &str) -> BTreeSet<String> {
 #[test]
 fn every_command_the_page_lists_is_in_the_help() {
     let help = help(&[]);
-    // The seven the page's synopsis block names, plus `chat`, which it calls
+    // The six the page's synopsis block names, plus `chat`, which it calls
     // the default rather than listing.
     for command in [
         "chat",
         "init",
         "serve",
-        "preset",
         "agent",
         "environment",
         "extension",
@@ -85,7 +84,7 @@ fn every_command_the_page_lists_is_in_the_help() {
     ] {
         assert!(
             help.contains(command),
-            "`{command}` is documented in docs/cli.md and missing from `ghostai --help`:\n{help}"
+            "`{command}` is documented in docs/cli.md and missing from `darkwire --help`:\n{help}"
         );
     }
 }
@@ -95,14 +94,13 @@ fn every_subcommand_the_page_lists_is_in_its_parents_help() {
     for (parent, children) in [
         ("environment", &["list"][..]),
         ("extension", &["list", "approve", "revoke"][..]),
-        ("agent", &["install", "list"][..]),
-        ("preset", &["list", "install", "update"][..]),
+        ("agent", &["list"][..]),
     ] {
         let page = help(&[parent]);
         for child in children {
             assert!(
                 page.contains(child),
-                "`ghostai {parent} {child}` is documented and missing from its help:\n{page}"
+                "`darkwire {parent} {child}` is documented and missing from its help:\n{page}"
             );
         }
     }
@@ -138,10 +136,7 @@ fn every_flag_the_page_tabulates_appears_on_some_help_page() {
         help(&[]),
         help(&["chat"]),
         help(&["serve"]),
-        help(&["preset"]),
-        help(&["preset", "install"]),
         help(&["agent"]),
-        help(&["agent", "install"]),
         help(&["extension"]),
         help(&["init"]),
     ]
@@ -236,12 +231,12 @@ fn the_environment_variables_the_page_names_are_read_somewhere() {
     // the page promises them and only the code can say whether they are read.
     let page = docs();
     for name in [
-        "GHOSTAI_HOME",
-        "GHOSTAI_PASSWORD",
-        "GHOSTAI_USERNAME",
-        "GHOSTAI_LANG",
-        "GHOSTAI_LOG_LEVEL",
-        "GHOSTAI_DEBUG",
+        "DARKWIRE_HOME",
+        "DARKWIRE_PASSWORD",
+        "DARKWIRE_USERNAME",
+        "DARKWIRE_LANG",
+        "DARKWIRE_LOG_LEVEL",
+        "DARKWIRE_DEBUG",
     ] {
         assert!(page.contains(name), "docs/cli.md stopped naming {name}");
     }

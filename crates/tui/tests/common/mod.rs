@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::io;
 
-use ghostai_tui::{TerminalInput, TerminalOutput};
+use darkwire_tui::{TerminalInput, TerminalOutput};
 
 /// An input half with a script of chunks to hand over.
 #[derive(Debug, Default)]

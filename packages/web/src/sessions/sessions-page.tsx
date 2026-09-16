@@ -33,7 +33,7 @@ import { MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { SessionSummary } from '@ghostwire/protocol';
+import type { SessionSummary } from '@darkwire/protocol';
 
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
 import { DataList, DataListRow } from '@/components/crud/data-list.js';

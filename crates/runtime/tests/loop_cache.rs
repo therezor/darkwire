@@ -13,15 +13,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::local_spec;
-use ghostai_agent::testkit::ScriptedProvider;
-use ghostai_agent::{AgentLoop, AgentLoopOptions};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Database, ErrorKind, GhostError, SessionStore};
-use ghostai_protocol::{AgentSettings, DEFAULT_AGENT_ID};
-use ghostai_runtime::loop_cache::LoopFactory;
-use ghostai_runtime::{LoopCache, MAX_CACHED_LOOPS};
-use ghostai_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
-use ghostai_tools::ToolRegistry;
+use darkwire_agent::testkit::ScriptedProvider;
+use darkwire_agent::{AgentLoop, AgentLoopOptions};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Database, ErrorKind, SessionStore, WireError};
+use darkwire_protocol::{AgentSettings, DEFAULT_AGENT_ID};
+use darkwire_runtime::loop_cache::LoopFactory;
+use darkwire_runtime::{LoopCache, MAX_CACHED_LOOPS};
+use darkwire_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
+use darkwire_tools::ToolRegistry;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -42,7 +42,7 @@ impl Loops {
         let store = Arc::new(
             SessionStore::new(
                 Database::in_memory().unwrap(),
-                Arc::clone(&clock) as Arc<dyn ghostai_core::Clock>,
+                Arc::clone(&clock) as Arc<dyn darkwire_core::Clock>,
                 Box::new(|| "m".to_owned()),
             )
             .unwrap(),
@@ -62,7 +62,7 @@ impl Loops {
         let mut options = AgentLoopOptions::new(
             ScriptedProvider::new(Vec::new()),
             self.registry
-                .select(ghostai_protocol::ToolPermissions::new()),
+                .select(darkwire_protocol::ToolPermissions::new()),
             Arc::clone(&self.store),
             Arc::clone(&self.jails),
         );
@@ -83,7 +83,7 @@ impl Loops {
             asked.lock().push(agent_id.to_owned());
             let mut options = AgentLoopOptions::new(
                 ScriptedProvider::new(Vec::new()),
-                registry.select(ghostai_protocol::ToolPermissions::new()),
+                registry.select(darkwire_protocol::ToolPermissions::new()),
                 Arc::clone(&store),
                 Arc::clone(&jails),
             );
@@ -157,7 +157,7 @@ fn does_not_cache_a_construction_failure() {
     let inner = harness.factory();
     let factory: LoopFactory = Arc::new(move |agent_id: &str| {
         if counter.fetch_add(1, Ordering::SeqCst) == 0 {
-            return Err(GhostError::new(ErrorKind::Config, "not yet"));
+            return Err(WireError::new(ErrorKind::Config, "not yet"));
         }
         inner(agent_id)
     });

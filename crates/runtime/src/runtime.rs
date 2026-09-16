@@ -7,18 +7,18 @@
 //! only one that touches the vault, the database and the keychain.
 //!
 //! It lives in its own crate rather than in the CLI because there is more than
-//! one consumer: `ghostai chat`, the HTTP server, the scheduler and every
+//! one consumer: `darkwire chat`, the HTTP server, the scheduler and every
 //! channel all need the same wiring, and wiring implemented twice is wiring that
 //! differs in exactly the case nobody tested.
 //!
 //! The decisions here that are not obvious:
 //!
-//!  - **Provider resolution is `ghostai-providers`' order, not a second one.**
+//!  - **Provider resolution is `darkwire-providers`' order, not a second one.**
 //!    Resolution runs explicit instance → provider type → the `auto` order, and
 //!    answers `None` rather than guessing. Exactly one step follows that: a
 //!    provider whose `env_key` is set in the environment. An exported credential
 //!    is an operator saying which provider they mean, and
-//!    `OPENAI_API_KEY=… ghostai chat` should not need a config file to work.
+//!    `OPENAI_API_KEY=… darkwire chat` should not need a config file to work.
 //!    What it will not do is fall back to *some* provider, because a request
 //!    landing at an endpoint nobody chose fails as a 401 from somewhere
 //!    unexpected.
@@ -27,14 +27,14 @@
 //!    resolvable provider, or none with a model, builds anyway: the loop is
 //!    absent, `configured` is false, and everything that does not need a model —
 //!    the store, the workspaces, the tool registry, every route but the turn —
-//!    works. This is what lets `ghostai serve` come up on a bare machine and
+//!    works. This is what lets `darkwire serve` come up on a bare machine and
 //!    serve the settings UI that fixes it; refusing to construct meant the only
 //!    cure for a missing config was to hand-write one.
-//!    [`GhostRuntime::require_loop`] is where the refusal moved to, so a
+//!    [`WireRuntime::require_loop`] is where the refusal moved to, so a
 //!    terminal turn still fails with the same message it always did.
 //!
 //!  - **A construction-time provider/model override outlives a reconfigure.**
-//!    `ghostai chat --model x` is a statement about this process, and a settings
+//!    `darkwire chat --model x` is a statement about this process, and a settings
 //!    save from a browser must not silently move the terminal session onto
 //!    another model. A caller that wants config to drive the model — the server
 //!    does — simply passes neither.
@@ -50,33 +50,33 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 
-use ghostai_agent::approval::ApprovalGate;
-use ghostai_agent::{
+use darkwire_agent::approval::ApprovalGate;
+use darkwire_agent::{
     AgentLoop, AgentLoopOptions, ContextContributor, Host, LoopAgent, LoopResolver,
     MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, subagent_map,
 };
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{
-    Clock, Database, ErrorKind, GhostError, GhostPaths, LoadConfigOptions, Result, SessionStore,
-    SystemClock, WorkspaceStore, load_config,
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{
+    Clock, Database, ErrorKind, LoadConfigOptions, Result, SessionStore, SystemClock, WireError,
+    WirePaths, WorkspaceStore, load_config,
 };
-use ghostai_extension_host::{ExtensionHost, ExtensionHostOptions};
-use ghostai_mcp::{
+use darkwire_extension_host::{ExtensionHost, ExtensionHostOptions};
+use darkwire_mcp::{
     BackoffOptions, McpConnector, McpManager, McpManagerOptions, SdkConnector, SdkConnectorOptions,
 };
-use ghostai_protocol::{
+use darkwire_protocol::{
     Config, ConfigPatch, DEFAULT_AGENT_ID, McpServerStatus, NetworkMode, ProviderConfig,
     SandboxRequest, ToolSource, new_uuid,
 };
-use ghostai_providers::{
+use darkwire_providers::{
     ChatProvider, PROVIDERS, ProviderInstance, ProviderSpec, ResolveInstanceOptions,
     resolve_connection, resolve_instance,
 };
-use ghostai_security::{
+use darkwire_security::{
     CredentialVault, ExtensionStore, JailResolver, OsRandom, PolicyStore, RandomSource,
     WorkspaceJail, assert_gateway_compatible,
 };
-use ghostai_tools::{
+use darkwire_tools::{
     AnyTool, AutomationResolver, BuiltinOptions, Placed, ToolRegistry, ToolRegistryOptions,
     ToolSink, register_builtins,
 };
@@ -132,7 +132,7 @@ impl std::fmt::Debug for McpChoice {
 /// How the extension host is wired, or that it is switched off.
 ///
 /// `Off` switches it off exactly as [`McpChoice::Off`] does, and for the same
-/// two reasons: an install with nothing in `~/.ghostai/extensions` pays nothing
+/// two reasons: an install with nothing in `~/.darkwire/extensions` pays nothing
 /// either way, and a test that wants to prove the registry holds only built-ins
 /// can say so.
 #[derive(Debug, Default, Clone)]
@@ -152,7 +152,7 @@ pub enum ExtensionChoice {
 /// collaborators: a test builds a whole runtime without a keychain, a daemon or
 /// a socket by naming the seams it wants.
 pub struct RuntimeOptions {
-    /// `GHOSTAI_HOME` override.
+    /// `DARKWIRE_HOME` override.
     pub home: Option<String>,
     /// Wins over the config's `workspace`, and keeps winning after a patch.
     pub workspace: Option<String>,
@@ -177,13 +177,13 @@ pub struct RuntimeOptions {
     /// Injected rather than built here, because the store it needs is created by
     /// the server — which happens *after* this runtime exists.
     pub automation: Option<Arc<dyn AutomationResolver>>,
-    /// Translates GhostAI's view of the workspace into the *daemon's*.
+    /// Translates DarkWire's view of the workspace into the *daemon's*.
     ///
-    /// Identity when GhostAI runs on the host. A containerised GhostAI must
+    /// Identity when DarkWire runs on the host. A containerised DarkWire must
     /// supply this: a bind path is resolved by the daemon, so asking for its own
     /// `/data/workspace` would mount the host's path of that name — silently,
     /// and usually as an empty directory.
-    pub host_workspace_path: Option<ghostai_environment::container_pool::HostPathFn>,
+    pub host_workspace_path: Option<darkwire_environment::container_pool::HostPathFn>,
     /// The credential vault. See [`VaultChoice`].
     pub vault: VaultChoice,
     /// The MCP client.
@@ -253,7 +253,7 @@ struct Resolved {
     /// survivable and at least one of them — a delegation to an agent someone
     /// deleted — is not the fault of whoever is starting the server now.
     warnings: Vec<AgentConfigWarning>,
-    paths: GhostPaths,
+    paths: WirePaths,
     jails: Arc<JailCache>,
     /// One loop per agent, built on first use. Dropped whole on a reconfigure.
     loops: Arc<LoopCache>,
@@ -304,7 +304,7 @@ fn no_provider_error(config_file: &std::path::Path) -> (ErrorKind, String) {
     (
         ErrorKind::Config,
         format!(
-            "No provider could be resolved.\n  Run `ghostai init` to configure one \
+            "No provider could be resolved.\n  Run `darkwire init` to configure one \
              interactively, pass --provider <id> --model <model>,\n  export the provider's API \
              key variable, or add a provider in {}.\n  Known providers: {}",
             config_file.display(),
@@ -321,7 +321,7 @@ fn no_model_error(
     (
         ErrorKind::Config,
         format!(
-            "No model configured for {}.\n  Run `ghostai init`, pass --model <model>, or set \
+            "No model configured for {}.\n  Run `darkwire init`, pass --model <model>, or set \
              this agent's model in {}.",
             instance.spec.display_name,
             config_file.display()
@@ -333,7 +333,7 @@ fn no_model_error(
 ///
 /// UUIDv7 off the injected clock and the OS CSPRNG, so a test that pauses time
 /// still gets distinct ids and nothing here reaches for ambient randomness.
-fn new_id(clock: Arc<dyn Clock>) -> ghostai_core::session_store::IdSource {
+fn new_id(clock: Arc<dyn Clock>) -> darkwire_core::session_store::IdSource {
     Box::new(move || {
         let mut random = [0u8; 10];
         OsRandom.fill(&mut random);
@@ -346,14 +346,14 @@ fn new_id(clock: Arc<dyn Clock>) -> ghostai_core::session_store::IdSource {
 /// The same precedence the loader applies — an explicit workspace, then the
 /// config file, then `<root>/workspace` — restated here because a reconfigure
 /// has a new config and no file read to hang it off.
-fn paths_for(config: &Config, options: &RuntimeOptions) -> Result<GhostPaths> {
+fn paths_for(config: &Config, options: &RuntimeOptions) -> Result<WirePaths> {
     let configured = config.workspace.clone();
     let workspace = options.workspace.clone().or(if configured.is_empty() {
         None
     } else {
         Some(configured)
     });
-    GhostPaths::resolve(ResolveGhostPaths {
+    WirePaths::resolve(ResolveWirePaths {
         root: options.home.clone(),
         workspace,
         env: options.env.clone(),
@@ -362,7 +362,7 @@ fn paths_for(config: &Config, options: &RuntimeOptions) -> Result<GhostPaths> {
 }
 
 /// The composition root: config in, a running agent out.
-pub struct GhostRuntime {
+pub struct WireRuntime {
     options: RuntimeOptions,
     env: HashMap<String, String>,
     clock: Arc<dyn Clock>,
@@ -401,12 +401,12 @@ pub struct GhostRuntime {
 /// listener, and it is filled *after the first build*, which is what reproduces
 /// "subscribed after the first build": until then an announcement finds nothing
 /// and returns, and the first build does its own applying.
-type RuntimeHook = Arc<OnceLock<Weak<GhostRuntime>>>;
+type RuntimeHook = Arc<OnceLock<Weak<WireRuntime>>>;
 
-impl std::fmt::Debug for GhostRuntime {
+impl std::fmt::Debug for WireRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let current = self.current.read();
-        f.debug_struct("GhostRuntime")
+        f.debug_struct("WireRuntime")
             .field("file", &self.file)
             .field("configured", &current.agent_loop.is_some())
             .field("model", &current.model)
@@ -419,13 +419,13 @@ impl std::fmt::Debug for GhostRuntime {
 /// Fails only on settings that cannot be built at all — an unusable workspace,
 /// an agent naming a container that is not installed. A missing provider or model is a
 /// *state*: the runtime comes up unconfigured.
-pub fn create_runtime(options: RuntimeOptions) -> Result<Arc<GhostRuntime>> {
-    GhostRuntime::new(options)
+pub fn create_runtime(options: RuntimeOptions) -> Result<Arc<WireRuntime>> {
+    WireRuntime::new(options)
 }
 
-impl GhostRuntime {
+impl WireRuntime {
     /// See [`create_runtime`].
-    pub fn new(options: RuntimeOptions) -> Result<Arc<GhostRuntime>> {
+    pub fn new(options: RuntimeOptions) -> Result<Arc<WireRuntime>> {
         let env = options
             .env
             .clone()
@@ -436,7 +436,7 @@ impl GhostRuntime {
             .unwrap_or_else(|| Arc::new(SystemClock));
 
         let loaded = load_config(LoadConfigOptions {
-            paths: ResolveGhostPaths {
+            paths: ResolveWirePaths {
                 root: options.home.clone(),
                 workspace: options.workspace.clone(),
                 env: Some(env.clone()),
@@ -498,7 +498,7 @@ impl GhostRuntime {
         let extensions = build_extension_host(&options, &database, &loaded.paths, &clock, &hook)?;
 
         let extension_sink = registry_tool_sink(Arc::clone(&tools), ToolSource::Extension);
-        let runtime = Arc::new(GhostRuntime {
+        let runtime = Arc::new(WireRuntime {
             options,
             env,
             clock,
@@ -547,14 +547,14 @@ impl GhostRuntime {
     }
 
     /// Resolved against the config, so a patched workspace moves it.
-    pub fn paths(&self) -> GhostPaths {
+    pub fn paths(&self) -> WirePaths {
         self.current.read().paths.clone()
     }
 
     /// Where the sandbox service listens for this install.
     fn sandbox_socket(&self) -> std::path::PathBuf {
-        ghostai_environment::service::socket_path(
-            self.env.get("GHOSTAI_SANDBOX_SOCKET").map(String::as_str),
+        darkwire_environment::service::socket_path(
+            self.env.get("DARKWIRE_SANDBOX_SOCKET").map(String::as_str),
             &self.paths(),
         )
     }
@@ -562,14 +562,14 @@ impl GhostRuntime {
     /// Management calls use the same service transport as container tools.
     pub async fn sandbox_request(&self, value: serde_json::Value) -> Result<serde_json::Value> {
         let request: SandboxRequest = serde_json::from_value(value)
-            .map_err(|e| GhostError::new(ErrorKind::InvalidInput, e.to_string()))?;
+            .map_err(|e| WireError::new(ErrorKind::InvalidInput, e.to_string()))?;
         if matches!(request, SandboxRequest::Exec { .. }) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::PermissionDenied,
                 "Tool execution is not a management operation",
             ));
         }
-        ghostai_environment::service::SandboxClient::new(self.sandbox_socket())
+        darkwire_environment::service::SandboxClient::new(self.sandbox_socket())
             .request(request, &tokio_util::sync::CancellationToken::new())
             .await
     }
@@ -708,7 +708,7 @@ impl GhostRuntime {
             .unconfigured
             .clone()
             .unwrap_or_else(|| no_provider_error(&self.file));
-        Err(GhostError::new(kind, message))
+        Err(WireError::new(kind, message))
     }
 
     /// One agent's resolved provider and model, for a request that is **not** a
@@ -751,7 +751,7 @@ impl GhostRuntime {
     /// The extension host, or absent when this build has none.
     ///
     /// Exposed rather than kept private because two callers above this layer
-    /// need it and neither belongs here: `ghostai serve` collects the channel
+    /// need it and neither belongs here: `darkwire serve` collects the channel
     /// factories extensions contributed, and the extensions route reports their
     /// status. Both are read-only uses of it — loading is this type's job.
     pub fn extensions(&self) -> Option<&Arc<ExtensionHost>> {
@@ -809,7 +809,7 @@ impl GhostRuntime {
     /// is a value the re-parse would have refused.
     pub fn apply_patch(self: &Arc<Self>, patch: &ConfigPatch) -> Result<Config> {
         let value = serde_json::to_value(patch).map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::InvalidInput,
                 "The settings patch could not be represented as JSON.",
             )
@@ -836,7 +836,7 @@ impl GhostRuntime {
         // a workspace override re-reads the same file it was built from rather
         // than whichever one the environment happens to name now.
         let loaded = load_config(LoadConfigOptions {
-            paths: ResolveGhostPaths {
+            paths: ResolveWirePaths {
                 root: self.options.home.clone(),
                 workspace: self.options.workspace.clone(),
                 env: Some(self.env.clone()),
@@ -1075,7 +1075,7 @@ struct ResolvedProvider {
     unconfigured: Option<(ErrorKind, String)>,
 }
 
-impl GhostRuntime {
+impl WireRuntime {
     /// Every provider type resolution may see: the table, plus extensions'.
     ///
     /// The built-ins come first, so an extension cannot shadow `ollama` by
@@ -1097,13 +1097,13 @@ impl GhostRuntime {
     /// `configured`/`model`/`instance`, and every other agent on first use.
     ///
     /// A construction-time provider or model pin wins for every agent, not just
-    /// the default. `ghostai chat --model x` is a statement about this process,
+    /// the default. `darkwire chat --model x` is a statement about this process,
     /// and an agent that quietly ignored it would be the more surprising rule.
     fn resolve_provider(
         &self,
         config: &Config,
         agent: &EffectiveAgent,
-        paths: &GhostPaths,
+        paths: &WirePaths,
     ) -> Result<ResolvedProvider> {
         let model = self
             .options
@@ -1210,7 +1210,7 @@ impl GhostRuntime {
     }
 
     /// Resolve every environment an enabled agent names.
-    fn resolve_policies(agents: &[EffectiveAgent], paths: &GhostPaths) -> Result<()> {
+    fn resolve_policies(agents: &[EffectiveAgent], paths: &WirePaths) -> Result<()> {
         let policies = PolicyStore::new(paths.policy_dir.clone());
         for agent in agents
             .iter()
@@ -1257,14 +1257,14 @@ struct ServiceEnvironments {
     socket: std::path::PathBuf,
 }
 
-impl ghostai_tools::EnvironmentResolver for ServiceEnvironments {
-    fn for_turn(&self, request: &ghostai_tools::PlacementRequest) -> Placed {
+impl darkwire_tools::EnvironmentResolver for ServiceEnvironments {
+    fn for_turn(&self, request: &darkwire_tools::PlacementRequest) -> Placed {
         if request.environment.is_empty() {
             return Placed::host();
         }
         Placed {
-            environment: Arc::new(ghostai_environment::service::ContainerEnvironment::new(
-                ghostai_environment::service::SandboxClient::new(self.socket.clone()),
+            environment: Arc::new(darkwire_environment::service::ContainerEnvironment::new(
+                darkwire_environment::service::SandboxClient::new(self.socket.clone()),
                 request.clone(),
             )),
         }
@@ -1281,7 +1281,7 @@ impl LoopResolver for CacheResolver {
     }
 }
 
-impl GhostRuntime {
+impl WireRuntime {
     /// The factory a [`LoopCache`] is built from.
     ///
     /// Split out because the cache and the resolver refer to each other: a
@@ -1295,7 +1295,7 @@ impl GhostRuntime {
     fn loop_factory(
         self: &Arc<Self>,
         config: Config,
-        paths: GhostPaths,
+        paths: WirePaths,
         jails: Arc<JailCache>,
     ) -> (crate::loop_cache::LoopFactory, Arc<CacheResolver>) {
         let resolver = Arc::new(CacheResolver {
@@ -1321,7 +1321,7 @@ impl GhostRuntime {
     }
 }
 
-impl GhostRuntime {
+impl WireRuntime {
     /// The loop for one agent, or `None` when nothing can run a turn.
     #[allow(
         clippy::too_many_arguments,
@@ -1332,7 +1332,7 @@ impl GhostRuntime {
         self: &Arc<Self>,
         config: &Config,
         agent_id: &str,
-        paths: &GhostPaths,
+        paths: &WirePaths,
         jails: &Arc<JailCache>,
         resolver: Arc<dyn LoopResolver>,
     ) -> Result<Option<AgentLoop>> {
@@ -1460,7 +1460,7 @@ impl GhostRuntime {
 fn build_mcp(
     options: &RuntimeOptions,
     tools: &Arc<ToolRegistry>,
-    paths: &GhostPaths,
+    paths: &WirePaths,
     clock: &Arc<dyn Clock>,
 ) -> Option<McpManager> {
     if matches!(options.mcp, McpChoice::Off) {
@@ -1505,7 +1505,7 @@ fn build_mcp(
 fn build_extension_host(
     options: &RuntimeOptions,
     database: &Database,
-    paths: &GhostPaths,
+    paths: &WirePaths,
     clock: &Arc<dyn Clock>,
     hook: &RuntimeHook,
 ) -> Result<Option<Arc<ExtensionHost>>> {
@@ -1543,7 +1543,7 @@ fn build_extension_host(
 /// not have rather than a reason for the install to refuse to start.
 fn optional_vault(
     options: &RuntimeOptions,
-    paths: &GhostPaths,
+    paths: &WirePaths,
     what: &str,
 ) -> Option<Arc<Mutex<CredentialVault>>> {
     match &options.vault {

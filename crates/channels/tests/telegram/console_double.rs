@@ -11,15 +11,15 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::channel::BoxFuture;
-use ghostai_channels::telegram::console::{
+use darkwire_channels::channel::BoxFuture;
+use darkwire_channels::telegram::console::{
     MemoryState, SkillSummary, SkillsState, TelegramConsole,
 };
-use ghostai_core::clock::Clock;
-use ghostai_core::paths::{GhostPaths, ResolveGhostPaths};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Database, Result, SessionStore, WorkspaceStore};
-use ghostai_protocol::{AgentSummary, ContextResponse, ModelInfo, ModelsResponse};
+use darkwire_core::clock::Clock;
+use darkwire_core::paths::{ResolveWirePaths, WirePaths};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Database, Result, SessionStore, WorkspaceStore};
+use darkwire_protocol::{AgentSummary, ContextResponse, ModelInfo, ModelsResponse};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -28,7 +28,7 @@ use tempfile::TempDir;
 pub const NOW: i64 = 1_700_000_000_000;
 
 /// Deterministic ids, so a listing's order is the order it was written in.
-fn counter_ids(prefix: &'static str) -> ghostai_core::session_store::IdSource {
+fn counter_ids(prefix: &'static str) -> darkwire_core::session_store::IdSource {
     let next = std::sync::atomic::AtomicU64::new(0);
     Box::new(move || {
         format!(
@@ -100,8 +100,8 @@ impl FakeConsole {
     /// A console over fresh stores.
     pub fn new() -> Result<Arc<FakeConsole>> {
         let dir = tempfile::tempdir().map_err(|error| {
-            ghostai_core::GhostError::new(
-                ghostai_core::ErrorKind::Storage,
+            darkwire_core::WireError::new(
+                darkwire_core::ErrorKind::Storage,
                 format!("no temporary directory: {error}"),
             )
         })?;
@@ -115,7 +115,7 @@ impl FakeConsole {
         )?;
         // A real store needs somewhere to make a workspace's directory. The
         // temporary directory is both the install root and the workspace root.
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some(root.clone()),
             workspace: Some(root),
             env: Some(std::collections::HashMap::new()),

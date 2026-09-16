@@ -1,4 +1,4 @@
-# GhostAI documentation
+# DarkWire documentation
 
 Everything here describes what is built. Work that is designed but not implemented is not
 documented as though it works.
@@ -11,7 +11,7 @@ and everything else on this page is reference you can reach for afterwards.
 | Page                                  | What it covers                                                                        |
 | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | [Getting started](getting-started.md) | Install, first run, first conversation, giving it files, letting it run commands.     |
-| [CLI](cli.md)                         | Every `ghostai` command and flag, and the slash commands inside the chat prompt.      |
+| [CLI](cli.md)                         | Every `darkwire` command and flag, and the slash commands inside the chat prompt.     |
 | [Configuration](configuration.md)     | Every key in `config.yaml`, its type and its default. Env vars. Patch semantics.      |
 | [Prompts](prompts.md)                 | The eight editable templates, their placeholders, and the caching split behind them.  |
 | [Providers](providers.md)             | The registry, provider instances, resolution order, credentials, resilience.          |

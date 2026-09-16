@@ -16,13 +16,13 @@
 //! Three commands differ from their terminal spelling on purpose, and each says
 //! why at its own definition: `/exit`, `/output` and the admin-gated verbs.
 
-use ghostai_core::messages::text_of;
-use ghostai_core::session_store::{
+use darkwire_core::messages::text_of;
+use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, SessionSummaryRecord, UpdateSession,
 };
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_core::{ErrorKind, GhostError, Result, SessionStore};
-use ghostai_protocol::{
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_core::{ErrorKind, Result, SessionStore, WireError};
+use darkwire_protocol::{
     EditMessage, EditTag, RegenerateMessage, RegenerateTag, StopTurnMessage, StopTurnTag,
 };
 
@@ -172,18 +172,18 @@ fn clip(text: &str) -> String {
     format!("{head}…")
 }
 
-fn invalid(message: impl Into<String>) -> GhostError {
-    GhostError::new(ErrorKind::InvalidInput, message)
+fn invalid(message: impl Into<String>) -> WireError {
+    WireError::new(ErrorKind::InvalidInput, message)
 }
 
-fn missing(message: impl Into<String>) -> GhostError {
-    GhostError::new(ErrorKind::NotFound, message)
+fn missing(message: impl Into<String>) -> WireError {
+    WireError::new(ErrorKind::NotFound, message)
 }
 
 /// A message reference, as a `seq`.
 ///
 /// The terminal's rule, reimplemented rather than imported: it lives in the CLI
-/// crate, which this one cannot reach, and moving it down into `ghostai-core`
+/// crate, which this one cannot reach, and moving it down into `darkwire-core`
 /// would touch the CLI for no gain to the CLI. Twenty lines is the cheaper of
 /// the two.
 ///
@@ -239,7 +239,7 @@ pub fn resolve_seq(
             },
         )?
         .into_iter()
-        .filter(|record| matches!(record.message, ghostai_protocol::ChatMessage::User(_)))
+        .filter(|record| matches!(record.message, darkwire_protocol::ChatMessage::User(_)))
         .collect();
 
     let from_end = usize::try_from(-raw).unwrap_or(usize::MAX);
@@ -318,7 +318,7 @@ sync_command!(run_help, |input| Ok(CommandResult::say(helped(
 // a sentence in front rather than a second listing, because two lists disagree
 // eventually.
 sync_command!(run_start, |input| Ok(CommandResult::say(format!(
-    "This chat is a GhostAI session. Send a message and the agent answers; \
+    "This chat is a DarkWire session. Send a message and the agent answers; \
      the conversation is kept, so you can pick it up later.\n\n{}",
     helped(input.is_admin)
 ))));
@@ -994,7 +994,7 @@ fn require_admin(input: &CommandInput<'_>, verb: &str) -> Result<()> {
     if input.is_admin {
         return Ok(());
     }
-    Err(GhostError::new(
+    Err(WireError::new(
         ErrorKind::PermissionDenied,
         format!("`/workspace {verb}` is for an administrator of this install."),
     ))
@@ -1223,21 +1223,21 @@ fn on_off(value: bool) -> &'static str {
     if value { "on" } else { "off" }
 }
 
-fn role_of(message: &ghostai_protocol::ChatMessage) -> &'static str {
+fn role_of(message: &darkwire_protocol::ChatMessage) -> &'static str {
     match message {
-        ghostai_protocol::ChatMessage::System(_) => "system",
-        ghostai_protocol::ChatMessage::User(_) => "user",
-        ghostai_protocol::ChatMessage::Assistant(_) => "assistant",
-        ghostai_protocol::ChatMessage::Tool(_) => "tool",
+        darkwire_protocol::ChatMessage::System(_) => "system",
+        darkwire_protocol::ChatMessage::User(_) => "user",
+        darkwire_protocol::ChatMessage::Assistant(_) => "assistant",
+        darkwire_protocol::ChatMessage::Tool(_) => "tool",
     }
 }
 
-fn stop_reason_of(reason: ghostai_protocol::StopReason) -> &'static str {
+fn stop_reason_of(reason: darkwire_protocol::StopReason) -> &'static str {
     match reason {
-        ghostai_protocol::StopReason::Complete => "complete",
-        ghostai_protocol::StopReason::Aborted => "aborted",
-        ghostai_protocol::StopReason::MaxIterations => "max_iterations",
-        ghostai_protocol::StopReason::WallTimeout => "wall_timeout",
-        ghostai_protocol::StopReason::Error => "error",
+        darkwire_protocol::StopReason::Complete => "complete",
+        darkwire_protocol::StopReason::Aborted => "aborted",
+        darkwire_protocol::StopReason::MaxIterations => "max_iterations",
+        darkwire_protocol::StopReason::WallTimeout => "wall_timeout",
+        darkwire_protocol::StopReason::Error => "error",
     }
 }

@@ -11,14 +11,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use ghostai_core::Database;
-use ghostai_core::session_store::IdSource;
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::automation::{
+use darkwire_core::Database;
+use darkwire_core::session_store::IdSource;
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::automation::{
     AtKind, AtSchedule, AutomationJobCreator, AutomationPayload, AutomationSchedule, CronKind,
     CronSchedule, EveryKind, EverySchedule, RunStatus, ScheduledKind, ScheduledPayload,
 };
-use ghostai_server::automation_store::{
+use darkwire_server::automation_store::{
     AutomationStore, CreateJobInput, FinishRunInput, ListRuns, RunAfter, RunOutcome, UpdateJobInput,
 };
 use indexmap::IndexMap;

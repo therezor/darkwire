@@ -15,22 +15,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use ghostai_agent::{AgentEvent, TurnInput, TurnResult};
-use ghostai_core::messages::Content;
-use ghostai_core::messages::{AssistantOptions, assistant_message, user_message};
-use ghostai_core::session_store::AppendOptions;
-use ghostai_core::{Database, ErrorKind, GhostError, Result, SessionStore, SystemClock};
-use ghostai_protocol::config::Config;
-use ghostai_protocol::messages::{ChatMessage, StopReason, Usage};
-use ghostai_protocol::tools::{ApprovalScope, ToolRisk};
-use ghostai_protocol::ws::{
+use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
+use darkwire_core::messages::Content;
+use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
+use darkwire_core::session_store::AppendOptions;
+use darkwire_core::{Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
+use darkwire_protocol::config::Config;
+use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
+use darkwire_protocol::tools::{ApprovalScope, ToolRisk};
+use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ErrorCode, ErrorEvent, ErrorTag, NoticeKind, NoticeTag,
     NotificationTag, PROTOCOL_VERSION, ServerMessage, ToolApprovalRequest, ToolApprovalRequestTag,
     TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
-use ghostai_providers::BoxFuture;
-use ghostai_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
-use ghostai_server::hub::{
+use darkwire_providers::BoxFuture;
+use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
+use darkwire_server::hub::{
     AgentMissReason, AgentResolution, ConnectOptions, Frame, HubClient, HubEvent, Outbound,
     SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
 };
@@ -114,7 +114,7 @@ impl TurnControl {
     }
 
     /// Unwinds without a `turn.end`, which is what a loop that fails does.
-    fn fail(&self, error: GhostError) {
+    fn fail(&self, error: WireError) {
         self.settle(Err(error));
     }
 
@@ -145,10 +145,8 @@ impl TurnHandle for ScriptedHandle {
         Box::pin(async move {
             while self.events.recv().await.is_some() {}
             match self.result.take() {
-                Some(rx) => rx
-                    .await
-                    .unwrap_or_else(|_| Err(GhostError::aborted("Turn"))),
-                None => Err(GhostError::aborted("Turn")),
+                Some(rx) => rx.await.unwrap_or_else(|_| Err(WireError::aborted("Turn"))),
+                None => Err(WireError::aborted("Turn")),
             }
         })
     }
@@ -326,7 +324,7 @@ fn harness(options: &HarnessOptions) -> Harness {
                 return Ok(None);
             }
             if unbuildable.is_some() && agent_id == unbuildable {
-                return Err(GhostError::new(ErrorKind::Config, "no such provider"));
+                return Err(WireError::new(ErrorKind::Config, "no such provider"));
             }
             Ok(Some(Arc::clone(&loop_runner) as Arc<dyn TurnRunner>))
         }),
@@ -519,7 +517,7 @@ async fn detaches_a_connection_that_fell_too_far_behind_and_keeps_the_others() {
     healthy.until_seen("connected").await;
 
     h.hub.broadcast(&HubEvent::Agent(AgentEvent::from(
-        ghostai_protocol::ws::Notice {
+        darkwire_protocol::ws::Notice {
             tag: NoticeTag,
             kind: NoticeKind::Degraded,
             message: "x".repeat(256),
@@ -674,7 +672,7 @@ async fn the_hub_only_stamps_and_never_transforms_a_turns_event() {
             risk: ToolRisk::Exec,
             expires_at_ms: 1_700_000_060_000,
         }),
-        AgentEvent::from(ghostai_protocol::ws::Notice {
+        AgentEvent::from(darkwire_protocol::ws::Notice {
             tag: NoticeTag,
             kind: NoticeKind::Degraded,
             message: "note".to_owned(),
@@ -961,7 +959,7 @@ async fn closes_a_turn_the_loop_failed_out_of_and_says_why() {
     }
     let turn = h.runner.turn(0);
     turn.start();
-    turn.fail(GhostError::new(ErrorKind::Provider, "the model refused"));
+    turn.fail(WireError::new(ErrorKind::Provider, "the model refused"));
     client.until_seen("turn.end").await;
 
     let ServerMessage::Error(error) = &client.of("error")[0] else {
@@ -993,7 +991,7 @@ async fn closes_a_turn_abandoned_by_a_cancellation_without_reporting_an_error() 
     }
     let turn = h.runner.turn(0);
     turn.start();
-    turn.fail(GhostError::aborted("Turn"));
+    turn.fail(WireError::aborted("Turn"));
     client.until_seen("turn.end").await;
 
     assert!(client.of("error").is_empty(), "a stop is not a failure");
@@ -1162,12 +1160,12 @@ async fn broadcasts_one_frame_to_every_attached_client_across_sessions() {
     two.reset();
 
     h.hub.broadcast(&HubEvent::Notification(
-        ghostai_protocol::ws::NotificationBody {
+        darkwire_protocol::ws::NotificationBody {
             tag: NotificationTag,
             id: "n1".to_owned(),
             title: "done".to_owned(),
             body: String::new(),
-            level: ghostai_protocol::ws::NotificationLevel::Info,
+            level: darkwire_protocol::ws::NotificationLevel::Info,
             created_at_ms: 0,
             session_key: None,
             job_id: None,
@@ -1199,12 +1197,12 @@ async fn skips_a_session_nobody_is_watching_so_its_seq_stays_honest() {
     idle.client.close();
 
     h.hub.broadcast(&HubEvent::Notification(
-        ghostai_protocol::ws::NotificationBody {
+        darkwire_protocol::ws::NotificationBody {
             tag: NotificationTag,
             id: "n1".to_owned(),
             title: "done".to_owned(),
             body: String::new(),
-            level: ghostai_protocol::ws::NotificationLevel::Info,
+            level: darkwire_protocol::ws::NotificationLevel::Info,
             created_at_ms: 0,
             session_key: None,
             job_id: None,
@@ -1564,7 +1562,7 @@ async fn resolves_a_pending_approval_from_an_inbound_tool_approve() {
     let client = h.plain();
     client.until_seen("connected").await;
 
-    let request = ghostai_agent::ApprovalRequest {
+    let request = darkwire_agent::ApprovalRequest {
         session_key: SESSION.to_owned(),
         root_session_key: SESSION.to_owned(),
         agent_id: "default".to_owned(),
@@ -1578,7 +1576,7 @@ async fn resolves_a_pending_approval_from_an_inbound_tool_approve() {
     };
     let gate = Arc::clone(&h.approvals);
     let pending = tokio::spawn(async move {
-        use ghostai_agent::ApprovalGate as _;
+        use darkwire_agent::ApprovalGate as _;
         gate.ask(&request).await.unwrap()
     });
     for _ in 0..500 {
@@ -1624,7 +1622,7 @@ async fn lets_the_stored_session_win_over_a_frame_that_names_another_agent() {
     h.store
         .update_session(
             SESSION,
-            ghostai_core::session_store::UpdateSession {
+            darkwire_core::session_store::UpdateSession {
                 agent_id: Some(Some("writer".to_owned())),
                 ..Default::default()
             },
@@ -1651,7 +1649,7 @@ async fn runs_on_the_default_agent_when_the_one_a_session_names_is_gone() {
     h.store
         .update_session(
             SESSION,
-            ghostai_core::session_store::UpdateSession {
+            darkwire_core::session_store::UpdateSession {
                 agent_id: Some(Some("deleted".to_owned())),
                 ..Default::default()
             },
@@ -1684,7 +1682,7 @@ async fn says_so_differently_when_the_agent_is_merely_switched_off() {
     h.store
         .update_session(
             SESSION,
-            ghostai_core::session_store::UpdateSession {
+            darkwire_core::session_store::UpdateSession {
                 agent_id: Some(Some("paused".to_owned())),
                 ..Default::default()
             },
@@ -1712,7 +1710,7 @@ async fn does_not_raise_the_notice_when_the_binding_resolves() {
     h.store
         .update_session(
             SESSION,
-            ghostai_core::session_store::UpdateSession {
+            darkwire_core::session_store::UpdateSession {
                 agent_id: Some(Some("writer".to_owned())),
                 ..Default::default()
             },
@@ -1771,7 +1769,7 @@ async fn re_emits_the_status_with_the_workspace_the_store_now_holds() {
     h.store
         .update_session(
             SESSION,
-            ghostai_core::session_store::UpdateSession {
+            darkwire_core::session_store::UpdateSession {
                 workspace_id: Some("research".to_owned()),
                 ..Default::default()
             },

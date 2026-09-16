@@ -23,7 +23,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Box, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type { EnvironmentSummary } from '@ghostwire/protocol';
+import type { EnvironmentSummary } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

@@ -32,7 +32,7 @@ import type {
   StopReason,
   ToolRisk,
   Usage,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 // Shapes
 

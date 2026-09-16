@@ -21,20 +21,20 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database};
-use ghostai_protocol::config::Config;
-use ghostai_server::app::{ServerOptions, create_server};
-use ghostai_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
-use ghostai_server::auth::SESSION_COOKIE;
-use ghostai_server::auth_store::AuthStore;
-use ghostai_server::hub::{AgentResolution, SessionHub, SessionHubOptions};
-use ghostai_server::runtime::ServerRuntime;
-use ghostai_server::testkit::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database};
+use darkwire_protocol::config::Config;
+use darkwire_server::app::{ServerOptions, create_server};
+use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
+use darkwire_server::auth::SESSION_COOKIE;
+use darkwire_server::auth_store::AuthStore;
+use darkwire_server::hub::{AgentResolution, SessionHub, SessionHubOptions};
+use darkwire_server::runtime::ServerRuntime;
+use darkwire_server::testkit::{
     CountingRandom, FakeHasher, FakeRuntime, FakeRuntimeOptions, NOW, TestServer,
     TestServerOptions, start_test_server,
 };
-use ghostai_server::ui::UiRoot;
+use darkwire_server::ui::UiRoot;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
@@ -42,7 +42,7 @@ use tower::ServiceExt as _;
 const PASSWORD: &str = "correct horse battery staple";
 
 /// The login name an install starts with.
-const USERNAME: &str = "ghost";
+const USERNAME: &str = "darkwire";
 
 // Harnesses
 

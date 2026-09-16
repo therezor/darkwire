@@ -21,23 +21,23 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use ghostai::server_runtime::{CliServerRuntime, ModelSource, ServerRuntimeOptions};
-use ghostai_core::parse_config;
-use ghostai_protocol::config::ConfigPatch;
-use ghostai_protocol::rest::{
+use darkwire::server_runtime::{CliServerRuntime, ModelSource, ServerRuntimeOptions};
+use darkwire_core::parse_config;
+use darkwire_protocol::config::ConfigPatch;
+use darkwire_protocol::rest::{
     CredentialNamespace, ModelsResponse, ProviderTestRequest, ProviderTestResponse,
     SetCredentialRequest,
 };
-use ghostai_runtime::{GhostRuntime, RuntimeOptions, VaultChoice};
-use ghostai_security::CredentialVault;
-use ghostai_server::ServerRuntime;
-use ghostai_server::runtime::DirectChatInput;
+use darkwire_runtime::{RuntimeOptions, VaultChoice, WireRuntime};
+use darkwire_security::CredentialVault;
+use darkwire_server::ServerRuntime;
+use darkwire_server::runtime::DirectChatInput;
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 
 /// A runtime over a temporary home that never opens the real vault.
-fn runtime(dir: &tempfile::TempDir) -> Arc<GhostRuntime> {
-    ghostai_runtime::create_runtime(RuntimeOptions {
+fn runtime(dir: &tempfile::TempDir) -> Arc<WireRuntime> {
+    darkwire_runtime::create_runtime(RuntimeOptions {
         home: Some(dir.path().display().to_string()),
         vault: VaultChoice::None,
         env: Some(HashMap::new()),
@@ -52,7 +52,7 @@ fn vault(dir: &tempfile::TempDir) -> Arc<Mutex<CredentialVault>> {
         CredentialVault::open(
             &dir.path().join("vault.json"),
             &[7u8; 32],
-            Arc::new(ghostai_security::OsRandom),
+            Arc::new(darkwire_security::OsRandom),
         )
         .unwrap(),
     ))
@@ -175,7 +175,7 @@ fn credentials_are_reported_by_instance_and_never_by_value() {
 #[test]
 fn an_exported_key_variable_counts_as_a_credential() {
     let dir = tempfile::tempdir().unwrap();
-    let key = ghostai_providers::PROVIDERS
+    let key = darkwire_providers::PROVIDERS
         .iter()
         .find(|spec| spec.env_key.is_some())
         .expect("some provider declares a key variable");
@@ -367,7 +367,7 @@ fn channels_are_read_through_the_callback_the_composition_root_supplies() {
         &dir,
         ServerRuntimeOptions {
             channels: Some(Arc::new(|| {
-                vec![ghostai_protocol::rest::ChannelStatus {
+                vec![darkwire_protocol::rest::ChannelStatus {
                     id: "telegram".to_owned(),
                     enabled: true,
                     configured: false,
@@ -414,7 +414,7 @@ struct ScriptedModels {
 }
 
 impl ModelSource for ScriptedModels {
-    fn list(&self, refresh: bool) -> BoxFuture<'_, ghostai_core::Result<ModelsResponse>> {
+    fn list(&self, refresh: bool) -> BoxFuture<'_, darkwire_core::Result<ModelsResponse>> {
         self.listed.lock().push(refresh);
         Box::pin(std::future::ready(Ok(ModelsResponse {
             models: Vec::new(),
@@ -425,7 +425,7 @@ impl ModelSource for ScriptedModels {
     fn test<'a>(
         &'a self,
         request: &'a ProviderTestRequest,
-    ) -> BoxFuture<'a, ghostai_core::Result<ProviderTestResponse>> {
+    ) -> BoxFuture<'a, darkwire_core::Result<ProviderTestResponse>> {
         self.tested
             .lock()
             .push(request.instance_id.clone().unwrap_or_default());
@@ -620,7 +620,7 @@ fn an_agent_names_the_model_and_the_window_it_runs_in() {
     let port = adapter(&dir, ServerRuntimeOptions::default());
     let agent = port.agent(None).unwrap();
 
-    assert_eq!(agent.id(), ghostai_protocol::DEFAULT_AGENT_ID);
+    assert_eq!(agent.id(), darkwire_protocol::DEFAULT_AGENT_ID);
     assert!(!agent.label().is_empty());
     assert!(agent.context_window_tokens() > 0);
     // Every tool the registry holds, not a narrowed set: the view answers for
@@ -671,7 +671,7 @@ async fn a_direct_chat_on_a_bare_install_is_refused_rather_than_sent_somewhere()
             model: None,
             messages: Vec::new(),
             tools: Vec::new(),
-            tool_choice: ghostai_providers::ToolChoice::Auto,
+            tool_choice: darkwire_providers::ToolChoice::Auto,
             max_tokens: None,
             token: tokio_util::sync::CancellationToken::new(),
         })

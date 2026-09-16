@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { FileEntry } from '@ghostwire/protocol';
+import type { FileEntry } from '@darkwire/protocol';
 
 import {
   breadcrumbs,

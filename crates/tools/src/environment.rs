@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use ghostai_core::Result;
+use darkwire_core::Result;
 
 use crate::runner::{CommandRunner, LocalRunner, PlacementRequest, RunOutcome, RunRequest};
 use crate::tool::BoxFuture;

@@ -93,7 +93,7 @@ export function resolveLocale(
  * The first request that matches something, or the default when none do.
  *
  * This is the shape every consumer's preference order actually has — the CLI
- * asks `GHOSTAI_LANG`, then the config, then `LANG`; the web asks storage, then
+ * asks `DARKWIRE_LANG`, then the config, then `LANG`; the web asks storage, then
  * the browser. Expressing it once keeps "first one that means anything wins"
  * from being re-implemented three times with three different opinions about
  * what "anything" is.

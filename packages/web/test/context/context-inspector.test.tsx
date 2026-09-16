@@ -22,7 +22,7 @@ import {
 
 const CONTEXT = {
   sessionKey: 'web:1',
-  systemPrompt: 'You are GhostAI, a helpful agent.',
+  systemPrompt: 'You are DarkWire, a helpful agent.',
   tools: [
     {
       name: 'read_file',
@@ -154,7 +154,7 @@ describe('the context inspector', () => {
     await open(user);
 
     expect(
-      await screen.findByText(/You are GhostAI, a helpful agent\./),
+      await screen.findByText(/You are DarkWire, a helpful agent\./),
     ).toBeInTheDocument();
     // Was `1 messages in the window`. The count is one, and the sentence now
     // agrees with it — this line asserted the bug rather than the behaviour,
@@ -241,7 +241,9 @@ describe('the context inspector: what is in each section', () => {
     await user.click(
       await screen.findByText('System prompt', { selector: 'summary' }),
     );
-    expect(screen.getByText('You are GhostAI, a helpful agent.')).toBeVisible();
+    expect(
+      screen.getByText('You are DarkWire, a helpful agent.'),
+    ).toBeVisible();
   });
 
   it('opens the live state, which is the part every step of a turn pays for again', async () => {

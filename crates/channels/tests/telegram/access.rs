@@ -1,8 +1,8 @@
 //! The allowlist, which is the security boundary in front of an agent that has
 //! the operator's credentials and possibly `exec`.
 
-use ghostai_channels::telegram::access::{AccessList, Requester, parse_allowlist};
-use ghostai_core::ErrorKind;
+use darkwire_channels::telegram::access::{AccessList, Requester, parse_allowlist};
+use darkwire_core::ErrorKind;
 
 fn entries(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()

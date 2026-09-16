@@ -35,9 +35,9 @@
 
 use std::sync::Arc;
 
-use ghostai_core::Result;
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
-use ghostai_security::{ExecGuardOptions, ExecPlan, guard_exec};
+use darkwire_core::Result;
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::{ExecGuardOptions, ExecPlan, guard_exec};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;

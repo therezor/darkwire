@@ -1,4 +1,4 @@
-//! `ghostai extension` approvals and `ghostai environment` listings.
+//! `darkwire extension` approvals and `darkwire environment` listings.
 //!
 //! One file for both, because they are one command written twice: the same
 //! three verbs, the same exit codes, the same rule that an approval is a
@@ -21,9 +21,9 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use ghostai::i18n::Env;
-use ghostai::program::{Globals, StoreAction};
-use ghostai::{Streams, environment, extension};
+use darkwire::i18n::Env;
+use darkwire::program::{Globals, StoreAction};
+use darkwire::{Streams, environment, extension};
 
 /// A pair of buffers a command writes into, read back as text.
 #[derive(Clone, Default)]
@@ -107,7 +107,7 @@ fn install_environment(home: &Path, name: &str) {
     std::fs::write(
         dir.join(format!("{name}.yaml")),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema": "ghostai.environment/1",
+            "schema": "darkwire.environment/1",
             "name": name,
             "image": IMAGE,
             "shared": true,
@@ -122,9 +122,9 @@ fn install_extension(home: &Path, id: &str) {
     let dir = home.join("extensions").join(id);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("ghostai.extension.yaml"),
+        dir.join("darkwire.extension.yaml"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema": "ghostai.extension/2",
+            "schema": "darkwire.extension/2",
             "id": id,
             "version": "1.2.3",
             "description": "an example",
@@ -167,7 +167,7 @@ fn environment_list_points_at_the_old_directory_when_one_is_left_behind() {
         "{}",
         run.out
     );
-    assert!(run.out.contains("ghostai.environment/1"), "{}", run.out);
+    assert!(run.out.contains("darkwire.environment/1"), "{}", run.out);
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn extension_approving_without_an_id_names_the_listing_command() {
     let home = tempfile::tempdir().unwrap();
     let run = run_extension(home.path(), StoreAction::Approve, None);
     assert_eq!(run.code, 2);
-    assert!(run.err.contains("ghostai extension list"), "{}", run.err);
+    assert!(run.err.contains("darkwire extension list"), "{}", run.err);
 }
 
 #[test]

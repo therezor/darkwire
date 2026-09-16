@@ -20,7 +20,7 @@
 //! narrower than accuracy: this is the *right input* to that heuristic, where
 //! the stored object was the wrong one.
 
-use ghostai_protocol::{ChatMessage, ToolDefinition};
+use darkwire_protocol::{ChatMessage, ToolDefinition};
 
 use crate::tokens::estimate_tokens;
 use crate::wire_encode::{encode_message, encode_tools};

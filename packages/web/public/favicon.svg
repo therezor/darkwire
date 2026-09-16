@@ -4,35 +4,34 @@
   width="24"
   height="24"
   fill="none"
-  stroke="#629036"
+  stroke="#008C96"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
 >
   <!--
-    lucide's `skull`, with the colour and the stroke attributes written out. A
+    lucide's `webhook`, with the colour and the stroke attributes written out. A
     browser tab has no cascade to inherit a colour from and no component to get
     lucide's defaults from, so this file is the one place in the package a raw
     colour is correct rather than a mistake. (The token gates scan `index.html`
-    and `src/**`; this is neither, and `favicon.test.ts` holds the four shapes
+    and `src/**`; this is neither, and `favicon.test.ts` holds the three paths
     below to the ones lucide actually renders.)
 
-    #629036 is the brand *hue* at a lightness the accent itself does not use —
-    `oklch(0.6 0.13 132)` rather than the token's `oklch(0.8 0.16 132)`. That
-    divergence is deliberate and it is the whole point of this comment: the
-    accent is a soft yellow-green chosen to sit on surfaces this app controls,
-    and it measures 1.7:1 against white. A tab strip is the one surface we do
-    not control — it is near-black in one OS theme and white in the other — so
-    the mark is pulled down to mid-luminance, where it holds both ways (3.8:1
-    on white, 5.4:1 on near-black).
+    #008C96 is the brand hue at a lightness the accent itself does not use:
+    `oklch(0.6 0.1 195)` rather than the token's `oklch(0.835 0.14 195)`. That
+    divergence is deliberate and it is the whole point of this comment. The
+    accent is a bright terminal cyan chosen to sit on surfaces this app
+    controls, and it measures 1.6:1 against white. A tab strip is the one
+    surface we do not control. It is near-black in one OS theme and white in the
+    other, so the mark is pulled down to mid-luminance, where it holds both ways
+    (4.0:1 on white, 5.0:1 on near-black).
 
     One colour rather than a `prefers-color-scheme` swap: a favicon that changes
     colour with the OS theme is one users stop recognising.
   -->
-  <path d="m12.5 17-.5-1-.5 1h1z" />
   <path
-    d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1z"
+    d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"
   />
-  <circle cx="15" cy="12" r="1" />
-  <circle cx="9" cy="12" r="1" />
+  <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+  <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
 </svg>

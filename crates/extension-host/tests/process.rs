@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ghostai_extension_host::{
+use darkwire_extension_host::{
     ENV_EXTENSION_DATA_DIR, ENV_EXTENSION_ID, SpawnOptions, data_dir_for, spawn,
 };
 use tempfile::TempDir;
@@ -53,7 +53,7 @@ async fn the_child_sees_the_allow_list_and_the_two_the_host_sets() {
     let line = lines.next_line().await.unwrap().unwrap();
     let env: serde_json::Value = serde_json::from_str(&line).unwrap();
 
-    // A provider key in `ghostai serve`'s environment must not land inside
+    // A provider key in `darkwire serve`'s environment must not land inside
     // third-party code, and nothing but the allow-list does.
     assert!(env["CARGO_PKG_NAME"].is_null(), "{env}");
     // The default four, where this host has them.
@@ -76,7 +76,7 @@ async fn the_child_sees_the_allow_list_and_the_two_the_host_sets() {
         "CARGO_PKG_NAME".to_owned(),
         // A name this host does not have is simply absent there: better than an
         // empty string, which a program reading `TMPDIR` would treat as a path.
-        "GHOSTAI_NOT_SET_ANYWHERE".to_owned(),
+        "DARKWIRE_NOT_SET_ANYWHERE".to_owned(),
         // A duplicate of the allow-list is not passed twice.
         "PATH".to_owned(),
     ]))
@@ -88,14 +88,14 @@ async fn the_child_sees_the_allow_list_and_the_two_the_host_sets() {
         env["CARGO_PKG_NAME"],
         serde_json::json!(std::env::var("CARGO_PKG_NAME").unwrap())
     );
-    assert!(env["GHOSTAI_NOT_SET_ANYWHERE"].is_null());
+    assert!(env["DARKWIRE_NOT_SET_ANYWHERE"].is_null());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_program_that_is_not_there_is_an_error_rather_than_a_panic() {
     let temp = TempDir::new().unwrap();
     let mut options = options(temp.path());
-    options.command = vec!["ghostai-no-such-program".to_owned()];
+    options.command = vec!["darkwire-no-such-program".to_owned()];
     let error = spawn(options).expect_err("a missing program cannot spawn");
     assert!(
         error.message.contains("could not be started"),
@@ -221,9 +221,9 @@ async fn the_host_can_write_to_a_child_that_reads() {
 
 #[test]
 fn the_data_directory_is_a_sibling_of_the_install_and_never_a_child() {
-    let root = PathBuf::from("/var/ghostai");
+    let root = PathBuf::from("/var/darkwire");
     let data = data_dir_for(&root, "hello");
-    assert_eq!(data, PathBuf::from("/var/ghostai/extension-data/hello"));
+    assert_eq!(data, PathBuf::from("/var/darkwire/extension-data/hello"));
     // The whole rule: the approval digest covers every byte under the install,
     // so state written in there would revoke the approval on the first write.
     assert!(!data.starts_with(root.join("extensions")));

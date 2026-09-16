@@ -14,7 +14,7 @@ labels: bug
 
 **Version and environment**
 
-- `ghostai --version`:
+- `darkwire --version`:
 - Node (`node --version`):
 - OS:
 - Provider and model:
@@ -22,7 +22,7 @@ labels: bug
 
 **Logs**
 
-`--verbose` says more, and `GHOSTAI_DEBUG=1` prints stack traces instead of the operator
+`--verbose` says more, and `DARKWIRE_DEBUG=1` prints stack traces instead of the operator
 sentence. Please remove anything you would not put in a public issue — `config.json` never
 holds credentials, but a workspace path or a session transcript might say more than you
 meant.
@@ -33,5 +33,5 @@ meant.
 
 <!--
 Security issues do not belong here. Report them privately:
-https://github.com/therezor/GhostAI/security/advisories/new
+https://github.com/therezor/darkwire/security/advisories/new
 -->

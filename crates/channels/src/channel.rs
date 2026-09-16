@@ -50,10 +50,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use ghostai_core::Result;
-use ghostai_core::clock::Clock;
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
-use ghostai_protocol::{
+use darkwire_core::Result;
+use darkwire_core::clock::Clock;
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_protocol::{
     ClientMessage, ContentPart, EditMessage, RegenerateMessage, SteerMessage, StopTurnMessage,
     ToolApproveMessage,
 };
@@ -200,7 +200,7 @@ pub struct ChannelContext {
     ///
     /// The channels config is deliberately a loose object, so that installing
     /// an extension that carries a channel does not require a schema change in
-    /// `ghostai-protocol`: the channel parses its own settings and reports a
+    /// `darkwire-protocol`: the channel parses its own settings and reports a
     /// bad block by refusing to start.
     pub settings: Map<String, Value>,
     /// Wall-clock and monotonic time.

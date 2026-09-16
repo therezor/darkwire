@@ -16,11 +16,11 @@
 
 use axum::extract::Query;
 use axum::http::Uri;
-use garde::Validate as _;
-use ghostai_server::queries::{
+use darkwire_server::queries::{
     DEFAULT_PAGE_LIMIT, DeleteQuery, MAX_PAGE_LIMIT, NotificationListQuery, OptionalPathQuery,
     PageQuery, PathQuery, SessionListQuery, SessionSort, TurnsQuery, WsQuery,
 };
+use garde::Validate as _;
 
 /// Reads a shape the way the request path does.
 ///

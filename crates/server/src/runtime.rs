@@ -1,13 +1,13 @@
 //! What the routes need from below the transport, stated as a trait.
 //!
-//! `ghostai-runtime` is the composition root: it turns a config file into a
+//! `darkwire-runtime` is the composition root: it turns a config file into a
 //! provider, a jail, a store, a registry and a loop. This crate deliberately
 //! does not depend on it. The dependency would compile — nothing above the
 //! server depends on the server — but it would put the whole wiring graph
 //! behind every route test, and the server would then be untestable without a
 //! provider, a workspace and a vault. So the server states the *narrow* set of
-//! things a route actually touches, and `ghostai serve` supplies an adapter
-//! over `GhostRuntime`.
+//! things a route actually touches, and `darkwire serve` supplies an adapter
+//! over `WireRuntime`.
 //!
 //! The shape is deliberately made of calls rather than fields. `PATCH
 //! /api/settings` rebuilds the provider, the jail and the loop, so a route
@@ -22,20 +22,20 @@
 
 use std::sync::Arc;
 
-use ghostai_agent::{PromptPreview, PromptPreviewInput};
-use ghostai_core::{GhostError, Result, SessionStore, WorkspaceStore};
-use ghostai_protocol::config::{Config, ConfigPatch, ReasoningEffort};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::messages::ChatMessage;
-use ghostai_protocol::rest::{
+use darkwire_agent::{PromptPreview, PromptPreviewInput};
+use darkwire_core::{Result, SessionStore, WireError, WorkspaceStore};
+use darkwire_protocol::config::{Config, ConfigPatch, ReasoningEffort};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::messages::ChatMessage;
+use darkwire_protocol::rest::{
     ChannelStatus, ConfigWarning, ExtensionCommand, ExtensionStatus, McpServerStatus,
     ModelsResponse, ProviderTestRequest, ProviderTestResponse, RunCommandRequest,
     RunCommandResponse, SetCredentialRequest,
 };
-use ghostai_protocol::tools::ToolDefinition;
-use ghostai_providers::{BoxFuture, ChatResult, ToolChoice};
-use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::policy_store::EnvironmentListing;
+use darkwire_protocol::tools::ToolDefinition;
+use darkwire_providers::{BoxFuture, ChatResult, ToolChoice};
+use darkwire_security::jail::WorkspaceJail;
+use darkwire_security::policy_store::EnvironmentListing;
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -143,16 +143,16 @@ pub struct DirectChatInput {
 ///
 /// A build with no paths is a test double rather than an install, so this names
 /// a bug rather than a state to recover from.
-fn no_policy_root() -> GhostError {
-    GhostError::new(
-        ghostai_core::ErrorKind::Config,
+fn no_policy_root() -> WireError {
+    WireError::new(
+        darkwire_core::ErrorKind::Config,
         "This build has no policy directory to write environments to",
     )
 }
 
 /// Everything a route reaches for below the transport.
 ///
-/// Implemented by the adapter `ghostai serve` builds over `GhostRuntime`, and
+/// Implemented by the adapter `darkwire serve` builds over `WireRuntime`, and
 /// by the testkit double the route tests use.
 pub trait ServerRuntime: Send + Sync {
     /// The live settings tree. Replaced wholesale by [`Self::apply_settings`].
@@ -231,8 +231,8 @@ pub trait ServerRuntime: Send + Sync {
         _request: serde_json::Value,
     ) -> BoxFuture<'_, Result<serde_json::Value>> {
         Box::pin(async {
-            Err(ghostai_core::GhostError::new(
-                ghostai_core::ErrorKind::Config,
+            Err(darkwire_core::WireError::new(
+                darkwire_core::ErrorKind::Config,
                 "Sandbox service is not configured",
             ))
         })

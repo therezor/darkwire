@@ -16,10 +16,10 @@
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::rest::{EnvironmentListResponse, EnvironmentSummary};
-use ghostai_security::{assert_gateway_compatible, weakened_in};
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::rest::{EnvironmentListResponse, EnvironmentSummary};
+use darkwire_security::{assert_gateway_compatible, weakened_in};
 
 use crate::errors::HttpError;
 use crate::routes::AppState;
@@ -40,7 +40,7 @@ pub async fn list_environments(
 }
 
 /// The definition plus the three facts that are not in the file.
-fn summary(listing: ghostai_security::policy_store::EnvironmentListing) -> EnvironmentSummary {
+fn summary(listing: darkwire_security::policy_store::EnvironmentListing) -> EnvironmentSummary {
     EnvironmentSummary {
         name: listing.name,
         // The same functions the CLI's review prints, so the two cannot
@@ -73,7 +73,7 @@ pub async fn save_environment(
     let Json(raw) = body.map_err(|error| HttpError::bad_request(error.body_text()))?;
     let definition: EnvironmentDefinition = parse_body("environment definition", raw)?;
     if definition.name != name {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             format!(
                 "This definition names itself \"{}\", but it is being saved as \"{name}\".\n  A definition's name is its filename.",
@@ -98,9 +98,9 @@ pub async fn save_environment(
 /// problem and a 500, while a definition somebody just submitted is theirs and a
 /// 422. Without this an operator pasting a tag-pinned image is told the server
 /// broke, and the sentence explaining what they did wrong arrives under it.
-fn rejected_body(error: GhostError) -> GhostError {
+fn rejected_body(error: WireError) -> WireError {
     if error.kind == ErrorKind::Config {
-        return GhostError::new(ErrorKind::InvalidInput, error.message);
+        return WireError::new(ErrorKind::InvalidInput, error.message);
     }
     error
 }
@@ -115,7 +115,7 @@ pub async fn remove_environment(
     // which would report the server as broken for a stale link.
     state.runtime.remove_environment(&name).map_err(|error| {
         if error.kind == ErrorKind::Config {
-            return GhostError::new(ErrorKind::NotFound, error.message);
+            return WireError::new(ErrorKind::NotFound, error.message);
         }
         error
     })?;
@@ -153,7 +153,7 @@ fn assert_no_agent_is_broken_by(
             // definition can no longer host. Everything else about a definition
             // is the operator's to weaken, and is surfaced rather than refused.
             Some(definition) => {
-                agent.environment.network.mode == ghostai_protocol::NetworkMode::Allowlist
+                agent.environment.network.mode == darkwire_protocol::NetworkMode::Allowlist
                     && assert_gateway_compatible(definition).is_err()
             }
         })
@@ -179,7 +179,7 @@ fn assert_no_agent_is_broken_by(
     } else {
         "asks it for an allow-list it could no longer enforce"
     };
-    Err(GhostError::new(
+    Err(WireError::new(
         ErrorKind::InvalidInput,
         format!(
             "{what}: {} {why}.\n  Change those agents first, or switch them off.",

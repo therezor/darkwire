@@ -1,12 +1,12 @@
 /**
- * The id every generated thing in GhostAI is named by.
+ * The id every generated thing in DarkWire is named by.
  *
  * UUIDv7 rather than v4, and the difference is the first 48 bits: a v7 is a
  * millisecond timestamp followed by randomness, so ids sort in creation order as
  * plain strings. `crypto.randomUUID` only mints v4, which is why this is written
  * out rather than delegated.
  *
- * It lives in `@ghostwire/protocol` for the reason `ids.ts` gives at its head:
+ * It lives in `@darkwire/protocol` for the reason `ids.ts` gives at its head:
  * both sides mint ids. The server names a session on `POST /api/sessions`, and
  * the browser names one in `lib/connection.ts` before the first message has been
  * sent. Two implementations of a rule whose whole job is that two things cannot

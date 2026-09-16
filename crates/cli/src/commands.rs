@@ -43,25 +43,25 @@
 
 use std::sync::Mutex;
 
-use futures::future::BoxFuture;
-use ghostai_agent::skills::{SKILLS_DIRNAME, read_skills};
-use ghostai_agent::{PromptPreviewInput, describe_context};
-use ghostai_core::memory::{MEMORY_DIRNAME, read_memories};
-use ghostai_core::session_store::{
+use darkwire_agent::skills::{SKILLS_DIRNAME, read_skills};
+use darkwire_agent::{PromptPreviewInput, describe_context};
+use darkwire_core::memory::{MEMORY_DIRNAME, read_memories};
+use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, UpdateSession,
 };
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result, SessionStore, SystemClock, text_of};
-use ghostai_i18n::{args, format_number, keys};
-use ghostai_protocol::config::{AgentSettingsChange, agent_settings_patch};
-use ghostai_protocol::{
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, text_of};
+use darkwire_i18n::{args, format_number, keys};
+use darkwire_protocol::config::{AgentSettingsChange, agent_settings_patch};
+use darkwire_protocol::{
     DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, ModelsResponse, ReasoningEffort, ToolPermission,
     new_uuid,
 };
-use ghostai_providers::estimate_tokens;
-use ghostai_security::random::{OsRandom, RandomSource};
-use ghostai_server::agent_for_turn;
-use ghostai_tui::{pad_to_width, visible_width};
+use darkwire_providers::estimate_tokens;
+use darkwire_security::random::{OsRandom, RandomSource};
+use darkwire_server::agent_for_turn;
+use darkwire_tui::{pad_to_width, visible_width};
+use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
 use crate::i18n::Translations;
@@ -651,7 +651,7 @@ fn session_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashO
 
 fn rename_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     if tail.is_empty() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_RENAME),
         ));
@@ -676,7 +676,7 @@ fn delete_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOu
         .cloned()
         .unwrap_or_else(|| ctx.session_key.to_owned());
     if !ctx.runtime.store().delete_session(&key)? {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.tr(
                 keys::slash::errors::NO_SESSION,
@@ -729,7 +729,7 @@ fn edit_command(argv: &[String], tail: &str, ctx: &mut SlashContext<'_>) -> Resu
         .unwrap_or("")
         .trim();
     let (Some(reference), false) = (reference, text.is_empty()) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_EDIT),
         ));
@@ -757,7 +757,7 @@ fn regenerate_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<Sla
         },
     )?;
     let Some(record) = records.first() else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.t(keys::slash::errors::MESSAGE_GONE),
         ));
@@ -787,9 +787,9 @@ fn require_user_message(
     )?;
     let is_user = records
         .first()
-        .is_some_and(|record| matches!(record.message, ghostai_protocol::ChatMessage::User(_)));
+        .is_some_and(|record| matches!(record.message, darkwire_protocol::ChatMessage::User(_)));
     if !is_user {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             t.tr(keys::slash::errors::NOT_YOURS, args!["seq" => seq]),
         ));
@@ -832,7 +832,7 @@ async fn context_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
 /// Grouped with the locale's own separator rather than the machine's, which is
 /// the same rule the browser applies: one install must not print `8.192` at a
 /// prompt and `8,192` in a tab.
-fn format_context(report: &ghostai_agent::ContextReport, locale: &str) -> String {
+fn format_context(report: &darkwire_agent::ContextReport, locale: &str) -> String {
     let window = report.context_window_tokens.max(1);
     let estimated = u64::try_from(report.estimated_tokens).unwrap_or(u64::MAX);
     // Integer arithmetic with rounding applied by hand: a percentage of two
@@ -963,7 +963,7 @@ fn output_command(
     };
 
     let Some(shown) = output_shown(field, ctx.renderer) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.tr(
                 keys::slash::errors::NO_OUTPUT_FIELD,
@@ -1027,7 +1027,7 @@ async fn agent_command(id: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<S
         return Ok(SlashOutcome::Continue);
     };
     if !agents.iter().any(|agent| agent.id == chosen) {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.tr(
                 keys::slash::errors::NO_AGENT,
@@ -1118,7 +1118,7 @@ fn agent_label(ctx: &SlashContext<'_>, agent_id: &str) -> String {
 /// changed nothing would be worse than one that will not.
 async fn model_command(id: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     if ctx.model_pinned {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Conflict,
             ctx.t.t(keys::slash::errors::MODEL_PINNED),
         ));
@@ -1138,7 +1138,7 @@ async fn model_command(id: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<S
     // only the catalogue knows.
     let catalogue = ctx.models.list().await?;
     let Some(info) = catalogue.models.iter().find(|model| model.id == chosen) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.tr(
                 keys::slash::errors::NO_MODEL,
@@ -1401,7 +1401,7 @@ fn parse_sample(field: SampleField, raw: &str, t: &Translations) -> Result<Sampl
                     .map(effort_value)
                     .collect::<Vec<_>>()
                     .join(", ");
-                GhostError::new(
+                WireError::new(
                     ErrorKind::InvalidInput,
                     t.tr(
                         keys::slash::errors::USAGE_EFFORT,
@@ -1416,7 +1416,7 @@ fn parse_sample(field: SampleField, raw: &str, t: &Translations) -> Result<Sampl
     let value = raw.parse::<f64>().ok().filter(|value| value.is_finite());
     match value {
         Some(value) if (0.0..=2.0).contains(&value) => Ok(SampleValue::Temperature(value)),
-        _ => Err(GhostError::new(
+        _ => Err(WireError::new(
             ErrorKind::InvalidInput,
             t.t(keys::slash::errors::USAGE_TEMPERATURE),
         )),
@@ -1439,7 +1439,7 @@ fn memory_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOu
     match argv.first().map(String::as_str) {
         None => memory_status(ctx),
         Some(verb @ ("on" | "off")) => set_memory_permission(verb == "on", ctx),
-        Some(_) => Err(GhostError::new(
+        Some(_) => Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_MEMORY),
         )),
@@ -1537,7 +1537,7 @@ fn set_memory_permission(on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOu
     let agent_id = memory_agent_id(ctx)?;
     let agents = ctx.runtime.agents();
     let Some(agent) = agents.iter().find(|entry| entry.id == agent_id) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.tr(
                 keys::slash::errors::NO_AGENT,
@@ -1565,7 +1565,7 @@ fn set_memory_permission(on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOu
     entry.tools = tools;
 
     let entry = serde_json::to_value(&entry).map_err(|error| {
-        GhostError::new(ErrorKind::Internal, "The agent entry could not be encoded")
+        WireError::new(ErrorKind::Internal, "The agent entry could not be encoded")
             .with_source(error)
     })?;
     ctx.runtime.reconfigure(&serde_json::json!({
@@ -1710,7 +1710,7 @@ async fn workspace_pending(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
 fn workspace_new(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let name = rest.join(" ").trim().to_owned();
     if name.is_empty() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_NEW),
         ));
@@ -1731,7 +1731,7 @@ fn workspace_rename(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<Slash
     let id = rest.first();
     let name = rest.get(1..).unwrap_or(&[]).join(" ").trim().to_owned();
     let (Some(id), false) = (id, name.is_empty()) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_RENAME),
         ));
@@ -1752,14 +1752,14 @@ fn workspace_rename(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<Slash
 /// files nothing lists. Two explicit steps, not one silent one.
 fn workspace_rm(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let Some(id) = rest.first() else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_RM),
         ));
     };
     let count = ctx.runtime.store().count_by_workspace(id)?;
     if count > 0 {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Conflict,
             ctx.t.tr(
                 keys::slash::errors::WORKSPACE_IN_USE,
@@ -1780,13 +1780,13 @@ fn workspace_rm(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutc
 
 fn workspace_move(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let (Some(from), Some(to)) = (rest.first(), rest.get(1)) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_MOVE),
         ));
     };
     if ctx.runtime.workspaces().get(to)?.is_none() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t.tr(
                 keys::slash::errors::NO_WORKSPACE,
@@ -1806,7 +1806,7 @@ fn workspace_move(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOu
 /// `/workspace <id>`, and what the picker resolves to.
 fn switch_workspace(id: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     if ctx.runtime.workspaces().get(id)?.is_none() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::NotFound,
             ctx.t
                 .tr(keys::slash::errors::NO_WORKSPACE, args!["id" => id]),

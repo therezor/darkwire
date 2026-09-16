@@ -25,7 +25,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ApprovalScope } from '@ghostwire/protocol';
+import type { ApprovalScope } from '@darkwire/protocol';
 
 import { Button } from '@/components/ui/button.js';
 import type { Transcript } from '@/state/transcript.js';

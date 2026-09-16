@@ -1,4 +1,4 @@
-//! `ghostai environment list`: where an agent's commands would run.
+//! `darkwire environment list`: where an agent's commands would run.
 //!
 //! An environment definition decides what the machine running `exec` is allowed
 //! to be: its image, its capabilities, who it runs as. It does not decide *what*
@@ -12,9 +12,9 @@
 
 use std::io::Write;
 
-use ghostai_core::{GhostError, LoadConfigOptions, Result, load_config};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_security::{PolicyStore, assert_gateway_compatible, weakened_in};
+use darkwire_core::{LoadConfigOptions, Result, WireError, load_config};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_security::{PolicyStore, assert_gateway_compatible, weakened_in};
 
 use crate::Streams;
 use crate::i18n::Env;
@@ -54,7 +54,7 @@ fn describe(environment: &EnvironmentDefinition) -> Vec<String> {
     lines
 }
 
-/// Runs one `ghostai environment` invocation and answers with its exit code.
+/// Runs one `darkwire environment` invocation and answers with its exit code.
 pub fn run(globals: &Globals, env: &Env, streams: &mut Streams) -> Result<u8> {
     let loaded = load_config(LoadConfigOptions {
         paths: load_options(globals, None, env),
@@ -78,9 +78,9 @@ fn act(store: &PolicyStore, streams: &mut Streams) -> Result<u8> {
             "No environments installed under {}",
             store.root().join("environments").display()
         )
-        .map_err(GhostError::from)?;
+        .map_err(WireError::from)?;
         // The one case where an empty list is not the truth it looks like. A
-        // definition written against `ghostai.container/1` lived in
+        // definition written against `darkwire.container/1` lived in
         // `containers/`, so an install that has not migrated reports nothing
         // installed while the files are still sitting there, and the operator
         // has no reason to suspect a rename. Naming the directory turns a
@@ -90,24 +90,24 @@ fn act(store: &PolicyStore, streams: &mut Streams) -> Result<u8> {
             writeln!(
                 streams.out,
                 "\n{} still exists. Environments moved there from `containers/` and the\n  \
-                 schema tag is now `ghostai.environment/1`; see docs/environments.md.",
+                 schema tag is now `darkwire.environment/1`; see docs/environments.md.",
                 old.display()
             )
-            .map_err(GhostError::from)?;
+            .map_err(WireError::from)?;
         }
         return Ok(0);
     }
     for entry in listing {
-        writeln!(streams.out, "{}", entry.name).map_err(GhostError::from)?;
+        writeln!(streams.out, "{}", entry.name).map_err(WireError::from)?;
         if let Some(environment) = entry.value.as_ref() {
             for line in describe(environment) {
-                writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+                writeln!(streams.out, "{line}").map_err(WireError::from)?;
             }
         }
         if let Some(problem) = entry.problem.as_deref() {
-            writeln!(streams.out, "    problem    {problem}").map_err(GhostError::from)?;
+            writeln!(streams.out, "    problem    {problem}").map_err(WireError::from)?;
         }
-        writeln!(streams.out).map_err(GhostError::from)?;
+        writeln!(streams.out).map_err(WireError::from)?;
     }
     Ok(0)
 }

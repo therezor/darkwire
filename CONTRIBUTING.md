@@ -3,11 +3,11 @@
 ## Setup
 
 ```bash
-git clone https://github.com/therezor/GhostAI.git
-cd GhostAI
+git clone https://github.com/therezor/darkwire.git
+cd DarkWire
 pnpm install
 pnpm build                                   # the web bundle the binary embeds
-cargo build --release -p ghostai             # → target/release/ghostai
+cargo build --release -p darkwire             # → target/release/darkwire
 ```
 
 pnpm 11 (`corepack enable`) and Node 22 or newer for the bundle; `rustup` for
@@ -18,14 +18,14 @@ installed on the first `cargo` command. The gate also wants three cargo tools:
 cargo install cargo-nextest cargo-llvm-cov cargo-deny --locked
 ```
 
-**Node is a build dependency, not a runtime one.** GhostAI is one binary with the
+**Node is a build dependency, not a runtime one.** DarkWire is one binary with the
 browser UI compiled into it, so nothing on a user's machine needs Node — unless
 they install an extension that happens to be written in JavaScript, which runs as
 its own process and brings its own interpreter.
 
 `pnpm build` is not optional even for a server-only change: `rust-embed` compiles
 `packages/web/dist` into the binary, so a missing bundle fails the Rust build at
-compile time. `GHOSTAI_HEADLESS_BUILD=1` skips the embed when you genuinely want a
+compile time. `DARKWIRE_HEADLESS_BUILD=1` skips the embed when you genuinely want a
 binary without a UI.
 
 ## Before you open a pull request
@@ -37,7 +37,7 @@ never calls.
 ```bash
 pnpm typecheck
 pnpm lint
-pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts   # design token gates
+pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts   # design token gates
 pnpm format:check                                             # ← the usual failure
 pnpm i18n:check
 pnpm protocol:check                                           # zod schema dump the Rust drift test reads
@@ -53,8 +53,8 @@ cargo llvm-cov nextest --workspace --json --output-path coverage.json
 node scripts/coverage-gate.mjs coverage.json
 
 # Playwright, both colour schemes, against the real binary
-cargo build --release -p ghostai --features test-hooks
-GHOSTAI_BIN=target/release/ghostai pnpm --filter @ghostwire/e2e test:e2e
+cargo build --release -p darkwire --features test-hooks
+DARKWIRE_BIN=target/release/darkwire pnpm --filter @darkwire/e2e test:e2e
 ```
 
 [Development](docs/development.md) is the full walkthrough — what each gate catches, the
@@ -127,8 +127,8 @@ and an error in CI. Run the linters and you have complied. The rest:
 
 ## Reporting a bug
 
-Include the version (`ghostai --version`), what you expected, what happened, and enough to
-reproduce it. `--verbose` and `GHOSTAI_DEBUG=1` (which prints stack traces rather than the
+Include the version (`darkwire --version`), what you expected, what happened, and enough to
+reproduce it. `--verbose` and `DARKWIRE_DEBUG=1` (which prints stack traces rather than the
 operator sentence) usually turn a vague report into a fixable one.
 
 **Security issues do not go in an issue.** See [SECURITY.md](SECURITY.md).

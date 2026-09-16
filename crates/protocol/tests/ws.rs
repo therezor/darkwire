@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::{
+use darkwire_protocol::{
     ClientMessage, PROTOCOL_VERSION, ProtocolVersion, ServerMessage, UNSEQUENCED_SERVER_EVENTS,
 };
 use serde_json::json;
@@ -52,7 +52,7 @@ fn defaults_fill_what_the_browser_omits() {
     let ClientMessage::ToolApprove(approve) = parsed else {
         panic!("wrong variant")
     };
-    assert_eq!(approve.scope, ghostai_protocol::ApprovalScope::Once);
+    assert_eq!(approve.scope, darkwire_protocol::ApprovalScope::Once);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! One router on one port, for the API, the WebSocket and the UI.
 //!
-//! Single-process by default, and single-port with it. Nothing GhostAI does is
+//! Single-process by default, and single-port with it. Nothing DarkWire does is
 //! heavy enough to justify splitting the API from the socket, and a split would
 //! cost every client a second origin to configure, a second certificate to
 //! trust, and a reconnect story that has to survive one half being up.
@@ -23,10 +23,10 @@ use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use ghostai_core::session_store::IdSource;
-use ghostai_core::{Clock, Database, GhostError, Result, SystemClock};
-use ghostai_protocol::config::Config;
-use ghostai_security::random::{OsRandom, RandomSource};
+use darkwire_core::session_store::IdSource;
+use darkwire_core::{Clock, Database, Result, SystemClock, WireError};
+use darkwire_protocol::config::Config;
+use darkwire_security::random::{OsRandom, RandomSource};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
@@ -86,7 +86,7 @@ pub struct ServerOptions {
     pub random: Arc<dyn RandomSource>,
     /// Sets or rotates the password at boot, then is not retained.
     ///
-    /// This is how `--password` and `GHOSTAI_PASSWORD` reach the store. Reading
+    /// This is how `--password` and `DARKWIRE_PASSWORD` reach the store. Reading
     /// the environment is deliberately the caller's job — a server that read it
     /// itself would be untestable without mutating the process environment.
     pub password: Option<String>,
@@ -126,7 +126,7 @@ impl ServerOptions {
 }
 
 /// A built server, before it is listening.
-pub struct GhostServer {
+pub struct WireServer {
     /// The router, ready to serve or to be driven directly by a test.
     pub router: Router,
     /// Passwords, sessions and the signing secret.
@@ -144,7 +144,7 @@ pub struct GhostServer {
     pub config: Config,
 }
 
-impl GhostServer {
+impl WireServer {
     /// Binds and serves until `token` is cancelled, answering with the address
     /// it actually bound.
     ///
@@ -187,13 +187,13 @@ fn id_source(clock: Arc<dyn Clock>, random: Arc<dyn RandomSource>) -> IdSource {
     Box::new(move || {
         let mut bytes = [0u8; 10];
         random.fill(&mut bytes);
-        ghostai_protocol::new_uuid(u64::try_from(clock.now_ms()).unwrap_or(0), &bytes)
+        darkwire_protocol::new_uuid(u64::try_from(clock.now_ms()).unwrap_or(0), &bytes)
     })
 }
 
-fn storage_error(what: &str, error: &std::io::Error) -> GhostError {
-    GhostError::new(
-        ghostai_core::ErrorKind::Storage,
+fn storage_error(what: &str, error: &std::io::Error) -> WireError {
+    WireError::new(
+        darkwire_core::ErrorKind::Storage,
         format!("Could not {what}: {error}"),
     )
 }
@@ -203,7 +203,7 @@ fn storage_error(what: &str, error: &std::io::Error) -> GhostError {
 /// Returns `Err` rather than starting on a configuration that must not be
 /// served — see [`assert_boot_policy`], which runs here, before a listener
 /// exists.
-pub fn create_server(options: ServerOptions) -> Result<GhostServer> {
+pub fn create_server(options: ServerOptions) -> Result<WireServer> {
     // (1) The store opens its tables and any provided password is written…
     let auth = Arc::new(AuthStore::new(AuthStoreOptions {
         db: options.database.clone(),
@@ -220,8 +220,8 @@ pub fn create_server(options: ServerOptions) -> Result<GhostServer> {
         // Rotating a name without a password would leave sessions minted under
         // the old credential alive, and ignoring the flag would leave an
         // operator convinced they had changed something.
-        return Err(GhostError::new(
-            ghostai_core::ErrorKind::Config,
+        return Err(WireError::new(
+            darkwire_core::ErrorKind::Config,
             "A username can only be set together with a password.",
         ));
     }
@@ -286,7 +286,7 @@ pub fn create_server(options: ServerOptions) -> Result<GhostServer> {
     let router =
         router(state, global.as_ref()).fallback(axum::routing::any(not_found).with_state(ui));
 
-    Ok(GhostServer {
+    Ok(WireServer {
         router,
         auth,
         notifications,

@@ -15,11 +15,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::agents::{agent_items, agent_listing, pick_agent};
-use ghostai::pickers::{MenuRequest, NoMenu, PickerMenu};
-use ghostai_protocol::config::{AgentEnvironment, AgentSettings, PromptMode, ToolsConfig};
-use ghostai_runtime::EffectiveAgent;
+use darkwire::i18n::Translations;
+use darkwire::pickers::agents::{agent_items, agent_listing, pick_agent};
+use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire_protocol::config::{AgentEnvironment, AgentSettings, PromptMode, ToolsConfig};
+use darkwire_runtime::EffectiveAgent;
 use indexmap::IndexMap;
 
 /// Only the fields the picker reads.

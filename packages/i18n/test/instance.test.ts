@@ -41,7 +41,7 @@ function build(locale = 'en', strict = false): LooseT {
 describe('the instance', () => {
   it('translates on the line after init, without awaiting anything', () => {
     // `initAsync: false` is what buys this. Left on, i18next loads inside a
-    // setTimeout and this returns the key — and `ghostai --help` has no await to
+    // setTimeout and this returns the key — and `darkwire --help` has no await to
     // hang on before printing.
     const t = build();
 

@@ -15,9 +15,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_server::manifest::{ROUTE_MANIFEST, RouteAuth};
-use ghostai_server::openapi::{ROUTE_DOCS, openapi_document};
-use ghostai_server::version::SERVER_VERSION;
+use darkwire_server::manifest::{ROUTE_MANIFEST, RouteAuth};
+use darkwire_server::openapi::{ROUTE_DOCS, openapi_document};
+use darkwire_server::version::SERVER_VERSION;
 use serde_json::Value;
 
 fn document() -> Value {
@@ -62,7 +62,7 @@ fn it_declares_openapi_three_one_and_this_build_s_version() {
     let doc = document();
     assert_eq!(doc["openapi"], "3.1.0");
     assert_eq!(doc["info"]["version"], SERVER_VERSION);
-    assert_eq!(doc["info"]["title"], "GhostAI");
+    assert_eq!(doc["info"]["title"], "DarkWire");
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn both_security_schemes_are_declared() {
     assert_eq!(schemes["cookieAuth"]["in"], "cookie");
     assert_eq!(
         schemes["cookieAuth"]["name"],
-        ghostai_server::auth::SESSION_COOKIE
+        darkwire_server::auth::SESSION_COOKIE
     );
     assert_eq!(schemes["bearerAuth"]["type"], "http");
     assert_eq!(schemes["bearerAuth"]["scheme"], "bearer");
@@ -279,8 +279,8 @@ fn the_component_pool_holds_every_protocol_schema() {
     let pool = doc["components"]["schemas"]
         .as_object()
         .expect("a component pool");
-    assert_eq!(pool.len(), ghostai_protocol::PROTOCOL_SCHEMAS.len());
-    for entry in ghostai_protocol::PROTOCOL_SCHEMAS {
+    assert_eq!(pool.len(), darkwire_protocol::PROTOCOL_SCHEMAS.len());
+    for entry in darkwire_protocol::PROTOCOL_SCHEMAS {
         assert!(pool.contains_key(entry.name), "{} is missing", entry.name);
     }
 }

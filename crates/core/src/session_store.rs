@@ -1,6 +1,6 @@
 //! Session and message persistence.
 //!
-//! One SQLite file holds everything GhostAI owns. Messages are **append-only**:
+//! One SQLite file holds everything DarkWire owns. Messages are **append-only**:
 //! nothing ever updates a row in `messages`. That is not a stylistic
 //! preference — a provider's prompt cache keys on an exact prefix, so editing
 //! history invalidates the cache for every turn that follows and quietly
@@ -25,10 +25,10 @@
 
 use std::sync::Arc;
 
+use darkwire_protocol::json::Object;
+use darkwire_protocol::messages::{ChatMessage, StopReason, StoredMessage, Usage};
+use darkwire_protocol::subagent::subagent_runs_of;
 use garde::Validate as _;
-use ghostai_protocol::json::Object;
-use ghostai_protocol::messages::{ChatMessage, StopReason, StoredMessage, Usage};
-use ghostai_protocol::subagent::subagent_runs_of;
 use indexmap::IndexMap;
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Row, params, params_from_iter};
@@ -36,7 +36,7 @@ use serde_json::{Map, Value, json};
 
 use crate::clock::Clock;
 use crate::db::Database;
-use crate::errors::{ErrorKind, GhostError, Result};
+use crate::errors::{ErrorKind, Result, WireError};
 use crate::history::{
     HistoryOptions, MessageWindow, SessionHistorySource, find_legal_end, session_history,
 };
@@ -275,8 +275,8 @@ fn len_to_i64(value: usize) -> i64 {
 
 /// A payload that cannot be serialised is an invariant failure, not a storage
 /// one: every `ChatMessage` serialises.
-fn json_error(error: serde_json::Error) -> GhostError {
-    GhostError::new(ErrorKind::Internal, "Message could not be serialised").with_source(error)
+fn json_error(error: serde_json::Error) -> WireError {
+    WireError::new(ErrorKind::Internal, "Message could not be serialised").with_source(error)
 }
 
 /// Narrows a storage record to the wire shape the REST and WS layers publish.
@@ -536,7 +536,7 @@ fn stop_reason_text(reason: StopReason) -> String {
 
 fn parse_stop_reason(text: &str) -> Result<StopReason> {
     serde_json::from_value(Value::String(text.to_owned())).map_err(|_| {
-        GhostError::new(ErrorKind::Storage, format!("Not a stop reason: \"{text}\""))
+        WireError::new(ErrorKind::Storage, format!("Not a stop reason: \"{text}\""))
             .with_detail("store", "sessions")
             .with_detail("column", "stop_reason")
     })
@@ -582,7 +582,7 @@ fn row_to_message(session_key: &str, row: &Row<'_>) -> Result<StoredMessageRecor
     let seq = READ.int(row, "seq")?;
     let payload = READ.string(row, "payload_json")?;
     let message = serde_json::from_str::<ChatMessage>(&payload).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Storage,
             "Stored message failed schema validation",
         )
@@ -735,8 +735,8 @@ impl std::fmt::Debug for SessionStore {
     }
 }
 
-fn no_such_session(key: &str) -> GhostError {
-    GhostError::new(ErrorKind::NotFound, format!("No such session: {key}"))
+fn no_such_session(key: &str) -> WireError {
+    WireError::new(ErrorKind::NotFound, format!("No such session: {key}"))
         .with_detail("sessionKey", key)
 }
 
@@ -776,7 +776,7 @@ impl SessionStore {
     /// them failing on the primary key.
     pub fn ensure_session(&self, key: &str, options: CreateSession) -> Result<SessionRecord> {
         if key.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "Session key must not be empty",
             ));
@@ -807,7 +807,7 @@ impl SessionStore {
         )?;
 
         self.get_session(key)?.ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 "Session vanished immediately after insert",
             )
@@ -826,7 +826,7 @@ impl SessionStore {
             // position that does not exist there, and the page that comes
             // back looks entirely plausible — which is why this errors instead
             // of quietly ignoring one of the two arguments.
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Storage,
                 "A session cursor is only valid in the default ordering",
             )
@@ -950,7 +950,7 @@ impl SessionStore {
         let mut records = self.append_many(session_key, vec![message], options)?;
         if records.is_empty() {
             return Err(
-                GhostError::new(ErrorKind::Storage, "Append returned no record")
+                WireError::new(ErrorKind::Storage, "Append returned no record")
                     .with_detail("sessionKey", session_key),
             );
         }
@@ -978,7 +978,7 @@ impl SessionStore {
 
         for (index, message) in messages.iter().enumerate() {
             if let Err(report) = message.validate() {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     "Message failed schema validation",
                 )
@@ -999,7 +999,7 @@ impl SessionStore {
                 )?
                 .query_row(params![block, session_key], |row| row.get("next_seq"))
                 .map_err(|error| {
-                    GhostError::new(ErrorKind::Storage, "Failed to reserve message sequence")
+                    WireError::new(ErrorKind::Storage, "Failed to reserve message sequence")
                         .with_detail("sessionKey", session_key)
                         .with_source(error)
                 })?;
@@ -1321,7 +1321,7 @@ impl SessionStore {
             let key = options.key.unwrap_or_else(|| (self.new_id)());
 
             if self.get_session(&key)?.is_some() {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Conflict,
                     format!("Session already exists: {key}"),
                 )
@@ -1390,7 +1390,7 @@ impl SessionStore {
             }
 
             let session = self.get_session(&key)?.ok_or_else(|| {
-                GhostError::new(ErrorKind::Storage, "Fork vanished immediately after insert")
+                WireError::new(ErrorKind::Storage, "Fork vanished immediately after insert")
                     .with_detail("sessionKey", key.clone())
             })?;
 
@@ -1509,7 +1509,7 @@ impl SessionStore {
         let guard = self.db.lock();
         let mut statement = guard.prepare_cached(&sql)?;
         let rows = statement.query_and_then(params_from_iter(session_keys.iter()), |row| {
-            Ok::<_, GhostError>((READ.string(row, "session_key")?, read_usage(row)))
+            Ok::<_, WireError>((READ.string(row, "session_key")?, read_usage(row)))
         })?;
         for row in rows {
             let (key, usage) = row?;

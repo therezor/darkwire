@@ -26,7 +26,7 @@
 //! turn spent discovering that — and there is no arrangement of one map that
 //! can.
 
-use ghostai_protocol::{ToolPermission, ToolPermissions};
+use darkwire_protocol::{ToolPermission, ToolPermissions};
 
 /// What `perms` says about `name`.
 ///

@@ -2,17 +2,17 @@
 
 **Who this is for:** anyone changing the code. It is the CI gate, the conventions a
 linter cannot enforce, the coverage bars, and how to release. If you only want to _run_
-GhostAI, [Getting started](getting-started.md) is the page you want;
+DarkWire, [Getting started](getting-started.md) is the page you want;
 [CONTRIBUTING.md](../CONTRIBUTING.md) is the short version of this one.
 
 ## Setup
 
 ```bash
-git clone https://github.com/therezor/GhostAI.git
-cd GhostAI
+git clone https://github.com/therezor/darkwire.git
+cd DarkWire
 pnpm install
 pnpm build                                       # the web bundle the binary embeds
-cargo build --release -p ghostai                 # → target/release/ghostai
+cargo build --release -p darkwire                 # → target/release/darkwire
 ```
 
 The Rust workspace under `crates/` needs `rustup` (the compiler version is pinned in
@@ -35,9 +35,9 @@ own process over JSON-RPC — its interpreter is its business, not the product's
 no version floor to state any more: `node:sqlite`, which is where the old 22.13 floor came
 from, has been replaced by SQLite compiled into the binary through `rusqlite`.
 
-A debug build is fine for everything except a demo: `cargo build -p ghostai --features
-test-hooks` is what the e2e harness looks for by default (`target/debug/ghostai`, unless
-`GHOSTAI_BIN` names another), and CI hands it a release build through that variable
+A debug build is fine for everything except a demo: `cargo build -p darkwire --features
+test-hooks` is what the e2e harness looks for by default (`target/debug/darkwire`, unless
+`DARKWIRE_BIN` names another), and CI hands it a release build through that variable
 because the suite is slow enough already.
 
 **`pnpm build` comes before the first `cargo` command, including `cargo check` and
@@ -46,7 +46,7 @@ binary, so on a fresh clone — where `dist/` is gitignored and therefore absent
 `crates/server`'s build script stops with a sentence naming the command that fixes it.
 That is deliberate: the alternative, which this repository shipped for exactly one commit,
 is a build that quietly drops the UI and a binary whose `GET /` is a JSON 404. To work on
-the Rust side without building the bundle at all, set `GHOSTAI_HEADLESS_BUILD=1` — it is
+the Rust side without building the bundle at all, set `DARKWIRE_HEADLESS_BUILD=1` — it is
 what the CI `rust` job does, and it is an editor environment variable as easily as a shell
 one.
 
@@ -63,7 +63,7 @@ Run all of it before calling something done:
 # job: check
 pnpm typecheck
 pnpm lint
-pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts   # design token gates
+pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts   # design token gates
 pnpm format:check                                             # ← the usual failure
 shellcheck -s sh install.sh                                   # the line the README pipes into a shell
 pnpm i18n:check
@@ -76,8 +76,8 @@ pnpm test:coverage                                            # the crates' bars
 
 # job: e2e — Playwright, both colour schemes, against the real binary
 pnpm build                                                    # the SPA the binary embeds
-cargo build --release -p ghostai --features test-hooks        # the server under test
-GHOSTAI_BIN=target/release/ghostai pnpm --filter @ghostwire/e2e test:e2e
+cargo build --release -p darkwire --features test-hooks        # the server under test
+DARKWIRE_BIN=target/release/darkwire pnpm --filter @darkwire/e2e test:e2e
 
 # job: rust — the Cargo workspace under crates/
 cargo fmt --all --check
@@ -92,18 +92,18 @@ Notes that save a cycle:
 
 - **`pnpm format:check` fails, `pnpm format` fixes it.** Prettier is not wired into
   `lint`. When it reports files you did not touch, format only your own.
-- **e2e needs both builds first.** The suite spawns `ghostai serve` as a subprocess and
+- **e2e needs both builds first.** The suite spawns `darkwire serve` as a subprocess and
   the binary embeds the SPA, so `pnpm build` comes before `cargo build`;
   a missing binary fails with a sentence naming `cargo build`, and a missing bundle
   fails the Rust build at compile time, naming `pnpm build`. The `rust` job is the one
-  place that is not true, and it says so with `GHOSTAI_HEADLESS_BUILD=1`.
+  place that is not true, and it says so with `DARKWIRE_HEADLESS_BUILD=1`.
 - **The fidelity spec skips without a baseline.** `2 skipped` is the healthy result.
 - **A green local e2e run is evidence, not proof.** CI runs 2 workers on a shared runner;
   a laptop runs 5 with nothing competing. When CI reports a failure the local suite will
   not reproduce, re-run that spec under load before blaming CI:
 
   ```bash
-  pnpm --filter @ghostwire/e2e exec playwright test <spec> --repeat-each=6
+  pnpm --filter @darkwire/e2e exec playwright test <spec> --repeat-each=6
   ```
 
 ### Scripts
@@ -117,8 +117,8 @@ Notes that save a cycle:
 | `pnpm test:coverage`                    | Vitest with the per-package gates enforced (`vitest.config.ts`)            |
 | `pnpm build`                            | Turborepo build across the graph                                           |
 | `pnpm i18n:extract` / `i18n:check`      | Regenerate the locale bundles / fail if they are out of step               |
-| `pnpm --filter @ghostwire/web dev`      | Vite dev server, proxying `/api` and `/ws` to a running `ghostai serve`    |
-| `pnpm --filter @ghostwire/e2e test:e2e` | Playwright, both colour schemes                                            |
+| `pnpm --filter @darkwire/web dev`       | Vite dev server, proxying `/api` and `/ws` to a running `darkwire serve`   |
+| `pnpm --filter @darkwire/e2e test:e2e`  | Playwright, both colour schemes                                            |
 | `pnpm screenshots`                      | Regenerate the documentation's images into `docs/screenshots/`             |
 | `pnpm demo`                             | Build, then regenerate the animated terminal cast in the README            |
 | `node scripts/gen-packages.mjs`         | Regenerate `packages/protocol`'s manifest; carry the version into the rest |
@@ -164,7 +164,7 @@ holds it.
 ## Releasing
 
 One binary, four platforms, attached to a GitHub release. Nothing goes to npm: the
-product is `ghostai`, the web bundle is compiled into it, and an install is a download
+product is `darkwire`, the web bundle is compiled into it, and an install is a download
 rather than a dependency tree.
 
 There is still one version, and now it lives in two files that must agree — `Cargo.toml`
@@ -189,11 +189,7 @@ The hand-edited `VERSION` and `SERVER_VERSION` literals are gone. They existed b
 bundle in `dist/` resolves a relative manifest read differently in the workspace and in a
 published tarball, and a silently wrong version is worse than a missing one. A compiled
 binary has no such ambiguity: `env!("CARGO_PKG_VERSION")` is fixed at build time and is
-what both `ghostai --version` and `GET /api/status` report.
-
-The agent presets and environments are no longer part of this repository. They live in the
-separately versioned [`GhostAI-presets`](https://github.com/therezor/GhostAI-presets)
-repository and are released on their own cadence.
+what both `darkwire --version` and `GET /api/status` report.
 
 **Name the tag in the push.** `--follow-tags` is the spelling this said for three
 releases and it pushes _annotated_ tags only, so a `git tag v1.1.0` goes nowhere: the
@@ -236,19 +232,19 @@ keychain and the process teardown, not a rewrite.
 
 **The web bundle is a build input, not a separate artifact.** `rust-embed` compiles
 `packages/web/dist` into the binary, so `pnpm build` runs before `cargo build` in every
-matrix job — the whole graph, not `--filter @ghostwire/web`, because the web app imports
-`@ghostwire/protocol` and `@ghostwire/i18n` and their `exports` resolve to `dist/`
+matrix job — the whole graph, not `--filter @darkwire/web`, because the web app imports
+`@darkwire/protocol` and `@darkwire/i18n` and their `exports` resolve to `dist/`
 outside a dev server. Turbo is what knows to build those two first. Without it the build fails at compile time, which is
 the intended failure and one step earlier than resolving a path at startup used to give.
 For a build with no bundle — a headless server, or a CI job that only wants the tests —
-`GHOSTAI_HEADLESS_BUILD=1` skips the embed and `GET /` answers a JSON 404 with a
+`DARKWIRE_HEADLESS_BUILD=1` skips the embed and `GET /` answers a JSON 404 with a
 sentence.
 
 ## Screenshots
 
 Every picture in the README and in [Web UI](web-ui.md) is generated. `pnpm screenshots`
 builds both halves — the bundle and the binary, because the harness spawns the real
-`ghostai serve` — boots that harness over a scripted provider, drives each screen to the
+`darkwire serve` — boots that harness over a scripted provider, drives each screen to the
 state worth showing, and writes twenty PNGs into `docs/screenshots/`, one per screen per
 colour scheme. They are committed, because GitHub cannot run a build step to render a
 README.
@@ -270,14 +266,14 @@ seed rows written in a loop share a millisecond often enough to make a list orde
 
 `pnpm demo` regenerates `docs/screenshots/demo.svg`, the animated recording at the top of
 the README. `scripts/demo-provider.mjs` stands up a mock `openai-chat` endpoint,
-`scripts/ptyrec.py` records **bash** on a real pty — typing `ghostai chat`, waiting for the
+`scripts/ptyrec.py` records **bash** on a real pty — typing `darkwire chat`, waiting for the
 TUI, asking a question — and `svg-term` renders the cast to a self-contained SVG. Every
 byte on screen came back through the pty from the real binary; the keystroke schedule is
 authored so the run reproduces.
 
 Three things that are not obvious:
 
-- **A pipe is not a terminal.** Piping `ghostai chat` gets the plain stream it writes for a
+- **A pipe is not a terminal.** Piping `darkwire chat` gets the plain stream it writes for a
   machine — no session header, no composer, no status bar, no spinner. The child has to
   believe it is on a tty, and `script(1)` needs a controlling terminal that tooling does
   not always have. Python's `pty` is stdlib and needs nothing.
@@ -329,7 +325,7 @@ clocks) moved with the code; see [Rust conventions](#rust-conventions) below.
 
 Everything under `crates/` is one crate per former TypeScript package, same names and
 the same layering as the diagram below. Cargo `[dependencies]` are the mechanical
-enforcement: a crate that does not list `ghostai-server` cannot `use` it.
+enforcement: a crate that does not list `darkwire-server` cannot `use` it.
 
 - **rustfmt and clippy own the style.** `rustfmt.toml` is defaults plus a 100-column
   width (rustfmt's own default; the 80-column rule is Google's TypeScript guide).
@@ -339,7 +335,7 @@ enforcement: a crate that does not list `ghostai-server` cannot `use` it.
   product names and the denied methods.
 - **`#![forbid(unsafe_code)]`** in every crate. Anything needing unsafe goes through a
   dependency.
-- **Errors are values.** `ghostai_core::GhostError { kind, message, retryable, details }`
+- **Errors are values.** `darkwire_core::WireError { kind, message, retryable, details }`
   with the closed fifteen-variant `ErrorKind` and its per-kind `retryable` defaults;
   `thiserror` below the binary, `anyhow` only in `crates/cli/src/main.rs`. Never branch
   on a message substring.
@@ -366,7 +362,7 @@ enforcement: a crate that does not list `ghostai-server` cannot `use` it.
   no longer exists is deleted, not translated. No "ported from `x.ts`" breadcrumbs.
 - **One version.** The root `Cargo.toml` and the root `package.json` must agree;
   `crates/cli/tests/version.rs` fails when they do not, and `env!("CARGO_PKG_VERSION")`
-  is what `ghostai --version` and `GET /api/status` report.
+  is what `darkwire --version` and `GET /api/status` report.
 - **Dependencies are pinned exact** in `[workspace.dependencies]` and `cargo deny` is the
   analogue of pnpm's release-age policy: no git sources, no wildcards, an allow-listed
   licence set. Cargo has no release-age hold, so `cargo update` is reviewed rather than
@@ -382,9 +378,9 @@ enforcement: a crate that does not list `ghostai-server` cannot `use` it.
 ```
 
 Every name on that diagram except `web` is a crate under `crates/`, and Cargo is the
-enforcement: a crate that does not list `ghostai-server` in `[dependencies]` cannot `use`
+enforcement: a crate that does not list `darkwire-server` in `[dependencies]` cannot `use`
 it, which is a compile error rather than a lint. `web` is the TypeScript half, and pnpm's
-isolated `node_modules` does the same job for it — an undeclared `@ghostwire/x` import
+isolated `node_modules` does the same job for it — an undeclared `@darkwire/x` import
 fails to _resolve_.
 
 The agent must never reach back into the HTTP server.
@@ -396,7 +392,7 @@ There is no CSS framework and there are three token gates. The full picture is i
 [Web UI](web-ui.md#design-tokens); the short version:
 
 - `styles/tokens.css` is the only file allowed a raw colour or a `px` literal.
-- `pnpm --filter @ghostwire/web lint` runs ESLint _and_ the gates.
+- `pnpm --filter @darkwire/web lint` runs ESLint _and_ the gates.
 - `/tokens` in the running app renders every token and primitive on one page.
 - A contrast test resolves the sheet in both themes and holds every text-on-surface
   pairing to WCAG AA, so a seed edit that darkens text past the line fails the suite.
@@ -405,27 +401,27 @@ There is no CSS framework and there are three token gates. The full picture is i
 the server is serving the copy that existed when it was _built_ — rebuilding
 `packages/web/dist` underneath it changes nothing at all until `cargo build` runs again.
 For an edit-reload loop use the Vite dev server, which proxies `/api` and `/ws` to a
-running `ghostai serve`; to test a bundle against the real server without a recompile,
-`ghostai serve --ui packages/web/dist` reads it from disk instead, which is what the e2e
+running `darkwire serve`; to test a bundle against the real server without a recompile,
+`darkwire serve --ui packages/web/dist` reads it from disk instead, which is what the e2e
 harness does.
 
 ## End-to-end tests
 
 ```bash
 pnpm build
-cargo build -p ghostai --features test-hooks
-pnpm --filter @ghostwire/e2e exec playwright install chromium   # once
-pnpm --filter @ghostwire/e2e test:e2e
+cargo build -p darkwire --features test-hooks
+pnpm --filter @darkwire/e2e exec playwright install chromium   # once
+pnpm --filter @darkwire/e2e test:e2e
 ```
 
-Every spec spawns its own `ghostai serve` against a scripted model, so nothing reaches the
+Every spec spawns its own `darkwire serve` against a scripted model, so nothing reaches the
 network and nothing shares state. **The colour scheme is a Playwright project**, which
 means every assertion runs twice.
 
 The binary is the real one, which is the point of the rebuild: `test-hooks` is a cargo
 feature rather than a code path, so what the suite drives differs from a release build
-only in the seams the harness needs to reach. `GHOSTAI_BIN` names the binary when it is
-not `target/debug/ghostai`, and a missing one fails with a sentence naming `cargo build`
+only in the seams the harness needs to reach. `DARKWIRE_BIN` names the binary when it is
+not `target/debug/darkwire`, and a missing one fails with a sentence naming `cargo build`
 rather than as twenty timed-out specs.
 
 ### Never assert a transient state
@@ -445,8 +441,8 @@ that the machine was slow, it does not belong in an `expect`.**
 
 `fidelity.spec.ts` compares the shell's geometry and colour ramps against a checkout of a
 reference build. That checkout is not in this repository and is not required — point
-`GHOSTAI_FIDELITY_ORIGINAL` at one to run the gate, and
-`pnpm --filter @ghostwire/e2e baseline` to write the side-by-side captures. Without it the
+`DARKWIRE_FIDELITY_ORIGINAL` at one to run the gate, and
+`pnpm --filter @darkwire/e2e baseline` to write the side-by-side captures. Without it the
 gate skips.
 
 ## Translations

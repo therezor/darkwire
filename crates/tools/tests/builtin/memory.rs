@@ -9,9 +9,9 @@
 
 use std::fs;
 
-use ghostai_core::ErrorKind;
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{AnyTool, ToolContext, ToolExecution, memory_tool, skill_tool};
+use darkwire_core::ErrorKind;
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{AnyTool, ToolContext, ToolExecution, memory_tool, skill_tool};
 use serde_json::{Value, json};
 
 async fn run(tool: &AnyTool, args: Value, ctx: &ToolContext) -> ToolExecution {

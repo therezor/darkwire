@@ -10,8 +10,8 @@
  * An extension is a **child process** speaking JSON-RPC 2.0 over its own stdio,
  * one JSON object per line, which is exactly MCP's stdio transport. That has a
  * consequence worth stating before anything else: a plain MCP server — one that
- * has never heard of GhostAI — is already a valid tools-only extension. The
- * `ghostai/` methods below are additions on top of a handshake it already
+ * has never heard of DarkWire — is already a valid tools-only extension. The
+ * `darkwire/` methods below are additions on top of a handshake it already
  * speaks, and a server that answers `-32601` to all of them still works.
  *
  * Five things a first-time reader usually gets wrong, each shown rather than
@@ -22,7 +22,7 @@
  *    own log under the target `extension.hello`.
  *  - **Everything the host tells you arrives in `initialize`.** The settings
  *    block, the data directory and the extension id are under
- *    `params._meta.ghostai` — the field MCP reserves for exactly this. There is
+ *    `params._meta.darkwire` — the field MCP reserves for exactly this. There is
  *    no environment to read beyond the two variables named below, and no
  *    config file to find.
  *  - **`contributes` in the manifest has to match what this answers.** The host
@@ -90,9 +90,9 @@ function fail(id, code, message) {
 function initialize(params) {
   // Absent when a plain MCP client connects, which is a case worth surviving:
   // this file is runnable under any MCP inspector.
-  const ghostai = params?._meta?.ghostai;
-  if (typeof ghostai?.settings?.greeting === 'string') {
-    greeting = ghostai.settings.greeting;
+  const darkwire = params?._meta?.darkwire;
+  if (typeof darkwire?.settings?.greeting === 'string') {
+    greeting = darkwire.settings.greeting;
   }
   return {
     protocolVersion: params?.protocolVersion ?? '2025-06-18',
@@ -155,9 +155,9 @@ const METHODS = {
   initialize,
   'tools/list': () => ({ tools: TOOLS }),
   'tools/call': callTool,
-  'ghostai/context/static': staticContext,
-  'ghostai/commands/list': () => ({ commands: COMMANDS }),
-  'ghostai/commands/run': runCommand,
+  'darkwire/context/static': staticContext,
+  'darkwire/commands/list': () => ({ commands: COMMANDS }),
+  'darkwire/commands/run': runCommand,
 };
 
 function handle(line) {

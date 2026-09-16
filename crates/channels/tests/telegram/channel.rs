@@ -4,20 +4,20 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_channels::channel::Channel;
-use ghostai_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
-use ghostai_channels::projection::APPROVAL_METADATA_KEY;
-use ghostai_channels::telegram::api::HttpClient;
-use ghostai_channels::telegram::channel::{TelegramChannelOptions, telegram_channel};
-use ghostai_channels::telegram::console::TelegramConsole;
-use ghostai_channels::testkit::{ScriptedHub, counter_ids, flush};
-use ghostai_core::ErrorKind;
-use ghostai_core::message_bus::{
+use darkwire_channels::channel::Channel;
+use darkwire_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
+use darkwire_channels::projection::APPROVAL_METADATA_KEY;
+use darkwire_channels::telegram::api::HttpClient;
+use darkwire_channels::telegram::channel::{TelegramChannelOptions, telegram_channel};
+use darkwire_channels::telegram::console::TelegramConsole;
+use darkwire_channels::testkit::{ScriptedHub, counter_ids, flush};
+use darkwire_core::ErrorKind;
+use darkwire_core::message_bus::{
     MessageBus, MessageBusOptions, OutboundKind, OutboundMessageInput, RateLimitOptions,
 };
-use ghostai_core::messages::text_part;
-use ghostai_core::session_store::CreateSession;
-use ghostai_protocol::ApprovalScope;
+use darkwire_core::messages::text_part;
+use darkwire_core::session_store::CreateSession;
+use darkwire_protocol::ApprovalScope;
 use serde_json::{Map, Value, json};
 
 use crate::console_double::FakeConsole;
@@ -270,7 +270,7 @@ async fn a_rate_limited_message_is_answered_rather_than_dropped() {
             burst: Some(1),
         },
         ..MessageBusOptions::new(
-            Arc::new(ghostai_core::clock::SystemClock),
+            Arc::new(darkwire_core::clock::SystemClock),
             counter_ids("bus-"),
         )
     }));
@@ -667,7 +667,7 @@ async fn answering_an_approval_sends_the_frame_a_browser_would_have() {
         .iter()
         .find(|frame| frame.tag == "tool.approve")
         .expect("an approval frame");
-    let ghostai_protocol::ClientMessage::ToolApprove(body) = &approve.frame else {
+    let darkwire_protocol::ClientMessage::ToolApprove(body) = &approve.frame else {
         panic!("a tool.approve");
     };
     assert_eq!(body.call_id, "call-1");
@@ -786,7 +786,7 @@ async fn an_update_that_is_neither_a_message_nor_a_press_is_nothing_to_do() {
     let bot = bot().await;
 
     bot.api
-        .push(ghostai_channels::telegram::api::TelegramUpdate {
+        .push(darkwire_channels::telegram::api::TelegramUpdate {
             update_id: 0,
             message: None,
             callback_query: None,

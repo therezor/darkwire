@@ -1,6 +1,6 @@
 //! The injectable clock.
 //!
-//! Nothing in GhostAI reads the system time directly. Everything time-dependent
+//! Nothing in DarkWire reads the system time directly. Everything time-dependent
 //! takes a `Clock`, so tests drive it by hand and nothing ever sleeps for real.
 //!
 //! The trait separates two kinds of time on purpose:
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
 
-use crate::errors::{GhostError, Result};
+use crate::errors::{Result, WireError};
 
 /// Wall-clock and monotonic time, injected.
 pub trait Clock: Send + Sync {
@@ -56,10 +56,10 @@ impl Clock for SystemClock {
 /// expressed; a bespoke timeout beside it would be a second clock.
 pub async fn sleep(delay: Duration, token: &CancellationToken) -> Result<()> {
     if token.is_cancelled() {
-        return Err(GhostError::aborted("Sleep"));
+        return Err(WireError::aborted("Sleep"));
     }
     tokio::select! {
-        () = token.cancelled() => Err(GhostError::aborted("Sleep")),
+        () = token.cancelled() => Err(WireError::aborted("Sleep")),
         () = tokio::time::sleep(delay) => Ok(()),
     }
 }

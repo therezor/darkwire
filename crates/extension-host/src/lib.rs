@@ -2,7 +2,7 @@
 //!
 //! An extension is a directory the operator approved by content digest, run as a
 //! child process speaking JSON-RPC over stdio on MCP's wire. A plain MCP server
-//! is a valid tools-only extension; `ghostai/`-namespaced methods add context
+//! is a valid tools-only extension; `darkwire/`-namespaced methods add context
 //! sections, commands and channels. The host holds what `initialize` and the
 //! list methods returned, so unload is exact and a partial activation installs
 //! nothing. The boundary is a process: the host's registries are unreachable.
@@ -33,6 +33,6 @@ pub use process::{
 pub use registration::{EXTENSION_TOOL_PREFIX, add_bridged_tool, add_provider};
 
 pub use rpc::{
-    GhostaiInit, InitializeResult, JSONRPC_VERSION, METHOD_NOT_FOUND, NoHostMethods,
+    DarkwireInit, InitializeResult, JSONRPC_VERSION, METHOD_NOT_FOUND, NoHostMethods,
     PROTOCOL_VERSION, RpcClient, RpcError, RpcFailure, RpcHandler,
 };

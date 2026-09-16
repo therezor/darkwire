@@ -1,11 +1,11 @@
-//! `cargo run -p ghostai-extension-host --example check --features testkit -- <dir>`
+//! `cargo run -p darkwire-extension-host --example check --features testkit -- <dir>`
 //!
 //! The conformance suite as a command. An extension author runs it against
 //! their own directory and gets the host's verdict without writing a line of
 //! Rust; the example in this repository runs it from a vitest test, which is
 //! how a JavaScript author reaches it with no toolchain of their own.
 //!
-//! This is also the shape the operator command `ghostai extension check <id>`
+//! This is also the shape the operator command `darkwire extension check <id>`
 //! will take when the CLI lands — the same call, against an installed id
 //! instead of a path.
 
@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ghostai_extension_host::testkit::{Expect, extension_conformance};
+use darkwire_extension_host::testkit::{Expect, extension_conformance};
 
 /// `--tools N`, `--commands N`, `--context N`, in any order, after the path.
 fn parse(args: &[String]) -> Option<(PathBuf, Expect)> {

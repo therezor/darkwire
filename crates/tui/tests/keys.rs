@@ -1,6 +1,6 @@
 //! Bytes in, keys out: both cursor encodings, the modifier bitmask, whole chunks.
 
-use ghostai_tui::{KeyName, is_ctrl, parse_key, parse_keys};
+use darkwire_tui::{KeyName, is_ctrl, parse_key, parse_keys};
 
 const ESC: &str = "\x1b";
 const CSI: &str = "\x1b[";

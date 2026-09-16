@@ -1,7 +1,7 @@
 /**
  * Nothing in the UI reaches off-origin.
  *
- * GhostAI is self-hosted, and some installs are air-gapped. A font CDN, a
+ * DarkWire is self-hosted, and some installs are air-gapped. A font CDN, a
  * Google Fonts `<link>` or an analytics beacon would mean a first paint that
  * leaks every user's IP to a third party — and, on a machine with no route out,
  * a page that renders in Times New Roman while a request times out.

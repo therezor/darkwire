@@ -12,8 +12,8 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use ghostai_core::ErrorKind;
-use ghostai_security::{
+use darkwire_core::ErrorKind;
+use darkwire_security::{
     MAX_EXTENSION_FILES, assert_extension_policy, extension_digest, manifest_hash, parse_extension,
     read_extension_manifest,
 };
@@ -25,12 +25,12 @@ use common::{fixtures_dir, kind_of, message_of, read_fixture, symlink, temp_base
 fn install(base: &Path, id: &str, overrides: &Value, files: &[(&str, &str)]) -> PathBuf {
     let dir = base.join(id);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut manifest = json!({"schema": "ghostai.extension/1", "id": id});
+    let mut manifest = json!({"schema": "darkwire.extension/1", "id": id});
     for (key, value) in overrides.as_object().unwrap() {
         manifest[key] = value.clone();
     }
     write(
-        &dir.join("ghostai.extension.yaml"),
+        &dir.join("darkwire.extension.yaml"),
         serde_json::to_string(&manifest).unwrap(),
     );
     for (path, content) in files {
@@ -41,7 +41,7 @@ fn install(base: &Path, id: &str, overrides: &Value, files: &[(&str, &str)]) -> 
 
 const ENTRY: &[(&str, &str)] = &[("dist/index.js", "export const x = 1;\n")];
 
-fn policy(dir: &Path) -> ghostai_core::Result<()> {
+fn policy(dir: &Path) -> darkwire_core::Result<()> {
     assert_extension_policy(&read_extension_manifest(dir).unwrap(), dir)
 }
 
@@ -85,7 +85,7 @@ fn matches_the_digest_fixture() {
 
 #[test]
 fn parses_a_manifest_and_fills_the_defaults() {
-    let manifest = parse_extension(br#"{"schema":"ghostai.extension/1","id":"slack"}"#).unwrap();
+    let manifest = parse_extension(br#"{"schema":"darkwire.extension/1","id":"slack"}"#).unwrap();
     assert_eq!(manifest.id, "slack");
     assert_eq!(manifest.entry, "dist/index.js");
 }
@@ -93,11 +93,11 @@ fn parses_a_manifest_and_fills_the_defaults() {
 #[test]
 fn parse_errors_name_the_field() {
     assert!(message_of(&parse_extension(b"{")).contains("not valid YAML"));
-    assert!(message_of(&parse_extension(br#"{"schema":"ghostai.extension/1"}"#)).contains("id"));
+    assert!(message_of(&parse_extension(br#"{"schema":"darkwire.extension/1"}"#)).contains("id"));
     assert!(message_of(&parse_extension(br#""a string""#)).contains("(root)"));
     assert!(
         message_of(&parse_extension(
-            br#"{"schema":"ghostai.plugin/1","id":"slack"}"#
+            br#"{"schema":"darkwire.plugin/1","id":"slack"}"#
         ))
         .contains("not valid")
     );
@@ -204,8 +204,8 @@ fn the_digest_is_stable_across_identical_installs_and_walks_nested_directories()
     let a = install(&base, "slack", &json!({}), ENTRY);
     let b = install(&base, "slack-two", &json!({}), ENTRY);
     write(
-        &b.join("ghostai.extension.yaml"),
-        std::fs::read(a.join("ghostai.extension.yaml")).unwrap(),
+        &b.join("darkwire.extension.yaml"),
+        std::fs::read(a.join("darkwire.extension.yaml")).unwrap(),
     );
     assert_eq!(extension_digest(&b).unwrap(), extension_digest(&a).unwrap());
 
@@ -271,15 +271,15 @@ fn the_digest_reports_a_directory_it_cannot_read() {
     }
 }
 
-/// A `ghostai.extension/2` install: a manifest naming an argv, and the files it
+/// A `darkwire.extension/2` install: a manifest naming an argv, and the files it
 /// names.
 fn install_v2(base: &Path, id: &str, command: &Value, files: &[(&str, &str)]) -> PathBuf {
     let dir = base.join(id);
     std::fs::create_dir_all(&dir).unwrap();
     write(
-        &dir.join("ghostai.extension.yaml"),
+        &dir.join("darkwire.extension.yaml"),
         serde_json::to_string(&json!({
-            "schema": "ghostai.extension/2",
+            "schema": "darkwire.extension/2",
             "id": id,
             "command": command,
         }))
@@ -296,7 +296,7 @@ const SCRIPT: &[(&str, &str)] = &[("index.mjs", "process.exit(0);\n")];
 #[test]
 fn a_v2_manifest_fills_the_argv_defaults() {
     let manifest =
-        parse_extension(br#"{"schema":"ghostai.extension/2","id":"slack","command":["node"]}"#)
+        parse_extension(br#"{"schema":"darkwire.extension/2","id":"slack","command":["node"]}"#)
             .unwrap();
     assert_eq!(manifest.command, vec!["node".to_owned()]);
     // Names, never values: the four a child gets without asking.
@@ -380,8 +380,8 @@ fn a_v1_manifest_is_still_held_to_the_entry_rule() {
     let dir = base.join("slack");
     std::fs::create_dir_all(&dir).unwrap();
     write(
-        &dir.join("ghostai.extension.yaml"),
-        r#"{"schema":"ghostai.extension/1","id":"slack","entry":"dist/index.cjs","command":["node","index.mjs"]}"#,
+        &dir.join("darkwire.extension.yaml"),
+        r#"{"schema":"darkwire.extension/1","id":"slack","entry":"dist/index.cjs","command":["node","index.mjs"]}"#,
     );
     write(&dir.join("dist/index.cjs"), "module.exports = {};\n");
     write(&dir.join("index.mjs"), "process.exit(0);\n");

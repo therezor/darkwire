@@ -11,13 +11,13 @@
  * the mark tracks whatever type it has been dropped into, so the lockup holds
  * together at 0.6875rem uppercase and at 0.875rem semibold without a size prop.
  *
- * The mark is `aria-hidden`, so a screen reader reads "GhostAI" once. A decorated
+ * The mark is `aria-hidden`, so a screen reader reads "DarkWire" once. A decorated
  * name is one thing, not two.
  */
 
 import type { JSX } from 'react';
 
-import { Skull } from 'lucide-react';
+import { Webhook } from 'lucide-react';
 
 import { cn } from '@/lib/cn.js';
 
@@ -28,11 +28,11 @@ export function Wordmark({
 }): JSX.Element {
   return (
     <span className={cn('wordmark', className)}>
-      <Skull className="wordmark__mark" aria-hidden="true" />
+      <Webhook className="wordmark__mark" aria-hidden="true" />
       {/* Its own element so the name stays one text node — which is what keeps
-          `getByText('GhostAI')` matching an exact string rather than having to
+          `getByText('DarkWire')` matching an exact string rather than having to
           fall back to a substring match around the mark. */}
-      <span>GhostAI</span>
+      <span>DarkWire</span>
     </span>
   );
 }

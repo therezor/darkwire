@@ -16,16 +16,16 @@ mod common;
 use std::time::Duration;
 
 use common::harness::{Behaviour, FakeTool, Harness, Setup, events_of};
-use ghostai_agent::TurnInput;
-use ghostai_agent::dispatch::{
+use darkwire_agent::TurnInput;
+use darkwire_agent::dispatch::{
     CANCELLED_TOOL_RESULT, MAX_PARALLEL_TOOL_CALLS, TOOL_HEARTBEAT_MS, parse_tool_args,
 };
-use ghostai_agent::testkit::{ScriptedTurn, tool_call};
-use ghostai_protocol::{ChatMessage, StopReason, ToolPermission, ToolPermissions, ToolRisk};
+use darkwire_agent::testkit::{ScriptedTurn, tool_call};
+use darkwire_protocol::{ChatMessage, StopReason, ToolPermission, ToolPermissions, ToolRisk};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-fn calls(names: &[(&str, &str)]) -> Vec<ghostai_protocol::ToolCall> {
+fn calls(names: &[(&str, &str)]) -> Vec<darkwire_protocol::ToolCall> {
     names
         .iter()
         .map(|(id, name)| tool_call(id, name, &json!({})))
@@ -63,7 +63,7 @@ async fn adjacent_read_only_calls_run_together() {
 
     // A group announces every member before any of them runs, which is what a
     // renderer needs to draw three cards at once.
-    let tags: Vec<&str> = events.iter().map(ghostai_agent::AgentEvent::tag).collect();
+    let tags: Vec<&str> = events.iter().map(darkwire_agent::AgentEvent::tag).collect();
     let first_call = tags.iter().position(|tag| *tag == "tool.call").unwrap();
     assert_eq!(&tags[first_call..first_call + 3], &["tool.call"; 3]);
     assert_eq!(events_of(&events, "tool.result").len(), 3);

@@ -52,7 +52,7 @@ it is written from the workflow, and this is the copy that goes stale:
 # job: check
 pnpm typecheck
 pnpm lint
-pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts   # design token gates
+pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts   # design token gates
 pnpm format:check                                             # ← the usual failure
 shellcheck -s sh install.sh                                   # the line the README pipes into a shell
 pnpm i18n:check                                               # extract, then diff the bundles
@@ -65,8 +65,8 @@ pnpm test:coverage
 
 # job: e2e — Playwright, both colour schemes, against the real binary
 pnpm build                                                    # the SPA the binary embeds
-cargo build --release -p ghostai --features test-hooks        # the server under test
-GHOSTAI_BIN=target/release/ghostai pnpm --filter @ghostwire/e2e test:e2e
+cargo build --release -p darkwire --features test-hooks        # the server under test
+DARKWIRE_BIN=target/release/darkwire pnpm --filter @darkwire/e2e test:e2e
 
 # job: rust — the Cargo workspace under crates/
 cargo fmt --all --check
@@ -82,7 +82,7 @@ Notes that save a cycle:
 - **`pnpm format:check` fails, `pnpm format` fixes it.** Prettier is not wired into
   `lint`. When it reports files you did not touch, format only your own and say so —
   do not sweep unrelated files into the diff.
-- **e2e needs both builds first.** The suite spawns `ghostai serve` as a subprocess and
+- **e2e needs both builds first.** The suite spawns `darkwire serve` as a subprocess and
   the binary embeds the SPA, so `pnpm build` comes before `cargo build`;
   a missing binary fails with a sentence naming `cargo build`, and a missing bundle
   fails the Rust build at compile time.
@@ -112,7 +112,7 @@ Notes that save a cycle:
   it is CI's fault:
 
   ```bash
-  pnpm --filter @ghostwire/e2e exec playwright test <spec> --repeat-each=6
+  pnpm --filter @darkwire/e2e exec playwright test <spec> --repeat-each=6
   ```
 
 ### Never assert a transient state in an e2e test
@@ -139,7 +139,7 @@ version:
 - `pedantic` warns locally and is an error in CI (`-D warnings`). A new `#[allow]`
   needs a one-line comment saying why. Product names that trip `doc_markdown` go in
   `doc-valid-idents` in `clippy.toml`, not behind an allow.
-- **Errors are values**: `GhostError { kind, message, retryable, details }` with the
+- **Errors are values**: `WireError { kind, message, retryable, details }` with the
   same closed fifteen-variant `kind`; `thiserror` below the binary, `anyhow` only in
   `crates/cli/src/main.rs`. Never branch on a message substring.
 - **One cancellation mechanism**: a `CancellationToken` threaded from the transport

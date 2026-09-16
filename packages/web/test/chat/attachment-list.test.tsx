@@ -11,7 +11,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { Attachment } from '@ghostwire/protocol';
+import type { Attachment } from '@darkwire/protocol';
 
 import { renderWithProviders, stubFetch } from '@testkit/render.js';
 

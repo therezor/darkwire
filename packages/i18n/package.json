@@ -1,6 +1,6 @@
 {
-  "name": "@ghostwire/i18n",
-  "version": "0.9.0",
+  "name": "@darkwire/i18n",
+  "version": "0.5.0",
   "description": "The translation layer: i18next instance, locale negotiation and locale-aware formatting primitives.",
   "type": "module",
   "license": "MIT",
@@ -34,10 +34,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/therezor/GhostAI.git",
+    "url": "git+https://github.com/therezor/darkwire.git",
     "directory": "packages/i18n"
   },
-  "homepage": "https://github.com/therezor/GhostAI",
-  "bugs": "https://github.com/therezor/GhostAI/issues",
+  "homepage": "https://github.com/therezor/darkwire",
+  "bugs": "https://github.com/therezor/darkwire/issues",
   "private": true
 }

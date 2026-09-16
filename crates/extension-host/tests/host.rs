@@ -14,13 +14,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ghostai_agent::{RuntimePromptContext, StaticPromptContext};
-use ghostai_channels::{ChannelContext, ChannelControl, ChannelInbound};
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
-use ghostai_core::{Database, SystemClock};
-use ghostai_extension_host::{ExtensionHost, ExtensionHostOptions, Timings};
-use ghostai_protocol::{ExtensionState, ExtensionsConfig};
-use ghostai_security::ExtensionStore;
+use darkwire_agent::{RuntimePromptContext, StaticPromptContext};
+use darkwire_channels::{ChannelContext, ChannelControl, ChannelInbound};
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_core::{Database, SystemClock};
+use darkwire_extension_host::{ExtensionHost, ExtensionHostOptions, Timings};
+use darkwire_protocol::{ExtensionState, ExtensionsConfig};
+use darkwire_security::ExtensionStore;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -67,9 +67,9 @@ async fn the_listener_fires_once_per_change_and_not_on_a_row_that_stood_still() 
     std::fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/chatty/ghostai.extension.yaml"
+            "/tests/fixtures/chatty/darkwire.extension.yaml"
         ),
-        extensions.join("chatty/ghostai.extension.yaml"),
+        extensions.join("chatty/darkwire.extension.yaml"),
     )
     .unwrap();
     std::fs::copy(

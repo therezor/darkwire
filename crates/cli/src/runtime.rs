@@ -1,4 +1,4 @@
-//! The CLI's view of `ghostai-runtime`.
+//! The CLI's view of `darkwire-runtime`.
 //!
 //! There is nothing CLI-shaped left in the composition itself: it moved to its
 //! own crate the moment a second consumer needed it — the server shares one
@@ -14,13 +14,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{
-    ErrorKind, GhostError, LogLevel, LogSink, LoggerOptions, Result, create_logger, save_config,
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{
+    ErrorKind, LogLevel, LogSink, LoggerOptions, Result, WireError, create_logger, save_config,
 };
-use ghostai_protocol::DEFAULT_AGENT_ID;
-use ghostai_protocol::config::{AgentEntry, AgentSettings, Config, ConfigPatch};
-use ghostai_runtime::{GhostRuntime, RuntimeOptions, create_runtime};
+use darkwire_protocol::DEFAULT_AGENT_ID;
+use darkwire_protocol::config::{AgentEntry, AgentSettings, Config, ConfigPatch};
+use darkwire_runtime::{RuntimeOptions, WireRuntime, create_runtime};
 
 use crate::i18n::Env;
 use crate::program::Globals;
@@ -47,11 +47,11 @@ pub fn env_map(env: &Env) -> HashMap<String, String> {
 /// provider and a keychain all consult, and handing them the whole process
 /// environment would make "which variable moved this" unanswerable.
 const ENV_NAMES: &[&str] = &[
-    "GHOSTAI_HOME",
-    "GHOSTAI_LANG",
-    "GHOSTAI_LOG_LEVEL",
-    "GHOSTAI_CATALOGUE",
-    "GHOSTAI_PRESETS_DIR",
+    "DARKWIRE_HOME",
+    "DARKWIRE_LANG",
+    "DARKWIRE_LOG_LEVEL",
+    "DARKWIRE_CATALOGUE",
+    "DARKWIRE_PRESETS_DIR",
     "HOME",
     // `exec`'s environment allow-list names `PATH` first, and the allow-list
     // filters *this* map — so a `PATH` that never arrives here is a child
@@ -71,12 +71,12 @@ const ENV_NAMES: &[&str] = &[
 /// One function so the answer cannot differ between the command that loads a
 /// config to read it and the one that builds a whole runtime over it.
 #[must_use]
-pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> ResolveGhostPaths {
+pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> ResolveWirePaths {
     let mut map = env_map(env);
     // Every provider's key variable, which resolution consults when no config
     // names a provider. Copied on demand rather than listed above, because the
     // set is the provider table's to decide.
-    for spec in ghostai_providers::PROVIDERS.iter() {
+    for spec in darkwire_providers::PROVIDERS.iter() {
         let Some(key) = spec.env_key.as_deref() else {
             continue;
         };
@@ -84,7 +84,7 @@ pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> Re
             map.insert(key.to_owned(), value.to_owned());
         }
     }
-    ResolveGhostPaths {
+    ResolveWirePaths {
         root: globals.home.clone(),
         workspace: workspace.map(str::to_owned),
         env: Some(map),
@@ -97,7 +97,7 @@ pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> Re
 /// The core logger defaults to stdout, which is right for a library and wrong
 /// for this program: stdout carries the *answer* — a turn's text, the `--json`
 /// event stream, the listening record — and a log line interleaved with it
-/// corrupts whatever is reading. `ghostai serve 2>ghost.log` is the shape an
+/// corrupts whatever is reading. `darkwire serve 2>darkwire.log` is the shape an
 /// operator expects, and it only works if the log was on the other stream.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StderrSink;
@@ -125,7 +125,7 @@ pub fn install_logger(level: LogLevel, env: &Env) {
 
     let layer = create_logger(LoggerOptions {
         level: Some(level),
-        name: Some("ghostai".to_owned()),
+        name: Some("darkwire".to_owned()),
         sink: Some(Arc::new(StderrSink)),
         env: Some(env_map(env)),
         ..LoggerOptions::default()
@@ -133,8 +133,8 @@ pub fn install_logger(level: LogLevel, env: &Env) {
     let _ = tracing_subscriber::registry().with(layer).try_init();
 }
 
-/// The runtime `ghostai chat` builds.
-pub type ChatRuntime = Arc<GhostRuntime>;
+/// The runtime `darkwire chat` builds.
+pub type ChatRuntime = Arc<WireRuntime>;
 
 /// Builds a runtime, which is what every command that runs a turn needs.
 pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
@@ -152,7 +152,7 @@ pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
 ///
 /// A failure here is the operator's file, not the operator's typing: a
 /// `config.yaml` that is read-only, or a home directory that is not writable.
-/// A `GhostError` is what the slash-command runner already catches and renders
+/// A `WireError` is what the slash-command runner already catches and renders
 /// as a warning, so the prompt says why and stays open rather than unwinding
 /// over a half-applied change. The reconfigure has already landed at that
 /// point, which is the honest outcome to report: this run moved, the file did
@@ -160,7 +160,7 @@ pub fn create_chat_runtime(options: RuntimeOptions) -> Result<ChatRuntime> {
 pub fn save_settings(runtime: &ChatRuntime, patch: &ConfigPatch) -> Result<Config> {
     let merged = runtime.apply_patch(patch)?;
     save_config(runtime.file(), &merged).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Storage,
             format!(
                 "The change is live for this run, but {} could not be written",

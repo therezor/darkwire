@@ -8,7 +8,7 @@
  *     someone added later — a new export with no registry entry fails the
  *     completeness assertion below it.
  *  2. `scripts/emit-schemas.ts` iterates it to write `schema/<Name>.json`, the
- *     browser's half of the drift gate against `ghostai-protocol`.
+ *     browser's half of the drift gate against `darkwire-protocol`.
  */
 
 import type { z } from 'zod';
@@ -17,7 +17,6 @@ import * as automation from './automation.js';
 import * as config from './config.js';
 import * as extension from './extension.js';
 import * as messages from './messages.js';
-import * as preset from './preset.js';
 import * as environment from './environment.js';
 import * as rest from './rest.js';
 import * as tools from './tools.js';
@@ -94,9 +93,6 @@ export const PROTOCOL_SCHEMAS = {
   ExtensionMaxTokensParam: extension.ExtensionMaxTokensParamSchema,
   ExtensionProviderSpec: extension.ExtensionProviderSpecSchema,
   ExtensionManifest: extension.ExtensionManifestSchema,
-
-  // preset
-  AgentPreset: preset.AgentPresetSchema,
 
   // automation
   AtSchedule: automation.AtScheduleSchema,
@@ -243,7 +239,6 @@ export const SCHEMA_MODULES = {
   config,
   extension,
   messages,
-  preset,
   rest,
   subagent,
   tools,

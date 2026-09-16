@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-extension-host"
+name = "darkwire-extension-host"
 description = "Extension discovery, digest approval, and the out-of-process JSON-RPC host"
 version.workspace = true
 edition.workspace = true
@@ -18,14 +18,14 @@ workspace = true
 testkit = []
 
 [dependencies]
-ghostai-agent.workspace = true
-ghostai-channels.workspace = true
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-providers.workspace = true
-ghostai-security.workspace = true
-ghostai-tools.workspace = true
-ghostai-mcp.workspace = true
+darkwire-agent.workspace = true
+darkwire-channels.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-providers.workspace = true
+darkwire-security.workspace = true
+darkwire-tools.workspace = true
+darkwire-mcp.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
@@ -45,10 +45,10 @@ name = "check"
 required-features = ["testkit"]
 
 [dev-dependencies]
-ghostai-extension-host = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
-ghostai-tools = { workspace = true, features = ["testkit"] }
+darkwire-extension-host = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
 # `start_paused` for the framing tests, which speak over an in-memory pipe and
 # must never wait on a real timer.
 tokio = { workspace = true, features = ["test-util"] }

@@ -17,7 +17,7 @@
  *    top-level one and a subagent of a subagent free.
  */
 
-import type { Attachment, ServerMessage } from '@ghostwire/protocol';
+import type { Attachment, ServerMessage } from '@darkwire/protocol';
 
 import {
   EMPTY_TRANSCRIPT,
@@ -523,7 +523,7 @@ function applySubagentEvent(
 /**
  * The tool name a delegation to `agentId` runs under.
  *
- * Restated from `subagent_definition` in `ghostai-agent` rather than imported,
+ * Restated from `subagent_definition` in `darkwire-agent` rather than imported,
  * for the same reason the nonce envelope in `parts.ts` is: that crate is Rust,
  * so the browser cannot reach it, and four characters of duplication is the
  * cheaper half of the trade. Only ever used to label a card rebuilt after a

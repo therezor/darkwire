@@ -25,7 +25,7 @@
  *    fill that composites over whatever is underneath, which is what makes one
  *    token work on a card, a popover and a sidebar row.
  *  - **Fill uses `--accent`; text, icons and strokes use `--accent-fg`.** They
- *    are identical in dark and diverge in light, where the brand green on a
+ *    are identical in dark and diverge in light, where the brand cyan on a
  *    white card is a 2:1 pairing as text and fine as a fill. The rule is
  *    therefore invisible in the theme most people develop in — which is exactly
  *    the kind of thing that rots without a lint gate.
@@ -51,31 +51,30 @@
 :root {
   color-scheme: dark;
 
-  /* The brand green: a pale phosphor mint, high in lightness and low in chroma.
+  /* The brand cyan, taken from the terminal palette this UI is dressed in:
+   * `#00E5E5` converted to OKLCH, which lands at L 0.835 / C 0.142 / H 195.
    *
-   * Pastel is a position on two axes at once — up in L, down in C — and both
-   * halves are load-bearing. Lightness alone would give a washed-out version of
-   * the same loud green; chroma alone would give a grey-green sludge. At
-   * L 0.85 / C 0.09 it is a colour that can be a large fill without shouting,
-   * which is what an accent on a dense tool is for.
+   * A terminal's bright cyan is the one colour in that sixteen that is loud
+   * without being a status. Red, yellow and green all mean something on a
+   * console, so any of them as the accent would collide with the badge sitting
+   * next to it. Cyan means nothing there, which is what makes it free to mean
+   * "this app" here.
    *
-   * It sits four degrees from `--success` below, and the two are now told apart
-   * by *softness* rather than by loudness: the accent is the paler, quieter of
-   * the two greens, where the semantic one is fully saturated at a lower L. An
-   * accent has always shared a neighbourhood with a semantic role here — it was
-   * a gold half a degree from `--warning` before it was a green — and the roles
-   * are separated by where they appear as much as by hue: a fill, a focus ring
-   * and the wordmark on one side, a badge on a finished tool call on the other. */
-  --seed-accent-l: 0.8;
-  --seed-accent-c: 0.16;
-  --seed-accent-h: 132;
+   * It is far from every semantic hue below, so the roles are told apart by hue
+   * alone rather than by the softness rule the old green needed: a fill, a
+   * focus ring and the wordmark on one side, a badge on a finished tool call on
+   * the other. */
+  --seed-accent-l: 0.835;
+  --seed-accent-c: 0.14;
+  --seed-accent-h: 195;
 
   /* Accent as *text*. Identical to the fill in dark, and much darker in light,
-   * where a mint at L 0.85 on a white card is a 1.5:1 pairing — legible as a
+   * where a cyan at L 0.835 on a white card is a 1.5:1 pairing — legible as a
    * fill and not at all as type. Chroma comes down with it, because sRGB holds
-   * far less at L 0.48 than at L 0.85. */
-  --seed-accent-fg-l: 0.8;
-  --seed-accent-fg-c: 0.16;
+   * far less cyan at L 0.48 than at L 0.835: 0.08 is the most that is in gamut
+   * there, and `contrast.test.ts` fails on a seed that is not. */
+  --seed-accent-fg-l: 0.835;
+  --seed-accent-fg-c: 0.14;
 
   --seed-surface-0: 0.11; /* page     */
   --seed-surface-1: 0.145; /* sunken   */
@@ -107,16 +106,16 @@
   --seed-semantic-fg-c: 0.095;
 
   /* Text *on* an accent or semantic fill. Both fills are light in dark and in
-   * light — a green button does not invert — so this one is near-black in both
+   * light. A cyan button does not invert, so this one is near-black in both
    * themes rather than following the surface ramp. */
   --seed-on-fill-l: 0.19;
 
   /* The neutral axis is not grey: surfaces and text carry a trace of the accent
-   * hue, which is what keeps a green accent from looking pasted onto a slate
+   * hue, which is what keeps a cyan accent from looking pasted onto a slate
    * UI. It goes to zero in light, where the top surface is pure white and any
    * chroma at L 1.0 is by definition outside the gamut. */
   --seed-neutral-c: 0.005;
-  --seed-neutral-h: 132;
+  --seed-neutral-h: 195;
 
   --seed-line-a: 0.14;
   --seed-line-strong-a: 0.26;
@@ -158,7 +157,7 @@
     color-scheme: light;
 
     --seed-accent-fg-l: 0.48;
-    --seed-accent-fg-c: 0.1;
+    --seed-accent-fg-c: 0.08;
 
     --seed-surface-0: 1;
     --seed-surface-1: 0.955;
@@ -189,7 +188,7 @@
   color-scheme: light;
 
   --seed-accent-fg-l: 0.48;
-  --seed-accent-fg-c: 0.1;
+  --seed-accent-fg-c: 0.08;
 
   --seed-surface-0: 1;
   --seed-surface-1: 0.955;
@@ -256,29 +255,31 @@
   );
 
   /* Hues chosen for the four roles the protocol already speaks in: a tool that
-   * succeeded, a `degraded` notice, a `prompt_injection` refusal, and a hint. */
-  --success: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 148);
-  --success-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 148);
+   * succeeded, a `degraded` notice, a `prompt_injection` refusal, and a hint.
+   * Each one is a terminal colour converted to OKLCH, so a badge in the web UI
+   * and a line in the CLI name the same state in the same hue. */
+  --success: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 142);
+  --success-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 142);
   --success-soft: oklch(
-    var(--seed-semantic-l) var(--seed-semantic-c) 148 / var(--seed-soft-a)
+    var(--seed-semantic-l) var(--seed-semantic-c) 142 / var(--seed-soft-a)
   );
 
-  --warning: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 78);
-  --warning-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 78);
+  --warning: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 110);
+  --warning-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 110);
   --warning-soft: oklch(
-    var(--seed-semantic-l) var(--seed-semantic-c) 78 / var(--seed-soft-a)
+    var(--seed-semantic-l) var(--seed-semantic-c) 110 / var(--seed-soft-a)
   );
 
-  --danger: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 25);
-  --danger-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 25);
+  --danger: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 29);
+  --danger-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 29);
   --danger-soft: oklch(
-    var(--seed-semantic-l) var(--seed-semantic-c) 25 / var(--seed-soft-a)
+    var(--seed-semantic-l) var(--seed-semantic-c) 29 / var(--seed-soft-a)
   );
 
-  --info: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 250);
-  --info-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 250);
+  --info: oklch(var(--seed-semantic-l) var(--seed-semantic-c) 264);
+  --info-fg: oklch(var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 264);
   --info-soft: oklch(
-    var(--seed-semantic-l) var(--seed-semantic-c) 250 / var(--seed-soft-a)
+    var(--seed-semantic-l) var(--seed-semantic-c) 264 / var(--seed-soft-a)
   );
 
   /* The edge of a soft-filled block — a notice, a highlighted tool card. The
@@ -289,16 +290,16 @@
     var(--seed-accent-fg-l) var(--seed-accent-fg-c) var(--seed-accent-h) / 0.4
   );
   --success-edge: oklch(
-    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 148 / 0.4
+    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 142 / 0.4
   );
   --warning-edge: oklch(
-    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 78 / 0.4
+    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 110 / 0.4
   );
   --danger-edge: oklch(
-    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 25 / 0.4
+    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 29 / 0.4
   );
   --info-edge: oklch(
-    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 250 / 0.4
+    var(--seed-semantic-fg-l) var(--seed-semantic-fg-c) 264 / 0.4
   );
 
   --on-fill: oklch(

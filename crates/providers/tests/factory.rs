@@ -10,13 +10,13 @@ mod common;
 
 use std::sync::Arc;
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::ProviderConfig;
-use ghostai_providers::testkit::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::ProviderConfig;
+use darkwire_providers::testkit::{
     CompletionOptions, ScriptedProvider, ScriptedStep, completion, error_body, provider_error,
     result_of,
 };
-use ghostai_providers::{
+use darkwire_providers::{
     ChatRequest, CreateProviderOptions, ProviderError, ProviderErrorReason, ProviderRef,
     ProviderSpec, Resilience, ResilienceOptions, WireAdapters, WireProtocol, create_provider,
     resolve_connection,
@@ -82,7 +82,7 @@ fn takes_a_wire_adapter_an_extension_supplied_but_never_a_replacement() {
     let calls = Arc::new(std::sync::Mutex::new(0));
     let counted = Arc::clone(&calls);
     let mut wires = WireAdapters::new();
-    let adapter: ghostai_providers::WireAdapter = Arc::new(move |options| {
+    let adapter: darkwire_providers::WireAdapter = Arc::new(move |options| {
         *counted.lock().unwrap() += 1;
         Ok(ScriptedProvider::new(options.spec, Vec::new()) as _)
     });
@@ -142,7 +142,7 @@ async fn wraps_an_extension_provider_in_resilience_like_any_other() {
         .unwrap();
     assert_eq!(
         result.message.content,
-        vec![ghostai_core::messages::text_part("second try")]
+        vec![darkwire_core::messages::text_part("second try")]
     );
 }
 
@@ -185,7 +185,7 @@ async fn wraps_with_resilience_by_default() {
         .unwrap();
     assert_eq!(
         result.message.content,
-        vec![ghostai_core::messages::text_part("second try")]
+        vec![darkwire_core::messages::text_part("second try")]
     );
     assert_eq!(server.received_requests().await.unwrap().len(), 2);
 

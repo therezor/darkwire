@@ -1,11 +1,11 @@
 ---
-name: ghostai-i18n
-description: The translation layer — how user-facing copy becomes a key, how the JSON bundles type themselves, how errors carry a translatable key across packages, and the two CI gates that catch the opposite halves of the problem. Use when adding or changing any string a person reads: web components, CLI output, GhostError messages, panel labels, placeholders and aria-labels. Also use when `pnpm i18n:check` fails or a key does not type-check.
+name: darkwire-i18n
+description: The translation layer — how user-facing copy becomes a key, how the JSON bundles type themselves, how errors carry a translatable key across packages, and the two CI gates that catch the opposite halves of the problem. Use when adding or changing any string a person reads: web components, CLI output, WireError messages, panel labels, placeholders and aria-labels. Also use when `pnpm i18n:check` fails or a key does not type-check.
 ---
 
-# GhostAI translations
+# DarkWire translations
 
-Every sentence a person reads goes through `@ghostwire/i18n`. The layer is small,
+Every sentence a person reads goes through `@darkwire/i18n`. The layer is small,
 and almost all of its design is aimed at one failure: a string that quietly never
 became a key, and is therefore English forever in every locale.
 
@@ -34,7 +34,7 @@ misspelled key is a compile error, not a key rendered on a nav item.
 
 Two consequences that look like trivia and are not:
 
-- **`resources.ts` imports by package self-reference** (`@ghostwire/i18n/locales/en/shared.json`),
+- **`resources.ts` imports by package self-reference** (`@darkwire/i18n/locales/en/shared.json`),
   never by relative path. `tsc` copies the specifier into `dist/` verbatim and
   does not emit JSON, so a relative path resolves to nothing from inside `dist`.
   The failure is silent in the worst way: `skipLibCheck` swallows it,
@@ -82,10 +82,10 @@ knows only that it is a string — so a deleted key compiles and renders as itse
 
 ### In an error thrown outside web and cli
 
-`GhostError` takes an optional `messageKey` and `messageParams`:
+`WireError` takes an optional `messageKey` and `messageParams`:
 
 ```ts
-throw new GhostError('config', `Agent "${id}" asks for network "${mode}"…`, {
+throw new WireError('config', `Agent "${id}" asks for network "${mode}"…`, {
   messageKey: 'shared:agents.networkWithoutProfile',
   messageParams: { agentId: id, mode },
   details: { agentId: id, mode },
@@ -100,10 +100,10 @@ a log does not.
 
 The key is fully qualified (`shared:…`) because a package with no namespace of
 its own cannot name a string unambiguously any other way. `SharedMessageKey` is
-what stops a throw in `@ghostwire/runtime` from naming a string that only exists in
+what stops a throw in `@darkwire/runtime` from naming a string that only exists in
 the UI bundle.
 
-The import of `@ghostwire/i18n` in `packages/core/src/errors.ts` is **type-only and
+The import of `@darkwire/i18n` in `packages/core/src/errors.ts` is **type-only and
 must stay that way** — a value import would put the whole translation layer in
 front of every package that touches an error.
 
@@ -144,8 +144,8 @@ done.
 ## What is not done yet
 
 The engine is in place ahead of its adoption. `shared.json` carries `runtime.*`
-and `server.*` keys, and **nothing in `@ghostwire/runtime`, `@ghostwire/server`,
-`@ghostwire/security` or `@ghostwire/tools` currently throws with a `messageKey`** —
+and `server.*` keys, and **nothing in `@darkwire/runtime`, `@darkwire/server`,
+`@darkwire/security` or `@darkwire/tools` currently throws with a `messageKey`** —
 those errors are English-only today. That is a gap rather than a decision: when
 touching an error in those packages, add the key and the bundle entry. The gates
 will not tell you to, because neither of them reads `.ts` outside web and cli.

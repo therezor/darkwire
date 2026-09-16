@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ClientMessage, ServerMessage } from '@ghostwire/protocol';
+import type { ClientMessage, ServerMessage } from '@darkwire/protocol';
 
 import { useToastStore } from '@/components/ui/toast.js';
 import { useTurnStore } from '@/state/turn.js';

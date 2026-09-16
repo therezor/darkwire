@@ -23,8 +23,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ghostai_protocol::{
-    AgentPreset, AgentSettingsChange, ClientMessage, Config, DEFAULT_LIVE_STATE_TEMPLATE,
+use darkwire_protocol::{
+    AgentSettingsChange, ClientMessage, Config, DEFAULT_LIVE_STATE_TEMPLATE,
     DEFAULT_MEMORY_TEMPLATE, DEFAULT_PLATFORM_CONTAINER_TEMPLATE, DEFAULT_PLATFORM_HOST_TEMPLATE,
     DEFAULT_SKILLS_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_TOOL_POLICY_TEMPLATE,
     DEFAULT_WRAP_UP_TEMPLATE, LIVE_PROMPT_PLACEHOLDERS, MEMORY_PROMPT_PLACEHOLDERS,
@@ -33,9 +33,9 @@ use ghostai_protocol::{
     ToolDefinition, ToolPromptOverrides, TurnTiming, UNSEQUENCED_SERVER_EVENTS, Usage, UuidRandom,
     agent_settings_patch, apply_tool_prompts, default_subagent_prompt, derive_agent_id,
     derive_workspace_id, effective_tool_policy, is_loopback_host, is_slug_id, names_delimiter,
-    new_uuid, preset_to_agent_entry, render_prompt_template, render_wrap_up, slugify,
-    subagent_runs_of, subagent_tool_name, tokens_per_second, tool_policy_uses_nonce,
-    unknown_placeholders, with_subagent_run,
+    new_uuid, render_prompt_template, render_wrap_up, slugify, subagent_runs_of,
+    subagent_tool_name, tokens_per_second, tool_policy_uses_nonce, unknown_placeholders,
+    with_subagent_run,
 };
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
@@ -148,7 +148,6 @@ const FUNCTIONS: &[&str] = &[
     "subagentRunsOf",
     "withSubagentRun",
     "defaultSubagentPrompt",
-    "presetToAgentEntry",
     "applyToolPrompts",
     "isSequencedServerMessage",
 ];
@@ -196,7 +195,7 @@ fn run(function: &str, input: &Value) -> Value {
         "turnRate" => {
             let usage: Usage = arg(input, "usage");
             let timing: TurnTiming = arg(input, "timing");
-            option_value(ghostai_protocol::turn_rate(&usage, &timing))
+            option_value(darkwire_protocol::turn_rate(&usage, &timing))
         }
         "isLoopbackHost" => json!(is_loopback_host(&arg::<String>(input, "host"))),
         "agentSettingsPatch" => {
@@ -230,10 +229,6 @@ fn run(function: &str, input: &Value) -> Value {
             ))
         }
         "defaultSubagentPrompt" => json!(default_subagent_prompt(&arg::<String>(input, "label"))),
-        "presetToAgentEntry" => {
-            let preset: AgentPreset = arg(input, "preset");
-            to_value(preset_to_agent_entry(&preset))
-        }
         "applyToolPrompts" => {
             let definitions: Vec<ToolDefinition> = arg(input, "definitions");
             let overrides: ToolPromptOverrides = arg(input, "overrides");

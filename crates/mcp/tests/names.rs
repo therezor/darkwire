@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_mcp::{
+use darkwire_mcp::{
     MCP_TOOL_PREFIX, flatten_mcp_tool_name, flatten_tool_name, flatten_tool_names,
     is_advertisable_name,
 };

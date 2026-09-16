@@ -17,14 +17,14 @@ use common::{
     NOW, assistant_message, call, counter_ids, make_store, make_store_on, text_of, tool_message,
     user_message,
 };
-use ghostai_core::session_store::{
+use darkwire_core::session_store::{
     AppendOptions, CreateSession, ForkSession, ListSessions, ReadMessages, SessionCursor,
     SessionOrderBy, SessionStore, TruncateResult, TurnStatsRecord, UpdateSession,
     to_stored_message,
 };
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Database, ErrorKind};
-use ghostai_protocol::messages::{ChatMessage, StopReason, ToolMessage, ToolRole, Usage};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Database, ErrorKind};
+use darkwire_protocol::messages::{ChatMessage, StopReason, ToolMessage, ToolRole, Usage};
 use serde_json::{Map, Value, json};
 
 const NO_OPTIONS: AppendOptions = AppendOptions { turn_id: None };
@@ -1016,7 +1016,7 @@ fn omits_turn_id_from_the_wire_shape_when_absent() {
 #[test]
 fn survives_a_reopen_with_tool_call_pairing_intact() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("ghost.db");
+    let file = dir.path().join("darkwire.db");
     let clock = Arc::new(ManualClock::at(NOW));
 
     let first = make_store_on(Database::open(&file).unwrap(), Arc::clone(&clock)).unwrap();
@@ -1068,7 +1068,7 @@ fn survives_a_reopen_with_tool_call_pairing_intact() {
 #[test]
 fn continues_the_sequence_after_a_reopen_rather_than_restarting_it() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("ghost.db");
+    let file = dir.path().join("darkwire.db");
     let clock = Arc::new(ManualClock::at(NOW));
 
     let first = make_store_on(Database::open(&file).unwrap(), Arc::clone(&clock)).unwrap();
@@ -1087,7 +1087,7 @@ fn continues_the_sequence_after_a_reopen_rather_than_restarting_it() {
 #[test]
 fn creates_the_database_directory_if_it_is_missing() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("nested").join("ghost.db");
+    let file = dir.path().join("nested").join("darkwire.db");
     let store = make_store_on(
         Database::open(&file).unwrap(),
         Arc::new(ManualClock::at(NOW)),

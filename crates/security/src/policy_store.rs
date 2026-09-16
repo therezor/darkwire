@@ -18,13 +18,13 @@
 //!
 //! ```text
 //! <policy root>/
-//! └── environments/<name>.yaml              ghostai.environment/1
+//! └── environments/<name>.yaml              darkwire.environment/1
 //! ```
 
 use std::path::{Path, PathBuf};
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::environment::EnvironmentDefinition;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::environment::EnvironmentDefinition;
 
 use crate::environment::{
     assert_environment_policy, assert_slug, invalid, manifest_hash, parse_environment,
@@ -83,7 +83,7 @@ impl PolicyStore {
 
     fn path_for(&self, name: &str) -> Result<PathBuf> {
         assert_slug(name).map_err(|_| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::InvalidInput,
                 format!("Not an environment name: {name}"),
             )
@@ -113,7 +113,7 @@ impl PolicyStore {
             {
                 Ok(None)
             }
-            Err(error) => Err(GhostError::new(
+            Err(error) => Err(WireError::new(
                 ErrorKind::Config,
                 format!("Environment \"{name}\" could not be read"),
             )
@@ -122,11 +122,11 @@ impl PolicyStore {
         }
     }
 
-    fn missing(name: &str) -> GhostError {
-        GhostError::new(
+    fn missing(name: &str) -> WireError {
+        WireError::new(
             ErrorKind::Config,
             format!(
-                "No environment is installed under \"{name}\".\n  Create one in Settings, install one with `ghostai preset install`, or clear the agent's environment."
+                "No environment is installed under \"{name}\".\n  Create one in Settings, or clear the agent's environment."
             ),
         )
         .with_detail("name", name)
@@ -155,7 +155,7 @@ impl PolicyStore {
         let path = self.path_for(&definition.name)?;
         let bytes = serde_yaml_ng::to_string(definition)
             .map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Internal,
                     format!("Environment \"{}\" could not be written", definition.name),
                 )
@@ -190,8 +190,8 @@ impl PolicyStore {
         }
     }
 
-    fn unwritable(name: &str, error: std::io::Error) -> GhostError {
-        GhostError::new(
+    fn unwritable(name: &str, error: std::io::Error) -> WireError {
+        WireError::new(
             ErrorKind::Storage,
             format!("Environment \"{name}\" could not be written"),
         )

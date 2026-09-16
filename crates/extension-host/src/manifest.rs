@@ -9,7 +9,7 @@
 //! which the directory scan makes impossible (an id is a directory name) and
 //! which only `load` can produce.
 //!
-//! The other half is the version gate. `ghostai.extension/1` named a JavaScript
+//! The other half is the version gate. `darkwire.extension/1` named a JavaScript
 //! module that a host loaded into its own process; this host spawns a child and
 //! talks to it over a pipe, and no amount of care makes the first contract into
 //! the second. So a v1 bundle is **refused with a sentence**, not ignored and
@@ -20,8 +20,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use ghostai_protocol::{ExtensionSchemaVersion, ExtensionsConfig};
-use ghostai_security::{EXTENSION_MANIFEST_FILE, ExtensionResolution, ExtensionStore};
+use darkwire_protocol::{ExtensionSchemaVersion, ExtensionsConfig};
+use darkwire_security::{EXTENSION_MANIFEST_FILE, ExtensionResolution, ExtensionStore};
 
 /// What an operator reads when a v1 bundle reaches this build.
 ///
@@ -29,10 +29,10 @@ use ghostai_security::{EXTENSION_MANIFEST_FILE, ExtensionResolution, ExtensionSt
 /// is the half they can act on: the fix is a rebuilt extension, and no setting
 /// here will make this one load.
 pub const V1_UNSUPPORTED: &str = concat!(
-    "This extension is a \"ghostai.extension/1\" bundle, which ran as JavaScript\n",
+    "This extension is a \"darkwire.extension/1\" bundle, which ran as JavaScript\n",
     "  inside the server process. This build runs an extension as a separate\n",
     "  program and talks to it over a pipe, so it cannot load one. Rebuild it\n",
-    "  against \"ghostai.extension/2\", which replaces \"entry\" with \"command\"."
+    "  against \"darkwire.extension/2\", which replaces \"entry\" with \"command\"."
 );
 
 /// The `schema` value an install directory's manifest carries, read raw.
@@ -47,8 +47,8 @@ pub fn schema_on_disk(dir: &Path) -> Option<ExtensionSchemaVersion> {
     let bytes = std::fs::read(dir.join(EXTENSION_MANIFEST_FILE)).ok()?;
     let value: serde_yaml_ng::Value = serde_yaml_ng::from_slice(&bytes).ok()?;
     match value.get("schema")?.as_str()? {
-        "ghostai.extension/1" => Some(ExtensionSchemaVersion::V1),
-        "ghostai.extension/2" => Some(ExtensionSchemaVersion::V2),
+        "darkwire.extension/1" => Some(ExtensionSchemaVersion::V1),
+        "darkwire.extension/2" => Some(ExtensionSchemaVersion::V2),
         _ => None,
     }
 }
@@ -71,7 +71,7 @@ pub fn refuses_version(resolution: &ExtensionResolution) -> bool {
 /// Every extension the install knows about, by id.
 ///
 /// Sorted, because the status list is read by a panel and by
-/// `ghostai extension list`, and an order that depended on the filesystem would
+/// `darkwire extension list`, and an order that depended on the filesystem would
 /// make two machines with the same extensions disagree about the order they are
 /// shown in.
 ///
@@ -137,6 +137,6 @@ pub fn discover(
 }
 
 /// One extension's block of `config.extensions.settings`.
-pub fn settings_for(config: &ExtensionsConfig, id: &str) -> ghostai_protocol::json::Object {
+pub fn settings_for(config: &ExtensionsConfig, id: &str) -> darkwire_protocol::json::Object {
     config.settings.get(id).cloned().unwrap_or_default()
 }

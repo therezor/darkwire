@@ -54,7 +54,7 @@ test.describe('an unclaimed install', () => {
     ).toBeVisible();
     // Prefilled with the default, so a first run is a password and nothing else
     // unless the operator wants otherwise.
-    await expect(page.getByLabel('Username')).toHaveValue('ghost');
+    await expect(page.getByLabel('Username')).toHaveValue('darkwire');
     await page
       .getByLabel('Password', { exact: true })
       .fill('chosen-in-the-wizard');

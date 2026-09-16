@@ -1,7 +1,7 @@
 /**
  * The advisory notices, as badges.
  *
- * `prompt_injection` is the one that shaped the rest. Detection in GhostAI is
+ * `prompt_injection` is the one that shaped the rest. Detection in DarkWire is
  * **non-destructive**: the tool output passes through intact and the nonce
  * envelope does the actual defending, because replacing a matched result with a
  * warning banner means reading this project's own security documentation wipes
@@ -27,7 +27,7 @@ import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WebKey } from '@/i18n/keys.js';
 
-import type { NoticeKind } from '@ghostwire/protocol';
+import type { NoticeKind } from '@darkwire/protocol';
 
 import type { BadgeProps } from '@/components/ui/badge.js';
 import { NoticeBlock } from '@/components/ui/notice.js';

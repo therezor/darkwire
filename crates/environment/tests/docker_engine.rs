@@ -20,8 +20,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::ErrorKind;
-use ghostai_environment::container_pool::{
+use darkwire_core::ErrorKind;
+use darkwire_environment::container_pool::{
     CONTROL_TIMEOUT, ContainerEngine, DockerEngineOptions, OWNER_LABEL, START_TIMEOUT,
     docker_engine, owner_tag,
 };
@@ -142,8 +142,8 @@ fn stop_gives_a_sandbox_two_seconds_rather_than_ten() {
     // A sandbox holds no state worth a graceful shutdown, and a reap that blocks
     // ten seconds per container is a reap nobody runs.
     let fake = fake("exit 0");
-    fake.engine().stop("ghost-sbx-1").unwrap();
-    assert_eq!(fake.calls(), vec!["stop --time 2 ghost-sbx-1"]);
+    fake.engine().stop("dw-sbx-1").unwrap();
+    assert_eq!(fake.calls(), vec!["stop --time 2 dw-sbx-1"]);
 }
 
 #[test]
@@ -223,7 +223,7 @@ mod reaping {
         let ps = fake.calls().remove(0);
         // A label rather than a name prefix: a label cannot drift from whatever
         // this version happens to name things.
-        assert!(ps.contains("label=ghostai.session"), "{ps}");
+        assert!(ps.contains("label=darkwire.session"), "{ps}");
         assert!(ps.contains(OWNER_LABEL), "{ps}");
     }
 

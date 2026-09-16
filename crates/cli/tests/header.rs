@@ -16,11 +16,11 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::header::{
+use darkwire::header::{
     ContextUsage, HeaderView, context_label, input_rule, startup_header, status_bar,
 };
-use ghostai::i18n::Translations;
-use ghostai_tui::{PLAIN_THEME, visible_width};
+use darkwire::i18n::Translations;
+use darkwire_tui::{PLAIN_THEME, visible_width};
 
 fn view() -> HeaderView {
     HeaderView {

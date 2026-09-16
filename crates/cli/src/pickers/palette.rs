@@ -16,8 +16,8 @@
 //! cursor after it. A row that needs nothing — `/help`, `/agent`, `/context` —
 //! is submitted outright, because there is nothing left to say.
 
-use ghostai_i18n::keys;
-use ghostai_tui::SelectItem;
+use darkwire_i18n::keys;
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from};

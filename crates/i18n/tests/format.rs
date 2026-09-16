@@ -1,6 +1,6 @@
 //! Number grouping, plural categories and the two interval helpers.
 
-use ghostai_i18n::{
+use darkwire_i18n::{
     DurationParts, DurationUnit, PluralCategory, RelativeSpan, SpanUnit, duration_parts,
     format_number, plural_category, relative_span,
 };

@@ -16,7 +16,7 @@
 //!    that satisfies the manifest's `Required` routes.
 //!
 //! Behind a feature rather than in `tests/`, because `packages/e2e` and
-//! `ghostai-runtime` both want the composition and neither can reach a test
+//! `darkwire-runtime` both want the composition and neither can reach a test
 //! directory. Excluded from coverage for the same reason every testkit is: it
 //! runs on every test and would pad whichever crate held it.
 
@@ -24,23 +24,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
-use ghostai_agent::testkit::{ScriptedProvider, ScriptedTurn};
-use ghostai_agent::{
+use darkwire_agent::testkit::{ScriptedProvider, ScriptedTurn};
+use darkwire_agent::{
     AgentLoop, AgentLoopOptions, PromptPreview, PromptPreviewInput, SteeringQueue, TurnInput,
 };
-use ghostai_core::ids::{DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID};
-use ghostai_core::paths::{GhostPaths, ResolveGhostPaths, workspace_dir_for};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, ErrorKind, GhostError, Result, SessionStore, WorkspaceStore};
-use ghostai_protocol::config::{Config, ConfigPatch};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::rest::SetCredentialRequest;
-use ghostai_protocol::tools::ToolDefinition;
-use ghostai_providers::BoxFuture;
-use ghostai_security::EnvironmentListing;
-use ghostai_security::jail::{JailOptions, WorkspaceJail, single_jail};
-use ghostai_security::random::RandomSource;
-use ghostai_tools::{ToolRegistry, ToolScope};
+use darkwire_core::ids::{DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID};
+use darkwire_core::paths::{ResolveWirePaths, WirePaths, workspace_dir_for};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, ErrorKind, Result, SessionStore, WireError, WorkspaceStore};
+use darkwire_protocol::config::{Config, ConfigPatch};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::rest::SetCredentialRequest;
+use darkwire_protocol::tools::ToolDefinition;
+use darkwire_providers::BoxFuture;
+use darkwire_security::EnvironmentListing;
+use darkwire_security::jail::{JailOptions, WorkspaceJail, single_jail};
+use darkwire_security::random::RandomSource;
+use darkwire_tools::{ToolRegistry, ToolScope};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -240,7 +240,7 @@ pub struct FakeAgentView {
     configured: bool,
     tools: Vec<ToolDefinition>,
     context_window_tokens: u32,
-    paths: GhostPaths,
+    paths: WirePaths,
     jails: Mutex<HashMap<String, Arc<WorkspaceJail>>>,
     system_prompt: String,
     runtime_block: String,
@@ -352,17 +352,17 @@ impl FakeRuntime {
         database: &Database,
         root: &std::path::Path,
         clock: &Arc<dyn Clock>,
-        new_id: ghostai_core::session_store::IdSource,
+        new_id: darkwire_core::session_store::IdSource,
         options: &FakeRuntimeOptions,
     ) -> Result<Arc<FakeRuntime>> {
         let config = options.config.clone().unwrap_or_default();
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
+        let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some(root.to_string_lossy().into_owned()),
             home: Some(root.to_path_buf()),
-            ..ResolveGhostPaths::default()
+            ..ResolveWirePaths::default()
         })?;
         std::fs::create_dir_all(&paths.workspace).map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!("Could not create the workspace root: {error}"),
             )
@@ -407,7 +407,7 @@ impl FakeRuntime {
             system_prompt: options
                 .system_prompt
                 .clone()
-                .unwrap_or_else(|| "# GhostAI\n\nSession: {session}".to_owned()),
+                .unwrap_or_else(|| "# DarkWire\n\nSession: {session}".to_owned()),
             runtime_block: options
                 .runtime_block
                 .clone()
@@ -478,7 +478,7 @@ impl ServerRuntime for FakeRuntime {
 
     fn set_credential(&self, request: &SetCredentialRequest) -> Result<()> {
         self.credential_writes.lock().push(request.clone());
-        if request.namespace == ghostai_protocol::rest::CredentialNamespace::Providers {
+        if request.namespace == darkwire_protocol::rest::CredentialNamespace::Providers {
             // `false`, not a removal: the settings panel distinguishes "no key"
             // from "never asked".
             self.credentials
@@ -512,7 +512,7 @@ impl ServerRuntime for FakeRuntime {
             Some(id) if self.agents().iter().any(|entry| entry.id == id) => {
                 Ok(Arc::clone(&self.agent) as Arc<dyn AgentView>)
             }
-            Some(id) => Err(GhostError::new(
+            Some(id) => Err(WireError::new(
                 ErrorKind::NotFound,
                 format!("No agent named \"{id}\""),
             )),
@@ -567,7 +567,7 @@ impl ServerRuntime for FakeRuntime {
     /// test passes while a policy rejection is reported as a 500.
     fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
         if !definition.image.starts_with("sha256:") && !definition.image.contains("@sha256:") {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "Container \"{}\" must pin its image by digest, not by tag: {}",
@@ -592,7 +592,7 @@ impl ServerRuntime for FakeRuntime {
         let before = environments.len();
         environments.retain(|listing| listing.name != name);
         if environments.len() == before {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!("No environment is installed under \"{name}\"."),
             ));
@@ -607,7 +607,7 @@ impl ServerRuntime for FakeRuntime {
 
 /// A deep merge over JSON, then a re-parse.
 ///
-/// The composition root's real merge lives in `ghostai-runtime`, which this
+/// The composition root's real merge lives in `darkwire-runtime`, which this
 /// crate deliberately cannot reach. A route test does not need that rule — it
 /// needs the settings tree to *move* when a patch is applied, so a test that
 /// changes the model and reads it back sees the change. `null` removes a key,
@@ -616,12 +616,12 @@ impl ServerRuntime for FakeRuntime {
 /// null where an entry belongs and fail the re-parse.
 fn merged(config: &Config, patch: &ConfigPatch) -> Result<Config> {
     let mut base = serde_json::to_value(config)
-        .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+        .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
     let overlay = serde_json::to_value(patch)
-        .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+        .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
     merge_value(&mut base, overlay);
-    ghostai_protocol::config::parse_config(base)
-        .map_err(|error| GhostError::new(ErrorKind::Config, error.to_string()))
+    darkwire_protocol::config::parse_config(base)
+        .map_err(|error| WireError::new(ErrorKind::Config, error.to_string()))
 }
 
 fn merge_value(base: &mut serde_json::Value, overlay: serde_json::Value) {
@@ -725,7 +725,7 @@ pub struct TestServerOptions {
 )]
 pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
     let home = tempfile::tempdir().map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Storage,
             format!("Could not create a temporary home: {error}"),
         )
@@ -735,7 +735,7 @@ pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
     let dyn_clock: Arc<dyn Clock> = Arc::clone(&clock) as Arc<dyn Clock>;
 
     let counter = Arc::new(Mutex::new(0u64));
-    let new_id: ghostai_core::session_store::IdSource = {
+    let new_id: darkwire_core::session_store::IdSource = {
         let counter = Arc::clone(&counter);
         Box::new(move || {
             let mut next = counter.lock();

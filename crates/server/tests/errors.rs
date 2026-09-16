@@ -13,9 +13,9 @@
 )]
 
 use axum::http::StatusCode;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_protocol::ws::ErrorCode;
-use ghostai_server::errors::{
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_protocol::ws::ErrorCode;
+use darkwire_server::errors::{
     HttpError, OPAQUE_500, code_str, error_body, resolve_error, status_and_code,
 };
 use indexmap::IndexMap;
@@ -74,8 +74,8 @@ fn an_abort_keeps_its_own_status_so_the_access_log_can_tell_it_apart() {
 }
 
 #[test]
-fn a_ghost_error_at_five_hundred_keeps_its_message_when_it_was_expected() {
-    let error = GhostError::new(ErrorKind::Storage, "the database file is read-only");
+fn a_wire_error_at_five_hundred_keeps_its_message_when_it_was_expected() {
+    let error = WireError::new(ErrorKind::Storage, "the database file is read-only");
     let http = resolve_error(error, true);
     assert_eq!(http.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(http.message, "the database file is read-only");
@@ -86,14 +86,14 @@ fn anything_unexpected_at_five_hundred_is_opaque() {
     // A message written for a developer reading a backtrace — a file path, a
     // SQL fragment, a stringified row — is not a thing to hand to whoever made
     // the request.
-    let error = GhostError::new(ErrorKind::Internal, "no such column: sessions.wrkspace_id");
+    let error = WireError::new(ErrorKind::Internal, "no such column: sessions.wrkspace_id");
     let http = resolve_error(error, false);
     assert_eq!(http.message, OPAQUE_500);
 }
 
 #[test]
 fn a_four_hundred_keeps_its_message_whether_it_was_expected_or_not() {
-    let error = GhostError::new(ErrorKind::NotFound, "No session named \"abc\"");
+    let error = WireError::new(ErrorKind::NotFound, "No session named \"abc\"");
     assert_eq!(
         resolve_error(error, false).message,
         "No session named \"abc\""
@@ -147,8 +147,8 @@ fn an_unconfigured_install_says_so_rather_than_reporting_a_broken_config() {
 }
 
 #[test]
-fn the_ghost_error_conversion_runs_only_from_kind_to_status() {
-    let error = GhostError::new(ErrorKind::RateLimited, "slow down");
+fn the_wire_error_conversion_runs_only_from_kind_to_status() {
+    let error = WireError::new(ErrorKind::RateLimited, "slow down");
     let http = HttpError::from(error);
     assert_eq!(http.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(http.code, ErrorCode::RateLimited);

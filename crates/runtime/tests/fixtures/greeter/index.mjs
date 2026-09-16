@@ -16,7 +16,7 @@ const METHODS = {
       },
     ],
   }),
-  'ghostai/context/static': () => ({
+  'darkwire/context/static': () => ({
     sections: [{ title: 'Greeting', body: 'Be warm.' }],
   }),
 };

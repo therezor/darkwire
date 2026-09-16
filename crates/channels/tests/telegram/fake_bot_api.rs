@@ -13,11 +13,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use ghostai_channels::channel::BoxFuture;
-use ghostai_channels::telegram::api::{
+use darkwire_channels::channel::BoxFuture;
+use darkwire_channels::telegram::api::{
     HttpClient, HttpResponse, TelegramChat, TelegramMessage, TelegramMessageEntity, TelegramUpdate,
 };
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
 use tokio::sync::Notify;
@@ -226,7 +226,7 @@ impl FakeBotApi {
     /// answers an empty list immediately and the loop spins as fast as the
     /// runtime allows, burning the test's timeout instead of waiting like a real
     /// long poll.
-    async fn drain(&self, token: &CancellationToken) -> Result<Vec<TelegramUpdate>, GhostError> {
+    async fn drain(&self, token: &CancellationToken) -> Result<Vec<TelegramUpdate>, WireError> {
         loop {
             {
                 let mut state = self.state.lock();
@@ -235,13 +235,13 @@ impl FakeBotApi {
                 }
             }
             if token.is_cancelled() {
-                return Err(GhostError::aborted("Telegram request"));
+                return Err(WireError::aborted("Telegram request"));
             }
             // Registered before the emptiness is re-checked above on the next
             // turn of the loop, so a push landing between the two is not missed.
             let waiting = self.wake.notified();
             tokio::select! {
-                () = token.cancelled() => return Err(GhostError::aborted("Telegram request")),
+                () = token.cancelled() => return Err(WireError::aborted("Telegram request")),
                 () = waiting => {}
             }
         }
@@ -254,14 +254,14 @@ impl HttpClient for FakeBotApi {
         url: &'a str,
         body: String,
         token: &'a CancellationToken,
-    ) -> BoxFuture<'a, Result<HttpResponse, GhostError>> {
+    ) -> BoxFuture<'a, Result<HttpResponse, WireError>> {
         Box::pin(async move {
             // A real call is not synchronous, and a poll loop retrying against a
             // purely synchronous fake would starve the runtime and hang the test
             // rather than failing it.
             tokio::task::yield_now().await;
             if token.is_cancelled() {
-                return Err(GhostError::aborted("Telegram request"));
+                return Err(WireError::aborted("Telegram request"));
             }
 
             let method = url.rsplit('/').next().unwrap_or_default().to_owned();
@@ -280,7 +280,7 @@ impl HttpClient for FakeBotApi {
             };
 
             if let Some(failure) = answer.throws {
-                return Err(GhostError::new(ErrorKind::Network, failure));
+                return Err(WireError::new(ErrorKind::Network, failure));
             }
             Ok(HttpResponse {
                 status: answer.status.unwrap_or(200),
@@ -319,7 +319,7 @@ pub fn message_update(text: &str, user_id: i64, chat_id: Option<i64>) -> Telegra
                     "supergroup".to_owned()
                 },
             },
-            from: Some(ghostai_channels::telegram::api::TelegramUser {
+            from: Some(darkwire_channels::telegram::api::TelegramUser {
                 id: user_id,
                 username: Some("tester".to_owned()),
             }),
@@ -336,9 +336,9 @@ pub fn callback_update(data: &str, user_id: i64, chat_id: Option<i64>) -> Telegr
     TelegramUpdate {
         update_id: 0,
         message: None,
-        callback_query: Some(ghostai_channels::telegram::api::TelegramCallbackQuery {
+        callback_query: Some(darkwire_channels::telegram::api::TelegramCallbackQuery {
             id: "cbq-1".to_owned(),
-            from: ghostai_channels::telegram::api::TelegramUser {
+            from: darkwire_channels::telegram::api::TelegramUser {
                 id: user_id,
                 username: Some("tester".to_owned()),
             },

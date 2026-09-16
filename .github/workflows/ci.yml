@@ -45,7 +45,7 @@ jobs:
       # Named separately so a failure says which gate, on the summary page,
       # without anyone opening the log.
       - name: Design token gates
-        run: pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts
+        run: pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts
 
       - name: Format check
         run: pnpm format:check
@@ -91,7 +91,7 @@ jobs:
     # happen to compile today, because the next step someone adds will compile
     # too.
     env:
-      GHOSTAI_HEADLESS_BUILD: '1'
+      DARKWIRE_HEADLESS_BUILD: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -168,16 +168,16 @@ jobs:
       # test process. `--features test-hooks` is what compiles the five
       # `/api/_test/*` routes, the comparison password hasher, the keychain-free
       # vault and the `e2e_wait` tool; every one of them still refuses until
-      # `GHOSTAI_TEST_HOOKS=1` says so, which the harness sets on the child and
+      # `DARKWIRE_TEST_HOOKS=1` says so, which the harness sets on the child and
       # nothing else does. The release profile because a debug binary spends
       # longer starting than the assertions take.
       - name: Build the server
-        run: cargo build --release -p ghostai --features test-hooks
+        run: cargo build --release -p darkwire --features test-hooks
 
       # Only the browser the suite uses. `--with-deps` installs the shared
       # libraries a headless Chromium needs on a bare runner.
       - name: Install Chromium
-        run: pnpm --filter @ghostwire/e2e exec playwright install --with-deps chromium
+        run: pnpm --filter @darkwire/e2e exec playwright install --with-deps chromium
 
       # Both colour schemes, because the projects are the themes: a component
       # that only works in dark is a failing test here rather than something
@@ -185,12 +185,12 @@ jobs:
       #
       # The fidelity gate skips itself — it measures against a checkout of the
       # product being replaced, which is not on a CI machine and is not going to
-      # be. It runs locally, and `pnpm --filter @ghostwire/e2e baseline` is what
+      # be. It runs locally, and `pnpm --filter @darkwire/e2e baseline` is what
       # produces the pictures beside it.
       - name: End-to-end
-        run: pnpm --filter @ghostwire/e2e test:e2e
+        run: pnpm --filter @darkwire/e2e test:e2e
         env:
-          GHOSTAI_BIN: target/release/ghostai
+          DARKWIRE_BIN: target/release/darkwire
 
       - if: failure()
         uses: actions/upload-artifact@v5

@@ -11,7 +11,7 @@
 //!
 //! - **Failures are typed.** A provider error carries a `reason`, an HTTP
 //!   status and the parameter the provider blamed, in the structured details
-//!   of the one `GhostError` every crate returns. Nothing searches an error
+//!   of the one `WireError` every crate returns. Nothing searches an error
 //!   message for "429" or "rate limit": a model that writes those words in
 //!   its answer must not trigger a retry, and a provider that phrases its
 //!   rejection differently must still be understood.

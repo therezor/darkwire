@@ -18,14 +18,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::harness::{FakeTool, Harness, MapResolver, RecordingEnvironments, Setup, events_of};
-use ghostai_agent::SubagentBinding;
-use ghostai_agent::subagent::{
+use darkwire_agent::SubagentBinding;
+use darkwire_agent::subagent::{
     DelegationRefusal, MAX_SUBAGENT_DEPTH, parse_task, refuse_delegation, refused_execution,
     subagent_definition, subagent_map, subagent_result,
 };
-use ghostai_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{
+use darkwire_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{
     AgentEnvironment, AgentSettings, EnvironmentNetwork, NetworkMode, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, ToolPermission, default_subagent_prompt, subagent_tool_name,
 };
@@ -50,7 +50,7 @@ fn a_subagent_is_advertised_as_one_tool_taking_one_task() {
     assert_eq!(definition.name, "ask_researcher");
     // Not `exec`, and not a new band: delegating does nothing to the machine,
     // and the subagent's own calls carry their own bands.
-    assert_eq!(definition.risk, ghostai_protocol::ToolRisk::Safe);
+    assert_eq!(definition.risk, darkwire_protocol::ToolRisk::Safe);
     assert_eq!(definition.parameters["required"], json!(["task"]));
     assert_eq!(definition.parameters["additionalProperties"], json!(false));
     // The operator wrote nothing, so the fallback names the agent and says the
@@ -484,9 +484,9 @@ async fn the_child_gets_its_own_session_in_the_callers_workspace() {
     );
 
     let (events, _) = parent
-        .run(ghostai_agent::TurnInput {
+        .run(darkwire_agent::TurnInput {
             workspace_id: Some("client-acme".to_owned()),
-            ..ghostai_agent::TurnInput::new("web:1", "delegate")
+            ..darkwire_agent::TurnInput::new("web:1", "delegate")
         })
         .await;
 
@@ -686,9 +686,9 @@ async fn a_cycle_is_refused_as_a_tool_result_rather_than_a_failed_turn() {
         ],
         subagents: vec![binding("researcher")],
         resolve_loop: Some(resolver.clone()),
-        agent: Some(ghostai_agent::LoopAgent {
+        agent: Some(darkwire_agent::LoopAgent {
             id: "researcher".to_owned(),
-            ..ghostai_agent::LoopAgent::default()
+            ..darkwire_agent::LoopAgent::default()
         }),
         ..Setup::default()
     });
@@ -696,10 +696,10 @@ async fn a_cycle_is_refused_as_a_tool_result_rather_than_a_failed_turn() {
     resolver.insert("researcher", child.agent_loop.clone());
 
     let (events, result) = parent
-        .run(ghostai_agent::TurnInput {
+        .run(darkwire_agent::TurnInput {
             // Already running above this call.
             chain: vec!["researcher".to_owned()],
-            ..ghostai_agent::TurnInput::new("web:1", "delegate")
+            ..darkwire_agent::TurnInput::new("web:1", "delegate")
         })
         .await;
 

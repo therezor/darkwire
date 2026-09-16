@@ -24,8 +24,8 @@
 
 use std::sync::Arc;
 
-use ghostai_core::clock::Clock;
-use ghostai_core::message_bus::OutboundKind;
+use darkwire_core::clock::Clock;
+use darkwire_core::message_bus::OutboundKind;
 use tokio_util::sync::CancellationToken;
 
 use crate::telegram::api::{

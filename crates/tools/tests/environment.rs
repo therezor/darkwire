@@ -1,13 +1,13 @@
 //! The host environment, and what `confined` is allowed to mean.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
-use ghostai_core::{Result, SystemClock};
-use ghostai_security::{ExecGuardOptions, JailOptions, WorkspaceJail, guard_exec};
-use ghostai_tools::{CommandRunner, Environment, HostEnvironment, RunRequest};
+use darkwire_core::{Result, SystemClock};
+use darkwire_security::{ExecGuardOptions, JailOptions, WorkspaceJail, guard_exec};
+use darkwire_tools::{CommandRunner, Environment, HostEnvironment, RunRequest};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 /// A guarded plan for `argv`, in a temporary workspace.
-fn plan(root: &std::path::Path, argv: &[&str]) -> Result<ghostai_security::ExecPlan> {
+fn plan(root: &std::path::Path, argv: &[&str]) -> Result<darkwire_security::ExecPlan> {
     let jail = Arc::new(WorkspaceJail::new(JailOptions::new(root)).unwrap());
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     let env = std::collections::HashMap::new();
@@ -72,7 +72,7 @@ impl CommandRunner for Liar {
     fn run(
         &self,
         request: RunRequest,
-    ) -> ghostai_tools::BoxFuture<'_, Result<ghostai_tools::RunOutcome>> {
+    ) -> darkwire_tools::BoxFuture<'_, Result<darkwire_tools::RunOutcome>> {
         self.0.run(request)
     }
 }

@@ -8,7 +8,7 @@ name: Release
 # commit, tag, push.
 #
 # What ships is one binary per platform, attached to the GitHub release.
-# Nothing is published to npm: the product is `ghostai`, the web bundle is
+# Nothing is published to npm: the product is `darkwire`, the web bundle is
 # compiled into it, and an install is a download rather than a dependency tree.
 on:
   push:
@@ -59,7 +59,7 @@ jobs:
         run: pnpm lint
 
       - name: Design token gates
-        run: pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts
+        run: pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts
 
       - name: Format check
         run: pnpm format:check
@@ -104,7 +104,7 @@ jobs:
           root=$(node -p "require('./package.json').version")
           cargo_version=$(cargo metadata --format-version 1 --no-deps \
             | node -e 'const m=JSON.parse(require("node:fs").readFileSync(0,"utf8"));
-                       const p=m.packages.find((p)=>p.name==="ghostai");
+                       const p=m.packages.find((p)=>p.name==="darkwire");
                        console.log(p.version)')
           if [ "$tag" != "$root" ]; then
             echo "Tag $GITHUB_REF_NAME does not match root package.json $root." >&2
@@ -164,9 +164,9 @@ jobs:
       # compile time, which is the intended failure and one step earlier than
       # the old runtime path resolution gave.
       #
-      # `pnpm build`, not `pnpm --filter @ghostwire/web build`. The filtered
+      # `pnpm build`, not `pnpm --filter @darkwire/web build`. The filtered
       # form runs that one package's script and nothing else, and the web app
-      # imports `@ghostwire/protocol` and `@ghostwire/i18n`, whose `exports`
+      # imports `@darkwire/protocol` and `@darkwire/i18n`, whose `exports`
       # resolve to `dist/` outside a dev server. Turbo is what knows to build
       # those two first; the filter skips it and the bundle fails to resolve
       # its own workspace imports.
@@ -179,20 +179,20 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked --bin ghostai
+        run: cargo build --release --locked --bin darkwire
 
       # The tarball is named by platform alone, with no version in it, so that
-      # `releases/latest/download/ghostai-<target>.tar.gz` resolves — an install
+      # `releases/latest/download/darkwire-<target>.tar.gz` resolves — an install
       # line a reader can copy without first looking up what the current version
       # is. The directory *inside* carries the version, so an extracted copy is
       # still self-describing once it has left the download folder.
       - name: Name the artifact
         id: package
         run: |
-          asset="ghostai-${{ matrix.target }}"
-          dir="ghostai-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          asset="darkwire-${{ matrix.target }}"
+          dir="darkwire-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$dir"
-          cp target/release/ghostai "dist/$dir/"
+          cp target/release/darkwire "dist/$dir/"
           cp README.md LICENSE "dist/$dir/"
           tar -czf "dist/$asset.tar.gz" -C dist "$dir"
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
@@ -207,7 +207,7 @@ jobs:
         shell: bash
         run: |
           home=$(mktemp -d)
-          target/release/ghostai serve --home "$home" --host 127.0.0.1 --port 0 \
+          target/release/darkwire serve --home "$home" --host 127.0.0.1 --port 0 \
             --ready-file "$home/ready.json" >"$home/serve.log" 2>&1 &
           pid=$!
           for _ in $(seq 1 60); do

@@ -22,15 +22,15 @@ use axum::extract::{Extension, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, body};
-use garde::Validate;
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
-use ghostai_core::{ErrorKind, GhostError, ensure_dir};
-use ghostai_protocol::rest::{
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_core::{ErrorKind, WireError, ensure_dir};
+use darkwire_protocol::rest::{
     CreateDirectoryRequest, FileEntry, FileListResponse, FileTextResponse, FileWriteRequest,
     MoveFileRequest, SignedUrl, SignedUrlRequest, UploadResponse,
 };
-use ghostai_protocol::ws::ErrorCode;
-use ghostai_security::jail::WorkspaceJail;
+use darkwire_protocol::ws::ErrorCode;
+use darkwire_security::jail::WorkspaceJail;
+use garde::Validate;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio_util::io::ReaderStream;
@@ -579,7 +579,7 @@ fn modified_at_ms(metadata: &std::fs::Metadata) -> u64 {
 /// Unreachable for a path the jail itself produced a moment earlier, so it is
 /// an invariant failure rather than something a caller did.
 fn outside() -> HttpError {
-    HttpError::from(GhostError::new(
+    HttpError::from(WireError::new(
         ErrorKind::Internal,
         "The resolved path is outside the workspace",
     ))
@@ -592,7 +592,7 @@ fn outside() -> HttpError {
 /// opaque message a caller gets.
 fn internal(error: std::io::Error) -> HttpError {
     let message = error.to_string();
-    HttpError::from(GhostError::new(ErrorKind::Storage, message).with_source(error))
+    HttpError::from(WireError::new(ErrorKind::Storage, message).with_source(error))
 }
 
 /// Whether the operating system refused the operation as nonsensical.
@@ -627,7 +627,7 @@ where
 {
     match tokio::task::spawn_blocking(work).await {
         Ok(result) => result,
-        Err(error) => Err(HttpError::from(GhostError::new(
+        Err(error) => Err(HttpError::from(WireError::new(
             ErrorKind::Internal,
             format!("The filesystem task did not finish: {error}"),
         ))),

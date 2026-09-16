@@ -25,7 +25,7 @@ import {
   agentSettingsPatch,
   type AgentSettingsChange,
   type ModelInfo,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { useAgent } from '@/agents/agent-context.js';
 import { useAgentChoice } from '@/agents/use-agent-choice.js';

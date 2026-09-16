@@ -40,14 +40,14 @@ import type { AddressInfo } from 'node:net';
 /**
  * Where the reference lives.
  *
- * `GHOSTAI_FIDELITY_ORIGINAL`, or a directory beside the repository root that
+ * `DARKWIRE_FIDELITY_ORIGINAL`, or a directory beside the repository root that
  * is not in the tree and not in the manifest. The reference is another
  * product's source: it is not vendored here, it is not named here, and a
  * checkout without it is the normal case rather than a broken one — which is
  * why the gate skips rather than fails when this path is empty.
  */
 export const DEFAULT_ORIGINAL_ROOT: string = resolve(
-  process.env.GHOSTAI_FIDELITY_ORIGINAL ??
+  process.env.DARKWIRE_FIDELITY_ORIGINAL ??
     join(process.cwd(), '..', '..', '.fidelity-reference'),
 );
 
@@ -108,7 +108,7 @@ export async function serveReference(
 
   if (!referenceAvailable(root)) {
     throw new Error(
-      `No index.html under ${root}. Set GHOSTAI_FIDELITY_ORIGINAL to the reference build.`,
+      `No index.html under ${root}. Set DARKWIRE_FIDELITY_ORIGINAL to the reference build.`,
     );
   }
 

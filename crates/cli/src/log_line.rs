@@ -1,7 +1,7 @@
 //! A log record, as one line a person can read.
 //!
-//! The logger writes JSON because that is what a log is for — `ghostai serve
-//! 2>ghost.log` produces something `jq` can answer questions about, and every
+//! The logger writes JSON because that is what a log is for — `darkwire serve
+//! 2>darkwire.log` produces something `jq` can answer questions about, and every
 //! field is there on purpose. In a chat window it is the wrong shape entirely:
 //! a wall of `{"level":40,"time":1786007865399,…}` between two turns says
 //! nothing at a glance and buries the one part that matters, which is the
@@ -17,7 +17,7 @@
 //! worse failure than showing an ugly one — including for the case that matters
 //! most, a crash whose output is not a record at all.
 
-use ghostai_tui::Palette;
+use darkwire_tui::Palette;
 use serde_json::Value;
 
 /// The numeric levels the logger writes. Anything else prints as the number it
@@ -35,7 +35,7 @@ const LEVELS: [(i64, &str); 6] = [
 ///
 /// `time` goes because the line is being read as it happens; `pid` and
 /// `hostname` because there is one process and it is this one; `name` because
-/// it is `ghostai` on every line this formatter will ever see.
+/// it is `darkwire` on every line this formatter will ever see.
 const NOISE: [&str; 6] = ["level", "time", "pid", "hostname", "name", "msg"];
 
 /// How much of one field's value survives. Long enough to identify, not to
@@ -44,7 +44,7 @@ pub const MAX_VALUE_CHARS: usize = 120;
 
 /// How each level is painted.
 ///
-/// **The word stays whatever the colour does.** `ghostai-tui`'s theme states
+/// **The word stays whatever the colour does.** `darkwire-tui`'s theme states
 /// the rule this follows — colour is never the only signal — so `warn` reads as
 /// `warn` under `NO_COLOR`, in a pipe, and to anyone who cannot tell the yellow
 /// from the red. The colour is what makes it findable while scrolling, not what

@@ -2,7 +2,7 @@
  * The parity oracle for this package's pure functions and wire shapes.
  *
  * Every case here is run through the TypeScript implementation and written to
- * `fixtures/` under `GHOSTAI_UPDATE_FIXTURES=1`; otherwise the committed file
+ * `fixtures/` under `DARKWIRE_UPDATE_FIXTURES=1`; otherwise the committed file
  * has to match byte for byte. The Rust crate reads the same files and asserts
  * its own results against them, so a function that drifts between the two
  * languages fails a test on whichever side moved.
@@ -25,7 +25,6 @@ import { readdirSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AgentPresetSchema,
   ClientMessageSchema,
   ConfigSchema,
   DEFAULT_LIVE_STATE_TEMPLATE,
@@ -57,7 +56,6 @@ import {
   isSlugId,
   namesDelimiter,
   newUuid,
-  presetToAgentEntry,
   renderPromptTemplate,
   renderWrapUp,
   slugify,
@@ -97,7 +95,7 @@ function orNull(value: unknown): unknown {
 const VALUES = {
   name: 'Reviewer',
   workspaceId: 'acme',
-  workspaceRoot: '/home/ghost/.ghostai/workspace/acme',
+  workspaceRoot: '/home/ghost/.darkwire/workspace/acme',
   runtime: 'Linux x64, Node 22.0.0',
 };
 
@@ -137,8 +135,6 @@ const CODER_CONFIG = {
     },
   },
 };
-
-const PRESET = { schema: 'ghostai.agent-preset/1', id: 'researcher' };
 
 const RUN: SubagentRunRef = {
   sessionKey: 'sub-1',
@@ -907,56 +903,6 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
       { name: 'an astral-plane label', input: { label: '😀 𝔉𝔦𝔵𝔢𝔯' } },
     ],
     run: (input) => defaultSubagentPrompt(input.label as string),
-  },
-  presetToAgentEntry: {
-    cases: [
-      { name: 'the minimal preset', input: { preset: PRESET } },
-      {
-        name: 'label and prompt carry over',
-        input: {
-          preset: {
-            ...PRESET,
-            label: 'Researcher',
-            systemPrompt: '# {{name}}\n\nResearch things.',
-          },
-        },
-      },
-      {
-        name: 'toolsEnabled false carries over',
-        input: { preset: { ...PRESET, toolsEnabled: false } },
-      },
-      {
-        name: 'skills do not carry over',
-        input: { preset: { ...PRESET, skills: ['code-review'] } },
-      },
-      {
-        name: 'an environment and subagents carry over',
-        input: {
-          preset: {
-            ...PRESET,
-            environment: { network: { mode: 'open' } },
-            subagents: [{ id: 'writer' }],
-            tools: { exec: 'deny' },
-            promptMode: 'raw',
-          },
-        },
-      },
-      {
-        name: 'every prompt field carries over',
-        input: {
-          preset: {
-            ...PRESET,
-            livePrompt: 'L',
-            wrapUpPrompt: 'W',
-            platformPrompt: 'P',
-            toolPolicyPrompt: 'O',
-            memoryPrompt: 'M',
-            skillsPrompt: 'S 😀\r\n',
-          },
-        },
-      },
-    ],
-    run: (input) => presetToAgentEntry(AgentPresetSchema.parse(input.preset)),
   },
   applyToolPrompts: {
     cases: [

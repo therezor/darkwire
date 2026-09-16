@@ -20,15 +20,15 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::stream::{self, BoxStream, StreamExt as _};
-use ghostai_core::messages::{AssistantOptions, assistant_message};
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::{ModelInfo, ToolCall, Usage};
-use ghostai_providers::{
+use darkwire_core::messages::{AssistantOptions, assistant_message};
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::{ModelInfo, ToolCall, Usage};
+use darkwire_providers::{
     BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, PROVIDERS,
     ProviderSpec, empty_usage,
 };
-use ghostai_security::RandomSource;
+use darkwire_security::RandomSource;
+use futures::stream::{self, BoxStream, StreamExt as _};
 use tokio_util::sync::CancellationToken;
 
 /// A clock that reads tokio's timer.
@@ -148,7 +148,7 @@ pub struct ScriptedTurn {
     /// Failed instead of streaming.
     ///
     /// The kind and the wording rather than the error itself, because a
-    /// `GhostError` carries a source and is deliberately not `Clone`, and a
+    /// `WireError` carries a source and is deliberately not `Clone`, and a
     /// script that repeats its last turn hands the same failure back twice.
     pub error: Option<ScriptedError>,
     /// Ends the stream without its completion — a truncated transport.
@@ -231,8 +231,8 @@ pub struct ScriptedError {
 }
 
 impl ScriptedError {
-    fn build(&self) -> GhostError {
-        GhostError::new(self.kind, self.message.clone())
+    fn build(&self) -> WireError {
+        WireError::new(self.kind, self.message.clone())
     }
 }
 
@@ -241,7 +241,7 @@ impl ScriptedError {
 /// The loop's behaviour is almost entirely a function of what the model does —
 /// answer, call one tool, call three, fail, stall — and a scripted provider is
 /// how each of those becomes one line of a test instead of a mocked transport.
-/// The real wire adapter is tested against a socket in `ghostai-providers`;
+/// The real wire adapter is tested against a socket in `darkwire-providers`;
 /// nothing here asserts anything about HTTP.
 ///
 /// Requests are recorded, because half of what the loop must get right is in
@@ -338,7 +338,7 @@ impl ChatProvider for ScriptedProvider {
             if turn.delay_ms > 0 {
                 tokio::select! {
                     () = token.cancelled() => {
-                        return vec![Err(GhostError::aborted("Provider request"))];
+                        return vec![Err(WireError::aborted("Provider request"))];
                     }
                     () = tokio::time::sleep(Duration::from_millis(turn.delay_ms)) => {}
                 }
@@ -347,7 +347,7 @@ impl ChatProvider for ScriptedProvider {
                 return vec![Err(error.build())];
             }
             if token.is_cancelled() {
-                return vec![Err(GhostError::aborted("Provider request"))];
+                return vec![Err(WireError::aborted("Provider request"))];
             }
 
             let mut events: Vec<Result<ChatStreamEvent>> = Vec::new();

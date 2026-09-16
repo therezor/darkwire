@@ -3,7 +3,7 @@
  *
  * This is what makes `t('settings.panels.tools.label')` a compile error when it
  * is misspelled, and it is why the resources are imported rather than merely
- * shipped: the JSON *is* the type. It is also what `GhostError.messageKey` is
+ * shipped: the JSON *is* the type. It is also what `WireError.messageKey` is
  * checked against, so a package with no runtime dependency on i18next still
  * cannot name a string that does not exist.
  *

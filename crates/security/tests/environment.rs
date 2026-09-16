@@ -9,9 +9,9 @@
 
 mod common;
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_security::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_security::{
     assert_environment_policy, assert_gateway_compatible, manifest_hash, parse_environment,
     weakened_in,
 };
@@ -23,7 +23,7 @@ const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 fn definition_bytes(overrides: &Value) -> Vec<u8> {
     let mut base = json!({
-        "schema": "ghostai.environment/1",
+        "schema": "darkwire.environment/1",
         "name": "kali-pentest",
         "image": format!("docker.io/kalilinux/kali-rolling@{DIGEST}"),
     });
@@ -81,7 +81,7 @@ fn parse_errors_name_the_problem() {
     assert!(malformed.message.contains("not valid YAML"));
 
     let schema = message_of(&parse_environment(&definition_bytes(
-        &json!({"schema": "ghostai.container/2"}),
+        &json!({"schema": "darkwire.container/2"}),
     )));
     assert!(schema.contains("not valid"));
     assert!(schema.contains("schema"));

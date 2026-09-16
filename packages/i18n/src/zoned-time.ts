@@ -9,7 +9,7 @@
  * the field would then mean one thing while the row it renders back means
  * another.
  *
- * **This duplicates `instant_of_local` in `ghostai-core`'s `cron.rs`, on
+ * **This duplicates `instant_of_local` in `darkwire-core`'s `cron.rs`, on
  * purpose.** The original is Rust and the browser cannot call it, however much
  * it would like to. The two are kept honest by having the same DST cases in
  * both test suites rather than by sharing code across a boundary that does not

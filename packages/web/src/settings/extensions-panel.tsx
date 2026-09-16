@@ -31,7 +31,7 @@ import type {
   Config,
   ExtensionStatus,
   ExtensionState,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
@@ -311,7 +311,7 @@ export function ExtensionsPanel({
  * `ExtensionStore` writes its messages for a terminal — a sentence, then two
  * indented lines naming the command that fixes it. The command is not what to
  * offer someone already looking at the button that does it, so the row shows
- * the sentence and `ghostai extension list` shows the rest.
+ * the sentence and `darkwire extension list` shows the rest.
  */
 function firstLine(message: string): string {
   return message.split('\n')[0] ?? message;

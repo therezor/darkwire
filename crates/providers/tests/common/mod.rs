@@ -10,11 +10,11 @@
 
 use std::path::PathBuf;
 
-use ghostai_core::messages::{
+use darkwire_core::messages::{
     AssistantOptions, ToolOptions, assistant_message, system_message, tool_message, user_message,
 };
-use ghostai_protocol::{ChatMessage, ContentPart, ToolCall, ToolDefinition, ToolRisk, ToolSource};
-use ghostai_providers::{ProviderSpec, find_builtin};
+use darkwire_protocol::{ChatMessage, ContentPart, ToolCall, ToolDefinition, ToolRisk, ToolSource};
+use darkwire_providers::{ProviderSpec, find_builtin};
 use serde_json::Value;
 
 /// The repository's `fixtures/` directory.

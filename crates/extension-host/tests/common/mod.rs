@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::{Database, SystemClock};
-use ghostai_extension_host::{ExtensionHost, ExtensionHostOptions, Timings};
-use ghostai_protocol::{ExtensionState, ExtensionStatus, ExtensionsConfig};
-use ghostai_security::ExtensionStore;
+use darkwire_core::{Database, SystemClock};
+use darkwire_extension_host::{ExtensionHost, ExtensionHostOptions, Timings};
+use darkwire_protocol::{ExtensionState, ExtensionStatus, ExtensionsConfig};
+use darkwire_security::ExtensionStore;
 use tempfile::TempDir;
 
 /// Deadlines short enough that the suite runs in under a second.

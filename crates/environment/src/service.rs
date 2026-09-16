@@ -3,11 +3,11 @@
 use crate::container_pool::{
     ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
 };
-use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{EnvironmentNetwork, SandboxRequest};
-use ghostai_security::environment::invalid;
-use ghostai_security::{ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, guard_exec};
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::{EnvironmentNetwork, SandboxRequest};
+use darkwire_security::environment::invalid;
+use darkwire_security::{ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, guard_exec};
+use darkwire_tools::{
     BoxFuture, CommandRunner, Environment, OutputStream, OutputTee, PlacementRequest, RunOutcome,
     RunRequest,
 };
@@ -173,7 +173,7 @@ impl OutputTee for Progress {
 /// One function rather than the same fallback written at each call site: the
 /// app, the CLI and anything that later needs to reach the service have to
 /// agree on the path, and three copies of a default is how they stop agreeing.
-pub fn socket_path(env: Option<&str>, paths: &ghostai_core::GhostPaths) -> PathBuf {
+pub fn socket_path(env: Option<&str>, paths: &darkwire_core::WirePaths) -> PathBuf {
     env.map_or_else(
         || paths.root.join("control").join("sandbox.sock"),
         PathBuf::from,
@@ -220,14 +220,14 @@ impl SandboxClient {
             result = async {
                 loop {
                     let value = read_frame(&mut socket).await?;
-                    if value.get("event").and_then(Value::as_str) != Some("output") { break Ok::<Value, GhostError>(value); }
+                    if value.get("event").and_then(Value::as_str) != Some("output") { break Ok::<Value, WireError>(value); }
                 }
             } => {
                 let value = result?;
-                if let Some(error) = value.get("error").and_then(Value::as_str) { return Err(GhostError::new(ErrorKind::Tool, error)); }
+                if let Some(error) = value.get("error").and_then(Value::as_str) { return Err(WireError::new(ErrorKind::Tool, error)); }
                 Ok(value)
             },
-            () = token.cancelled() => { let _ = socket.shutdown().await; Err(GhostError::aborted("sandbox operation")) }
+            () = token.cancelled() => { let _ = socket.shutdown().await; Err(WireError::aborted("sandbox operation")) }
         }
     }
 }

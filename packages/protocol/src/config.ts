@@ -13,7 +13,7 @@
  *    schema so the child's own defaults apply, which `.default()` (output-typed
  *    in Zod 4) could not do without restating every leaf.
  *  - **No `.transform()` anywhere.** Normalisation (trimming an `apiBase` to
- *    `undefined`, expanding `~`) happens at load time in `ghostai-core`, which
+ *    `undefined`, expanding `~`) happens at load time in `darkwire-core`, which
  *    keeps input and output types identical and every schema here
  *    representable as JSON Schema for the OpenAPI document.
  */
@@ -135,10 +135,10 @@ function patchOf<S extends z.ZodRawShape>(
  * agents with separate identities opening the same one is the thing this is
  * built around. `AgentEntrySchema` therefore cannot name it, and a test says so.
  *
- * Empty means `<root>/workspace`, where the root is `GHOSTAI_HOME` or
- * `~/.ghostai`. Deliberately *not* defaulted to the literal `~/.ghostai/workspace`:
+ * Empty means `<root>/workspace`, where the root is `DARKWIRE_HOME` or
+ * `~/.darkwire`. Deliberately *not* defaulted to the literal `~/.darkwire/workspace`:
  * that string restates the default root, so an install that moved its root with
- * `GHOSTAI_HOME` would keep a workspace back under the home directory — silently
+ * `DARKWIRE_HOME` would keep a workspace back under the home directory — silently
  * pointing the agent's filesystem tools at a tree the operator thought they had
  * relocated. A relative path here is resolved against the root, never against
  * the process working directory.
@@ -178,7 +178,7 @@ export const AgentSettingsSchema = z.object({
    *
    * A bare provider type is still accepted and means "any instance of that
    * type, or a default one if none is configured" — which is what keeps
-   * `ghostai chat --provider ollama` working on a machine with no config file.
+   * `darkwire chat --provider ollama` working on a machine with no config file.
    */
   provider: z.string().min(1).default('auto'),
   maxTokens: z.number().int().positive().default(8192),
@@ -210,7 +210,7 @@ export const AgentSettingsSchema = z.object({
    * see it, let me open it" and the request being rejected outright.
    *
    * The reactive half of this already existed: `stripImages` in
-   * `ghostai-providers` removes images *after* an endpoint has refused them.
+   * `darkwire-providers` removes images *after* an endpoint has refused them.
    * This is the same repair moved to before the round trip, for the case where
    * the operator already knows.
    */
@@ -247,12 +247,12 @@ export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
  * — a laptop and a GPU box — are two entries with the same `type` and different
  * `apiBase`, which the previous shape (one entry per provider id) could not
  * express at all. It is validated against the registry table by
- * `ghostai-providers`, not here: this package sits upstream of that table and
+ * `darkwire-providers`, not here: this package sits upstream of that table and
  * cannot see it, which is the same reason `ProvidersConfig` is a record rather
  * than one named field per provider.
  */
 export const ProviderConfigSchema = z.object({
-  /** A `ghostai-providers` registry id — `ollama`, `openai`, `custom`. */
+  /** A `darkwire-providers` registry id — `ollama`, `openai`, `custom`. */
   type: z.string().min(1),
   /** Shown in the UI. Empty falls back to the type's display name. */
   label: z.string().default(''),
@@ -312,7 +312,7 @@ export const AuthConfigSchema = z.object({
 export const ServerConfigSchema = z.object({
   host: z.string().min(1).default('127.0.0.1'),
   /**
-   * One port for the API, the WebSocket and the static UI. GhostAI is
+   * One port for the API, the WebSocket and the static UI. DarkWire is
    * single-process by default; nothing in it is heavy enough to justify the
    * reconnect-and-HTTP-fallback client a split-process topology would need.
    */
@@ -356,7 +356,7 @@ export const ServerConfigSchema = z.object({
  *
  * A pure predicate rather than a schema refinement: the caller needs to explain
  * *why* startup was refused, and cross-field validation would also make this
- * schema unrepresentable as JSON Schema. `ghostai-server` calls it during
+ * schema unrepresentable as JSON Schema. `darkwire-server` calls it during
  * boot; `0.0.0.0` and `::` are the wildcard binds that must count as remote.
  */
 export function isLoopbackHost(host: string): boolean {
@@ -556,7 +556,7 @@ export type EnvironmentNetwork = z.infer<typeof EnvironmentNetworkSchema>;
  * Where this agent's command operations run, and what they can reach.
  *
  * An empty `name` is the behaviour that has always existed: a child process on
- * the machine running GhostAI, inside the workspace jail, where a network
+ * the machine running DarkWire, inside the workspace jail, where a network
  * request means nothing and is refused rather than ignored. A named environment
  * routes command operations through the sandbox service instead.
  *
@@ -874,7 +874,7 @@ export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>;
  */
 export const ExtensionsConfigSchema = z.object({
   /**
-   * Extra directories to load from, beside `~/.ghostai/extensions`.
+   * Extra directories to load from, beside `~/.darkwire/extensions`.
    *
    * A path, never a package spec. Nothing here fetches: an extension is a
    * directory an operator put on the box, which is what keeps an air-gapped
@@ -897,7 +897,7 @@ export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
  *
  * `locale` is a bare `z.string()` on purpose. An enum would have to enumerate
  * the shipped languages, which would give `protocol` a dependency on
- * `@ghostwire/i18n` for a value that changes every time a translation lands — and
+ * `@darkwire/i18n` for a value that changes every time a translation lands — and
  * would turn a config naming a language this build does not carry into a parse
  * failure that takes the whole file down. `resolveLocale` narrows an unknown tag
  * to the nearest match and ultimately to English, so an unrecognised value costs
@@ -1157,9 +1157,9 @@ export interface AgentSettingsChange {
  * default agent anyway, and writing a half-agent under a dead id would be worse
  * than writing a whole one.
  *
- * Pure, and deliberately in `@ghostwire/protocol` rather than beside the merge
+ * Pure, and deliberately in `@darkwire/protocol` rather than beside the merge
  * it encodes. Both callers need it and only this package reaches both: the web
- * bundle cannot import `ghostai-runtime` or `ghostai-core` at all.
+ * bundle cannot import `darkwire-runtime` or `darkwire-core` at all.
  */
 export function agentSettingsPatch(
   config: Config,

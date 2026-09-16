@@ -24,11 +24,11 @@
 
 use std::sync::LazyLock;
 
-use ghostai_core::messages::{system_message, text_part, user_message};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::messages::{AssistantMessage, ChatMessage, ContentPart};
-use ghostai_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
-use ghostai_providers::ChatResult;
+use darkwire_core::messages::{system_message, text_part, user_message};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::messages::{AssistantMessage, ChatMessage, ContentPart};
+use darkwire_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
+use darkwire_providers::ChatResult;
 use serde::Deserialize;
 use serde_json::{Value, json};
 

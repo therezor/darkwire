@@ -511,7 +511,7 @@ test.describe('agents', () => {
    * `.dialog` is already a scrollport and already has `--space-6` of padding,
    * which is room to spare. What broke this was a *second* scroller nested
    * inside it with none: a focused textarea kept the top and bottom of its ring
-   * and lost the left and right, which reads as a green underline rather than as
+   * and lost the left and right, which reads as a cyan underline rather than as
    * focus. It also gave one dialog two scrollbars.
    *
    * Asserted as the property rather than as "this element has no overflow",

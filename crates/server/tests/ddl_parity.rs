@@ -20,11 +20,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_core::Database;
-use ghostai_core::session_store::IdSource;
-use ghostai_core::testkit::ManualClock;
-use ghostai_server::automation_store::{self, AutomationStore};
-use ghostai_server::notifications::{self, NotificationStore};
+use darkwire_core::Database;
+use darkwire_core::session_store::IdSource;
+use darkwire_core::testkit::ManualClock;
+use darkwire_server::automation_store::{self, AutomationStore};
+use darkwire_server::notifications::{self, NotificationStore};
 use serde_json::{Value, json};
 
 const NOW: i64 = 1_700_000_000_000;

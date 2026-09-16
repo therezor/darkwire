@@ -32,11 +32,11 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+use darkwire_core::messages::{has_images, without_images};
+use darkwire_core::{Result, WireError, sleep};
+use darkwire_protocol::{ChatMessage, ContentPart, ModelInfo, UserMessage};
+use darkwire_security::{OsRandom, RandomSource};
 use futures::stream::{BoxStream, StreamExt};
-use ghostai_core::messages::{has_images, without_images};
-use ghostai_core::{GhostError, Result, sleep};
-use ghostai_protocol::{ChatMessage, ContentPart, ModelInfo, UserMessage};
-use ghostai_security::{OsRandom, RandomSource};
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::{ProviderError, ProviderErrorReason};
@@ -207,7 +207,7 @@ pub fn truncate_oldest_turns(messages: &[ChatMessage]) -> Option<Vec<ChatMessage
 
 /// Drops leading `tool` messages whose `assistant` was cut away.
 ///
-/// `find_legal_start` in `ghostai-core` answers the same question for stored
+/// `find_legal_start` in `darkwire-core` answers the same question for stored
 /// history; this is the same invariant applied to a request that a truncation
 /// step just reshaped, and it deliberately does not import the history
 /// windowing around it. That path owns the message window and tool-output
@@ -713,7 +713,7 @@ struct StreamRecovery {
 }
 
 impl StreamRecovery {
-    fn fail(&mut self, error: GhostError) -> Result<ChatStreamEvent> {
+    fn fail(&mut self, error: WireError) -> Result<ChatStreamEvent> {
         self.finished = true;
         self.current = None;
         Err(error)

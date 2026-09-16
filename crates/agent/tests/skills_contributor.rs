@@ -10,9 +10,9 @@
 use std::fs;
 use std::path::Path;
 
-use ghostai_agent::prompt::{ContextContributor, StaticPromptContext};
-use ghostai_agent::skills::{SKILL_FILENAME, SKILLS_DIRNAME, Skill};
-use ghostai_agent::skills_contributor::{SkillsContributor, render_skills};
+use darkwire_agent::prompt::{ContextContributor, StaticPromptContext};
+use darkwire_agent::skills::{SKILL_FILENAME, SKILLS_DIRNAME, Skill};
+use darkwire_agent::skills_contributor::{SkillsContributor, render_skills};
 use tempfile::TempDir;
 
 fn skill(name: &str, description: &str, agents: Vec<String>) -> Skill {
@@ -110,7 +110,7 @@ async fn the_contributor_reads_the_workspace_every_turn() {
     assert!(section.contains("**deploy**"));
     // And no runtime half at all.
     assert_eq!(
-        contributor.runtime_section(&ghostai_agent::prompt::RuntimePromptContext::default()),
+        contributor.runtime_section(&darkwire_agent::prompt::RuntimePromptContext::default()),
         None
     );
 }

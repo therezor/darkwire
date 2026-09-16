@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { Locale } from '@ghostwire/i18n';
+import type { Locale } from '@darkwire/i18n';
 
 import {
   applyLocale,

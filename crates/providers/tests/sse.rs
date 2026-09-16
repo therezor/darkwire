@@ -8,12 +8,12 @@
 
 mod common;
 
-use futures::StreamExt;
-use ghostai_core::GhostError;
-use ghostai_providers::{
+use darkwire_core::WireError;
+use darkwire_providers::{
     MAX_SSE_FRAME_CHARS, ProviderError, ProviderErrorReason, SseEvent, SseOptions, SseParser,
     parse_sse, parse_sse_chunks,
 };
+use futures::StreamExt;
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
@@ -172,11 +172,11 @@ fn the_fixture_pins_every_case() {
 }
 
 trait UnwrapErrWith<T> {
-    fn unwrap_err_with(self, name: &str) -> GhostError;
+    fn unwrap_err_with(self, name: &str) -> WireError;
 }
 
-impl<T: std::fmt::Debug> UnwrapErrWith<T> for Result<T, GhostError> {
-    fn unwrap_err_with(self, name: &str) -> GhostError {
+impl<T: std::fmt::Debug> UnwrapErrWith<T> for Result<T, WireError> {
+    fn unwrap_err_with(self, name: &str) -> WireError {
         match self {
             Ok(value) => panic!("{name}: expected an error, got {value:?}"),
             Err(error) => error,
@@ -194,7 +194,7 @@ fn hex(text: &str) -> Vec<u8> {
 #[tokio::test]
 async fn parse_sse_streams_frames_and_ends_on_the_first_error() {
     let source = futures::stream::iter(vec![
-        Ok::<Vec<u8>, GhostError>(b"data: a\n\nda".to_vec()),
+        Ok::<Vec<u8>, WireError>(b"data: a\n\nda".to_vec()),
         Ok(b"ta: b\n\n".to_vec()),
         Ok(b"data: trailing".to_vec()),
     ]);
@@ -205,20 +205,20 @@ async fn parse_sse_streams_frames_and_ends_on_the_first_error() {
     assert_eq!(parsed, vec![event("a"), event("b"), event("trailing")]);
 
     let failing = futures::stream::iter(vec![
-        Ok::<Vec<u8>, GhostError>(b"data: first\n\n".to_vec()),
-        Err(GhostError::aborted("read")),
+        Ok::<Vec<u8>, WireError>(b"data: first\n\n".to_vec()),
+        Err(WireError::aborted("read")),
         Ok(b"data: never\n\n".to_vec()),
     ]);
-    let results: Vec<Result<SseEvent, GhostError>> =
+    let results: Vec<Result<SseEvent, WireError>> =
         parse_sse(failing, SseOptions::default()).collect().await;
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].as_ref().unwrap(), &event("first"));
     assert!(results[1].as_ref().unwrap_err().is_aborted());
 
-    let flooding = futures::stream::iter(vec![Ok::<Vec<u8>, GhostError>(
+    let flooding = futures::stream::iter(vec![Ok::<Vec<u8>, WireError>(
         format!("data: {}", "x".repeat(100)).into_bytes(),
     )]);
-    let results: Vec<Result<SseEvent, GhostError>> = parse_sse(
+    let results: Vec<Result<SseEvent, WireError>> = parse_sse(
         flooding,
         SseOptions {
             provider_id: None,

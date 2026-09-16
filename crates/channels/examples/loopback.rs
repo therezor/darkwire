@@ -20,13 +20,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ghostai_channels::channel::{
+use darkwire_channels::channel::{
     BoxFuture, Channel, ChannelContext, ChannelFactory, ChannelInbound,
 };
-use ghostai_core::Result;
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
-use ghostai_core::messages::text_part;
-use ghostai_protocol::ContentPart;
+use darkwire_core::Result;
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_core::messages::text_part;
+use darkwire_protocol::ContentPart;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 
@@ -228,8 +228,8 @@ pub fn loopback_channel(options: LoopbackOptions) -> (ChannelFactory, Arc<Loopba
 #[cfg(not(test))]
 #[tokio::main]
 async fn main() -> Result<()> {
-    use ghostai_channels::manager::{ChannelManager, ChannelManagerOptions};
-    use ghostai_channels::testkit::{ScriptedHub, counter_ids, flush};
+    use darkwire_channels::manager::{ChannelManager, ChannelManagerOptions};
+    use darkwire_channels::testkit::{ScriptedHub, counter_ids, flush};
 
     let hub = ScriptedHub::new();
     let (factory, channel) = loopback_channel(LoopbackOptions::default());

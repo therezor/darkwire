@@ -1,6 +1,6 @@
 //! What a turn emits.
 //!
-//! One union, and every member is a [`ServerMessage`] from `ghostai-protocol`
+//! One union, and every member is a [`ServerMessage`] from `darkwire-protocol`
 //! minus the fields the transport owns. A WebSocket hub forwards an event by
 //! stamping a `seq` on it — there is no mapping table, no per-event
 //! translation function, and therefore no place for the two shapes to drift.
@@ -28,7 +28,7 @@
 //! wrong conversation: the child runs in a session of its own, and its figure
 //! describes a history nobody is reading.
 
-use ghostai_protocol::{
+use darkwire_protocol::{
     AssistantDelta, ContextUsage, ErrorEvent, NestedAgentEvent, Notice, ReasoningDelta, Sequenced,
     ServerMessage, SubagentEventBody, ToolApprovalRequest, ToolCallStarted, ToolProgress,
     ToolResult, TurnEnd, TurnStart,

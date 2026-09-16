@@ -104,7 +104,7 @@ export type EnvironmentKind = z.infer<typeof EnvironmentKindSchema>;
 
 export const EnvironmentDefinitionSchema = z
   .object({
-    schema: z.literal('ghostai.environment/1'),
+    schema: z.literal('darkwire.environment/1'),
     /** What kind of place this is. Omitting it means a container. */
     kind: EnvironmentKindSchema.default('container'),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
@@ -113,9 +113,9 @@ export const EnvironmentDefinitionSchema = z
      * commands run is one section now, `agents.list.<id>.platformPrompt`, which
      * says both where they run and what is installed there.
      *
-     * Still parsed because every installed definition predates the change and
-     * the preset catalogue ships on its own release cycle. A definition setting
-     * it is reported on its row. It goes one release after that.
+     * Still parsed because every definition written before the change carries
+     * it. A definition setting it is reported on its row. It goes one release
+     * after that.
      */
     prompt: z.string().optional(),
     /**

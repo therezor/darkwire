@@ -1,7 +1,7 @@
 {
   "description": "CredentialVault envelopes. `input.entries` are applied with set() in order, then `input.deletes` with delete(); `output.file` is the exact text of vault.json after the last write and `output.plaintext` is what its `data` decrypts to. AES-256-GCM with a 12-byte IV and a 16-byte tag stored separately from the ciphertext; the AAD is the UTF-8 bytes of `constants.aad`. The plaintext is JSON.stringify of namespace -> key -> value with no whitespace, in insertion order. `keyFile` is what keyFileStore().save() writes for the same key. The constructor never writes; an empty map on disk only comes from deleting the last key.",
   "constants": {
-    "aad": "ghostai-vault-v1",
+    "aad": "darkwire-vault-v1",
     "version": 1,
     "algorithm": "aes-256-gcm",
     "keyBytes": 32,
@@ -32,7 +32,7 @@
         "deletes": []
       },
       "output": {
-        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"YhWHCd3Yf4sABqnoEDo75w==\",\"data\":\"1QzD7VUFQoRNh4MHgopUbmwn0B10BrofIXIGPzuRTo+nykQ=\"}",
+        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"Jm/oSWdjI8D1D5oyWp90cA==\",\"data\":\"1QzD7VUFQoRNh4MHgopUbmwn0B10BrofIXIGPzuRTo+nykQ=\"}",
         "plaintext": "{\"openai\":{\"apiKey\":\"sk-test-123\"}}"
       }
     },
@@ -61,7 +61,7 @@
         "deletes": []
       },
       "output": {
-        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"AtOgS9qZzgoYvpDScMJx7A==\",\"data\":\"1QzD7VUFQoRNh4MHgopUbmwn0B10BrofZDVZaXnSG/XhlQOVoq/3MaRG+y8GeAOPvGThisfvrcl/g0oDfdvWL5iGStyi8LafazpdDhtlnR6tH0J79g==\"}",
+        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"R5epBQpxyYgm1dm34mKTxQ==\",\"data\":\"1QzD7VUFQoRNh4MHgopUbmwn0B10BrofZDVZaXnSG/XhlQOVoq/3MaRG+y8GeAOPvGThisfvrcl/g0oDfdvWL5iGStyi8LafazpdDhtlnR6tH0J79g==\"}",
         "plaintext": "{\"openai\":{\"apiKey\":\"sk-1\",\"orgId\":\"org-9\"},\"telegram\":{\"botToken\":\"123456:abc-DEF\"}}"
       }
     },
@@ -85,7 +85,7 @@
         ]
       },
       "output": {
-        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"z1I/4lvhuSGxlI12s6vxXA==\",\"data\":\"1VM=\"}",
+        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"2/skR9w7xP0rU6D7sqYZEw==\",\"data\":\"1VM=\"}",
         "plaintext": "{}"
       }
     },
@@ -104,7 +104,7 @@
         "deletes": []
       },
       "output": {
-        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"B+99/iwP97EGZgkDxNFPCg==\",\"data\":\"1QzzwkAZTJkA4qcH2YEfVWYynlIiELUQbzUbJDTdAQ==\"}",
+        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"pm0WKW2t/ux4flGjDNkrpw==\",\"data\":\"1QzzwkAZTJkA4qcH2YEfVWYynlIiELUQbzUbJDTdAQ==\"}",
         "plaintext": "{\"__proto__\":{\"polluted\":\"no\"}}"
       }
     },
@@ -123,7 +123,7 @@
         "deletes": []
       },
       "output": {
-        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"mjBGXtUT4U2YC7nnlgulYA==\",\"data\":\"1QzB/kBRRIQb1Y1HwcBGB30xmUI4V+sQIdTDINUJEuDr6xvGuLLkefk4pCPUk/Z2+37u\"}",
+        "file": "{\"v\":1,\"alg\":\"aes-256-gcm\",\"iv\":\"AQIDBAUGBwgJCgsM\",\"tag\":\"NotbAa//itwUA0Lf5k12Wg==\",\"data\":\"1QzB/kBRRIQb1Y1HwcBGB30xmUI4V+sQIdTDINUJEuDr6xvGuLLkefk4pCPUk/Z2+37u\"}",
         "plaintext": "{\"mcp:github\":{\"token\":\"tökén\\n\\\"quoted\\\" 🐕\"}}"
       }
     }

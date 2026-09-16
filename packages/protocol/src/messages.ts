@@ -1,7 +1,7 @@
 /**
  * The canonical message shapes.
  *
- * `ghostai-core` owns the *behaviour* over these (`SessionStore`,
+ * `darkwire-core` owns the *behaviour* over these (`SessionStore`,
  * `findLegalStart`, `historyForLLM`); the schemas live here because they cross
  * the wire in both the WS protocol and the REST session endpoints, and this
  * package is the single source of truth for anything shaped by more than one
@@ -178,7 +178,7 @@ export type Usage = z.infer<typeof UsageSchema>;
  * Completion tokens per second, or `undefined` when the figure would be a lie.
  *
  * Here, in the one package the browser can import, rather than beside the
- * stored record it describes: that lives in `ghostai-core`, which the web
+ * stored record it describes: that lives in `darkwire-core`, which the web
  * bundle cannot reach at all, and a second copy in it is a second copy that can
  * disagree with the server's.
  *

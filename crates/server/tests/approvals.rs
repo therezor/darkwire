@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
-use ghostai_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::tools::{ApprovalScope, ToolRisk};
-use ghostai_server::approvals::{HubApprovalGate, HubApprovalGateOptions, UnattendedApproval};
+use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::tools::{ApprovalScope, ToolRisk};
+use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions, UnattendedApproval};
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio::task::JoinHandle;

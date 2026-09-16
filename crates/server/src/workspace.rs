@@ -6,18 +6,18 @@
 //! it a second time — is how a check and the filesystem call it guards end up
 //! looking at two different files.
 //!
-//! [`mime_type_for`] and `read_text` live in `ghostai-core` and are re-exported
+//! [`mime_type_for`] and `read_text` live in `darkwire-core` and are re-exported
 //! here so this module stays the one place the HTTP layer reads from. They had
 //! to move down: the agent loop turns an attached file into something a model
 //! can read and has to reach the same verdict this route does, and
-//! `ghostai-agent` cannot depend on a server.
+//! `darkwire-agent` cannot depend on a server.
 
 use std::path::Path;
 
-use ghostai_protocol::rest::FileEntry;
-use ghostai_security::jail::WorkspaceJail;
+use darkwire_protocol::rest::FileEntry;
+use darkwire_security::jail::WorkspaceJail;
 
-pub use ghostai_core::workspace_files::{
+pub use darkwire_core::workspace_files::{
     DEFAULT_MIME_TYPE, MAX_TEXT_BYTES, WorkspaceText, mime_type_for, read_text,
 };
 

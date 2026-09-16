@@ -12,8 +12,8 @@ mod common;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_core::ErrorKind;
-use ghostai_security::{
+use darkwire_core::ErrorKind;
+use darkwire_security::{
     JailCheck, JailOptions, JailRejection, JailResolver, PathShape, WorkspaceJail, path_shapes,
     single_jail,
 };
@@ -48,7 +48,7 @@ fn jail_at(root: &Path) -> WorkspaceJail {
     WorkspaceJail::new(JailOptions::new(root)).unwrap()
 }
 
-fn accept(jail: &WorkspaceJail, input: &str) -> ghostai_security::JailAccept {
+fn accept(jail: &WorkspaceJail, input: &str) -> darkwire_security::JailAccept {
     match jail.check(input) {
         JailCheck::Accept(accept) => accept,
         JailCheck::Reject { rejection, message } => {

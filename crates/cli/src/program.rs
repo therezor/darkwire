@@ -1,4 +1,4 @@
-//! The `ghostai` command line.
+//! The `darkwire` command line.
 //!
 //! Two rules shape this file.
 //!
@@ -13,17 +13,17 @@
 //!    at compile time, and a page of translated flag descriptions wrapped in
 //!    English chrome is worse than either alone.
 //!
-//! Errors become exit codes here and nowhere else. A `GhostError` from a
+//! Errors become exit codes here and nowhere else. A `WireError` from a
 //! misconfigured provider is a message an operator can act on, not a stack
-//! trace, so the structured detail is shown only when `GHOSTAI_DEBUG` asks.
+//! trace, so the structured detail is shown only when `DARKWIRE_DEBUG` asks.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use clap::parser::ValueSource;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use ghostai_core::{ErrorKind, GhostError, LogLevel, Result};
-use ghostai_i18n::{args, keys};
+use darkwire_core::{ErrorKind, LogLevel, Result, WireError};
+use darkwire_i18n::{args, keys};
 
 use crate::i18n::{Env, Translations, describe_error};
 
@@ -43,7 +43,7 @@ pub const DEFAULT_SESSION_KEY: &str = "cli:default";
 /// Options that apply to every subcommand.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Globals {
-    /// `--home <dir>`: the GhostAI root, beating `$GHOSTAI_HOME`.
+    /// `--home <dir>`: the DarkWire root, beating `$DARKWIRE_HOME`.
     pub home: Option<String>,
     /// `--log-level <level>`, already validated.
     pub log_level: Option<LogLevel>,
@@ -55,7 +55,7 @@ pub struct Globals {
     /// its value is `true` on every ordinary run — and passing that on is an
     /// explicit "yes, colour", which stops `NO_COLOR`, `FORCE_COLOR`,
     /// `TERM=dumb` and "stdout is a file" from being consulted at all.
-    /// `ghostai chat > log` wrote escape codes into the log for exactly that
+    /// `darkwire chat > log` wrote escape codes into the log for exactly that
     /// reason. So the value is not the signal; the *source* is, and clap
     /// records it.
     pub color: Option<bool>,
@@ -155,9 +155,9 @@ pub struct ServeArgs {
     pub port: Option<u16>,
     /// `-w, --workspace <dir>`.
     pub workspace: Option<String>,
-    /// `--password`, or `GHOSTAI_PASSWORD`. Empty is absent.
+    /// `--password`, or `DARKWIRE_PASSWORD`. Empty is absent.
     pub password: Option<String>,
-    /// `--username`, or `GHOSTAI_USERNAME`. Empty is absent.
+    /// `--username`, or `DARKWIRE_USERNAME`. Empty is absent.
     pub username: Option<String>,
     /// `--ui <dir>`.
     pub ui: Option<String>,
@@ -181,49 +181,11 @@ pub enum StoreAction {
 /// What `agent` was asked to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentCommand {
-    /// `agent install <name-or-path>`.
-    Install {
-        /// A catalogue preset id, or a path to a preset file.
-        name: String,
-        /// `--force`: overwrite an agent of the same id.
-        force: bool,
-        /// `-W, --workspace-id <id>`.
-        workspace_id: Option<String>,
-    },
     /// `agent list`.
     List,
 }
 
-/// The three flags every `preset` subcommand carries.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CatalogueArgs {
-    /// `--from <dir>`: a checkout, never fetched over.
-    pub from: Option<String>,
-    /// `--refresh`: fetch again before reading.
-    pub refresh: bool,
-    /// `--offline`: never fetch.
-    pub offline: bool,
-}
-
-/// What `preset` was asked to do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PresetAction {
-    /// `preset list`.
-    List,
-    /// `preset install [ids...]`.
-    Install {
-        /// The preset ids named on the command line. Empty means "ask".
-        ids: Vec<String>,
-        /// `--force`.
-        force: bool,
-        /// `-W, --workspace-id <id>`.
-        workspace_id: Option<String>,
-    },
-    /// `preset update`.
-    Update,
-}
-
-/// What `ghostai sandbox` was asked to do.
+/// What `darkwire sandbox` was asked to do.
 ///
 /// An enum rather than the string clap validated, so the dispatch is
 /// exhaustive. A `_ => list` arm would silently turn a verb somebody added to
@@ -245,7 +207,7 @@ pub enum SandboxAction {
 /// One parsed subcommand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subcommand {
-    /// `chat`, which is also what a bare `ghostai` runs.
+    /// `chat`, which is also what a bare `darkwire` runs.
     Chat(Box<ChatArgs>),
     /// `init`.
     Init,
@@ -268,10 +230,9 @@ pub enum Subcommand {
     },
     /// `extension list|approve|revoke`.
     Extension(StoreAction, Option<String>),
-    /// `agent install|list`.
+
+    /// `agent list`.
     Agent(AgentCommand),
-    /// `preset list|install|update`.
-    Preset(CatalogueArgs, PresetAction),
 }
 
 /// A parsed command line, ready to run.
@@ -340,7 +301,7 @@ fn global_option(name: &'static str, long: &'static str, t: &Translations) -> Ar
     global_arg(name, long).help_heading(heading(&t.t(keys::help::GLOBAL_OPTIONS)))
 }
 
-/// `ghostai sandbox`, which talks to the service over its socket.
+/// `darkwire sandbox`, which talks to the service over its socket.
 ///
 /// Its own builder rather than a [`store_command`], because the service is not
 /// an approval ledger: these verbs manage *running* instances, and each takes
@@ -380,7 +341,7 @@ fn sandbox_command(t: &Translations) -> Command {
 /// prose it prints.
 #[must_use]
 pub fn build_command(t: &Translations) -> Command {
-    Command::new("ghostai")
+    Command::new("darkwire")
         .about(t.t(keys::program::DESCRIPTION))
         .version(VERSION)
         // `-V` is clap's, and this program spends `-v` on the version. A short
@@ -388,10 +349,10 @@ pub fn build_command(t: &Translations) -> Command {
         // worse than no short flag, which is why `--verbose` has none.
         .disable_version_flag(true)
         // A plain flag rather than `ArgAction::Version`, for two reasons that
-        // both matter. clap's own action prints `ghostai 0.8.1` and this
+        // both matter. clap's own action prints `darkwire 0.8.1` and this
         // program has always printed the bare number, which is what a script
-        // reading `$(ghostai -v)` parses. And a global version action has to be
-        // answerable by every subcommand, so `ghostai chat -v` would need each
+        // reading `$(darkwire -v)` parses. And a global version action has to be
+        // answerable by every subcommand, so `darkwire chat -v` would need each
         // of them to declare a version of its own.
         .arg(
             global_option("version", "version", t)
@@ -423,8 +384,8 @@ pub fn build_command(t: &Translations) -> Command {
         )
         // Global, beside `--log-level` rather than on `chat`, because that is
         // where someone looks for it: `chat` is the default command, so
-        // `ghostai --help` is the help for what plain `ghostai` does, and a flag
-        // that governs plain `ghostai` and is absent from that page may as well
+        // `darkwire --help` is the help for what plain `darkwire` does, and a flag
+        // that governs plain `darkwire` and is absent from that page may as well
         // not exist.
         .arg(
             global_option("verbose", "verbose", t)
@@ -454,9 +415,8 @@ pub fn build_command(t: &Translations) -> Command {
             t.t(keys::extension::revoke::DESCRIPTION),
         ))
         .subcommand(agent_command(t))
-        .subcommand(preset_command(t))
         // clap's own `help` subcommand carries an English sentence with no seam
-        // to translate it, and `ghostai help <command>` is on the documented
+        // to translate it, and `darkwire help <command>` is on the documented
         // surface. So it is declared here and answered in `parse`.
         .disable_help_subcommand(true)
         .subcommand(
@@ -464,7 +424,7 @@ pub fn build_command(t: &Translations) -> Command {
                 .about(t.t(keys::help::DISPLAY_HELP))
                 .arg(Arg::new("command").num_args(0..).value_name("command")),
         )
-        // A bare `ghostai "what changed today"` is a chat, so the words that
+        // A bare `darkwire "what changed today"` is a chat, so the words that
         // name no subcommand are the message.
         .allow_external_subcommands(false)
         .args_conflicts_with_subcommands(false)
@@ -548,9 +508,9 @@ fn chat_args(t: &Translations, hidden: bool) -> Vec<Arg> {
             .action(ArgAction::SetFalse)
             .help(t.t(keys::chat::options::NO_TOOLS)),
     ];
-    // Hidden on the root page, shown on `ghostai chat --help`. `chat` is the
+    // Hidden on the root page, shown on `darkwire chat --help`. `chat` is the
     // default command, so the flags have to be *parseable* at the root — a bare
-    // `ghostai -m qwen3 "hello"` is the shape people type — but listing them
+    // `darkwire -m qwen3 "hello"` is the shape people type — but listing them
     // twice would make the front page of the program a wall of chat options
     // with the seven commands below it.
     args.into_iter()
@@ -666,91 +626,14 @@ fn store_command(
 fn agent_command(t: &Translations) -> Command {
     Command::new("agent")
         .about(t.t(keys::agent::DESCRIPTION))
-        .subcommand(
-            Command::new("install")
-                .about(t.t(keys::agent::install::DESCRIPTION))
-                .arg(
-                    Arg::new("name-or-path")
-                        .required(true)
-                        .value_name("name-or-path"),
-                )
-                .arg(
-                    Arg::new("force")
-                        .long("force")
-                        .action(ArgAction::SetTrue)
-                        .help(t.t(keys::agent::install::options::FORCE)),
-                )
-                .arg(
-                    Arg::new("workspace-id")
-                        .short('W')
-                        .long("workspace-id")
-                        .value_name("id")
-                        .help(t.t(keys::agent::install::options::WORKSPACE_ID)),
-                ),
-        )
         .subcommand(Command::new("list").about(t.t(keys::agent::list::DESCRIPTION)))
-}
-
-/// The three flags every `preset` subcommand carries, in one place.
-fn catalogue_args(t: &Translations) -> Vec<Arg> {
-    vec![
-        Arg::new("from")
-            .long("from")
-            .value_name("dir")
-            .help(t.t(keys::preset::install::options::FROM)),
-        Arg::new("refresh")
-            .long("refresh")
-            .action(ArgAction::SetTrue)
-            .help(t.t(keys::preset::install::options::REFRESH)),
-        Arg::new("offline")
-            .long("offline")
-            .action(ArgAction::SetTrue)
-            .help(t.t(keys::preset::install::options::OFFLINE)),
-    ]
-}
-
-fn preset_command(t: &Translations) -> Command {
-    Command::new("preset")
-        .about(t.t(keys::preset::DESCRIPTION))
-        .subcommand(
-            Command::new("list")
-                .about(t.t(keys::preset::list::DESCRIPTION))
-                .args(catalogue_args(t)),
-        )
-        .subcommand(
-            Command::new("install")
-                .about(t.t(keys::preset::install::DESCRIPTION))
-                .arg(Arg::new("ids").num_args(0..).value_name("ids"))
-                .args(catalogue_args(t))
-                .arg(
-                    Arg::new("force")
-                        .long("force")
-                        .action(ArgAction::SetTrue)
-                        .help(t.t(keys::preset::install::options::FORCE)),
-                )
-                // Spelled `--workspace-id` because `--workspace` already means
-                // a *directory* on `chat` and `serve`, and one flag meaning two
-                // things is how somebody ends up passing a path here.
-                .arg(
-                    Arg::new("workspace-id")
-                        .short('W')
-                        .long("workspace-id")
-                        .value_name("id")
-                        .help(t.t(keys::preset::install::options::WORKSPACE_ID)),
-                ),
-        )
-        .subcommand(
-            Command::new("update")
-                .about(t.t(keys::preset::update::DESCRIPTION))
-                .args(catalogue_args(t)),
-        )
 }
 
 /// A port from the command line, refused before anything binds.
 fn resolve_port(value: Option<&String>, t: &Translations) -> Result<Option<u16>> {
     let Some(value) = value else { return Ok(None) };
     value.parse::<u16>().map(Some).map_err(|_| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::InvalidInput,
             t.tr(keys::program::NOT_A_PORT, args!["value" => value.as_str()]),
         )
@@ -767,7 +650,7 @@ fn resolve_log_level(value: Option<&String>, t: &Translations) -> Result<Option<
         .filter(|_| LOG_LEVELS.contains(&value.as_str()))
         .map(Some)
         .ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::InvalidInput,
                 t.tr(
                     keys::program::UNKNOWN_LOG_LEVEL,
@@ -817,10 +700,10 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
     // The environment is read here rather than in the serve command, which then
     // stays testable without anyone mutating the process environment.
     let password = string_of(matches, "password")
-        .or_else(|| env.get("GHOSTAI_PASSWORD").map(str::to_owned))
+        .or_else(|| env.get("DARKWIRE_PASSWORD").map(str::to_owned))
         .filter(|value| !value.is_empty());
     let username = string_of(matches, "username")
-        .or_else(|| env.get("GHOSTAI_USERNAME").map(str::to_owned))
+        .or_else(|| env.get("DARKWIRE_USERNAME").map(str::to_owned))
         .filter(|value| !value.is_empty());
 
     Ok(ServeArgs {
@@ -837,7 +720,7 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
 
 /// The verb and the id an `environment` or `extension` invocation named.
 ///
-/// A bare `ghostai environment` lists, which is the one an operator means by it,
+/// A bare `darkwire environment` lists, which is the one an operator means by it,
 /// so there is no "no verb" answer to give back.
 /// The verb clap already restricted to this set.
 fn sandbox_action_of(matches: &ArgMatches) -> SandboxAction {
@@ -855,14 +738,6 @@ fn store_action_of(matches: &ArgMatches) -> (StoreAction, Option<String>) {
         Some(("approve", sub)) => (StoreAction::Approve, string_of(sub, "id")),
         Some(("revoke", sub)) => (StoreAction::Revoke, string_of(sub, "id")),
         _ => (StoreAction::List, None),
-    }
-}
-
-fn catalogue_args_of(matches: &ArgMatches) -> CatalogueArgs {
-    CatalogueArgs {
-        from: string_of(matches, "from"),
-        refresh: flag(matches, "refresh"),
-        offline: flag(matches, "offline"),
     }
 }
 
@@ -943,7 +818,7 @@ where
         }
     };
 
-    // Before anything else, and before the globals are validated: `ghostai
+    // Before anything else, and before the globals are validated: `darkwire
     // --log-level nonsense --version` is somebody asking what version this is,
     // and answering with a complaint about an unrelated flag helps nobody.
     if matches.get_flag("version") {
@@ -985,32 +860,7 @@ where
             let (action, id) = store_action_of(sub);
             Subcommand::Extension(action, id)
         }
-        Some(("agent", sub)) => Subcommand::Agent(match sub.subcommand() {
-            Some(("install", install)) => AgentCommand::Install {
-                name: string_of(install, "name-or-path").unwrap_or_default(),
-                force: flag(install, "force"),
-                workspace_id: string_of(install, "workspace-id"),
-            },
-            _ => AgentCommand::List,
-        }),
-        Some(("preset", sub)) => match sub.subcommand() {
-            Some(("install", install)) => Subcommand::Preset(
-                catalogue_args_of(install),
-                PresetAction::Install {
-                    ids: install
-                        .get_many::<String>("ids")
-                        .map(|values| values.cloned().collect())
-                        .unwrap_or_default(),
-                    force: flag(install, "force"),
-                    workspace_id: string_of(install, "workspace-id"),
-                },
-            ),
-            Some(("update", update)) => {
-                Subcommand::Preset(catalogue_args_of(update), PresetAction::Update)
-            }
-            Some(("list", list)) => Subcommand::Preset(catalogue_args_of(list), PresetAction::List),
-            _ => Subcommand::Preset(CatalogueArgs::default(), PresetAction::List),
-        },
+        Some(("agent", _)) => Subcommand::Agent(AgentCommand::List),
         // No subcommand: the words are a chat, which is the default.
         _ => Subcommand::Chat(Box::new(chat_args_of(&matches))),
     };

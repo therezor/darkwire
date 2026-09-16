@@ -16,24 +16,24 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use futures::future::BoxFuture;
-use ghostai::commands::{
+use darkwire::commands::{
     CommandRow, SlashContext, SlashModels, SlashOutcome, command_rows, command_rows_for, help_text,
     palette_rows, run_slash_command,
 };
-use ghostai::i18n::Translations;
-use ghostai::pickers::palette::{PaletteRow, command_items, command_value, complete_command};
-use ghostai::pickers::{MenuRequest, NoMenu, PickerMenu};
-use ghostai::render::{TurnRenderer, TurnRendererOptions};
-use ghostai::runtime::ChatRuntime;
-use ghostai_core::session_store::TurnStatsRecord;
-use ghostai_core::session_store::{AppendOptions, CreateSession, UpdateSession};
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_core::{Database, Result};
-use ghostai_protocol::rest::{ModelInfo, ModelsResponse};
-use ghostai_protocol::{Config, ReasoningEffort, ToolPermission};
-use ghostai_protocol::{StopReason, Usage};
-use ghostai_runtime::{ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, create_runtime};
+use darkwire::i18n::Translations;
+use darkwire::pickers::palette::{PaletteRow, command_items, command_value, complete_command};
+use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire::render::{TurnRenderer, TurnRendererOptions};
+use darkwire::runtime::ChatRuntime;
+use darkwire_core::session_store::TurnStatsRecord;
+use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_core::{Database, Result};
+use darkwire_protocol::rest::{ModelInfo, ModelsResponse};
+use darkwire_protocol::{Config, ReasoningEffort, ToolPermission};
+use darkwire_protocol::{StopReason, Usage};
+use darkwire_runtime::{ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, create_runtime};
+use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -320,15 +320,15 @@ impl Harness {
 }
 
 /// One message somebody typed.
-fn said(text: &str) -> ghostai_protocol::ChatMessage {
-    ghostai_protocol::ChatMessage::User(ghostai_core::user_message(text))
+fn said(text: &str) -> darkwire_protocol::ChatMessage {
+    darkwire_protocol::ChatMessage::User(darkwire_core::user_message(text))
 }
 
 /// One message the model answered with.
-fn answered(text: &str) -> ghostai_protocol::ChatMessage {
-    ghostai_protocol::ChatMessage::Assistant(ghostai_core::assistant_message(
+fn answered(text: &str) -> darkwire_protocol::ChatMessage {
+    darkwire_protocol::ChatMessage::Assistant(darkwire_core::assistant_message(
         text,
-        ghostai_core::messages::AssistantOptions::default(),
+        darkwire_core::messages::AssistantOptions::default(),
     ))
 }
 
@@ -336,12 +336,12 @@ fn answered(text: &str) -> ghostai_protocol::ChatMessage {
 ///
 /// Only for an agent the config actually names. The default agent is
 /// synthesised when no entry declares it, which is what [`resolved`] is for.
-fn entry<'a>(config: &'a Config, id: &str) -> &'a ghostai_protocol::config::AgentEntry {
+fn entry<'a>(config: &'a Config, id: &str) -> &'a darkwire_protocol::config::AgentEntry {
     config.agents.list.get(id).unwrap()
 }
 
 /// One agent as the runtime resolved it, entry or no entry.
-fn resolved(h: &Harness, id: &str) -> ghostai_runtime::EffectiveAgent {
+fn resolved(h: &Harness, id: &str) -> darkwire_runtime::EffectiveAgent {
     h.runtime()
         .agents()
         .into_iter()

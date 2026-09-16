@@ -13,9 +13,11 @@
 
 use std::cell::RefCell;
 
-use ghostai::i18n::Env;
-use ghostai::menu::{FrameMenu, Menu, MenuAvailable, MenuRequest, MenuRow, NoMenu, menu_available};
-use ghostai_tui::{SelectLabels, TerminalInput, TerminalOutput};
+use darkwire::i18n::Env;
+use darkwire::menu::{
+    FrameMenu, Menu, MenuAvailable, MenuRequest, MenuRow, NoMenu, menu_available,
+};
+use darkwire_tui::{SelectLabels, TerminalInput, TerminalOutput};
 
 /// A stdin that claims to be a terminal, and reads nothing.
 struct FakeInput {

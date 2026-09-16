@@ -25,9 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::{Database, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{ExtensionState, ExtensionStatus, ExtensionsConfig};
-use ghostai_security::ExtensionStore;
+use darkwire_core::{Database, ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::{ExtensionState, ExtensionStatus, ExtensionsConfig};
+use darkwire_security::ExtensionStore;
 
 use crate::host::{ExtensionHost, ExtensionHostOptions, Timings};
 
@@ -87,8 +87,8 @@ fn state_name(state: ExtensionState) -> &'static str {
     }
 }
 
-fn failed(message: String) -> GhostError {
-    GhostError::new(ErrorKind::Extension, message)
+fn failed(message: String) -> WireError {
+    WireError::new(ErrorKind::Extension, message)
 }
 
 /// Copies an install into `target`, skipping what a checkout carries.
@@ -149,14 +149,17 @@ impl Drop for ConformanceSandbox {
 /// message, since those are what an author needs and are already phrased for a
 /// person.
 pub async fn extension_conformance(dir: &Path, expect: Expect) -> Result<ConformanceReport> {
-    let manifest = ghostai_security::read_extension_manifest(dir)?;
+    let manifest = darkwire_security::read_extension_manifest(dir)?;
     let id = manifest.id.clone();
 
     // The id names the directory, and the policy gate enforces that — so the
     // copy has to be made under the id rather than under whatever the author
     // called their checkout.
-    let root =
-        std::env::temp_dir().join(format!("ghostai-conformance-{}-{}", id, std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "darkwire-conformance-{}-{}",
+        id,
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     let install_root = root.join("extensions");
     let sandbox = ConformanceSandbox { root: root.clone() };

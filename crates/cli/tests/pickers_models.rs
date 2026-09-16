@@ -11,9 +11,9 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::models::{model_errors, model_items, model_listing};
-use ghostai_protocol::{ModelInfo, ModelsResponse};
+use darkwire::i18n::Translations;
+use darkwire::pickers::models::{model_errors, model_items, model_listing};
+use darkwire_protocol::{ModelInfo, ModelsResponse};
 use indexmap::IndexMap;
 
 fn english() -> Translations {

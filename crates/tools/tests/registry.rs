@@ -11,12 +11,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::ToolSource;
-use ghostai_security::testkit::FixedRandom;
-use ghostai_security::{InjectionSignal, create_tool_output_nonce};
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::ToolSource;
+use darkwire_security::testkit::FixedRandom;
+use darkwire_security::{InjectionSignal, create_tool_output_nonce};
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolInvocation, ToolOutput, ToolRegistry,
     ToolRegistryOptions, ToolScope, ToolSpec, TypedTool,
 };
@@ -55,7 +55,7 @@ impl ToolHandler for Failing {
     type Args = NoArgs;
 
     fn execute<'a>(&'a self, _: NoArgs, _: &'a ToolContext) -> BoxFuture<'a, Result<ToolOutput>> {
-        Box::pin(async move { Err(GhostError::new(ErrorKind::Tool, "boom")) })
+        Box::pin(async move { Err(WireError::new(ErrorKind::Tool, "boom")) })
     }
 }
 
@@ -87,7 +87,7 @@ impl ToolHandler for Blocking {
                 std::future::pending::<()>().await;
             }
             ctx.token.cancelled().await;
-            Err(GhostError::new(ErrorKind::Tool, "interrupted"))
+            Err(WireError::new(ErrorKind::Tool, "interrupted"))
         })
     }
 }
@@ -590,7 +590,7 @@ async fn the_registry_is_itself_a_scope_that_allows_everything() {
     });
     assert_eq!(
         registry.permission_for("anything"),
-        ghostai_protocol::ToolPermission::Allow
+        darkwire_protocol::ToolPermission::Allow
     );
     assert_eq!(registry.definitions().len(), 1);
     assert!(registry.get("echo").is_some());

@@ -21,7 +21,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { ConfigSchema, type ConfigPatch } from '@ghostwire/protocol';
+import { ConfigSchema, type ConfigPatch } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
@@ -41,7 +41,7 @@ const CONFIG = ConfigSchema.parse({
       type: 'ollama',
       apiBase: 'http://127.0.0.1:11434/v1',
       models: ['llama3'],
-      extraHeaders: { 'X-Title': 'GhostAI' },
+      extraHeaders: { 'X-Title': 'DarkWire' },
     },
     openai: { type: 'openai' },
   },
@@ -321,7 +321,7 @@ describe('the provider editor', () => {
       apiBase: 'http://typed-just-now/v1',
       // Sending `{}` here checked a gateway without the headers a turn sends
       // it, which is a different endpoint wearing the same URL.
-      extraHeaders: { 'X-Title': 'GhostAI' },
+      extraHeaders: { 'X-Title': 'DarkWire' },
       apiKey: 'lan-token',
       instanceId: 'ollama',
     });
@@ -371,7 +371,7 @@ describe('the provider editor', () => {
     expect(probesOf(calls)[0]?.body).toEqual({
       type: 'ollama',
       apiBase: 'http://127.0.0.1:11434/v1',
-      extraHeaders: { 'X-Title': 'GhostAI' },
+      extraHeaders: { 'X-Title': 'DarkWire' },
       instanceId: 'ollama',
     });
     expect(await screen.findByRole('alert')).toHaveTextContent('Saved — but');

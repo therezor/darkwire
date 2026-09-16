@@ -3,7 +3,7 @@
  *
  * This file is the point of the example as much as `index.mjs` is: it is one
  * assertion, and it is what an extension living in its own repository copies.
- * The suite itself is Rust — `ghostai-extension-host`'s testkit — because the
+ * The suite itself is Rust — `darkwire-extension-host`'s testkit — because the
  * thing being checked is a *process boundary*, and only the host knows how to
  * spawn a child, complete the handshake, probe every kind the manifest
  * declares and take the child down again. Nothing about that is expressible
@@ -51,7 +51,7 @@ describe('the hello extension', () => {
           'run',
           '--quiet',
           '-p',
-          'ghostai-extension-host',
+          'darkwire-extension-host',
           '--example',
           'check',
           '--features',

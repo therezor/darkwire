@@ -4,7 +4,7 @@
  * i18next reads its key types out of one global interface, so this is declared
  * once here and inherited by every package that imports the layer. A misspelled
  * `t('settings.titel')` is a compile error in the web app, in the CLI and in a
- * `GhostError` thrown three packages away — which is the whole reason the
+ * `WireError` thrown three packages away — which is the whole reason the
  * resources are imported rather than merely shipped.
  *
  * `defaultNS` is `web` because that is the surface with the most call sites.

@@ -1,6 +1,6 @@
 //! Escaping, chunking and the two Markdown constructs that survive.
 
-use ghostai_channels::telegram::format::{
+use darkwire_channels::telegram::format::{
     MAX_MESSAGE_CHARS, chunk_message, escape_markdown_v2, strip_markdown, to_markdown_v2,
 };
 use proptest::prelude::*;

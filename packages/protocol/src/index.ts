@@ -1,5 +1,5 @@
 /**
- * @ghostwire/protocol — Zod schemas and the types derived from them.
+ * @darkwire/protocol — Zod schemas and the types derived from them.
  *
  * Every other package imports its shared shapes from here. The schemas are the
  * single source of truth: TypeScript types come from `z.infer`, JSON Schema for
@@ -31,7 +31,6 @@ export * from './prompt.js';
 export * from './config.js';
 export * from './subagent.js';
 export * from './environment.js';
-export * from './preset.js';
 export * from './extension.js';
 export * from './automation.js';
 export * from './ws.js';

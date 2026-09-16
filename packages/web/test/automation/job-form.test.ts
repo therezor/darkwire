@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { createWebI18n } from '@ghostwire/i18n/web';
-import type { AutomationJob } from '@ghostwire/protocol';
+import { createWebI18n } from '@darkwire/i18n/web';
+import type { AutomationJob } from '@darkwire/protocol';
 
 import {
   describeSchedule,

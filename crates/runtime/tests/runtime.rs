@@ -14,11 +14,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{CountingProviders, Install, configured, err};
-use ghostai_core::ErrorKind;
-use ghostai_mcp::testkit::{FakeServer, echo_tool};
-use ghostai_protocol::{DEFAULT_AGENT_ID, ToolSource};
-use ghostai_runtime::agents::AgentWarningCode;
-use ghostai_runtime::{McpChoice, RuntimeOptions, VaultChoice, create_runtime};
+use darkwire_core::ErrorKind;
+use darkwire_mcp::testkit::{FakeServer, echo_tool};
+use darkwire_protocol::{DEFAULT_AGENT_ID, ToolSource};
+use darkwire_runtime::agents::AgentWarningCode;
+use darkwire_runtime::{McpChoice, RuntimeOptions, VaultChoice, create_runtime};
 use serde_json::{Value, json};
 
 fn patch(value: Value) -> Value {
@@ -68,7 +68,7 @@ mod construction {
 
     #[test]
     fn builds_unconfigured_when_nothing_names_a_provider_and_refuses_only_the_turn() {
-        // A fresh machine: `ghostai serve` has to come up and serve the settings
+        // A fresh machine: `darkwire serve` has to come up and serve the settings
         // UI that fixes this.
         let install = Install::bare();
         let runtime = install.runtime().unwrap();
@@ -91,7 +91,7 @@ mod construction {
             "{}",
             error.message
         );
-        assert!(error.message.contains("ghostai init"), "{}", error.message);
+        assert!(error.message.contains("darkwire init"), "{}", error.message);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod construction {
 
     #[test]
     fn takes_an_exported_api_key_as_the_operator_naming_a_provider() {
-        // `OPENAI_API_KEY=… ghostai chat` should not need a config file. What it
+        // `OPENAI_API_KEY=… darkwire chat` should not need a config file. What it
         // will not do is fall back to *some* provider.
         let install = Install::with(&json!({"agents": {"list": {"default": {"model": "gpt-4o"}}}}));
         let runtime = create_runtime(RuntimeOptions {
@@ -188,7 +188,7 @@ mod construction {
     fn describes_itself_without_naming_a_credential() {
         let runtime = Install::with(&configured("llama3")).runtime().unwrap();
         let shown = format!("{runtime:?}");
-        assert!(shown.contains("GhostRuntime"), "{shown}");
+        assert!(shown.contains("WireRuntime"), "{shown}");
         assert!(shown.contains("llama3"), "{shown}");
     }
 
@@ -212,7 +212,7 @@ mod shared_connection {
                 .store()
                 .ensure_session(
                     "chat",
-                    ghostai_core::session_store::CreateSession::default(),
+                    darkwire_core::session_store::CreateSession::default(),
                 )
                 .unwrap();
         }
@@ -233,7 +233,7 @@ mod shared_connection {
             .store()
             .ensure_session(
                 "chat",
-                ghostai_core::session_store::CreateSession::default(),
+                darkwire_core::session_store::CreateSession::default(),
             )
             .unwrap();
         assert!(runtime.paths().db_file.exists());
@@ -297,7 +297,7 @@ mod reconfigure {
 
     #[test]
     fn leaves_a_construction_time_override_in_place() {
-        // `ghostai chat --model x` is a statement about this process: a settings
+        // `darkwire chat --model x` is a statement about this process: a settings
         // save from a browser must not silently move the terminal session.
         let install = Install::with(&configured("llama3"));
         let runtime = create_runtime(RuntimeOptions {
@@ -475,7 +475,7 @@ mod reconfigure {
     fn applies_a_typed_patch_through_the_same_path() {
         let install = Install::with(&configured("llama3"));
         let runtime = install.runtime().unwrap();
-        let typed: ghostai_protocol::ConfigPatch =
+        let typed: darkwire_protocol::ConfigPatch =
             serde_json::from_value(json!({"server": {"port": 4567}})).unwrap();
         let next = runtime.apply_patch(&typed).unwrap();
         assert_eq!(next.server.port, 4567);
@@ -982,7 +982,7 @@ mod workspaces {
 mod mcp {
     use super::*;
 
-    fn with_server(install: &Install, server: &FakeServer) -> Arc<ghostai_runtime::GhostRuntime> {
+    fn with_server(install: &Install, server: &FakeServer) -> Arc<darkwire_runtime::WireRuntime> {
         create_runtime(RuntimeOptions {
             mcp: McpChoice::Connector {
                 connect: server.connector(),
@@ -1050,7 +1050,7 @@ mod mcp {
         // a status row, not a save the operator loses.
         let install = Install::with(&one_server());
         let server = FakeServer::new(vec![echo_tool()]);
-        server.fail_connects(ghostai_core::GhostError::new(ErrorKind::Network, "down"));
+        server.fail_connects(darkwire_core::WireError::new(ErrorKind::Network, "down"));
         let runtime = with_server(&install, &server);
         assert!(runtime.configured());
         assert!(

@@ -13,7 +13,7 @@
  * module never sees it.
  */
 
-import type { Config } from '@ghostwire/protocol';
+import type { Config } from '@darkwire/protocol';
 import type { TFunction } from 'i18next';
 
 import { formatList, parseList } from '@/components/form/fields.js';

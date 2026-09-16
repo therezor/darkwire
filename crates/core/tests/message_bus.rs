@@ -10,13 +10,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use ghostai_core::message_bus::{
+use darkwire_core::message_bus::{
     IdSource, InboundMessage, InboundMessageInput, MessageBus, MessageBusOptions, OutboundKind,
     OutboundMessageInput, PublishResult, RateLimitOptions, RateLimiter,
 };
-use ghostai_core::messages::text_part;
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::ContentPart;
+use darkwire_core::messages::text_part;
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::ContentPart;
 use serde_json::{Map, json};
 
 const NOW: i64 = 1_700_000_000_000;

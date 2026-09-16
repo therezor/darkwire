@@ -6,10 +6,10 @@
 //! the child session is created and the child's events are forwarded.
 //!
 //! **Why the loop and not a tool.** Every other capability a model has is a
-//! tool in `ghostai-tools`, and this deliberately is not, for two reasons that
+//! tool in `darkwire-tools`, and this deliberately is not, for two reasons that
 //! are both structural rather than stylistic:
 //!
-//!  - `ghostai-tools` sits *below* this crate in the layer graph, so a tool
+//!  - `darkwire-tools` sits *below* this crate in the layer graph, so a tool
 //!    that started a turn would invert the dependency Cargo enforces. A
 //!    registry that could reach an `AgentLoop` is a registry that has the whole
 //!    agent behind it.
@@ -24,12 +24,12 @@
 
 use std::sync::LazyLock;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{
     StopReason, ToolDefinition, ToolPermission, ToolRisk, ToolSource, default_subagent_prompt,
 };
-use ghostai_tools::ToolExecution;
+use darkwire_tools::ToolExecution;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 
@@ -110,7 +110,7 @@ fn stop_reason_word(reason: StopReason) -> &'static str {
 ///
 /// The fallback names the agent and says the one thing a model cannot infer:
 /// that the subagent starts from nothing and answers in prose. It lives in
-/// `ghostai-protocol` because the settings UI shows it as the field's
+/// `darkwire-protocol` because the settings UI shows it as the field's
 /// placeholder, and a second copy here would be a promise about what the model
 /// reads that could quietly stop being true.
 fn describe_subagent(binding: &SubagentBinding) -> String {
@@ -300,7 +300,7 @@ pub fn subagent_map(
     let mut map: IndexMap<String, SubagentBinding> = IndexMap::new();
     for binding in bindings {
         if map.contains_key(&binding.tool_name) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "Two subagents resolve to the tool \"{}\"",

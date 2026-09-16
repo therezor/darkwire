@@ -15,13 +15,13 @@
 use std::fs;
 use std::path::Path;
 
-use ghostai_server::ui::{INDEX_FILE, UiFile, UiRoot, may_fall_back};
+use darkwire_server::ui::{INDEX_FILE, UiFile, UiRoot, may_fall_back};
 
 /// A `dist/` as a bundler would leave one: a shell and a hashed asset.
 fn bundle(root: &Path) {
     fs::write(
         root.join(INDEX_FILE),
-        "<!doctype html><title>GhostAI</title>",
+        "<!doctype html><title>DarkWire</title>",
     )
     .unwrap();
     fs::create_dir_all(root.join("assets")).unwrap();
@@ -39,7 +39,7 @@ fn a_directory_root_serves_the_shell() {
     let ui = UiRoot::Dir(dir.path().to_path_buf());
 
     let shell = ui.shell().expect("the shell is there");
-    assert!(text(&shell).contains("<title>GhostAI</title>"));
+    assert!(text(&shell).contains("<title>DarkWire</title>"));
     assert_eq!(shell.content_type, "text/html; charset=utf-8");
 }
 
@@ -152,7 +152,7 @@ fn an_unknown_extension_falls_back_to_the_default_media_type() {
     let ui = UiRoot::Dir(dir.path().to_path_buf());
     assert_eq!(
         ui.asset("/blob.qqq").unwrap().content_type,
-        ghostai_core::workspace_files::DEFAULT_MIME_TYPE
+        darkwire_core::workspace_files::DEFAULT_MIME_TYPE
     );
 }
 
@@ -174,7 +174,7 @@ fn a_file_with_no_extension_still_serves() {
 /// has something in it", which an empty or half-written `dist` would not.
 #[test]
 fn an_embedded_build_can_serve_its_shell() {
-    if !ghostai_server::ui::has_embedded_bundle() {
+    if !darkwire_server::ui::has_embedded_bundle() {
         return;
     }
     let shell = UiRoot::Embedded.shell().expect("a shell to fall back to");

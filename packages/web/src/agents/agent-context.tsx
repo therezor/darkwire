@@ -34,9 +34,9 @@ import {
   type ReactNode,
 } from 'react';
 
-import { DEFAULT_AGENT_ID } from '@ghostwire/protocol';
+import { DEFAULT_AGENT_ID } from '@darkwire/protocol';
 
-const STORAGE_KEY = 'ghostai:agent';
+const STORAGE_KEY = 'darkwire:agent';
 
 export { DEFAULT_AGENT_ID };
 

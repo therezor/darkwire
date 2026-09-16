@@ -17,7 +17,7 @@ import { VIEWPORT } from './src/viewport.js';
  * ships. Reviewing only in dark is how a light theme ships broken.
  *
  * There is no `webServer`, and the reason is stronger now than it was. The
- * harness starts `ghostai serve` itself, per test, over a temporary home, on a
+ * harness starts `darkwire serve` itself, per test, over a temporary home, on a
  * port the OS picks — see `src/harness/server.ts`. A single shared server would
  * put every spec's settings saves and sessions in one another's way, and the
  * approval matrix in particular is a setting two specs want opposite answers
@@ -27,23 +27,26 @@ import { VIEWPORT } from './src/viewport.js';
  * one sentence before the first test rather than the same sentence inside every
  * one of them. Against the repository root rather than the working directory,
  * because `pnpm --filter` runs this from `packages/e2e` and CI hands over the
- * relative `target/release/ghostai`.
+ * relative `target/release/darkwire`.
  */
 
 /**
  * The binary under test, checked once so a missing build fails early.
  *
- * `GHOSTAI_BIN` is what CI exports after `cargo build --release`; a laptop that
+ * `DARKWIRE_BIN` is what CI exports after `cargo build --release`; a laptop that
  * exports nothing gets the debug build. Nothing is thrown here — a config that
  * refused to load would hide the message inside Playwright's own error — the
  * harness raises it per test with the same text.
  */
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const BIN = resolve(ROOT, process.env['GHOSTAI_BIN'] ?? 'target/debug/ghostai');
+const BIN = resolve(
+  ROOT,
+  process.env['DARKWIRE_BIN'] ?? 'target/debug/darkwire',
+);
 if (!existsSync(BIN)) {
   process.stderr.write(
-    `No ghostai binary at ${BIN}.\n` +
-      'Run `cargo build -p ghostai --features test-hooks`, or set GHOSTAI_BIN.\n',
+    `No darkwire binary at ${BIN}.\n` +
+      'Run `cargo build -p darkwire --features test-hooks`, or set DARKWIRE_BIN.\n',
   );
 }
 export default defineConfig({

@@ -3,14 +3,14 @@
 //!
 //! This is the measurement behind the context strip in the web UI and the
 //! terminal's context command, and it lives here for a reason worth stating: it
-//! cannot live in `ghostai-core`, which has no access to the estimators or to
+//! cannot live in `darkwire-core`, which has no access to the estimators or to
 //! the prompt the loop assembles; and it must not live in the server, because a
 //! terminal drives the loop in-process and never speaks HTTP. This crate
 //! already depends on both halves, so putting it here adds no dependency edge
 //! and gives both front ends one implementation instead of two that drift.
 //!
 //! **The figures are of the request body, not of what is stored.** They come
-//! from the estimators in `ghostai-providers`, which run the same encoder the
+//! from the estimators in `darkwire-providers`, which run the same encoder the
 //! transport sends with — so a field that never reaches a provider is never
 //! billed. Two such fields are easy to bill by mistake: an assistant record's
 //! reasoning, which is kept beside the answer to be shown and excluded from
@@ -23,12 +23,12 @@
 
 use std::sync::Arc;
 
-use ghostai_core::history::{DEFAULT_MAX_HISTORY_MESSAGES, HistoryOptions, history_for_llm};
-use ghostai_core::messages::{system_message, user_message};
-use ghostai_core::session_store::ReadMessages;
-use ghostai_core::{Result, SessionStore, StoredMessageRecord};
-use ghostai_protocol::{ChatMessage, ToolDefinition};
-use ghostai_providers::{estimate_message_tokens, estimate_tool_tokens};
+use darkwire_core::history::{DEFAULT_MAX_HISTORY_MESSAGES, HistoryOptions, history_for_llm};
+use darkwire_core::messages::{system_message, user_message};
+use darkwire_core::session_store::ReadMessages;
+use darkwire_core::{Result, SessionStore, StoredMessageRecord};
+use darkwire_protocol::{ChatMessage, ToolDefinition};
+use darkwire_providers::{estimate_message_tokens, estimate_tool_tokens};
 use indexmap::IndexMap;
 
 use crate::agent_loop::{AgentLoop, PromptPreview, PromptPreviewInput};

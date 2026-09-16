@@ -17,6 +17,6 @@
  * and puts the error back at the entry that is wrong.
  */
 
-import type { ResourceKeys, WebResources } from '@ghostwire/i18n';
+import type { ResourceKeys, WebResources } from '@darkwire/i18n';
 
 export type WebKey = ResourceKeys<WebResources>;

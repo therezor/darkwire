@@ -14,9 +14,9 @@ purpose; "server-only, so no e2e" is a fine answer and a silent gap is not.
 - [ ] `pnpm test`
 - [ ] `pnpm build`
 - [ ] `pnpm test:coverage` — stricter than `pnpm test`; thirteen packages have raised bars
-- [ ] `pnpm --filter @ghostwire/web exec tsx src/tokens/run-gates.ts` — if this touched `packages/web`
+- [ ] `pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts` — if this touched `packages/web`
 - [ ] `pnpm i18n:check` — if this added or changed a string a person reads
-- [ ] `pnpm --filter @ghostwire/e2e test:e2e` — needs `pnpm build` first
+- [ ] `pnpm --filter @darkwire/e2e test:e2e` — needs `pnpm build` first
 - [ ] `pnpm screenshots` — if the UI changed visibly
 
 <!-- See CONTRIBUTING.md and docs/development.md. -->

@@ -31,7 +31,7 @@ import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { ProviderInstanceInfo } from '@ghostwire/protocol';
+import type { ProviderInstanceInfo } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

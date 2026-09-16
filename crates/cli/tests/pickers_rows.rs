@@ -12,11 +12,11 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::sessions::session_items;
-use ghostai::pickers::workspaces::workspace_items;
-use ghostai_core::WorkspaceRecord;
-use ghostai_core::session_store::{SessionRecord, SessionSummaryRecord};
+use darkwire::i18n::Translations;
+use darkwire::pickers::sessions::session_items;
+use darkwire::pickers::workspaces::workspace_items;
+use darkwire_core::WorkspaceRecord;
+use darkwire_core::session_store::{SessionRecord, SessionSummaryRecord};
 use serde_json::Map;
 
 fn english() -> Translations {

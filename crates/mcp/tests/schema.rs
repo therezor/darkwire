@@ -7,9 +7,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_mcp::{ArgValidator, compile_validator, normalise_schema};
-use ghostai_protocol::json::Object;
+use darkwire_core::ErrorKind;
+use darkwire_mcp::{ArgValidator, compile_validator, normalise_schema};
+use darkwire_protocol::json::Object;
 use serde_json::{Value, json};
 
 fn well_formed() -> Value {
@@ -291,7 +291,7 @@ fn reports_every_problem_at_once_not_just_the_first() {
 #[test]
 fn a_failure_becomes_an_invalid_input_error_with_the_issues_attached() {
     let failure = validator().parse(Some(json!({ "times": 1 }))).unwrap_err();
-    let error = ghostai_core::GhostError::from(failure);
+    let error = darkwire_core::WireError::from(failure);
     assert_eq!(error.kind, ErrorKind::InvalidInput);
     assert!(
         error

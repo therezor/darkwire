@@ -11,11 +11,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use ghostai_core::{ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
-use ghostai_security::ExecPlan;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_security::ExecPlan;
+use darkwire_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerExecOptions, ContainerRunner,
     ContainerRunnerOptions, KillSignal, OutputStream, OutputTee, RUNS_MOUNT_DIR, RunOutcome,
     RunRequest, Transcript, WorkspaceMount, container_create_argv, container_exec_argv,
@@ -31,7 +31,7 @@ const DIGEST: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn container_of(overrides: Value) -> EnvironmentDefinition {
     let mut base = json!({
-        "schema": "ghostai.environment/1",
+        "schema": "darkwire.environment/1",
         "name": "kali",
         "image": format!("kalilinux/kali-rolling@{DIGEST}"),
     });
@@ -84,7 +84,7 @@ fn create(overrides: Value, network: EnvironmentNetwork) -> Result<Vec<String>> 
         container_of(overrides),
         network,
         mount(),
-        "ghost-sbx-abc",
+        "dw-sbx-abc",
     ))
 }
 
@@ -226,10 +226,10 @@ fn carries_labels_and_tmpfs_and_devices() {
     );
     options
         .labels
-        .insert("ghostai.session".to_owned(), "s1".to_owned());
+        .insert("darkwire.session".to_owned(), "s1".to_owned());
     let argv = container_create_argv(&options).unwrap();
     assert!(has(&argv, "--label"));
-    assert!(has(&argv, "ghostai.session=s1"));
+    assert!(has(&argv, "darkwire.session=s1"));
     assert!(has(&argv, "--tmpfs=/tmp:rw,size=64m"));
     assert!(has(&argv, "--device=/dev/fuse"));
     assert!(format!("{options:?}").contains("ContainerCreateOptions"));
@@ -452,15 +452,15 @@ fn exec_omits_a_name_the_definition_lists_but_the_plan_does_not_carry() {
 #[test]
 fn exec_writes_the_pid_to_a_tmpfs_not_the_read_only_transcript_mount() {
     let result = exec_argv(&plan_of(), &container_of(json!({})));
-    assert!(has(&result, "/tmp/.ghost-r1.pid"));
-    assert!(!result.join(" ").contains("/workspace/.ghost"));
+    assert!(has(&result, "/tmp/.darkwire-r1.pid"));
+    assert!(!result.join(" ").contains("/workspace/.darkwire"));
 }
 
 #[test]
 fn reports_the_transcript_at_its_read_only_mount_outside_the_workspace() {
     assert_eq!(
-        container_run_dir("ghost-sbx-1", "x"),
-        "/run/ghost-runs/ghost-sbx-1/x"
+        container_run_dir("dw-sbx-1", "x"),
+        "/run/darkwire-runs/dw-sbx-1/x"
     );
 }
 
@@ -492,7 +492,7 @@ fn mounts_only_this_containers_own_transcripts_read_only() {
     let argv = container_create_argv(&options).unwrap();
     assert!(has(
         &argv,
-        "type=bind,src=/home/ghost/runs/c,dst=/run/ghost-runs/c,ro"
+        "type=bind,src=/home/ghost/runs/c,dst=/run/darkwire-runs/c,ro"
     ));
 }
 
@@ -501,14 +501,18 @@ fn takes_the_transcript_path_with_an_empty_tmpfs_when_there_is_nothing_to_mount(
     let argv = argv(json!({}));
     assert!(has(
         &argv,
-        "--tmpfs=/run/ghost-runs:ro,nosuid,nodev,noexec,size=4k"
+        "--tmpfs=/run/darkwire-runs:ro,nosuid,nodev,noexec,size=4k"
     ));
-    assert!(!argv.iter().any(|flag| flag.contains("dst=/run/ghost-runs")));
+    assert!(
+        !argv
+            .iter()
+            .any(|flag| flag.contains("dst=/run/darkwire-runs"))
+    );
     // The `--mount` the bind would have taken is not left dangling in front of
     // the flag that replaced it.
     let at = argv
         .iter()
-        .position(|flag| flag.starts_with("--tmpfs=/run/ghost-runs"))
+        .position(|flag| flag.starts_with("--tmpfs=/run/darkwire-runs"))
         .unwrap();
     assert_ne!(argv[at - 1], "--mount");
 }
@@ -516,7 +520,7 @@ fn takes_the_transcript_path_with_an_empty_tmpfs_when_there_is_nothing_to_mount(
 #[test]
 fn kill_signals_the_recorded_pid_inside_the_container() {
     let argv = container_kill_argv("c", "r1", KillSignal::Term);
-    assert!(has(&argv, "/tmp/.ghost-r1.pid"));
+    assert!(has(&argv, "/tmp/.darkwire-r1.pid"));
     assert!(has(&argv, "TERM"));
     assert_eq!(argv[0], "exec");
     assert_eq!(KillSignal::Kill.as_str(), "KILL");
@@ -577,7 +581,7 @@ impl CommandRunner for FakeInner {
             let first = self.calls.lock().is_empty();
             self.calls.lock().push(request);
             if self.fail_first && first {
-                return Err(GhostError::new(ErrorKind::Tool, "aborted"));
+                return Err(WireError::new(ErrorKind::Tool, "aborted"));
             }
             Ok(self.outcome.clone())
         })
@@ -634,7 +638,7 @@ async fn writes_the_full_transcript_and_reports_where_it_is() {
         .unwrap();
     assert_eq!(
         outcome.transcript_dir.as_deref(),
-        Some("/run/ghost-runs/c/run-1")
+        Some("/run/darkwire-runs/c/run-1")
     );
     assert_eq!(
         std::fs::read_to_string(dir.path().join("c/run-1/stdout.log")).unwrap(),
@@ -749,14 +753,14 @@ async fn escalates_to_a_second_harder_signal_when_the_run_failed() {
 #[test]
 fn a_transcript_is_created_on_the_host_before_the_container_writes() {
     let dir = tempfile::tempdir().unwrap();
-    let transcript = Transcript::open(dir.path(), "ghost-sbx-1", "r9").unwrap();
+    let transcript = Transcript::open(dir.path(), "dw-sbx-1", "r9").unwrap();
     transcript.write(OutputStream::Stdout, b"hello\n");
     transcript.close();
     assert_eq!(
         transcript.host_dir(),
-        dir.path().join("ghost-sbx-1").join("r9")
+        dir.path().join("dw-sbx-1").join("r9")
     );
-    assert_eq!(transcript.container_dir(), "/run/ghost-runs/ghost-sbx-1/r9");
+    assert_eq!(transcript.container_dir(), "/run/darkwire-runs/dw-sbx-1/r9");
     assert_eq!(
         std::fs::read_to_string(transcript.host_dir().join("stdout.log")).unwrap(),
         "hello\n"
@@ -794,16 +798,16 @@ fn gone(stderr: &str, code: Option<i32>) -> bool {
 #[test]
 fn recognises_what_each_engine_says_when_the_container_is_not_there() {
     assert!(gone(
-        "Error response from daemon: No such container: ghost-sbx-1\n",
+        "Error response from daemon: No such container: dw-sbx-1\n",
         Some(1)
     ));
     assert!(gone(
-        "Error response from daemon: Container ghost-sbx-1 is not running\n",
+        "Error response from daemon: Container dw-sbx-1 is not running\n",
         Some(1)
     ));
-    assert!(gone("Error: No such container: ghost-sbx-1\n", Some(1)));
+    assert!(gone("Error: No such container: dw-sbx-1\n", Some(1)));
     assert!(gone(
-        "Error: no container with name or ID \"ghost-sbx-1\" found\n",
+        "Error: no container with name or ID \"dw-sbx-1\" found\n",
         Some(125)
     ));
     assert!(gone(

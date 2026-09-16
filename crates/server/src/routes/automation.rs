@@ -19,12 +19,12 @@ use axum::Json;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use ghostai_core::ErrorKind;
-use ghostai_protocol::automation::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::automation::{
     AutomationJob, AutomationPayload, AutomationRun, AutomationSchedule, CreateAutomationJob,
     UpdateAutomationJob,
 };
-use ghostai_protocol::rest::{AutomationJobListResponse, AutomationRunListResponse};
+use darkwire_protocol::rest::{AutomationJobListResponse, AutomationRunListResponse};
 
 use crate::automation_store::{CreateJobInput, ListRuns, RunAfter, UpdateJobInput};
 use crate::cursor::{

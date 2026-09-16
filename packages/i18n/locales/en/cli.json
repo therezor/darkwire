@@ -1,15 +1,8 @@
 {
   "agent": {
-    "description": "Install agent presets, and list agents and presets.",
-    "install": {
-      "description": "Install one agent preset, by its id or by path.",
-      "options": {
-        "force": "overwrite an existing agent with the same id",
-        "workspaceId": "the workspace the preset's skill sheets are copied into (default: default)"
-      }
-    },
+    "description": "List the agents this install is configured with.",
     "list": {
-      "description": "Show every configured agent and the presets not yet installed."
+      "description": "Show every configured agent."
     }
   },
   "chat": {
@@ -78,7 +71,7 @@
     "done": "Done.",
     "endpointName": "Name for this endpoint",
     "enterNumber": "Enter a number between 1 and {{max}}.",
-    "heading": "Setting up GhostAI.",
+    "heading": "Setting up DarkWire.",
     "language": "Language",
     "listFailed": "Could not list models from this endpoint — type one instead.\n",
     "local": " (local)",
@@ -108,35 +101,11 @@
       "workspace": "Which workspace?"
     }
   },
-  "preset": {
-    "description": "Install agent presets and optional containers from the catalogue.",
-    "fetching": "Fetching {{package}}…",
-    "install": {
-      "description": "Install agent presets. With no ids, pick them from a list.",
-      "options": {
-        "force": "overwrite an existing agent with the same id",
-        "from": "install from a checkout of the presets repository instead of fetching",
-        "offline": "never fetch; use what is already on this machine",
-        "refresh": "fetch the catalogue again before reading it",
-        "workspaceId": "the workspace the presets' skill sheets are copied into (default: default)"
-      }
-    },
-    "installed": "installed",
-    "list": {
-      "description": "Show every preset on offer, and which are already installed."
-    },
-    "notAnOption": "“{{name}}” is not one of these — enter numbers or names.",
-    "nothingChosen": "Nothing chosen. Nothing was installed.",
-    "update": {
-      "description": "Fetch the catalogue again."
-    },
-    "which": "Which agents? (numbers or names, `all`, or blank for none)"
-  },
   "program": {
     "description": "A self-hosted agent that runs where your files are.",
     "notAPort": "\"{{value}}\" is not a port number",
     "options": {
-      "home": "GhostAI home directory (default: $GHOSTAI_HOME or ~/.ghostai)",
+      "home": "DarkWire home directory (default: $DARKWIRE_HOME or ~/.darkwire)",
       "logLevel": "one of {{levels}}; overrides --verbose (default: error, or info while serving)",
       "noColor": "disable colour output",
       "verbose": "report more of what the install is doing, not only the answer"
@@ -145,6 +114,7 @@
   },
   "prompt": {
     "no": "n",
+    "notAnOption": "“{{name}}” is not one of these. Enter numbers or names.",
     "yes": "y",
     "yesNoDefaultNo": "y/N",
     "yesNoDefaultYes": "Y/n"
@@ -176,7 +146,7 @@
       "description": "The instance to stop or restart."
     },
     "socket": {
-      "description": "Service socket path, overriding GHOSTAI_SANDBOX_SOCKET."
+      "description": "Service socket path, overriding DARKWIRE_SANDBOX_SOCKET."
     },
     "workspace": {
       "description": "Registered workspace the instance belongs to."
@@ -184,7 +154,7 @@
   },
   "serve": {
     "agent": "Agent",
-    "agentUnconfigured": "not configured — add a provider in the UI, or run `ghostai init`",
+    "agentUnconfigured": "not configured — add a provider in the UI, or run `darkwire init`",
     "auth": "Auth",
     "authDisabled": "disabled — anything that can reach {{host}} can drive this agent",
     "authEnabled": "enabled",
@@ -193,13 +163,13 @@
     "description": "Serve the web UI and the API on one port.",
     "firstRun": "First run.",
     "firstRunBody": "Open the URL above and enter this one-time code:",
-    "listening": "GhostAI is listening.",
+    "listening": "DarkWire is listening.",
     "options": {
       "host": "bind address, overriding the configured default",
-      "password": "set or rotate the login password (or GHOSTAI_PASSWORD)",
+      "password": "set or rotate the login password (or DARKWIRE_PASSWORD)",
       "port": "port, overriding the configured default",
       "ui": "a built UI to serve, instead of the bundled one",
-      "username": "set the login name alongside --password (or GHOSTAI_USERNAME)",
+      "username": "set the login name alongside --password (or DARKWIRE_USERNAME)",
       "workspace": "workspace root, overriding the configured default"
     },
     "pressCtrlC": "Press Ctrl-C to stop.",

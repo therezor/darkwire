@@ -2,7 +2,7 @@
 //!
 //! The one place a config file becomes a provider, a jail, a store, a registry
 //! and one loop per agent, so the CLI, the server, the scheduler and every
-//! channel share one wiring. No HTTP here and nothing above `ghostai-agent`: a
+//! channel share one wiring. No HTTP here and nothing above `darkwire-agent`: a
 //! transport builds a runtime; a runtime never knows what drives it. An
 //! unconfigured install is a state, not an error.
 #![forbid(unsafe_code)]
@@ -29,5 +29,5 @@ pub use merge::{DELETE_BY_NULL, REPLACE_WHOLESALE, merge_config_patch};
 pub use provider_cache::{
     MAX_CACHED_PROVIDERS, ProviderCache, ProviderFactory, ProviderRequest, provider_cache_key,
 };
-pub use runtime::{ExtensionChoice, GhostRuntime, McpChoice, RuntimeOptions, create_runtime};
+pub use runtime::{ExtensionChoice, McpChoice, RuntimeOptions, WireRuntime, create_runtime};
 pub use tool_sink::{RegistrySink, registry_tool_sink};

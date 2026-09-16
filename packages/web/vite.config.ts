@@ -11,7 +11,7 @@ import { defineConfig } from 'vite';
  *
  * The build is entirely self-contained by requirement, not by accident. Fonts
  * are npm packages emitted into `dist/assets`, nothing fetches from a CDN, and
- * `ghostai serve` mounts this directory as static files behind the same origin as
+ * `darkwire serve` mounts this directory as static files behind the same origin as
  * the API — so the UI renders with the network otherwise blocked, which is what
  * a self-hosted air-gapped install actually needs.
  */
@@ -30,7 +30,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // `ghostai serve` in the other terminal, on the config's default port. Only the dev server
+    // `darkwire serve` in the other terminal, on the config's default port. Only the dev server
     // proxies: the built app is served from the API's own origin.
     proxy: {
       '/api': 'http://127.0.0.1:3000',

@@ -42,4 +42,4 @@ impl Component for Vec<String> {
 /// every marker before a frame is written, so this should never reach a
 /// terminal at all — which is exactly why it should be the form that is
 /// harmless if it ever does.
-pub const CURSOR_MARKER: &str = "\x1b_ghostai:cursor\x1b\\";
+pub const CURSOR_MARKER: &str = "\x1b_darkwire:cursor\x1b\\";

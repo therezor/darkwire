@@ -2,11 +2,11 @@
   "description": "Every row of every table in seed.db, by table, in rowid order, as node:sqlite reads them: INTEGER columns as numbers, BLOB columns as {hex}, NULL as null. Written by the stores themselves with a clock starting at 1700000000000 ms and advancing 1 s per operation, counter ids (`msg-1`, `note-1`, `job-1`, `job-2` for the run), a random source filling each buffer with 1, 2, 3, … and a fake password hasher writing `fake:<password>`. The session token issued is <id>.<secret> with both halves base64url of the random buffers; token_sha256 is sha256 of the secret text. The extension digest covers a directory `sample/` holding the manifest and entry recorded in `inputs`.",
   "inputs": {
     "extension": {
-      "ghostai.extension.json": "{\"schema\":\"ghostai.extension/1\",\"id\":\"sample\",\"entry\":\"dist/index.js\"}\n",
+      "darkwire.extension.json": "{\"schema\":\"darkwire.extension/1\",\"id\":\"sample\",\"entry\":\"dist/index.js\"}\n",
       "dist/index.js": "export const activate = () => {};\n"
     },
     "toolbox": {
-      "toolbox.json": "{\"schema\":\"ghostai.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}"
+      "toolbox.json": "{\"schema\":\"darkwire.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}"
     }
   },
   "tables": {

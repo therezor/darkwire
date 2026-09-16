@@ -145,7 +145,7 @@ describe('the login overlay', () => {
 
     // Prefilled with the default, so the common case is one field to fill.
     const username = await screen.findByLabelText('Username');
-    expect(username).toHaveValue('ghost');
+    expect(username).toHaveValue('darkwire');
 
     await user.clear(username);
     await user.type(username, 'operator');

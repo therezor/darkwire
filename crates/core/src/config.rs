@@ -1,6 +1,6 @@
 //! Reading and writing `config.yaml`.
 //!
-//! The mirror in `ghostai-protocol` deliberately does no normalisation on
+//! The mirror in `darkwire-protocol` deliberately does no normalisation on
 //! parse, so that every field stays representable as JSON Schema for the
 //! OpenAPI document and the parsed shape is identical to the serialised one.
 //! That leaves one job for load time, and this is it: find the file, turn its
@@ -11,7 +11,7 @@
 //!
 //!  - **A missing config file is the normal first run**, not a failure. Every
 //!    field has a default and an empty object parses to a complete tree, so
-//!    `ghostai chat --provider ollama --model qwen3` has to work on a machine
+//!    `darkwire chat --provider ollama --model qwen3` has to work on a machine
 //!    that has never written a config. [`LoadedConfig::from_file`] reports which
 //!    happened, for the one caller that wants to say "no config found" in a
 //!    diagnostic.
@@ -33,18 +33,18 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use darkwire_protocol::Config;
 use garde::Validate as _;
-use ghostai_protocol::Config;
 use serde_json::Value;
 
-use crate::errors::{ErrorKind, GhostError, Result};
-use crate::paths::{GhostPaths, ResolveGhostPaths, ensure_dir};
+use crate::errors::{ErrorKind, Result, WireError};
+use crate::paths::{ResolveWirePaths, WirePaths, ensure_dir};
 
 /// Inputs to [`load_config`].
 #[derive(Debug, Clone, Default)]
 pub struct LoadConfigOptions {
     /// Where the root and, absent a config, the workspace come from.
-    pub paths: ResolveGhostPaths,
+    pub paths: ResolveWirePaths,
     /// Overrides `<root>/config.yaml`.
     pub file: Option<PathBuf>,
 }
@@ -55,7 +55,7 @@ pub struct LoadedConfig {
     /// The settings tree.
     pub config: Config,
     /// With `workspace` folded in from the config, unless the caller named one.
-    pub paths: GhostPaths,
+    pub paths: WirePaths,
     /// The file that was read, or would have been.
     pub file: PathBuf,
     /// `false` when no file existed and the defaults were used.
@@ -69,7 +69,7 @@ pub struct LoadedConfig {
 /// validates the file, rather than by a second implementation that drifts.
 pub fn parse_config(text: &str, file: &Path) -> Result<Config> {
     let raw: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("{} is not valid YAML: {error}", file.display()),
         )
@@ -167,9 +167,9 @@ fn issue_line(path: &str, error: &garde::Error) -> String {
     format!("{label}: {error}")
 }
 
-fn invalid_settings(file: &Path, issues: Vec<String>) -> GhostError {
+fn invalid_settings(file: &Path, issues: Vec<String>) -> WireError {
     let listed: Vec<String> = issues.iter().map(|issue| format!("  {issue}")).collect();
-    GhostError::new(
+    WireError::new(
         ErrorKind::Config,
         format!(
             "{} has invalid settings:\n{}",
@@ -184,7 +184,7 @@ fn invalid_settings(file: &Path, issues: Vec<String>) -> GhostError {
 /// The exact bytes [`save_config`] writes: YAML with a trailing newline.
 pub fn render_config(config: &Config) -> Result<String> {
     serde_yaml_ng::to_string(config).map_err(|error| {
-        GhostError::new(ErrorKind::Internal, "config is not serialisable").with_source(error)
+        WireError::new(ErrorKind::Internal, "config is not serialisable").with_source(error)
     })
 }
 
@@ -209,7 +209,7 @@ pub fn render_config(config: &Config) -> Result<String> {
 pub fn save_config(file: &Path, config: &Config) -> Result<()> {
     let issues = validation_issues(config);
     if !issues.is_empty() {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             format!("Refusing to write invalid settings to {}", file.display()),
         )
@@ -229,7 +229,7 @@ pub fn save_config(file: &Path, config: &Config) -> Result<()> {
     write_private(&temporary, &text)
         .and_then(|()| fs::rename(&temporary, file))
         .map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Config,
                 format!("{} could not be written", file.display()),
             )
@@ -260,10 +260,10 @@ fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
 /// Precedence for the workspace is the explicit option, then the config file,
 /// then `<root>/workspace`. An explicit workspace is an instruction for one run
 /// and must not be overridden by whatever the config happens to say; an empty
-/// `workspace` means "unset", so a root moved with `GHOSTAI_HOME` takes its
+/// `workspace` means "unset", so a root moved with `DARKWIRE_HOME` takes its
 /// workspace with it.
 pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
-    let base = GhostPaths::resolve(options.paths.clone())?;
+    let base = WirePaths::resolve(options.paths.clone())?;
     let file = options.file.unwrap_or_else(|| base.config_file.clone());
 
     let text = match fs::read_to_string(&file) {
@@ -278,7 +278,7 @@ pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
             None
         }
         Err(error) => {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!("{} could not be read", file.display()),
             )
@@ -298,7 +298,7 @@ pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
     }
 
     Ok(LoadedConfig {
-        paths: GhostPaths::resolve(resolve)?,
+        paths: WirePaths::resolve(resolve)?,
         config,
         file,
         from_file: text.is_some(),

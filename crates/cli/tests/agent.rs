@@ -1,15 +1,9 @@
-//! `ghostai agent`, the preset installer.
+//! `darkwire agent list`.
 //!
-//! What is asserted here is the *merge*: that a preset lands in `agents.list`
-//! exactly once, that the refusals fire before the write, and that the roster
-//! snapshot offers only specialists that can answer. The preset shape itself is
-//! `ghostai-protocol`'s and the environment gate is `ghostai-security`'s. Both
-//! already tested where they live.
-//!
-//! Every run points `GHOSTAI_CATALOGUE` somewhere this file controls, including
-//! at a path that does not exist. Without that the sibling-checkout lookup would
-//! find a real presets repository on a reviewer's machine and not on CI, which
-//! is the one flake this command can produce.
+//! The command is read-only, so what is asserted is the reading: an install
+//! with agents prints them with their state, and an install with none says so
+//! rather than printing an empty block. Creating an agent is the web UI's job
+//! and is covered there.
 
 #![allow(
     clippy::unwrap_used,
@@ -22,10 +16,9 @@
 
 use std::path::Path;
 
-use ghostai::Streams;
-use ghostai::i18n::Env;
-use ghostai::program::{AgentCommand, Globals};
-use serde_json::{Value, json};
+use darkwire::Streams;
+use darkwire::i18n::Env;
+use darkwire::program::{AgentCommand, Globals};
 use tempfile::TempDir;
 
 /// A sink that keeps what was written to it, so a test can read it back.
@@ -56,17 +49,15 @@ struct Run {
     errors: String,
 }
 
-/// One temporary install, with the catalogue pinned to a path of its own.
+/// One temporary install.
 struct Home {
     dir: TempDir,
-    catalogue: Option<String>,
 }
 
 impl Home {
     fn new() -> Home {
         Home {
             dir: TempDir::new().expect("a temporary home"),
-            catalogue: None,
         }
     }
 
@@ -82,694 +73,74 @@ impl Home {
         }
     }
 
-    /// The environment, with the catalogue pinned wherever this test put it.
-    ///
-    /// A path that does not exist when no catalogue was written, which is what
-    /// stops the sibling lookup from reaching a real checkout.
-    fn env(&self) -> Env {
-        let catalogue = self.catalogue.clone().unwrap_or_else(|| {
-            self.path()
-                .join("no-catalogue-here")
-                .to_string_lossy()
-                .into_owned()
-        });
-        [("GHOSTAI_CATALOGUE", catalogue)].into_iter().collect()
+    /// A settings tree with the agents this test wants in it.
+    fn config(&self, yaml: &str) {
+        std::fs::write(self.path().join("config.yaml"), yaml).expect("a config file");
     }
 
-    /// A catalogue holding one skill sheet.
-    fn with_sheet(&mut self, name: &str, agents: Option<&str>) {
-        let dir = self.path().join("fixture-catalogue");
-        std::fs::create_dir_all(dir.join("agents")).expect("an agents directory");
-        let sheet = dir.join("skills").join(name);
-        std::fs::create_dir_all(&sheet).expect("a sheet directory");
-        let scope = agents.map_or_else(String::new, |value| format!("agents: {value}\n"));
-        std::fs::write(
-            sheet.join("SKILL.md"),
-            format!("---\ndescription: What {name} does.\n{scope}---\n\nBody of {name}.\n"),
-        )
-        .expect("a sheet");
-        self.catalogue = Some(dir.to_string_lossy().into_owned());
-    }
-
-    /// The operator's policy directory, which sits beside the workspace.
-    fn policy(&self) -> std::path::PathBuf {
-        self.path().join("policy")
-    }
-
-    /// An environment definition on disk.
-    fn environment(&self, name: &str) {
-        let dir = self.policy().join("environments");
-        std::fs::create_dir_all(&dir).expect("an environments directory");
-        std::fs::write(
-            dir.join(format!("{name}.yaml")),
-            json!({
-                "schema": "ghostai.environment/1",
-                "name": name,
-                "image": format!("sha256:{}", "d".repeat(64)),
-            })
-            .to_string(),
-        )
-        .expect("an environment definition");
-    }
-
-    /// A preset in `<root>/presets`, the operator's own directory.
-    fn preset(&self, name: &str, preset: &Value) {
-        let dir = self.path().join("presets");
-        std::fs::create_dir_all(&dir).expect("a presets directory");
-        std::fs::write(dir.join(format!("{name}.yaml")), preset.to_string()).expect("a preset");
-    }
-
-    /// The settings tree on disk, or `None` when nothing was written.
-    fn config(&self) -> Option<Value> {
-        let text = std::fs::read_to_string(self.path().join("config.yaml")).ok()?;
-        serde_yaml_ng::from_str(&text).ok()
-    }
-
-    /// One agent's entry, which must exist.
-    fn agent(&self, id: &str) -> Value {
-        self.config()
-            .expect("a config was written")
-            .pointer(&format!("/agents/list/{id}"))
-            .cloned()
-            .unwrap_or_else(|| panic!("no {id} in the saved config"))
-    }
-
-    fn run(&self, command: &AgentCommand) -> Run {
+    fn list(&self) -> Run {
         let out = Sink::default();
         let err = Sink::default();
         let mut streams = Streams {
             out: Box::new(out.clone()),
             err: Box::new(err.clone()),
         };
-        let code = ghostai::agent::run(&self.globals(), command, &self.env(), &mut streams)
-            .expect("the command answers with an exit code rather than failing");
+        let code = darkwire::agent::run(
+            &self.globals(),
+            &AgentCommand::List,
+            &Env::default(),
+            &mut streams,
+        )
+        .expect("the command answers with an exit code rather than failing");
         Run {
             code,
             output: out.text(),
             errors: err.text(),
         }
     }
-
-    fn install(&self, name: &str) -> Run {
-        self.install_with(name, false, None)
-    }
-
-    fn install_forced(&self, name: &str) -> Run {
-        self.install_with(name, true, None)
-    }
-
-    fn install_with(&self, name: &str, force: bool, workspace_id: Option<&str>) -> Run {
-        self.run(&AgentCommand::Install {
-            name: name.to_owned(),
-            force,
-            workspace_id: workspace_id.map(str::to_owned),
-        })
-    }
-
-    fn list(&self) -> Run {
-        self.run(&AgentCommand::List)
-    }
 }
-
-/// A preset body with `schema` and `id` filled in.
-fn preset_for(id: &str, overrides: &Value) -> Value {
-    let mut body = json!({"schema": "ghostai.agent-preset/1", "id": id});
-    if let (Some(target), Some(extra)) = (body.as_object_mut(), overrides.as_object()) {
-        for (key, value) in extra {
-            target.insert(key.clone(), value.clone());
-        }
-    }
-    body
-}
-
-// install
 
 #[test]
-fn installs_a_preset_from_an_explicit_path() {
+fn shows_every_configured_agent_with_its_state() {
     let home = Home::new();
-    let file = home.path().join("my-agent.yaml");
-    std::fs::write(
-        &file,
-        preset_for("scribe", &json!({"label": "Scribe"})).to_string(),
-    )
-    .unwrap();
-
-    let run = home.install(&file.to_string_lossy());
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scribe")["label"], json!("Scribe"));
-    assert_eq!(home.agent("scribe")["enabled"], json!(true));
-}
-
-#[test]
-fn installs_a_preset_by_its_id() {
-    let home = Home::new();
-    home.preset("scout", &preset_for("scout", &json!({})));
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-}
-
-#[test]
-fn refuses_a_preset_whose_environment_is_not_installed() {
-    let home = Home::new();
-    home.preset(
-        "scout",
-        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
+    home.config(
+        "agents:\n  list:\n    scribe:\n      label: Scribe\n      enabled: true\n    \
+         researcher:\n      enabled: false\n",
     );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 1);
-    assert!(
-        run.errors.contains("No environment is installed"),
-        "{}",
-        run.errors
-    );
-    assert!(home.config().is_none(), "nothing was written");
-}
-
-#[test]
-fn installs_a_preset_naming_an_environment() {
-    let home = Home::new();
-    home.environment("dev");
-    home.preset(
-        "scout",
-        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["environment"]["name"], json!("dev"));
-}
-
-#[test]
-fn installs_an_environment_for_builtin_exec() {
-    let home = Home::new();
-    home.environment("dev");
-    home.preset(
-        "scout",
-        &preset_for("scout", &json!({"environment": {"name": "dev"}})),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(home.agent("scout")["environment"]["name"], json!("dev"));
-}
-
-#[test]
-fn refuses_a_network_request_from_a_preset_that_names_no_environment() {
-    // Egress is scoped by the environment's gateway, so a request made without
-    // one means nothing — and silently ignoring it would leave the config
-    // saying one thing and the agent doing another.
-    let home = Home::new();
-    home.preset(
-        "scout",
-        &preset_for(
-            "scout",
-            &json!({"environment": {"network": {"mode": "open"}}}),
-        ),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 1);
-    assert!(
-        run.errors.contains("names no environment"),
-        "{}",
-        run.errors
-    );
-    assert!(home.config().is_none(), "nothing was written");
-}
-
-#[test]
-fn refuses_a_network_request_from_a_preset_that_names_nothing_at_all() {
-    // The same refusal on a preset that names no environment.
-    let home = Home::new();
-    home.preset(
-        "scout",
-        &preset_for(
-            "scout",
-            &json!({"environment": {"network": {"mode": "open"}}}),
-        ),
-    );
-
-    let run = home.install("scout");
-
-    assert_eq!(run.code, 1);
-    assert!(
-        run.errors.contains("names no environment"),
-        "{}",
-        run.errors
-    );
-    assert!(home.config().is_none(), "nothing was written");
-}
-
-#[test]
-fn refuses_an_egress_request_nothing_could_enforce() {
-    // The runtime applies these at build, so an entry that fails them is a
-    // config the server refuses to boot on. Each is refused here instead, where
-    // the message can still name the preset the operator has to fix.
-    for (network, expected) in [
-        (
-            json!({"mode": "allowlist"}),
-            "asks for an allow-list with no entries",
-        ),
-        (
-            json!({"mode": "allowlist", "allow": ["10.0.0.0/8"], "hosts": ["example.com"]}),
-            "lists both CIDRs and hosts",
-        ),
-        (
-            json!({"mode": "allowlist", "allow": ["example.com"], "dns": ["10.0.0.53"]}),
-            "not a CIDR block",
-        ),
-        (
-            json!({"mode": "allowlist", "hosts": ["*.example.com"]}),
-            "not an exact DNS name",
-        ),
-        (
-            json!({"mode": "allowlist", "hosts": ["example.com"], "dns": ["resolver.local"]}),
-            "not an IP literal",
-        ),
-        (
-            json!({"mode": "allowlist", "allow": ["10.0.0.0/8"]}),
-            "names no DNS resolver",
-        ),
-        (
-            json!({"mode": "none", "allow": ["10.0.0.0/8"]}),
-            "network mode is not \"allowlist\"",
-        ),
-    ] {
-        let home = Home::new();
-        home.environment("dev");
-        home.preset(
-            "scout",
-            &preset_for(
-                "scout",
-                &json!({
-                    "environment": {"name": "dev", "network": network},
-                }),
-            ),
-        );
-
-        let run = home.install("scout");
-
-        assert_eq!(run.code, 1, "{expected}");
-        assert!(run.errors.contains(expected), "{}", run.errors);
-        assert!(
-            home.config().is_none(),
-            "nothing was written for {expected}"
-        );
-    }
-}
-
-#[test]
-fn refuses_to_overwrite_an_existing_agent_without_force() {
-    // The existing entry may carry the operator's own edits.
-    let home = Home::new();
-    let file = home.path().join("scribe.yaml");
-    std::fs::write(&file, preset_for("scribe", &json!({})).to_string()).unwrap();
-    let path = file.to_string_lossy().into_owned();
-
-    assert_eq!(home.install(&path).code, 0);
-
-    let again = home.install(&path);
-    assert_eq!(again.code, 1);
-    assert!(again.errors.contains("--force"), "{}", again.errors);
-
-    assert_eq!(home.install_forced(&path).code, 0);
-}
-
-#[test]
-fn refuses_an_id_nothing_downstream_could_use() {
-    let home = Home::new();
-    let file = home.path().join("bad.yaml");
-    std::fs::write(&file, preset_for("CON", &json!({})).to_string()).unwrap();
-
-    let run = home.install(&file.to_string_lossy());
-
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("agent id"), "{}", run.errors);
-}
-
-#[test]
-fn names_the_candidates_when_nothing_matches() {
-    let home = Home::new();
-    home.preset("team-lead", &preset_for("team-lead", &json!({})));
-    home.preset("nano", &preset_for("nano", &json!({})));
-
-    let run = home.install("nope");
-
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("team-lead"), "{}", run.errors);
-    assert!(run.errors.contains("nano"), "{}", run.errors);
-}
-
-#[test]
-fn names_the_argument_when_nothing_matches() {
-    // The contract the top-level parser's own suite asserts: `ghostai agent
-    // install nope` on an install with nothing in it exits 1 and says which
-    // name it could not find.
-    let home = Home::new();
-
-    let run = home.install("nope");
-
-    assert_eq!(run.code, 1);
-    assert!(
-        run.errors.contains("No preset is available under \"nope\""),
-        "{}",
-        run.errors
-    );
-}
-
-#[test]
-fn treats_a_path_shaped_argument_as_a_path_even_when_the_file_is_missing() {
-    // `./typo.yaml` must not fall through to an installable preset and install
-    // something other than what was named.
-    let home = Home::new();
-    home.preset("typo", &preset_for("typo", &json!({})));
-
-    let run = home.install("./typo.yaml");
-
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("could not be read"), "{}", run.errors);
-}
-
-#[test]
-fn installs_a_preset_an_operator_dropped_into_the_presets_directory() {
-    // The drop-in directory, and the reason the loader takes a directory rather
-    // than a hard-coded list: adding a preset is adding a file.
-    let home = Home::new();
-    home.preset("scribe", &preset_for("scribe", &json!({"label": "Scribe"})));
-
-    assert_eq!(home.install("scribe").code, 0);
-    assert_eq!(home.agent("scribe")["label"], json!("Scribe"));
-}
-
-#[test]
-fn refuses_a_preset_file_that_is_not_valid_json_naming_it() {
-    let home = Home::new();
-    std::fs::create_dir_all(home.path().join("presets")).unwrap();
-    std::fs::write(home.path().join("presets").join("broken.yaml"), "{").unwrap();
-
-    let run = home.install("broken");
-
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("not valid YAML"), "{}", run.errors);
-}
-
-#[test]
-fn installs_an_agent_with_tools_off_and_the_live_sections_deleted() {
-    let home = Home::new();
-    home.preset(
-        "nano",
-        &preset_for(
-            "nano",
-            &json!({
-                "toolsEnabled": false,
-                "tools": {},
-                "livePrompt": " ",
-                "wrapUpPrompt": " ",
-            }),
-        ),
-    );
-
-    assert_eq!(home.install("nano").code, 0);
-
-    let entry = home.agent("nano");
-    assert_eq!(entry["toolsEnabled"], json!(false));
-    assert_eq!(entry["tools"], json!({}));
-    // The single space is the three-state spelling for "remove the section".
-    assert_eq!(entry["livePrompt"], json!(" "));
-    assert_eq!(entry["wrapUpPrompt"], json!(" "));
-}
-
-#[test]
-fn takes_the_model_and_the_endpoint_from_the_default_agent() {
-    // A preset ships neither on purpose — one naming a model would break on
-    // every machine that lacks it — so an entry written without them would
-    // install an agent that cannot run a turn.
-    let home = Home::new();
-    home.preset("scribe", &preset_for("scribe", &json!({})));
-    assert_eq!(home.install("scribe").code, 0);
-
-    let saved = home.config().expect("a config was written");
-    let seed = &saved["agents"]["list"]["default"];
-    assert_eq!(home.agent("scribe")["model"], seed["model"]);
-    assert_eq!(home.agent("scribe")["provider"], seed["provider"]);
-}
-
-// the roster snapshot
-
-/// The delegator whose roster is under test, plus a specialist stand-in.
-fn with_lead() -> Home {
-    let home = Home::new();
-    home.preset(
-        "team-lead",
-        &preset_for(
-            "team-lead",
-            &json!({"subagents": [{"id": "researcher"}, {"id": "coder"}]}),
-        ),
-    );
-    home
-}
-
-fn install_specialist(home: &Home, id: &str) {
-    home.preset(id, &preset_for(id, &json!({})));
-    assert_eq!(home.install(id).code, 0);
-}
-
-fn roster(home: &Home, id: &str) -> Vec<String> {
-    home.agent(id)["subagents"]
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| entry["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[test]
-fn offers_only_specialists_that_are_installed_and_enabled() {
-    let home = with_lead();
-    install_specialist(&home, "coder");
-
-    let run = home.install("team-lead");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert_eq!(roster(&home, "team-lead"), vec!["coder".to_owned()]);
-    // The missing specialists are named, with the way to add them later.
-    assert!(run.output.contains("researcher"), "{}", run.output);
-    assert!(run.output.contains("--force"), "{}", run.output);
-}
-
-#[test]
-fn never_offers_an_agent_the_preset_did_not_name() {
-    // A delegator handing "think about this" to a no-tools agent is doing the
-    // work itself with a round trip added, so the roster is the preset's list
-    // filtered — never every agent that happens to exist.
-    let home = with_lead();
-    install_specialist(&home, "nano");
-
-    home.install("team-lead");
-
-    assert!(roster(&home, "team-lead").is_empty());
-}
-
-#[test]
-fn refreshes_the_snapshot_on_a_forced_re_run() {
-    let home = with_lead();
-    home.install("team-lead");
-    assert!(roster(&home, "team-lead").is_empty());
-
-    install_specialist(&home, "coder");
-    assert_eq!(home.install_forced("team-lead").code, 0);
-
-    assert_eq!(roster(&home, "team-lead"), vec!["coder".to_owned()]);
-}
-
-#[test]
-fn skips_a_specialist_that_is_installed_but_disabled() {
-    let home = with_lead();
-    install_specialist(&home, "coder");
-
-    let mut saved = home.config().expect("a config was written");
-    saved["agents"]["list"]["coder"]["enabled"] = json!(false);
-    std::fs::write(home.path().join("config.yaml"), saved.to_string()).unwrap();
-
-    home.install("team-lead");
-
-    assert!(roster(&home, "team-lead").is_empty());
-}
-
-// skill sheets
-
-#[test]
-fn installs_the_agent_and_names_the_sheets_when_there_is_no_catalogue() {
-    // The common case for this command rather than an edge: it never fetches,
-    // so an operator's own preset on a box that has never fetched a catalogue
-    // lands entirely here. The agent still installs.
-    let home = Home::new();
-    home.preset(
-        "scribe",
-        &preset_for("scribe", &json!({"skills": ["code-review"]})),
-    );
-
-    let run = home.install("scribe");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert!(home.config().is_some());
-    assert!(
-        run.output.contains("skill \"code-review\" — not in this"),
-        "{}",
-        run.output
-    );
-    assert!(
-        run.output.contains("ghostai preset update"),
-        "{}",
-        run.output
-    );
-}
-
-#[test]
-fn copies_the_sheets_when_a_catalogue_is_reachable() {
-    let mut home = Home::new();
-    home.preset(
-        "scribe",
-        &preset_for("scribe", &json!({"skills": ["code-review"]})),
-    );
-    home.with_sheet("code-review", None);
-
-    let run = home.install("scribe");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    let sheet = home
-        .path()
-        .join("workspace")
-        .join("skills")
-        .join("code-review")
-        .join("SKILL.md");
-    let text = std::fs::read_to_string(&sheet).expect("the sheet was copied");
-    assert!(text.contains("Body of code-review."), "{text}");
-    assert!(
-        run.output.contains("skills     code-review"),
-        "{}",
-        run.output
-    );
-}
-
-#[test]
-fn notes_a_sheet_scoped_away_from_the_agent_that_brought_it() {
-    let mut home = Home::new();
-    home.preset(
-        "scribe",
-        &preset_for("scribe", &json!({"skills": ["triage"]})),
-    );
-    home.with_sheet("triage", Some("lead"));
-
-    let run = home.install("scribe");
-
-    assert_eq!(run.code, 0, "{}", run.errors);
-    assert!(
-        run.output
-            .contains("skill \"triage\" is scoped to lead, so the scribe agent will not see it"),
-        "{}",
-        run.output
-    );
-}
-
-#[test]
-fn refuses_a_named_workspace_that_is_not_there() {
-    // The shape of an id is checked by the path helper and the registry lives
-    // in SQLite, so without this a typo would make a tree no UI ever lists.
-    let mut home = Home::new();
-    home.preset(
-        "scribe",
-        &preset_for("scribe", &json!({"skills": ["code-review"]})),
-    );
-    home.with_sheet("code-review", None);
-
-    let run = home.install_with("scribe", false, Some("typo"));
-
-    assert_eq!(run.code, 1);
-    assert!(run.errors.contains("no typo workspace"), "{}", run.errors);
-}
-
-// list
-
-#[test]
-fn shows_the_installed_agents_and_the_presets_still_available() {
-    let home = Home::new();
-    home.preset("nano", &preset_for("nano", &json!({})));
-    home.preset("team-lead", &preset_for("team-lead", &json!({})));
-    home.install("nano");
 
     let run = home.list();
 
     assert_eq!(run.code, 0, "{}", run.errors);
-    assert!(run.output.contains("nano  [enabled]"), "{}", run.output);
-    assert!(run.output.contains("team-lead"), "{}", run.output);
-    // Installed, so it is no longer on offer.
-    let offered = run
-        .output
-        .lines()
-        .find(|line| line.starts_with("Presets not yet installed:"))
-        .unwrap_or_default();
-    assert!(!offered.contains("nano"), "{offered}");
-}
-
-#[test]
-fn lists_every_available_operator_preset() {
-    // One listing, because there is one kind of preset and one search.
-    let home = Home::new();
-    home.preset("scribe", &preset_for("scribe", &json!({})));
-    home.preset("researcher", &preset_for("researcher", &json!({})));
-
-    let run = home.list();
-
+    assert!(run.output.contains("scribe  [enabled]"), "{}", run.output);
+    assert!(run.output.contains("label      Scribe"), "{}", run.output);
     assert!(
-        run.output
-            .contains("Presets not yet installed: researcher, scribe"),
-        "{}",
-        run.output
-    );
-    // One command, not one per id, and it names the picker rather than this
-    // command — the one that installs an agent configuration.
-    assert!(
-        run.output.contains("ghostai preset install"),
+        run.output.contains("researcher  [disabled]"),
         "{}",
         run.output
     );
 }
 
 #[test]
-fn names_an_available_preset_once() {
+fn names_the_agents_one_agent_delegates_to() {
     let home = Home::new();
-    home.preset("nano", &preset_for("nano", &json!({})));
+    home.config(
+        "agents:\n  list:\n    lead:\n      subagents:\n        - id: scribe\n          \
+         permission: allow\n    scribe: {}\n",
+    );
 
     let run = home.list();
 
-    let mentions = run
-        .output
-        .lines()
-        .filter(|line| line.contains("nano"))
-        .count();
-    assert_eq!(mentions, 1, "{}", run.output);
+    assert!(run.output.contains("delegates  scribe"), "{}", run.output);
 }
 
 #[test]
-fn says_so_when_an_install_has_no_agents_of_its_own() {
-    let home = Home::new();
-
-    let run = home.list();
-
-    assert_eq!(run.code, 0, "{}", run.errors);
+fn lists_the_built_in_default_on_a_fresh_install() {
     // A fresh install always holds the built-in default, so the listing is
-    // never empty — what it must not do is offer nothing and say nothing.
-    assert!(run.output.contains("default"), "{}", run.output);
+    // never empty. What it must not do is print nothing at all.
+    let home = Home::new();
+
+    let run = home.list();
+
+    assert_eq!(run.code, 0, "{}", run.errors);
+    assert!(run.output.contains("default  [enabled]"), "{}", run.output);
 }

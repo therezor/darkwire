@@ -35,11 +35,11 @@ use std::sync::LazyLock;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use ghostai_core::messages::{ImageSource, image_part, text_part};
-use ghostai_core::workspace_files::{DEFAULT_MIME_TYPE, mime_type_for, read_text};
-use ghostai_protocol::{ChatMessage, ContentPart, FilePart};
-use ghostai_security::{JailCheck, WorkspaceJail};
-use ghostai_tools::format_bytes;
+use darkwire_core::messages::{ImageSource, image_part, text_part};
+use darkwire_core::workspace_files::{DEFAULT_MIME_TYPE, mime_type_for, read_text};
+use darkwire_protocol::{ChatMessage, ContentPart, FilePart};
+use darkwire_security::{JailCheck, WorkspaceJail};
+use darkwire_tools::format_bytes;
 use regex::Regex;
 
 /// The largest image sent inline, as base64.

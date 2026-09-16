@@ -37,12 +37,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 
-use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{
+use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{
     ToolAnnotations, ToolDefinition, ToolRisk, ToolSource, ToolsConfig, protocol_generator,
 };
-use ghostai_security::{WorkspaceJail, WrappedToolOutput};
+use darkwire_security::{WorkspaceJail, WrappedToolOutput};
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -323,8 +323,8 @@ impl From<ToolOutput> for ToolExecution {
     }
 }
 
-impl From<GhostError> for ToolExecution {
-    fn from(error: GhostError) -> ToolExecution {
+impl From<WireError> for ToolExecution {
+    fn from(error: WireError) -> ToolExecution {
         ToolExecution::error(error.kind, error.message).with_details(error.details)
     }
 }
@@ -365,7 +365,7 @@ pub type AnyTool = Arc<dyn Tool>;
 /// Returns the taxonomy's `aborted` once `token` has fired.
 pub fn assert_not_aborted(token: &CancellationToken, what: &str) -> Result<()> {
     if token.is_cancelled() {
-        return Err(GhostError::aborted(what));
+        return Err(WireError::aborted(what));
     }
     Ok(())
 }
@@ -460,8 +460,8 @@ impl<H: ToolHandler> std::fmt::Debug for TypedTool<H> {
     }
 }
 
-fn config_error(tool: &str, message: String) -> GhostError {
-    GhostError::new(ErrorKind::Config, message).with_detail("tool", tool)
+fn config_error(tool: &str, message: String) -> WireError {
+    WireError::new(ErrorKind::Config, message).with_detail("tool", tool)
 }
 
 /// The JSON Schema for `A`, as a parameter object.
@@ -473,7 +473,7 @@ pub fn parameters_for<A: JsonSchema>() -> Result<Object> {
     let mut generator = protocol_generator();
     let schema = generator.root_schema_for::<A>().to_value();
     let mut object: Object = serde_json::from_value(schema).map_err(|error| {
-        GhostError::new(ErrorKind::Config, "Argument schema is not an object").with_source(error)
+        WireError::new(ErrorKind::Config, "Argument schema is not an object").with_source(error)
     })?;
     object.shift_remove("$schema");
     object.shift_remove("title");
@@ -668,7 +668,7 @@ impl<H: ToolHandler> TypedTool<H> {
         })
     }
 
-    fn invalid(&self, issues: &[ArgIssue]) -> GhostError {
+    fn invalid(&self, issues: &[ArgIssue]) -> WireError {
         let detail = issues
             .iter()
             .map(|issue| {
@@ -684,7 +684,7 @@ impl<H: ToolHandler> TypedTool<H> {
             .iter()
             .map(|issue| serde_json::json!({ "path": issue.path, "message": issue.message }))
             .collect();
-        GhostError::new(
+        WireError::new(
             ErrorKind::InvalidInput,
             format!("Invalid arguments for {}: {detail}", self.definition.name),
         )

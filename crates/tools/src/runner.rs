@@ -8,7 +8,7 @@
 //! cannot walk out of, which is a different backend rather than a stricter
 //! guard.
 //!
-//! So the spawn is behind a seam. [`guard_exec`](ghostai_security::guard_exec)
+//! So the spawn is behind a seam. [`guard_exec`](darkwire_security::guard_exec)
 //! still decides **whether** a command may run and with what arguments and
 //! environment; a [`CommandRunner`] decides **where**, and
 //! [`ExecPlan`] is already the complete description of the job — file, args,
@@ -27,10 +27,10 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::EnvironmentNetwork;
+use darkwire_security::{ExecPlan, OutputCap};
 use futures::future::join;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::EnvironmentNetwork;
-use ghostai_security::{ExecPlan, OutputCap};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -139,7 +139,7 @@ pub struct PlacementRequest {
     /// What the agent asked its environment to reach. Part of an instance's
     /// identity: two agents wanting different egress never share one.
     pub network: EnvironmentNetwork,
-    /// GhostAI's view of the workspace root, where transcripts are written.
+    /// DarkWire's view of the workspace root, where transcripts are written.
     pub workspace_root: String,
 }
 
@@ -271,7 +271,7 @@ impl CommandRunner for LocalRunner {
                 .kill_on_drop(true)
                 .spawn()
                 .map_err(|error| {
-                    GhostError::new(
+                    WireError::new(
                         ErrorKind::Tool,
                         format!("Could not run {}: {error}", plan.file),
                     )
@@ -326,10 +326,10 @@ impl CommandRunner for LocalRunner {
             };
 
             if stopped == Some(Stop::Cancelled) {
-                return Err(GhostError::aborted("exec"));
+                return Err(WireError::aborted("exec"));
             }
             let status = status.map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Tool,
                     format!("Could not wait for {}: {error}", plan.file),
                 )

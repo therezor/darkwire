@@ -29,8 +29,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use ghostai_core::message_bus::IdSource;
-use ghostai_protocol::{
+use darkwire_core::message_bus::IdSource;
+use darkwire_protocol::{
     AssistantDelta, AssistantDeltaTag, Attachment, ClientMessage, Sequenced, ServerMessage,
     StopReason, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
@@ -538,9 +538,9 @@ async fn renders_an_error_rather_than_swallowing_it(options: &ChannelConformance
     running
         .hub
         .only()
-        .emit(ServerMessage::Error(ghostai_protocol::ErrorEvent {
-            tag: ghostai_protocol::ErrorTag,
-            code: ghostai_protocol::ErrorCode::ProviderError,
+        .emit(ServerMessage::Error(darkwire_protocol::ErrorEvent {
+            tag: darkwire_protocol::ErrorTag,
+            code: darkwire_protocol::ErrorCode::ProviderError,
             message: "the model is unreachable".to_owned(),
             retryable: true,
             turn_id: None,

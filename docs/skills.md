@@ -94,9 +94,6 @@ everybody is one that silently stopped working with nothing anywhere to find. An
 not a legal agent id is dropped with a warning naming it; if that leaves nothing, the whole
 line falls open.
 
-A sheet can also be scoped by an agent that installs it — see
-[Sheets a preset brings](#sheets-a-preset-brings).
-
 ## What reaches the prompt
 
 In the **static** half — the part a provider caches for the life of a session:
@@ -161,7 +158,7 @@ chance to disagree.
 ### Seeing what a workspace holds
 
 The catalogue is in the agent's prompt, not on your screen. `/skills` prints it — the name
-and description of every sheet the workspace holds — in `ghostai chat` and from the Telegram
+and description of every sheet the workspace holds — in `darkwire chat` and from the Telegram
 bot. It is a listing and nothing more; it is gated on the same `skill` permission, because
 a catalogue this agent cannot open is not worth printing.
 
@@ -194,7 +191,7 @@ because there is a real argument for the opposite: a directory _beside_ the work
 would be one prompt injection could not reach, and so could not use to rewrite what an
 agent believes.
 
-`crates/core/src/paths.rs` used to reserve `~/.ghostai/agents/<id>/` for exactly that.
+`crates/core/src/paths.rs` used to reserve `~/.darkwire/agents/<id>/` for exactly that.
 Nothing ever wrote to it. [Memory](memory.md) declined it, skills declined it, and
 per-agent skill scope declined it too — each on the same grounds, and each time because
 both are meant to be read, reviewed and committed beside the project they describe, and
@@ -249,50 +246,11 @@ cost the model cannot act on. Half a section whose own wording points at a tool 
 there is worse than no section, and an agent with no tools and a fixed instruction sheet is
 what `systemPrompt` is for.
 
-## Sheets a preset brings
-
-An agent preset may name sheets to copy in, as directory names under the catalogue's
-`skills/`:
-
-```json
-{ "schema": "ghostai.agent-preset/1", "id": "coder", "skills": ["code-review"] }
-```
-
-`ghostai preset install coder` then writes `<workspace>/skills/code-review/` and says so.
-`ghostai agent install` does the same when a catalogue is reachable; it never fetches one,
-so on a box that has not run `ghostai preset update` it reports the sheets as missing and
-installs the agent anyway.
-
-Four things about it, each of them a decision rather than an omission:
-
-- **It is a copy, not an install.** Byte for byte, with nothing rewritten and nothing
-  recorded. The sheet carries its own `agents:` line, so what an operator reads in the
-  catalogue is what lands in the workspace, and editing it afterwards is editing their own
-  file. If a sheet's `agents:` does not include the preset that brought it, the install
-  says so — that is legal, and usually a mistake.
-- **There is no hash.** A container definition carries one because its bytes decide a
-  boundary; a sheet is prose, and the preset's own `systemPrompt` — from the same
-  catalogue, over the same network — already sets the bar. Running the command at a
-  terminal is the operator action. See [Environments](environments.md).
-- **Nothing refuses.** A sheet that is missing, symlinked, or over the copier's bounds
-  costs that sheet and a line in the report. A missing _container_ refuses, because the
-  server would refuse to boot on an agent whose placement does not exist; an agent with
-  one fewer index line boots fine.
-- **A sheet already in the workspace is left alone** unless `--force` is passed, which is
-  the same rule the `agents.list` entry follows and for the same reason: it may carry your
-  edits. `--force` overwrites file by file rather than emptying the directory first, so
-  anything you added inside a sheet folder survives.
-
-Sheets live in a workspace and a preset does not, so `-W, --workspace-id <id>` says which
-one. It defaults to `default`, and a named workspace has to exist already — the id is
-validated for shape but the registry lives in SQLite, so without that check a typo would
-create a tree no UI ever lists.
-
 ## What is not built yet
 
 - **No settings panel for the skills themselves.** They are authored by writing files, and
   no screen is planned: a skill is a folder committed beside the project rather than
   configuration, so no settings screen lists one as coming.
-- **Nothing uninstalls a sheet.** A preset copies files in; removing the agent leaves them,
-  because after the copy they are ordinary workspace files that may have been edited. Delete
-  the folder.
+- **Nothing uninstalls a sheet.** Removing the agent that read one leaves the folder,
+  because a sheet is an ordinary workspace file that may have been edited. Delete it
+  yourself.

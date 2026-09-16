@@ -20,16 +20,16 @@
 //!  - **Resolution is where an unbuildable agent is refused.** Invalid
 //!    environment network policy fails during an all-or-nothing reconfigure.
 
-use ghostai_agent::SubagentBinding;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::rest::ConfigWarning;
-use ghostai_protocol::{
+use darkwire_agent::SubagentBinding;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::rest::ConfigWarning;
+use darkwire_protocol::{
     AgentEntry, AgentEnvironment, AgentSettings, Config, DEFAULT_AGENT_ID,
     DEFAULT_LIVE_STATE_TEMPLATE, NetworkMode, PromptMode, RESERVED_AGENT_IDS, ToolPermission,
     ToolPermissions, ToolPromptOverrides, ToolsConfig, default_agent_tools, is_agent_id,
     names_delimiter, subagent_tool_name,
 };
-use ghostai_security::assert_environment_network;
+use darkwire_security::assert_environment_network;
 use indexmap::IndexMap;
 
 /// One agent, resolved.
@@ -252,14 +252,14 @@ fn resolve_subagents(
 
     for reference in refs {
         if reference.id == id {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!("Agent \"{id}\" lists itself as a subagent."),
             )
             .with_detail("agentId", id));
         }
         if seen.contains(&reference.id.as_str()) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!(
                     "Agent \"{id}\" lists \"{}\" as a subagent twice.",
@@ -385,7 +385,7 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
 
     let network = &agent.environment.network;
     if agent.environment.name.is_empty() && network.mode != NetworkMode::None {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             format!(
                 "Agent \"{}\" asks for network \"{}\" but names no environment.\n  Egress scoping \
@@ -557,7 +557,7 @@ pub fn resolve_agent(config: &Config, id: Option<&str>) -> Result<EffectiveAgent
         } else {
             format!("Agent \"{agent_id}\" is disabled.")
         };
-        return Err(GhostError::new(ErrorKind::NotFound, message).with_detail("agentId", agent_id));
+        return Err(WireError::new(ErrorKind::NotFound, message).with_detail("agentId", agent_id));
     }
 
     // Nothing is listening for warnings here; a caller resolving one agent has
@@ -766,7 +766,7 @@ pub fn assert_writable_agent_ids(before: &Config, after: &Config) -> Result<()> 
         if is_agent_id(id) && !RESERVED_AGENT_IDS.contains(&id.as_str()) {
             continue;
         }
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             format!(
                 "\"{id}\" cannot be used as an agent id.\n  Ids are lower-case letters, digits \

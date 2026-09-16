@@ -30,8 +30,8 @@
 
 use std::collections::HashMap;
 
-use ghostai_core::message_bus::OutboundKind;
-use ghostai_protocol::{NestedAgentEvent, ServerMessage, StopReason, ToolRisk};
+use darkwire_core::message_bus::OutboundKind;
+use darkwire_protocol::{NestedAgentEvent, ServerMessage, StopReason, ToolRisk};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 

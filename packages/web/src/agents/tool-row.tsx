@@ -14,7 +14,7 @@ import type {
   ToolPermission,
   ToolPromptOverride,
   ToolRisk,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';

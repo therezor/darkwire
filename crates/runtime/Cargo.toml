@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-runtime"
+name = "darkwire-runtime"
 description = "The composition root: config in, a running agent out"
 version.workspace = true
 edition.workspace = true
@@ -12,15 +12,15 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ghostai-agent.workspace = true
-ghostai-core.workspace = true
-ghostai-extension-host.workspace = true
-ghostai-mcp.workspace = true
-ghostai-protocol.workspace = true
-ghostai-providers.workspace = true
-ghostai-security.workspace = true
-ghostai-tools.workspace = true
-ghostai-environment.workspace = true
+darkwire-agent.workspace = true
+darkwire-core.workspace = true
+darkwire-extension-host.workspace = true
+darkwire-mcp.workspace = true
+darkwire-protocol.workspace = true
+darkwire-providers.workspace = true
+darkwire-security.workspace = true
+darkwire-tools.workspace = true
+darkwire-environment.workspace = true
 futures.workspace = true
 gethostname.workspace = true
 indexmap.workspace = true
@@ -42,16 +42,16 @@ tracing.workspace = true
 # The composition root is the natural consumer of every layer's test doubles:
 # nothing below it has to spawn a subprocess, open a socket or touch a keychain
 # for these tests to be about wiring.
-ghostai-agent = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-extension-host = { workspace = true, features = ["testkit"] }
-ghostai-mcp = { workspace = true, features = ["testkit"] }
-ghostai-providers = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
-ghostai-tools = { workspace = true, features = ["testkit"] }
+darkwire-agent = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-extension-host = { workspace = true, features = ["testkit"] }
+darkwire-mcp = { workspace = true, features = ["testkit"] }
+darkwire-providers = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
 # The end-to-end channel test, deferred out of `crates/channels` because that
 # crate must not depend on the agent: a message through a real loop, store and
 # channel contract, proving a channel turn is the turn a browser gets.
-ghostai-channels = { workspace = true, features = ["testkit"] }
+darkwire-channels = { workspace = true, features = ["testkit"] }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true

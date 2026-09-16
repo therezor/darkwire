@@ -1,48 +1,47 @@
 # CLI
 
-**Who this is for:** anyone driving GhostAI from a terminal rather than a browser. It is
-the reference for `ghostai` — every command, every flag, and every slash command inside the
+**Who this is for:** anyone driving DarkWire from a terminal rather than a browser. It is
+the reference for `darkwire` — every command, every flag, and every slash command inside the
 chat prompt. If you are setting up for the first time, start with
 [Getting started](getting-started.md) and come back here.
 
-One binary, `ghostai`. The terminal and the browser are two views of one install, not two
-programs: they share a single `ghost.db`, so a session you start here is the row the
+One binary, `darkwire`. The terminal and the browser are two views of one install, not two
+programs: they share a single `darkwire.db`, so a session you start here is the row the
 browser sidebar lists, and a turn started from either goes through the same loop and the
 same approval gate.
 
 ## Commands
 
 ```
-ghost [chat] [message...]      talk to the agent — the default command
-ghostai init                     configure this install, in a wizard
-ghostai serve                    serve the web UI and the API on one port
-ghostai preset    list | install [ids...] | update
-ghostai agent     install <name-or-path> [--force] | list
-ghostai environment list
-ghostai sandbox   health | list | start | stop | restart
-ghostai extension list | approve <id> | revoke <id>
-ghostai help [command]
+darkwire [chat] [message...]      talk to the agent — the default command
+darkwire init                     configure this install, in a wizard
+darkwire serve                    serve the web UI and the API on one port
+darkwire agent     list
+darkwire environment list
+darkwire sandbox   health | list | start | stop | restart
+darkwire extension list | approve <id> | revoke <id>
+darkwire help [command]
 ```
 
-`chat` is the default, so `ghost "what changed today"` and `ghostai chat "what changed
+`chat` is the default, so `darkwire "what changed today"` and `darkwire chat "what changed
 today"` are the same command.
 
 ### Global flags
 
-| Flag                  | Does                                                               |
-| --------------------- | ------------------------------------------------------------------ |
-| `--home <dir>`        | The GhostAI root. Beats `$GHOSTAI_HOME`, which beats `~/.ghostai`. |
-| `--log-level <level>` | `trace`, `debug`, `info`, `warn`, `error` or `fatal`.              |
-| `--verbose`           | Report what the install is doing, not only the answer.             |
-| `--no-color`          | Disable colour. Rarely needed — see below.                         |
-| `-v`, `--version`     | Print the version.                                                 |
-| `-h`, `--help`        | Print help. `ghostai help <command>` does the same for one.        |
+| Flag                  | Does                                                                  |
+| --------------------- | --------------------------------------------------------------------- |
+| `--home <dir>`        | The DarkWire root. Beats `$DARKWIRE_HOME`, which beats `~/.darkwire`. |
+| `--log-level <level>` | `trace`, `debug`, `info`, `warn`, `error` or `fatal`.                 |
+| `--verbose`           | Report what the install is doing, not only the answer.                |
+| `--no-color`          | Disable colour. Rarely needed — see below.                            |
+| `-v`, `--version`     | Print the version.                                                    |
+| `-h`, `--help`        | Print help. `darkwire help <command>` does the same for one.          |
 
 The log level defaults to `error` — or `info` while serving, because a server that says
 nothing while it works reads as hung.
 
 Colour is detected rather than assumed: `NO_COLOR`, `FORCE_COLOR`, `TERM=dumb` and
-"stdout is a file rather than a terminal" are all honoured, so `ghostai chat > log`
+"stdout is a file rather than a terminal" are all honoured, so `darkwire chat > log`
 writes prose and not escape codes. `--no-color` is the override for the case detection
 gets wrong.
 
@@ -51,14 +50,14 @@ than the faint attribute. Faint is optional in ECMA-48, and the Linux console an
 are two of the terminals that do colour perfectly well without implementing it; on those
 every one of those rows drew at the weight of ordinary prose.
 
-## `ghostai chat`
+## `darkwire chat`
 
 Three shapes, decided by how you call it:
 
 ```bash
-ghostai chat                            # a prompt, with slash commands and Tab completion
-ghostai chat "summarise notes.md"       # one turn, then exit
-git log --oneline -20 | ghostai chat "what changed"   # a pipe target
+darkwire chat                            # a prompt, with slash commands and Tab completion
+darkwire chat "summarise notes.md"       # one turn, then exit
+git log --oneline -20 | darkwire chat "what changed"   # a pipe target
 ```
 
 | Flag                      | Does                                                     |
@@ -203,7 +202,7 @@ An extension can add commands of its own; they appear in this list and in `/help
 the same table, so one cannot exist in the completer and not the listing. See
 [Extensions](extensions.md).
 
-## `ghostai init`
+## `darkwire init`
 
 The terminal half of the first-run wizard: language, workspace, provider, model. The
 provider step lists models from the endpoint itself, so on a machine running
@@ -213,18 +212,18 @@ It **needs a real terminal** and refuses a pipe rather than reading EOF as an an
 it writes nothing until every question has been answered — a wizard abandoned halfway
 leaves the install exactly as it was.
 
-## `ghostai serve`
+## `darkwire serve`
 
 Serves the UI, the REST API and the WebSocket on one port.
 
-| Flag                    | Does                                                           |
-| ----------------------- | -------------------------------------------------------------- |
-| `-H, --host <host>`     | Bind address, overriding the configured default.               |
-| `-P, --port <port>`     | Port, overriding the configured default.                       |
-| `-w, --workspace <dir>` | Workspace root, overriding the configured default.             |
-| `--password <password>` | Set or rotate the login password. Or `GHOSTAI_PASSWORD`.       |
-| `--username <username>` | The login name, alongside `--password`. Or `GHOSTAI_USERNAME`. |
-| `--ui <dir>`            | A built UI to serve instead of the bundled one.                |
+| Flag                    | Does                                                            |
+| ----------------------- | --------------------------------------------------------------- |
+| `-H, --host <host>`     | Bind address, overriding the configured default.                |
+| `-P, --port <port>`     | Port, overriding the configured default.                        |
+| `-w, --workspace <dir>` | Workspace root, overriding the configured default.              |
+| `--password <password>` | Set or rotate the login password. Or `DARKWIRE_PASSWORD`.       |
+| `--username <username>` | The login name, alongside `--password`. Or `DARKWIRE_USERNAME`. |
+| `--ui <dir>`            | A built UI to serve instead of the bundled one.                 |
 
 It starts with nothing configured and prints a one-time setup code. Two refusals are
 worth knowing before you meet them:
@@ -234,123 +233,31 @@ worth knowing before you meet them:
 - **`--ui <dir>` must contain an `index.html`.** A directory that does not is an error at
   startup rather than a blank page later.
 
-If `@ghostwire/web` has not been built, `serve` says so and runs the API alone rather than
+If `@darkwire/web` has not been built, `serve` says so and runs the API alone rather than
 serving nothing at a URL it just printed.
 
-## `ghostai preset`
+## `darkwire agent`
 
-Picks agents out of the catalogue, and builds the environments those particular agents
-need. This is the command that puts a working team on a fresh machine:
-
-```bash
-ghostai preset install                  # pick from a list
-ghostai preset install coder nano       # or name them, for a script
-ghostai preset list                     # what is on offer, and what is installed
-ghostai preset update                   # fetch the catalogue again
-```
-
-The catalogue is `@ghostwire/presets`, published from the
-[`GhostAI-presets`](https://github.com/therezor/GhostAI-presets) repository and versioned
-on its own cadence. It is **fetched on demand** into `~/.ghostai/catalogue` — an npm
-prefix, so the package itself lands at
-`~/.ghostai/catalogue/node_modules/@ghostwire/catalogue`. Nothing is fetched at turn time
-and nothing is fetched twice: a copy already there is used until `--refresh` says
-otherwise.
-
-| Flag           | Does                                                             |
-| -------------- | ---------------------------------------------------------------- |
-| `--from <dir>` | Read a checkout of the presets repo instead. Never fetched over. |
-| `--refresh`    | Fetch again before reading, even when a copy is here.            |
-| `--offline`    | Never fetch. Fails rather than reaching a registry.              |
-| `--force`      | Overwrite agents of the same id, which may carry your edits.     |
-
-`install` also takes `-W, --workspace-id <id>`, which says where a preset's skill sheets
-are copied. It defaults to `default`, and a named workspace has to exist already. Note
-that it is `--workspace-id`, not `--workspace`: on `chat` and `serve` that name already
-means a _directory_.
-
-**Installing an agent may also write skill sheets.** A preset can name sheets in the
-catalogue's `skills/`, and they are copied into the workspace's — the report lists what it
-wrote, what it left alone because you may have edited it, and anything a preset named that
-this catalogue does not carry. Nothing there refuses: a missing sheet costs one index line
-in that agent's prompt. See [Skills](skills.md#sheets-a-preset-brings).
-
-A preset may optionally select an environment. Several agents may select the same shared
-environment definition.
-
-**A definition that is already installed and usable is left alone.** Rebuilding its image
-would change the image id, and so the definition's digest, restarting every warm container
-of it for nothing. `--force` is how you ask for the rebuild anyway.
-
-`--from` is what a preset author uses:
+Lists the agents this install is configured with, straight out of `config.yaml`:
 
 ```bash
-git clone https://github.com/therezor/GhostAI-presets
-ghostai preset install --from ./GhostAI-presets
+darkwire agent list
 ```
 
-It is never fetched over. Pointing it at a typo fails rather than quietly using the
-registry copy, because a preset installed from somewhere other than where you edited it
-is a preset you have not tested.
+Each row is the agent id and whether it is enabled, with its label and its delegation
+roster under it. It is read-only on purpose. An agent is a system prompt, a set of tool
+permissions, an optional environment and a roster of agents it may delegate to, and the
+form that validates all of that is the **Agents** tab in the web UI. A flag list would be
+a second, thinner way to write the same thing wrong.
 
-## `ghostai agent`
-
-Installs one agent preset by id or by path — the single-shot `ghostai preset install` is
-built on, and what a script wants when it knows the name. It never touches Docker and
-never fetches: use `ghostai preset install` when the agent needs an environment that is not
-built yet.
-
-A preset is a YAML file holding a system prompt, tool permissions, an optional environment
-reference, and a delegation roster. Installing it writes one entry in
-`agents.list`:
-
-```bash
-ghostai agent list                      # configured agents, and presets not yet installed
-ghostai agent install researcher        # a catalogue preset, by its id
-ghostai agent install ./my-agent.yaml   # a preset you wrote, by path
-ghostai agent install nano --force      # overwrite an existing agent of the same id
-ghostai agent install coder -W acme     # put its skill sheets in the acme workspace
-```
-
-It copies a preset's skill sheets too, when a catalogue is already on the machine. It
-never fetches one, so on a box that has not run `ghostai preset update` every sheet a
-preset names is reported as missing and the agent installs regardless.
-
-**There is one kind of preset.** A preset is `<id>.yaml` — the filename is the agent id
-whether or not the agent works in an environment. One that does sets `environment.name`.
-So there is one lookup, and the argument is either a path or an id
-searched in two directories:
-
-| Searched                       | Holds                                              |
-| ------------------------------ | -------------------------------------------------- |
-| `~/.ghostai/presets/<id>.yaml` | Yours. Drop a file in; that is the install.        |
-| `<catalogue>/agents/<id>.yaml` | The catalogue's, once `ghostai preset` fetched it. |
-
-Yours first, so a local preset wins over a catalogue one of the same name. Nothing is
-fetched _here_: both are files already on the box by the time this command runs, and a
-machine with no catalogue installs only your own presets rather than failing.
-
-Installing is a config merge and nothing more: afterwards the agent is ordinary config,
-edited in the web UI like any other. Three rules do the real work:
-
-- A preset naming an environment that is not installed is **refused**, with the
-  command that fixes it — the server would refuse to boot on the result.
-- An id that already exists is **refused without `--force`**, because the existing entry
-  may carry your own edits.
-- A preset's `subagents` roster is **filtered to the agents installed and enabled at
-  that moment**. Install `team-lead` last — or re-run it with `--force` after adding
-  specialists — and its delegation roster matches what can actually answer.
-
-A preset deliberately cannot name a model or provider. See [Environments](environments.md).
-
-## `ghostai environment` and `ghostai extension`
+## `darkwire environment` and `darkwire extension`
 
 Environment definitions are read-only from the CLI. Authoring one is a form with a dozen
 fields and five of them decide what a container may do, which is a screen rather than a
 flag list; the **Environments** tab in Settings is where that lives.
 
 ```bash
-ghostai environment list        # every installed environment definition and its hardening
+darkwire environment list        # every installed environment definition and its hardening
 ```
 
 Each entry still carries a digest, and it is identity rather than consent. Two environment
@@ -367,11 +274,11 @@ See [Environments](environments.md) and [Extensions](extensions.md).
 Environment instances are managed through the isolated service:
 
 ```bash
-ghostai sandbox health
-ghostai sandbox list
-ghostai sandbox start --environment <id> --workspace <id>
-ghostai sandbox stop <instance>
-ghostai sandbox restart <instance>
+darkwire sandbox health
+darkwire sandbox list
+darkwire sandbox start --environment <id> --workspace <id>
+darkwire sandbox stop <instance>
+darkwire sandbox restart <instance>
 ```
 
 `--socket` overrides the service socket. Stop and restart never refuse a busy instance:
@@ -380,19 +287,19 @@ one. See [Sandbox service](sandbox-service.md).
 
 ## Environment
 
-| Variable                   | Does                                                                     |
-| -------------------------- | ------------------------------------------------------------------------ |
-| `GHOSTAI_HOME`             | The root. Beaten by `--home`, beats `~/.ghostai`.                        |
-| `GHOSTAI_PASSWORD`         | Fallback for `serve --password`.                                         |
-| `GHOSTAI_USERNAME`         | Fallback for `serve --username`.                                         |
-| `GHOSTAI_LANG`             | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.        |
-| `GHOSTAI_LOG_LEVEL`        | Then `LOG_LEVEL`, then `info`.                                           |
-| `GHOSTAI_DEBUG`            | Any non-empty value prints stack traces instead of the sentence.         |
-| `GHOSTAI_SANDBOX_SOCKET`   | The sandbox service socket. Naming one stops `serve` starting its own.   |
-| `GHOSTAI_DATA_DIR`         | `ghostai-environment serve-env`: the absolute host path the daemon sees. |
-| `GHOSTAI_CONTAINER_ENGINE` | `docker` or `podman`. Defaults to `docker`.                              |
-| `GHOSTAI_GATEWAY_IMAGE`    | The egress gateway image, needed for `allowlist` egress.                 |
-| `GHOSTAI_ENVIRONMENTS`     | `serve-env`: environments to register. Defaults to `dev`.                |
+| Variable                    | Does                                                                      |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `DARKWIRE_HOME`             | The root. Beaten by `--home`, beats `~/.darkwire`.                        |
+| `DARKWIRE_PASSWORD`         | Fallback for `serve --password`.                                          |
+| `DARKWIRE_USERNAME`         | Fallback for `serve --username`.                                          |
+| `DARKWIRE_LANG`             | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.         |
+| `DARKWIRE_LOG_LEVEL`        | Then `LOG_LEVEL`, then `info`.                                            |
+| `DARKWIRE_DEBUG`            | Any non-empty value prints stack traces instead of the sentence.          |
+| `DARKWIRE_SANDBOX_SOCKET`   | The sandbox service socket. Naming one stops `serve` starting its own.    |
+| `DARKWIRE_DATA_DIR`         | `darkwire-environment serve-env`: the absolute host path the daemon sees. |
+| `DARKWIRE_CONTAINER_ENGINE` | `docker` or `podman`. Defaults to `docker`.                               |
+| `DARKWIRE_GATEWAY_IMAGE`    | The egress gateway image, needed for `allowlist` egress.                  |
+| `DARKWIRE_ENVIRONMENTS`     | `serve-env`: environments to register. Defaults to `dev`.                 |
 
 Provider API keys are read from the environment **only when the vault has no entry** for
 that instance — the vault wins. [Configuration](configuration.md#environment-variables)
@@ -400,6 +307,6 @@ has the full list and [Providers](providers.md) explains the precedence.
 
 ## Exit codes
 
-`ghostai` sets `process.exitCode` and returns rather than calling `process.exit`, so a
+`darkwire` sets `process.exitCode` and returns rather than calling `process.exit`, so a
 piped answer is never truncated by the process leaving before its output has flushed.
 `--help` and `--version` are successful exits.

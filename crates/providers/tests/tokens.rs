@@ -6,7 +6,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_providers::estimate_tokens;
+use darkwire_providers::estimate_tokens;
 
 #[test]
 fn is_proportional_to_length_and_never_fractional() {

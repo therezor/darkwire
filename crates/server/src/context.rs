@@ -14,10 +14,10 @@
 //! through `requested_agent_id` so a reader can be told what they are looking
 //! at rather than quietly shown something else.
 
-use ghostai_agent::{MeasureContext, PromptPreviewInput, measure_context};
-use ghostai_core::{Result, to_stored_message};
-use ghostai_protocol::messages::{ChatMessage, StoredMessage};
-use ghostai_protocol::rest::ContextResponse;
+use darkwire_agent::{MeasureContext, PromptPreviewInput, measure_context};
+use darkwire_core::{Result, to_stored_message};
+use darkwire_protocol::messages::{ChatMessage, StoredMessage};
+use darkwire_protocol::rest::ContextResponse;
 
 use crate::runtime::ServerRuntime;
 
@@ -57,7 +57,7 @@ pub async fn build_context_response(
         })
         .await?;
 
-    // The measurement itself lives in `ghostai-agent`, so every surface reports
+    // The measurement itself lives in `darkwire-agent`, so every surface reports
     // the same numbers from the same code rather than a second implementation
     // of the windowing rules.
     let report = measure_context(&MeasureContext {

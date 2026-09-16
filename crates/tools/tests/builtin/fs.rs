@@ -11,9 +11,9 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 
-use ghostai_core::ErrorKind;
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_core::ErrorKind;
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     AnyTool, ToolContext, ToolExecution, edit_file_tool, list_dir_tool, read_file_tool,
     write_file_tool,
 };

@@ -1,4 +1,4 @@
-//! The `ghostai/` methods: what the host asks an extension, and the three
+//! The `darkwire/` methods: what the host asks an extension, and the three
 //! things an extension may say back.
 //!
 //! MCP supplies tools and nothing else, so everything past `tools/*` is
@@ -7,19 +7,19 @@
 //! an extension may ask the host for **one**.
 //!
 //! ```text
-//! host  → ext   ghostai/context/static   {agentId}            → {sections}
-//! host  → ext   ghostai/context/runtime  {agentId, sessionKey} → {sections}
-//! host  → ext   ghostai/commands/list    {}                    → {commands}
-//! host  → ext   ghostai/commands/run     {id, args, sessionKey} → {message, ok}
-//! host  → ext   ghostai/channels/list    {}                    → {channels}
-//! host  → ext   ghostai/channels/start   {channelId, settings} → {}
-//! host  → ext   ghostai/channels/send    {channelId, message}  → {}
-//! ext   → host  ghostai/secret           {}                    → {value?}
-//! ext  ~> host  ghostai/channels/publish {channelId, ...}      (notification)
-//! ext  ~> host  ghostai/channels/control {channelId, frame}    (notification)
+//! host  → ext   darkwire/context/static   {agentId}            → {sections}
+//! host  → ext   darkwire/context/runtime  {agentId, sessionKey} → {sections}
+//! host  → ext   darkwire/commands/list    {}                    → {commands}
+//! host  → ext   darkwire/commands/run     {id, args, sessionKey} → {message, ok}
+//! host  → ext   darkwire/channels/list    {}                    → {channels}
+//! host  → ext   darkwire/channels/start   {channelId, settings} → {}
+//! host  → ext   darkwire/channels/send    {channelId, message}  → {}
+//! ext   → host  darkwire/secret           {}                    → {value?}
+//! ext  ~> host  darkwire/channels/publish {channelId, ...}      (notification)
+//! ext  ~> host  darkwire/channels/control {channelId, frame}    (notification)
 //! ```
 //!
-//! `ghostai/secret` is the only ext→host *request*, and it takes no arguments
+//! `darkwire/secret` is the only ext→host *request*, and it takes no arguments
 //! on purpose: an extension asks for "my secret", never for a namespace and a
 //! key, so there is no shape of that call that reads another extension's
 //! credential. The two notifications are the inbound half of a channel, and
@@ -29,7 +29,7 @@
 //!
 //! Two sharp edges are worth stating where a reader will meet them:
 //!
-//!  - **`ghostai/channels/list` is not in the original design and had to be.**
+//!  - **`darkwire/channels/list` is not in the original design and had to be.**
 //!    A channel is registered as a *factory* keyed by id, and the manager builds
 //!    it before anything starts — so the host has to know the ids before the
 //!    first `start`. `contributes: ["channels"]` says that there are channels,
@@ -45,14 +45,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
-use ghostai_agent::{ContextContributor, RuntimePromptContext, StaticPromptContext};
-use ghostai_channels::{
+use darkwire_agent::{ContextContributor, RuntimePromptContext, StaticPromptContext};
+use darkwire_channels::{
     Channel, ChannelContext, ChannelControl, ChannelControlFrame, ChannelFactory, ChannelInbound,
 };
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage};
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ClientMessage, ContentPart};
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ClientMessage, ContentPart};
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -61,25 +61,25 @@ use tokio_util::sync::CancellationToken;
 use crate::rpc::{RpcClient, RpcError, RpcFailure, RpcHandler};
 
 /// The once-per-session prompt section.
-pub const CONTEXT_STATIC: &str = "ghostai/context/static";
+pub const CONTEXT_STATIC: &str = "darkwire/context/static";
 /// The per-turn prompt section.
-pub const CONTEXT_RUNTIME: &str = "ghostai/context/runtime";
+pub const CONTEXT_RUNTIME: &str = "darkwire/context/runtime";
 /// The commands an extension serves.
-pub const COMMANDS_LIST: &str = "ghostai/commands/list";
+pub const COMMANDS_LIST: &str = "darkwire/commands/list";
 /// Running one of them.
-pub const COMMANDS_RUN: &str = "ghostai/commands/run";
+pub const COMMANDS_RUN: &str = "darkwire/commands/run";
 /// The channels an extension serves.
-pub const CHANNELS_LIST: &str = "ghostai/channels/list";
+pub const CHANNELS_LIST: &str = "darkwire/channels/list";
 /// Connecting one.
-pub const CHANNELS_START: &str = "ghostai/channels/start";
+pub const CHANNELS_START: &str = "darkwire/channels/start";
 /// Rendering one outbound message on it.
-pub const CHANNELS_SEND: &str = "ghostai/channels/send";
+pub const CHANNELS_SEND: &str = "darkwire/channels/send";
 /// An inbound message, ext→host.
-pub const CHANNELS_PUBLISH: &str = "ghostai/channels/publish";
+pub const CHANNELS_PUBLISH: &str = "darkwire/channels/publish";
 /// A control frame, ext→host.
-pub const CHANNELS_CONTROL: &str = "ghostai/channels/control";
+pub const CHANNELS_CONTROL: &str = "darkwire/channels/control";
 /// This extension's own vault secret, ext→host.
-pub const SECRET: &str = "ghostai/secret";
+pub const SECRET: &str = "darkwire/secret";
 /// MCP's own log notification, which becomes a `tracing` line.
 pub const LOG_MESSAGE: &str = "notifications/message";
 
@@ -149,7 +149,7 @@ pub struct CommandEntry {
     pub args_hint: String,
 }
 
-/// What `ghostai/commands/list` answers.
+/// What `darkwire/commands/list` answers.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CommandList {
     /// In the order the extension declared them.
@@ -157,7 +157,7 @@ pub struct CommandList {
     pub commands: Vec<CommandEntry>,
 }
 
-/// What `ghostai/commands/run` answers.
+/// What `darkwire/commands/run` answers.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CommandOutcome {
     /// Shown verbatim. Not a resource key: its copy ships with the extension
@@ -189,7 +189,7 @@ pub struct ChannelEntry {
     pub id: String,
 }
 
-/// What `ghostai/channels/list` answers.
+/// What `darkwire/channels/list` answers.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ChannelList {
     /// In the order the extension declared them.
@@ -299,7 +299,7 @@ fn kind_tag(kind: OutboundKind) -> &'static str {
 ///
 /// The host closes over the credential store and hands one of these per
 /// extension, already bound to that extension's id — which is what makes
-/// `ghostai/secret` unable to name anyone else's.
+/// `darkwire/secret` unable to name anyone else's.
 pub type SecretFn = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 /// The host side of one extension's connection.
@@ -663,7 +663,7 @@ impl Channel for ExtensionChannel {
         &self.id
     }
 
-    fn start(&self) -> ghostai_channels::BoxFuture<'_, Result<()>> {
+    fn start(&self) -> darkwire_channels::BoxFuture<'_, Result<()>> {
         Box::pin(async move {
             self.client
                 .request(
@@ -673,12 +673,12 @@ impl Channel for ExtensionChannel {
                 .await
                 .map(|_| ())
                 .map_err(|failure| {
-                    GhostError::from(failure).with_detail("channel", self.id.as_str())
+                    WireError::from(failure).with_detail("channel", self.id.as_str())
                 })
         })
     }
 
-    fn send(&self, message: OutboundMessage) -> ghostai_channels::BoxFuture<'_, Result<()>> {
+    fn send(&self, message: OutboundMessage) -> darkwire_channels::BoxFuture<'_, Result<()>> {
         Box::pin(async move {
             let wire = OutboundOnWire {
                 id: &message.id,
@@ -695,7 +695,7 @@ impl Channel for ExtensionChannel {
                 .await
                 .map(|_| ())
                 .map_err(|failure| {
-                    GhostError::from(failure).with_detail("channel", self.id.as_str())
+                    WireError::from(failure).with_detail("channel", self.id.as_str())
                 })
         })
     }
@@ -704,7 +704,7 @@ impl Channel for ExtensionChannel {
 /// A factory for one of an extension's channels.
 ///
 /// The context the manager hands over is bound into [`HostMethods`] as the
-/// channel is built, which is what lets an inbound `ghostai/channels/publish`
+/// channel is built, which is what lets an inbound `darkwire/channels/publish`
 /// find the bus. It is bound at *build* time rather than at start time because
 /// an extension may publish the moment it is started.
 pub fn channel_factory(id: &str, client: Arc<RpcClient>, host: Arc<HostMethods>) -> ChannelFactory {
@@ -727,7 +727,6 @@ pub fn channel_factory(id: &str, client: Arc<RpcClient>, host: Arc<HostMethods>)
 }
 
 /// The error a caller gets when no extension serves the command they named.
-pub fn no_such_command(id: &str) -> GhostError {
-    GhostError::new(ErrorKind::NotFound, format!("No command called \"{id}\""))
-        .with_detail("id", id)
+pub fn no_such_command(id: &str) -> WireError {
+    WireError::new(ErrorKind::NotFound, format!("No command called \"{id}\"")).with_detail("id", id)
 }

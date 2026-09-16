@@ -6,13 +6,13 @@
  * factory, and the key type that lets a package name a string without depending
  * on i18next to resolve it.
  *
- * `@ghostwire/i18n/web` is the browser's entry point, and it exists so the UI
+ * `@darkwire/i18n/web` is the browser's entry point, and it exists so the UI
  * never ships the terminal's strings. There is no matching `/cli` entry: the
  * terminal is Rust, and `crates/i18n` embeds `locales/en/cli.json` with
  * `include_str!` and generates a typed constant per key from the same file. The
  * `cli` bundle is still exported through `./locales/*`, which is what both sides
  * read, and still typed here — `CustomTypeOptions` declares both namespaces, so
- * a `GhostError` naming a CLI key is still checked against the bundle.
+ * a `WireError` naming a CLI key is still checked against the bundle.
  */
 
 // Side-effect import: the `CustomTypeOptions` augmentation that types `t()`.

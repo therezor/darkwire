@@ -9,11 +9,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_channels::channel::BoxFuture;
-use ghostai_channels::telegram::api::HttpClient;
-use ghostai_channels::telegram::channel::{TelegramChannelOptions, telegram_channel};
-use ghostai_channels::telegram::console::TelegramConsole;
-use ghostai_channels::testkit::{
+use darkwire_channels::channel::BoxFuture;
+use darkwire_channels::telegram::api::HttpClient;
+use darkwire_channels::telegram::channel::{TelegramChannelOptions, telegram_channel};
+use darkwire_channels::telegram::console::TelegramConsole;
+use darkwire_channels::testkit::{
     ChannelConformanceOptions, ChannelProbe, ChannelUnderTest, channel_conformance,
 };
 use serde_json::{Map, Value, json};

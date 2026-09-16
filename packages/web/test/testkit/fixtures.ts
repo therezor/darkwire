@@ -19,7 +19,7 @@
  * compile error in one place instead of silence in six.
  */
 
-import type { AgentListResponse, StatusResponse } from '@ghostwire/protocol';
+import type { AgentListResponse, StatusResponse } from '@darkwire/protocol';
 
 /** A configured install. Spread it to vary one field: `{ ...STATUS, configured: false }`. */
 export const STATUS = {

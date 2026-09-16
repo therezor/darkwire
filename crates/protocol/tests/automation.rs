@@ -7,9 +7,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
+use darkwire_protocol::environment::{ContainerLimits, EnvironmentDefinition};
+use darkwire_protocol::{AutomationJob, AutomationPayload, AutomationSchedule, RunStatus};
 use garde::Validate;
-use ghostai_protocol::environment::{ContainerLimits, EnvironmentDefinition};
-use ghostai_protocol::{AutomationJob, AutomationPayload, AutomationSchedule, RunStatus};
 use serde_json::json;
 
 #[test]
@@ -73,7 +73,7 @@ fn a_job_fills_in_state_and_flags() {
 #[test]
 fn a_container_manifest_coerces_its_limits() {
     let container: EnvironmentDefinition = serde_json::from_value(json!({
-        "schema": "ghostai.environment/1", "name": "dev", "image": "img@sha256:abc",
+        "schema": "darkwire.environment/1", "name": "dev", "image": "img@sha256:abc",
         "limits": {"memoryMb": "4096", "cpus": "1.5"},
     }))
     .unwrap();
@@ -88,7 +88,7 @@ fn a_container_manifest_coerces_its_limits() {
     assert!(container.validate().is_ok());
     assert!(
         serde_json::from_value::<EnvironmentDefinition>(
-            json!({"schema": "ghostai.container/2", "name": "x", "image": "i"})
+            json!({"schema": "darkwire.container/2", "name": "x", "image": "i"})
         )
         .is_err()
     );

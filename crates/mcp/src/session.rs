@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
+use darkwire_core::{Result, WireError};
+use darkwire_protocol::ToolAnnotations;
+use darkwire_protocol::json::Object;
 use futures::future::BoxFuture;
-use ghostai_core::{GhostError, Result};
-use ghostai_protocol::ToolAnnotations;
-use ghostai_protocol::json::Object;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -134,7 +134,7 @@ pub enum McpSessionEvent {
     ToolListChanged,
     /// The transport went away — a crash, a network drop. Never fired for a
     /// `close()` the session was asked for.
-    Closed(Option<Arc<GhostError>>),
+    Closed(Option<Arc<WireError>>),
 }
 
 /// A live MCP server, as far as this crate is concerned.

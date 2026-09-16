@@ -5,7 +5,7 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
+use darkwire_core::{ErrorKind, Result, WireError};
 
 use crate::fetch::DnsResolver;
 use crate::random::RandomSource;
@@ -75,7 +75,7 @@ impl DnsResolver for StaticResolver {
         let answer = self.answers.get(host).cloned();
         Box::pin(async move {
             answer.ok_or_else(|| {
-                GhostError::new(ErrorKind::Network, format!("No static answer for {host}"))
+                WireError::new(ErrorKind::Network, format!("No static answer for {host}"))
             })
         })
     }

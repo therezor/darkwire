@@ -24,7 +24,7 @@ import {
   type ContainerRuntime,
   type EnvironmentDefinition,
   type EnvironmentSummary,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 /**
  * Derived rather than imported.
@@ -99,7 +99,7 @@ export function parseLines(value: string): string[] {
  */
 export function emptyEnvironmentForm(): EnvironmentForm {
   const defaults = EnvironmentDefinitionSchema.parse({
-    schema: 'ghostai.environment/1',
+    schema: 'darkwire.environment/1',
     name: 'placeholder',
     image: 'placeholder',
   });
@@ -192,7 +192,7 @@ export function toEnvironmentDefinition(
   return {
     ok: true,
     definition: {
-      schema: 'ghostai.environment/1',
+      schema: 'darkwire.environment/1',
       kind: 'container',
       name: form.name,
       image: form.image.trim(),

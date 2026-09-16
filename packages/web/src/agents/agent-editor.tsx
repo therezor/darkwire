@@ -59,7 +59,7 @@ import {
   type ToolPermission,
   type ToolPromptOverride,
   namesDelimiter,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { NoticeBlock } from '@/components/ui/notice.js';
@@ -589,7 +589,7 @@ function Editor({
    *
    * Same kind of thing as an action tool — a call the model makes during a turn
    * — but from somewhere else, and that difference is what an operator is
-   * reading for. Built-ins are this build's and change when GhostAI is upgraded;
+   * reading for. Built-ins are this build's and change when DarkWire is upgraded;
    * these arrive and leave with a server the operator configured, and one of
    * them going missing means "the server is down", not "the tool was removed".
    * Alphabetical order put `mcp_github_search_issues` between `list_dir` and

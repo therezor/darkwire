@@ -33,7 +33,7 @@ import { Folder, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { WorkspaceSummary } from '@ghostwire/protocol';
+import type { WorkspaceSummary } from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';

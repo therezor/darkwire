@@ -26,9 +26,9 @@
 
 use std::sync::Arc;
 
-use ghostai_agent::AgentLoop;
-use ghostai_core::Result;
-use ghostai_protocol::DEFAULT_AGENT_ID;
+use darkwire_agent::AgentLoop;
+use darkwire_core::Result;
+use darkwire_protocol::DEFAULT_AGENT_ID;
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 

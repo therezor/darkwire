@@ -29,7 +29,7 @@ import {
   type ExtensionCommand,
   type ModelInfo,
   type ReasoningEffort,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import type { WebKey } from '@/i18n/keys.js';
 

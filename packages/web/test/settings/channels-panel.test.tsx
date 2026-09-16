@@ -22,7 +22,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { ConfigSchema, type ChannelStatus } from '@ghostwire/protocol';
+import { ConfigSchema, type ChannelStatus } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';

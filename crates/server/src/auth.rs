@@ -17,8 +17,8 @@ use axum::http::{Extensions, HeaderMap, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use ghostai_core::Clock;
-use ghostai_protocol::config::{Config, is_loopback_host};
+use darkwire_core::Clock;
+use darkwire_protocol::config::{Config, is_loopback_host};
 
 use crate::auth_store::{AuthSession, AuthStore};
 use crate::errors::HttpError;
@@ -26,7 +26,7 @@ use crate::routes::AppState;
 use crate::signing::{MEDIA_SECRET_NAME, MediaClaim, verify_media_token};
 
 /// The cookie a browser session travels in.
-pub const SESSION_COOKIE: &str = "ghost_session";
+pub const SESSION_COOKIE: &str = "darkwire_session";
 
 /// The scheme, matched case-insensitively as the HTTP specification requires.
 const BEARER_PREFIX: &str = "bearer ";
@@ -40,7 +40,7 @@ const BEARER_PREFIX: &str = "bearer ";
 pub enum Credential {
     /// An `Authorization: Bearer` token. Wins over a cookie.
     Bearer(String),
-    /// The `ghost_session` cookie.
+    /// The `darkwire_session` cookie.
     Cookie(String),
 }
 

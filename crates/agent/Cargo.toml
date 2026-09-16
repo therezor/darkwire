@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-agent"
+name = "darkwire-agent"
 description = "The agent loop, dispatch, prompt assembly, steering, subagents, context measurement"
 version.workspace = true
 edition.workspace = true
@@ -17,11 +17,11 @@ workspace = true
 testkit = []
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-providers.workspace = true
-ghostai-security.workspace = true
-ghostai-tools.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-providers.workspace = true
+darkwire-security.workspace = true
+darkwire-tools.workspace = true
 base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
@@ -39,10 +39,10 @@ tracing.workspace = true
 [dev-dependencies]
 # The crate's own test doubles, and the testkits of the layers below, reach the
 # tests through features the coverage gate does not otherwise turn on.
-ghostai-agent = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-providers = { workspace = true, features = ["testkit"] }
-ghostai-tools = { workspace = true, features = ["testkit"] }
+darkwire-agent = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-providers = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
 # `start_paused` for the heartbeat, wall-cap and delegation-cap tests: nothing
 # sleeps for real, and the harness's clock reads the same timer.
 tokio = { workspace = true, features = ["test-util"] }

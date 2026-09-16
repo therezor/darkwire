@@ -15,7 +15,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use ghostai_protocol::rest::McpStatusResponse;
+use darkwire_protocol::rest::McpStatusResponse;
 
 use crate::errors::HttpError;
 use crate::routes::AppState;

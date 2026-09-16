@@ -34,9 +34,9 @@
 
 use std::collections::BTreeSet;
 
-use ghostai_core::config::validation_issues;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::Config;
+use darkwire_core::config::validation_issues;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::Config;
 use serde_json::{Map, Value};
 
 /// Dotted paths whose object value is replaced, not merged. `*` matches one key.
@@ -153,12 +153,12 @@ fn merge_value(base: Option<&Value>, over: &Value, at: &[&str]) -> Value {
 /// The live config with a patch applied.
 ///
 /// Pure: the caller decides whether the result is written to `config.yaml`,
-/// handed to [`crate::GhostRuntime::reconfigure`], or only previewed.
+/// handed to [`crate::WireRuntime::reconfigure`], or only previewed.
 ///
 /// `patch` is the raw JSON body, for the reason the module header gives.
 pub fn merge_config_patch(config: &Config, patch: &Value) -> Result<Config> {
     let base = serde_json::to_value(config).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Internal,
             "The live settings could not be represented as JSON.",
         )
@@ -233,13 +233,13 @@ fn shape_issue(error: &serde_path_to_error::Error<serde_json::Error>) -> String 
 }
 
 /// The one error this module raises, carrying every issue for a form to render.
-fn invalid(issues: &[String]) -> GhostError {
+fn invalid(issues: &[String]) -> WireError {
     let body = issues
         .iter()
         .map(|issue| format!("  {issue}"))
         .collect::<Vec<_>>()
         .join("\n");
-    GhostError::new(
+    WireError::new(
         ErrorKind::Config,
         format!("Settings patch produces invalid settings:\n{body}"),
     )

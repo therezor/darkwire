@@ -9,20 +9,20 @@
 
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use ghostai_core::Result;
-use ghostai_extension_host::{
+use darkwire_core::Result;
+use darkwire_extension_host::{
     EXTENSION_TOOL_PREFIX, RegistrationBag, add_bridged_tool, add_provider,
 };
-use ghostai_mcp::{McpCallOptions, McpCallResult, McpCallTarget, McpToolDescriptor};
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{ExtensionManifest, ExtensionProviderSpec, ToolSource};
-use ghostai_providers::WireProtocol;
+use darkwire_mcp::{McpCallOptions, McpCallResult, McpCallTarget, McpToolDescriptor};
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{ExtensionManifest, ExtensionProviderSpec, ToolSource};
+use darkwire_providers::WireProtocol;
+use futures::future::BoxFuture;
 use serde_json::json;
 
 fn manifest(contributes: &[&str]) -> ExtensionManifest {
     serde_json::from_value(json!({
-        "schema": "ghostai.extension/2",
+        "schema": "darkwire.extension/2",
         "id": "slack",
         "command": ["node", "index.mjs"],
         "contributes": contributes,
@@ -141,7 +141,7 @@ fn a_provider_becomes_a_table_entry_with_its_empty_strings_absent() {
     assert_eq!(provider.detect_by_base_keyword, None);
     assert_eq!(
         provider.max_tokens_param,
-        ghostai_providers::MaxTokensParam::MaxCompletionTokens
+        darkwire_providers::MaxTokensParam::MaxCompletionTokens
     );
     // Not expressible from a manifest, deliberately.
     assert!(provider.model_overrides.is_empty());

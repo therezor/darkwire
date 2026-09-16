@@ -18,14 +18,14 @@
 
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use ghostai_core::Result;
-use ghostai_mcp::{
+use darkwire_core::Result;
+use darkwire_mcp::{
     BridgeOptions, McpCallOptions, McpCallResult, McpCallTarget, McpToolDescriptor, bridge_tool,
 };
-use ghostai_protocol::ToolAnnotations;
-use ghostai_protocol::json::Object;
-use ghostai_tools::testkit::{TestWorkspace, ToolConformance, tool_conformance};
+use darkwire_protocol::ToolAnnotations;
+use darkwire_protocol::json::Object;
+use darkwire_tools::testkit::{TestWorkspace, ToolConformance, tool_conformance};
+use futures::future::BoxFuture;
 use serde_json::{Value, json};
 
 /// The server, as a function. Nothing is spawned and nothing is dialled: the

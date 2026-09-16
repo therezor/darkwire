@@ -3,7 +3,7 @@
 //! Two shapes matter, and both are chosen so the agent loop needs no
 //! translation layer of its own:
 //!
-//! - A result carries an `AssistantMessage` from `ghostai-protocol`, the same
+//! - A result carries an `AssistantMessage` from `darkwire-protocol`, the same
 //!   canonical shape the session store persists. The loop appends it directly.
 //!   An adapter-specific response type would mean every consumer converting,
 //!   and conversions are where tool-call ids get lost.
@@ -21,12 +21,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::stream::BoxStream;
-use ghostai_core::{Clock, Result};
-use ghostai_protocol::{
+use darkwire_core::{Clock, Result};
+use darkwire_protocol::{
     AssistantMessage, ChatMessage, ModelInfo, ReasoningEffort, ToolDefinition, Usage,
 };
-use ghostai_security::RandomSource;
+use darkwire_security::RandomSource;
+use futures::stream::BoxStream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;

@@ -7,10 +7,10 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{Config, DEFAULT_AGENT_ID, NetworkMode, PromptMode, ToolPermission};
-use ghostai_runtime::agents::{AgentMissReason, AgentWarningCode};
-use ghostai_runtime::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{Config, DEFAULT_AGENT_ID, NetworkMode, PromptMode, ToolPermission};
+use darkwire_runtime::agents::{AgentMissReason, AgentWarningCode};
+use darkwire_runtime::{
     EffectiveAgent, assert_writable_agent_ids, has_agent, list_agents, prune_dangling_subagents,
     resolve_agent, resolve_agent_or_default, resolve_agents, tool_prompt_warnings,
 };

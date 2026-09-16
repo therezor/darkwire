@@ -3,7 +3,7 @@
 mod common;
 
 use common::{FakeInput, FakeOutput};
-use ghostai_tui::{KeyName, columns_of, open_keyboard, rows_of};
+use darkwire_tui::{KeyName, columns_of, open_keyboard, rows_of};
 
 #[test]
 fn takes_the_device_at_its_word_when_it_reports_a_size() {

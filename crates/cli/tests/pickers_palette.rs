@@ -17,11 +17,11 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::palette::{
+use darkwire::i18n::Translations;
+use darkwire::pickers::palette::{
     CommandChoice, PaletteRow, command_items, command_value, complete_command,
 };
-use ghostai_i18n::keys;
+use darkwire_i18n::keys;
 
 fn english() -> Translations {
     Translations::default()

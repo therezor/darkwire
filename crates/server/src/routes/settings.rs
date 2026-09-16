@@ -21,11 +21,11 @@ use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
-use ghostai_protocol::config::{
+use darkwire_protocol::config::{
     AgentEntry, AgentEntryPatch, AgentsConfigPatch, Config, ConfigPatch,
 };
-use ghostai_protocol::ids::{DEFAULT_AGENT_ID, RESERVED_AGENT_IDS, is_agent_id};
-use ghostai_protocol::rest::{
+use darkwire_protocol::ids::{DEFAULT_AGENT_ID, RESERVED_AGENT_IDS, is_agent_id};
+use darkwire_protocol::rest::{
     AgentRename, SetCredentialRequest, SettingsPatchRequest, SettingsResponse,
 };
 use indexmap::IndexMap;

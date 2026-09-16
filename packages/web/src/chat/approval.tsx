@@ -24,7 +24,7 @@ import { Check, ShieldAlert, X } from 'lucide-react';
 import { useEffect, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ApprovalScope } from '@ghostwire/protocol';
+import type { ApprovalScope } from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { formatDuration } from '@/lib/format.js';

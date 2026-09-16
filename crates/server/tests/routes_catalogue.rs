@@ -24,11 +24,11 @@ use std::path::PathBuf;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_protocol::config::Config;
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
-use ghostai_security::EnvironmentListing;
-use ghostai_server::testkit::{
+use darkwire_protocol::config::Config;
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::tools::{ToolDefinition, ToolRisk, ToolSource};
+use darkwire_security::EnvironmentListing;
+use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
 use indexmap::IndexMap;
@@ -85,7 +85,7 @@ async fn send(
 }
 
 fn config_with(raw: Value) -> Config {
-    ghostai_protocol::config::parse_config(raw).expect("a parseable config")
+    darkwire_protocol::config::parse_config(raw).expect("a parseable config")
 }
 
 // GET /api/agents
@@ -344,7 +344,7 @@ async fn a_command_body_that_is_not_json_is_a_400() {
 /// A container definition, likewise built from JSON.
 fn definition(overrides: &Value) -> EnvironmentDefinition {
     let mut value = json!({
-        "schema": "ghostai.environment/1",
+        "schema": "darkwire.environment/1",
         "name": "dev",
         "image": format!("sha256:{}", "0".repeat(64)),
     });

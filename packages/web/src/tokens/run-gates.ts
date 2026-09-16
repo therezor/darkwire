@@ -1,5 +1,5 @@
 /**
- * The gates as a command, so `pnpm --filter @ghostwire/web lint` fails the same
+ * The gates as a command, so `pnpm --filter @darkwire/web lint` fails the same
  * way the test suite does. Both entry points share `collectSources`, so there
  * is one answer to "which files are checked" rather than two that drift.
  */

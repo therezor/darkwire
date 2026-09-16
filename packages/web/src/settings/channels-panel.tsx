@@ -25,7 +25,7 @@
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ChannelStatus, Config } from '@ghostwire/protocol';
+import type { ChannelStatus, Config } from '@darkwire/protocol';
 
 import {
   SaveBar,

@@ -8,16 +8,16 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{Config, ToolPermission};
-use ghostai_runtime::{DELETE_BY_NULL, REPLACE_WHOLESALE, merge_config_patch};
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{Config, ToolPermission};
+use darkwire_runtime::{DELETE_BY_NULL, REPLACE_WHOLESALE, merge_config_patch};
 use serde_json::{Value, json};
 
 fn merged(base: &Config, patch: &Value) -> Config {
     merge_config_patch(base, patch).unwrap()
 }
 
-fn refused(base: &Config, patch: &Value) -> ghostai_core::GhostError {
+fn refused(base: &Config, patch: &Value) -> darkwire_core::WireError {
     match merge_config_patch(base, patch) {
         Ok(config) => panic!("expected a refusal, got {config:?}"),
         Err(error) => error,

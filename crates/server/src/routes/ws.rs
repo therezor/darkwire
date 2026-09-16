@@ -29,9 +29,9 @@ use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::Response;
+use darkwire_core::ErrorKind;
+use darkwire_protocol::ws::ErrorCode;
 use futures::{SinkExt as _, StreamExt as _};
-use ghostai_core::ErrorKind;
-use ghostai_protocol::ws::ErrorCode;
 
 use crate::errors::HttpError;
 use crate::hub::{ConnectOptions, Frame, Outbound};
@@ -44,9 +44,9 @@ const WEB_CHANNEL: &str = "web";
 
 /// What the socket answers a request that did not ask to be upgraded.
 const NOT_AN_UPGRADE: &str =
-    "This endpoint speaks the GhostAI WebSocket protocol. Connect with an Upgrade request.";
+    "This endpoint speaks the DarkWire WebSocket protocol. Connect with an Upgrade request.";
 
-/// Upgrade to the GhostAI WebSocket protocol.
+/// Upgrade to the DarkWire WebSocket protocol.
 ///
 /// The query is read and validated *before* the upgrade is accepted, which is
 /// the reason it is not left to the hub: a client that sends `?session=` would

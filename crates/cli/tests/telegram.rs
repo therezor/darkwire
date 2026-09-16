@@ -1,7 +1,7 @@
 //! `src/telegram.rs`: resolving a bot token, and what the panel shows.
 //!
 //! Nothing here builds a runtime or opens a socket. The two functions
-//! `ghostai serve` calls before a channel exists — the token lookup and the
+//! `darkwire serve` calls before a channel exists — the token lookup and the
 //! status row — are pure over a paths record, an environment and a settings
 //! block, which is the property that makes the precedence assertable at all.
 
@@ -19,31 +19,31 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ghostai::i18n::Env;
-use ghostai::server_runtime::{CliServerRuntime, ServerRuntimeOptions};
-use ghostai::telegram::{
+use darkwire::i18n::Env;
+use darkwire::server_runtime::{CliServerRuntime, ServerRuntimeOptions};
+use darkwire::telegram::{
     PLAINTEXT_TOKEN_WARNING, ResolvedToken, TELEGRAM_TOKEN_ENV_VAR, TelegramFactoriesOptions,
     TelegramStatusOptions, TokenSource, resolve_telegram_token, telegram_factories,
     telegram_settings_of, telegram_status, warn_if_plaintext,
 };
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{Database, GhostPaths};
-use ghostai_protocol::config::Config;
-use ghostai_runtime::{
-    ExtensionChoice, GhostRuntime, McpChoice, RuntimeOptions, VaultChoice, create_runtime,
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{Database, WirePaths};
+use darkwire_protocol::config::Config;
+use darkwire_runtime::{
+    ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, WireRuntime, create_runtime,
 };
-use ghostai_server::ServerRuntime;
+use darkwire_server::ServerRuntime;
 use serde_json::{Map, Value, json};
 use tempfile::TempDir;
 
-/// A GhostAI root in a temporary directory.
+/// A DarkWire root in a temporary directory.
 ///
 /// `with_vault` writes the file but not a usable vault: only the file's
 /// *existence* is checked before the vault is opened, which is the condition
 /// under test rather than the vault's contents.
-fn paths(home: &TempDir, with_vault: bool) -> GhostPaths {
+fn paths(home: &TempDir, with_vault: bool) -> WirePaths {
     let root = home.path().to_string_lossy().into_owned();
-    let resolved = GhostPaths::resolve(ResolveGhostPaths {
+    let resolved = WirePaths::resolve(ResolveWirePaths {
         root: Some(root),
         workspace: None,
         env: Some(HashMap::new()),
@@ -69,7 +69,7 @@ fn settings(block: &Value) -> Map<String, Value> {
 
 #[test]
 fn finds_nothing_on_an_install_that_never_configured_a_bot() {
-    // The normal case, and the one that has to stay cheap: `ghostai serve` comes
+    // The normal case, and the one that has to stay cheap: `darkwire serve` comes
     // up unchanged for everybody who has never heard of this.
     let home = TempDir::new().expect("a temporary home");
     let found = resolve_telegram_token(&paths(&home, false), &Env::empty(), &Map::new())
@@ -223,7 +223,7 @@ fn status(
     running: bool,
     username: Option<&str>,
     start_error: Option<&str>,
-) -> ghostai_protocol::ChannelStatus {
+) -> darkwire_protocol::ChannelStatus {
     let mut config = Config::default();
     if !block.is_null() {
         config
@@ -341,7 +341,7 @@ fn does_not_name_a_bot_that_is_not_running() {
 // -------------------------------------------------------- the factory list
 
 /// An install over a temporary home, with the `config.yaml` given.
-fn install(config: Option<&Value>) -> (TempDir, Arc<GhostRuntime>) {
+fn install(config: Option<&Value>) -> (TempDir, Arc<WireRuntime>) {
     let temp = TempDir::new().expect("a temporary home");
     if let Some(config) = config {
         std::fs::write(
@@ -367,7 +367,7 @@ fn install(config: Option<&Value>) -> (TempDir, Arc<GhostRuntime>) {
 
 fn factories_options(
     home: &TempDir,
-    runtime: &Arc<GhostRuntime>,
+    runtime: &Arc<WireRuntime>,
     env: Env,
 ) -> TelegramFactoriesOptions {
     let server: Arc<dyn ServerRuntime> =
@@ -383,7 +383,7 @@ fn factories_options(
 
 #[test]
 fn registers_nothing_on_an_install_that_never_configured_a_bot() {
-    // The property `ghostai serve` rests on: the overwhelming majority of
+    // The property `darkwire serve` rests on: the overwhelming majority of
     // installs have never heard of a bot and must come up exactly as before.
     let (home, runtime) = install(None);
     let built = telegram_factories(&factories_options(&home, &runtime, Env::empty()))

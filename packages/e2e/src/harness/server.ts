@@ -2,7 +2,7 @@
  * The shipping binary, on a port, with a model that cannot reach the network.
  *
  * The product is one Rust binary, and the only honest way for a browser suite
- * to test it is the way an operator runs it — `ghostai serve`, as a child
+ * to test it is the way an operator runs it — `darkwire serve`, as a child
  * process, over a temporary home. That is a better test than composing the
  * server in this process, and a slower one, and both halves are worth stating:
  *
@@ -16,7 +16,7 @@
  *    what a step *settles into*.
  *
  * Two substitutions remain and both are the binary's own, compiled in behind
- * the `test-hooks` feature and armed by `GHOSTAI_TEST_HOOKS=1`: the password
+ * the `test-hooks` feature and armed by `DARKWIRE_TEST_HOOKS=1`: the password
  * hasher is a comparison rather than argon2id, and the credential vault's key
  * comes from the key file rather than the operating system's keychain. Minting
  * a keychain entry from a test suite is not a thing a test suite may do — on
@@ -46,7 +46,7 @@ import {
   DEFAULT_AGENT_TOOLS,
   DEFAULT_USERNAME,
   type ConfigPatch,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { startFakeProvider } from './provider.js';
 import { ROUTES } from './script.js';
@@ -169,21 +169,21 @@ interface ReadyRecord {
 /**
  * The binary under test.
  *
- * `GHOSTAI_BIN` first, so CI can hand over a release build with the feature on;
+ * `DARKWIRE_BIN` first, so CI can hand over a release build with the feature on;
  * the debug build otherwise, which is what a laptop has. A missing binary fails
  * here with a sentence rather than as twenty timed-out specs — the same service
  * the old harness's `resolveUiRoot` did for a missing `dist/`.
  */
 function binary(): string {
-  const named = process.env.GHOSTAI_BIN;
+  const named = process.env.DARKWIRE_BIN;
   const path =
     named === undefined || named === ''
-      ? join(ROOT, 'target/debug/ghostai')
+      ? join(ROOT, 'target/debug/darkwire')
       : resolve(ROOT, named);
   if (!existsSync(path)) {
     throw new Error(
-      `No ghostai binary at ${path}. Run \`cargo build -p ghostai --features test-hooks\`, ` +
-        'or set GHOSTAI_BIN to one that exists.',
+      `No darkwire binary at ${path}. Run \`cargo build -p darkwire --features test-hooks\`, ` +
+        'or set DARKWIRE_BIN to one that exists.',
     );
   }
   return path;
@@ -295,11 +295,11 @@ async function awaitReady(
       }
     }
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`ghostai serve exited before it was ready.\n${log()}`);
+      throw new Error(`darkwire serve exited before it was ready.\n${log()}`);
     }
     if (Date.now() > deadline) {
       throw new Error(
-        `ghostai serve did not bind within ${String(READY_TIMEOUT_MS)}ms.\n${log()}`,
+        `darkwire serve did not bind within ${String(READY_TIMEOUT_MS)}ms.\n${log()}`,
       );
     }
     await new Promise((settle) => setTimeout(settle, 25));
@@ -309,10 +309,10 @@ async function awaitReady(
 /** The session token the login route set, read off the cookie it sent. */
 function tokenOf(setCookie: readonly string[]): string {
   for (const header of setCookie) {
-    const match = /(?:^|;\s*)ghost_session=([^;]+)/u.exec(header);
+    const match = /(?:^|;\s*)darkwire_session=([^;]+)/u.exec(header);
     if (match?.[1] !== undefined) return decodeURIComponent(match[1]);
   }
-  throw new Error('The login response carried no ghost_session cookie.');
+  throw new Error('The login response carried no darkwire_session cookie.');
 }
 
 export async function startHarness(
@@ -320,8 +320,8 @@ export async function startHarness(
 ): Promise<Harness> {
   const bin = binary();
   const ui = uiRoot();
-  const home = mkdtempSync(join(tmpdir(), 'ghostai-e2e-home-'));
-  const workspace = mkdtempSync(join(tmpdir(), 'ghostai-e2e-work-'));
+  const home = mkdtempSync(join(tmpdir(), 'darkwire-e2e-home-'));
+  const workspace = mkdtempSync(join(tmpdir(), 'darkwire-e2e-work-'));
   seedWorkspace(workspace);
 
   const provider = await startFakeProvider(ROUTES);
@@ -359,9 +359,9 @@ export async function startHarness(
       env: {
         PATH: process.env.PATH ?? '',
         HOME: home,
-        GHOSTAI_TEST_HOOKS: '1',
+        DARKWIRE_TEST_HOOKS: '1',
         NO_COLOR: '1',
-        GHOSTAI_LOG_LEVEL: 'warn',
+        DARKWIRE_LOG_LEVEL: 'warn',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },

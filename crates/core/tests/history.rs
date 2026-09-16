@@ -9,15 +9,15 @@
 
 use std::collections::BTreeSet;
 
-use ghostai_core::history::{
+use darkwire_core::history::{
     DEFAULT_MAX_TOOL_RESULT_CHARS, HistoryOptions, MessageWindow, SessionHistorySource,
     find_legal_end, find_legal_start, has_orphaned_tool_result, has_unanswered_tool_call,
     history_for_llm, session_history, truncate_head_tail,
 };
-use ghostai_core::messages::{
+use darkwire_core::messages::{
     AssistantOptions, ToolOptions, assistant_message, system_message, tool_message, user_message,
 };
-use ghostai_protocol::{ChatMessage, ToolCall};
+use darkwire_protocol::{ChatMessage, ToolCall};
 use proptest::prelude::*;
 use serde_json::Value;
 
@@ -61,7 +61,7 @@ fn tool(id: &str, content: &str) -> ChatMessage {
     tool_message(id, "read_file", content, ToolOptions::default()).into()
 }
 
-fn tool_of(message: &ChatMessage) -> &ghostai_protocol::ToolMessage {
+fn tool_of(message: &ChatMessage) -> &darkwire_protocol::ToolMessage {
     match message {
         ChatMessage::Tool(tool) => tool,
         other => panic!("expected a tool message, got {other:?}"),
@@ -524,7 +524,7 @@ mod session_history_tests {
             &self,
             session_key: &str,
             window: &MessageWindow,
-        ) -> ghostai_core::Result<Vec<ChatMessage>> {
+        ) -> darkwire_core::Result<Vec<ChatMessage>> {
             self.asked
                 .borrow_mut()
                 .push((session_key.to_owned(), *window));

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use ghostai_i18n::{DEFAULT_LOCALE, Translator, args, cli_bundle, keys};
+use darkwire_i18n::{DEFAULT_LOCALE, Translator, args, cli_bundle, keys};
 
 const PLURAL_SUFFIXES: [&str; 6] = ["_zero", "_one", "_two", "_few", "_many", "_other"];
 
@@ -38,10 +38,7 @@ fn the_list_is_the_bundle_with_plural_suffixes_stripped_sorted_once() {
 #[test]
 fn constants_spell_the_dotted_path_with_the_bundle_casing() {
     assert_eq!(keys::program::DESCRIPTION, "program.description");
-    assert_eq!(
-        keys::agent::install::options::WORKSPACE_ID,
-        "agent.install.options.workspaceId"
-    );
+    assert_eq!(keys::serve::options::PASSWORD, "serve.options.password");
     assert_eq!(keys::chat::header::HINT_MENU, "chat.header.hintMenu");
     // One constant for both plural forms.
     assert_eq!(keys::slash::notes::MEMORY_COUNT, "slash.notes.memoryCount");

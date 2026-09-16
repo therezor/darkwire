@@ -7,7 +7,7 @@
  * conversion happens once, on save.
  *
  * **Cron is validated by shape here and by the server for real.** Five
- * non-empty fields is all this checks. `parse_cron` in `ghostai-core` would
+ * non-empty fields is all this checks. `parse_cron` in `darkwire-core` would
  * agree with the server exactly, and the browser cannot call it. The server
  * answers a 422 naming the field, the panel renders it,
  * and then shows the server's own `state.nextRunAtMs` as a date — which is
@@ -19,13 +19,13 @@ import {
   formatDateTime,
   instantFromZonedInput,
   zonedInputValue,
-} from '@ghostwire/i18n';
+} from '@darkwire/i18n';
 import type {
   AutomationJob,
   AutomationSchedule,
   CreateAutomationJob,
   UpdateAutomationJob,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { parseNumber } from '@/components/form/fields.js';
 

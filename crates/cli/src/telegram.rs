@@ -1,6 +1,6 @@
-//! Telegram, wired into `ghostai serve`.
+//! Telegram, wired into `darkwire serve`.
 //!
-//! Two things live here, and both are here rather than in `ghostai-channels`
+//! Two things live here, and both are here rather than in `darkwire-channels`
 //! for the same reason: this is the composition root, and it is the only place
 //! that has a credential vault and an environment to read. A
 //! `ChannelContext` has neither, deliberately — a channel that could open the
@@ -20,22 +20,22 @@
 
 use std::sync::Arc;
 
-use ghostai_agent::read_skills;
-use ghostai_channels::telegram::channel::NewId;
-use ghostai_channels::telegram::{MemoryState, SkillSummary, SkillsState, TelegramConsole};
-use ghostai_channels::{BoxFuture, ChannelFactory, TelegramChannelOptions, telegram_channel};
-use ghostai_core::memory::read_memories;
-use ghostai_core::{GhostPaths, Result, SessionRecord, SessionStore, WorkspaceStore};
-use ghostai_protocol::config::{
+use darkwire_agent::read_skills;
+use darkwire_channels::telegram::channel::NewId;
+use darkwire_channels::telegram::{MemoryState, SkillSummary, SkillsState, TelegramConsole};
+use darkwire_channels::{BoxFuture, ChannelFactory, TelegramChannelOptions, telegram_channel};
+use darkwire_core::memory::read_memories;
+use darkwire_core::{Result, SessionRecord, SessionStore, WirePaths, WorkspaceStore};
+use darkwire_protocol::config::{
     AgentEntryPatch, AgentSettingsPatch, AgentsConfigPatch, Config, ConfigPatch,
 };
-use ghostai_protocol::{
+use darkwire_protocol::{
     AgentSummary, ChannelStatus, ContextResponse, DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID,
     ModelsResponse, ToolPermission,
 };
-use ghostai_providers::estimate_tokens;
-use ghostai_runtime::{EffectiveAgent, GhostRuntime, open_vault};
-use ghostai_server::{ServerRuntime, build_context_response};
+use darkwire_providers::estimate_tokens;
+use darkwire_runtime::{EffectiveAgent, WireRuntime, open_vault};
+use darkwire_server::{ServerRuntime, build_context_response};
 use serde_json::{Map, Value};
 
 use crate::i18n::Env;
@@ -112,7 +112,7 @@ pub fn telegram_settings_of(config: &Config) -> Map<String, Value> {
 /// environment would reach the Bot API as an unexplained 401 with nothing
 /// anywhere saying why.
 pub fn resolve_telegram_token(
-    paths: &GhostPaths,
+    paths: &WirePaths,
     env: &Env,
     settings: &Map<String, Value>,
 ) -> Result<Option<ResolvedToken>> {
@@ -168,7 +168,7 @@ pub struct TelegramStatusOptions<'a> {
     /// The live settings tree, which holds the `channels.telegram` block.
     pub config: &'a Config,
     /// Where the vault would be.
-    pub paths: &'a GhostPaths,
+    pub paths: &'a WirePaths,
     /// The environment `TELEGRAM_BOT_TOKEN` would be in.
     pub env: &'a Env,
     /// Whether the manager currently holds a started channel under this id.
@@ -227,12 +227,12 @@ fn detail_of(options: &TelegramStatusOptions<'_>, vault_error: Option<String>) -
 /// Everything the Telegram factory needs from the composition root.
 pub struct TelegramFactoriesOptions {
     /// The composition root, for the stores, the agents and the jails.
-    pub runtime: Arc<GhostRuntime>,
+    pub runtime: Arc<WireRuntime>,
     /// The server's own port, for the agent list, the model catalogue and the
     /// context report — all of which it already answers for the REST API.
     pub server: Arc<dyn ServerRuntime>,
     /// Where the vault would be.
-    pub paths: GhostPaths,
+    pub paths: WirePaths,
     /// The environment `TELEGRAM_BOT_TOKEN` would be in.
     pub env: Env,
     /// Ids for `/new` and `/branch`, injected so a test is not at the mercy of
@@ -250,7 +250,7 @@ impl std::fmt::Debug for TelegramFactoriesOptions {
 
 /// The Telegram factory, or nothing.
 ///
-/// Nothing is the normal case, and it has to stay cheap: `ghostai serve` must
+/// Nothing is the normal case, and it has to stay cheap: `darkwire serve` must
 /// come up unchanged on the overwhelming majority of installs that have never
 /// heard of a bot. A token that *does* resolve but is refused by the Bot API is
 /// a different matter — that fails startup, which is what the channel contract
@@ -279,7 +279,7 @@ pub fn telegram_factories(options: &TelegramFactoriesOptions) -> Result<Vec<Chan
 /// hands them to the routes: the port is narrow about *behaviour* — what a chat
 /// may reach — not about types.
 struct RuntimeConsole {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     server: Arc<dyn ServerRuntime>,
 }
 

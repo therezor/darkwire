@@ -1,7 +1,7 @@
 //! The one module that knows both a tool-owning subsystem and [`ToolRegistry`].
 //!
-//! `ghostai-tools` declares [`ToolSink`] and never learns what fills it;
-//! `ghostai-mcp` and `ghostai-extension-host` each hold one and never learn what
+//! `darkwire-tools` declares [`ToolSink`] and never learns what fills it;
+//! `darkwire-mcp` and `darkwire-extension-host` each hold one and never learn what
 //! is behind it. This is the composition root's job, and it is thirty lines
 //! because the interfaces were designed to meet.
 //!
@@ -21,8 +21,8 @@
 
 use std::sync::Arc;
 
-use ghostai_protocol::ToolSource;
-use ghostai_tools::{AnyTool, ToolRegistry, ToolSink};
+use darkwire_protocol::ToolSource;
+use darkwire_tools::{AnyTool, ToolRegistry, ToolSink};
 use parking_lot::Mutex;
 
 /// A sink that writes one owner's tools into `registry` under `source`.

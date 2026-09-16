@@ -8,25 +8,25 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use garde::Validate;
-use ghostai_protocol::{
+use darkwire_protocol::{
     DEFAULT_USERNAME, LoginRequest, NewPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH,
     PresentedPassword, SettingsPatchRequest, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH,
     USERNAME_PATTERN, Username,
 };
+use garde::Validate;
 use serde_json::json;
 
 #[test]
 fn a_username_is_trimmed_and_folded_on_the_way_in() {
     let request: LoginRequest =
-        serde_json::from_value(json!({"username": "  Ghost ", "password": "hunter2hunter2"}))
+        serde_json::from_value(json!({"username": "  DarkWire ", "password": "hunter2hunter2"}))
             .unwrap();
-    assert_eq!(request.username.as_str(), "ghost");
+    assert_eq!(request.username.as_str(), "darkwire");
     assert_eq!(request.username, Username::new(DEFAULT_USERNAME));
     assert!(request.validate().is_ok());
     assert_eq!(
         serde_json::to_value(&request.username).unwrap(),
-        json!("ghost")
+        json!("darkwire")
     );
 }
 

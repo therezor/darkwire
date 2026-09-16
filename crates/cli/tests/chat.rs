@@ -21,23 +21,23 @@ use std::sync::Arc;
 use std::future::Future;
 use std::pin::Pin;
 
-use ghostai::chat::{
+use darkwire::chat::{
     ChunkSink, Frame, RunTurnDeps, SIGINT_EXIT_CODE, Surface, TurnOutcome, TurnSink, Typed, chunks,
     drive_prompt, handle_key, run_turn,
 };
-use ghostai::i18n::Env;
-use ghostai::i18n::Translations;
-use ghostai::pickers::{NoMenu, PickerMenu};
-use ghostai::program::{ChatArgs, Globals};
-use ghostai::render::{TurnRenderer, TurnRendererOptions};
-use ghostai_agent::testkit::{ScriptedProvider, ScriptedTurn, TokioClock};
-use ghostai_agent::{AgentLoop, AgentLoopOptions, SteeringQueue};
-use ghostai_core::messages::Content;
-use ghostai_core::{Database, ErrorKind, SessionStore};
-use ghostai_protocol::StopReason;
-use ghostai_security::jail::{JailOptions, WorkspaceJail, single_jail};
-use ghostai_tools::{ToolRegistry, ToolScope};
-use ghostai_tui::{Key, parse_key};
+use darkwire::i18n::Env;
+use darkwire::i18n::Translations;
+use darkwire::pickers::{NoMenu, PickerMenu};
+use darkwire::program::{ChatArgs, Globals};
+use darkwire::render::{TurnRenderer, TurnRendererOptions};
+use darkwire_agent::testkit::{ScriptedProvider, ScriptedTurn, TokioClock};
+use darkwire_agent::{AgentLoop, AgentLoopOptions, SteeringQueue};
+use darkwire_core::messages::Content;
+use darkwire_core::{Database, ErrorKind, SessionStore};
+use darkwire_protocol::StopReason;
+use darkwire_security::jail::{JailOptions, WorkspaceJail, single_jail};
+use darkwire_tools::{ToolRegistry, ToolScope};
+use darkwire_tui::{Key, parse_key};
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
@@ -365,8 +365,8 @@ impl Surface for Scripted {
     fn run<'a>(
         &'a mut self,
         token: &'a CancellationToken,
-        body: Pin<Box<dyn Future<Output = ghostai_core::Result<TurnOutcome>> + 'a>>,
-    ) -> Pin<Box<dyn Future<Output = ghostai_core::Result<TurnOutcome>> + 'a>> {
+        body: Pin<Box<dyn Future<Output = darkwire_core::Result<TurnOutcome>> + 'a>>,
+    ) -> Pin<Box<dyn Future<Output = darkwire_core::Result<TurnOutcome>> + 'a>> {
         let _ = token;
         self.turns += 1;
         body
@@ -379,7 +379,7 @@ impl Surface for Scripted {
 
     fn refresh<'a>(
         &'a mut self,
-        view: &'a ghostai::header::HeaderView,
+        view: &'a darkwire::header::HeaderView,
     ) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
         let _ = view;
         self.refreshes += 1;
@@ -399,8 +399,8 @@ impl Surface for Scripted {
 /// Nothing here reaches a network, and that is a property of the fixture
 /// rather than of the cases: an install with no provider builds a runtime with
 /// no loop, which is exactly the state a fresh machine is in.
-fn session(home: &tempfile::TempDir) -> ghostai::chat::ChatSession {
-    ghostai::chat::open(
+fn session(home: &tempfile::TempDir) -> darkwire::chat::ChatSession {
+    darkwire::chat::open(
         &Globals {
             home: Some(home.path().display().to_string()),
             color: Some(false),
@@ -506,7 +506,7 @@ async fn a_message_on_an_install_with_no_provider_warns_and_keeps_the_prompt() {
 
     assert_eq!(code, 0);
     assert_eq!(surface.turns, 1);
-    assert!(surface.drawn.contains("ghostai init"), "{}", surface.drawn);
+    assert!(surface.drawn.contains("darkwire init"), "{}", surface.drawn);
 }
 
 #[tokio::test]
@@ -541,7 +541,7 @@ async fn attaching_moves_the_prompt_to_another_conversation() {
 // ------------------------------------------------------------- keystrokes
 
 fn frame() -> Frame {
-    Frame::new(ghostai_tui::theme_for(Some(false)), "generating")
+    Frame::new(darkwire_tui::theme_for(Some(false)), "generating")
 }
 
 /// A key as the terminal actually sends it, decoded by the real parser.
@@ -608,7 +608,7 @@ fn the_interrupt_and_the_end_of_input_are_told_apart() {
 
 #[tokio::test]
 async fn a_sink_hands_every_write_to_whoever_is_draining_it() {
-    use ghostai::render::RenderTarget as _;
+    use darkwire::render::RenderTarget as _;
 
     let (mut sink, mut rx) = chunks();
     sink.write("one");
@@ -626,7 +626,7 @@ async fn a_sink_hands_every_write_to_whoever_is_draining_it() {
 async fn a_write_after_the_drain_is_gone_is_dropped_rather_than_fatal() {
     // The surface has already been torn down; the turn behind it has nothing
     // useful to do about the loss and must not fail because of it.
-    use ghostai::render::RenderTarget as _;
+    use darkwire::render::RenderTarget as _;
 
     let (mut sink, rx) = chunks();
     drop(rx);

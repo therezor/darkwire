@@ -22,7 +22,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type JSX, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SUPPORTED_LOCALES } from '@ghostwire/i18n';
+import { SUPPORTED_LOCALES } from '@darkwire/i18n';
 
 import { useAppLocale } from '@/i18n/i18n-context.js';
 import { useSaveSettings } from '@/settings/use-settings.js';
@@ -33,7 +33,7 @@ import {
   type ProviderInfo,
   DEFAULT_AGENT_ID,
   agentSettingsPatch,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { ApiError, api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

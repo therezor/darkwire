@@ -9,12 +9,12 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{Database, SystemClock};
-use ghostai_extension_host::{
+use darkwire_core::{Database, SystemClock};
+use darkwire_extension_host::{
     V1_UNSUPPORTED, discover, refuses_version, schema_on_disk, settings_for,
 };
-use ghostai_protocol::{ExtensionSchemaVersion, ExtensionsConfig};
-use ghostai_security::ExtensionStore;
+use darkwire_protocol::{ExtensionSchemaVersion, ExtensionsConfig};
+use darkwire_security::ExtensionStore;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -23,7 +23,7 @@ fn install(root: &std::path::Path, id: &str, manifest: &serde_json::Value) -> st
     let dir = root.join(id);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("ghostai.extension.yaml"),
+        dir.join("darkwire.extension.yaml"),
         serde_json::to_string(manifest).unwrap(),
     )
     .unwrap();
@@ -32,7 +32,7 @@ fn install(root: &std::path::Path, id: &str, manifest: &serde_json::Value) -> st
 }
 
 fn v2(id: &str) -> serde_json::Value {
-    json!({"schema": "ghostai.extension/2", "id": id, "command": ["node", "index.mjs"]})
+    json!({"schema": "darkwire.extension/2", "id": id, "command": ["node", "index.mjs"]})
 }
 
 fn store(root: &std::path::Path) -> ExtensionStore {
@@ -50,8 +50,8 @@ fn the_schema_is_readable_from_a_manifest_that_did_not_parse() {
     let two = temp.path().join("two");
     std::fs::create_dir_all(&two).unwrap();
     std::fs::write(
-        two.join("ghostai.extension.yaml"),
-        r#"{"schema":"ghostai.extension/1"}"#,
+        two.join("darkwire.extension.yaml"),
+        r#"{"schema":"darkwire.extension/1"}"#,
     )
     .unwrap();
     assert_eq!(schema_on_disk(&two), Some(ExtensionSchemaVersion::V1));
@@ -60,11 +60,11 @@ fn the_schema_is_readable_from_a_manifest_that_did_not_parse() {
     let three = temp.path().join("three");
     std::fs::create_dir_all(&three).unwrap();
     assert_eq!(schema_on_disk(&three), None);
-    std::fs::write(three.join("ghostai.extension.yaml"), "not yaml").unwrap();
+    std::fs::write(three.join("darkwire.extension.yaml"), "not yaml").unwrap();
     assert_eq!(schema_on_disk(&three), None);
     std::fs::write(
-        three.join("ghostai.extension.yaml"),
-        r#"{"schema":"ghostai.extension/9"}"#,
+        three.join("darkwire.extension.yaml"),
+        r#"{"schema":"darkwire.extension/9"}"#,
     )
     .unwrap();
     assert_eq!(schema_on_disk(&three), None);
@@ -80,8 +80,8 @@ fn a_v1_bundle_is_refused_whatever_the_store_thinks_of_it() {
     let one = root.join("one");
     std::fs::create_dir_all(&one).unwrap();
     std::fs::write(
-        one.join("ghostai.extension.yaml"),
-        r#"{"schema":"ghostai.extension/1","id":"one","entry":"dist/missing.js"}"#,
+        one.join("darkwire.extension.yaml"),
+        r#"{"schema":"darkwire.extension/1","id":"one","entry":"dist/missing.js"}"#,
     )
     .unwrap();
 
@@ -90,7 +90,7 @@ fn a_v1_bundle_is_refused_whatever_the_store_thinks_of_it() {
     assert!(!refuses_version(&store.resolve("two").unwrap()));
 
     // The sentence names the fix, not the host's limitation.
-    assert!(V1_UNSUPPORTED.contains("ghostai.extension/2"));
+    assert!(V1_UNSUPPORTED.contains("darkwire.extension/2"));
     assert!(V1_UNSUPPORTED.contains("Rebuild"));
 }
 

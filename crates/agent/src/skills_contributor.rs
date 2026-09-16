@@ -27,9 +27,9 @@
 
 use std::path::Path;
 
-use ghostai_protocol::json::js_trim;
-use ghostai_protocol::{DEFAULT_AGENT_ID, DEFAULT_SKILLS_TEMPLATE, render_prompt_template};
-use ghostai_providers::BoxFuture;
+use darkwire_protocol::json::js_trim;
+use darkwire_protocol::{DEFAULT_AGENT_ID, DEFAULT_SKILLS_TEMPLATE, render_prompt_template};
+use darkwire_providers::BoxFuture;
 use indexmap::IndexMap;
 
 use crate::prompt::{ContextContributor, StaticPromptContext, template_or};

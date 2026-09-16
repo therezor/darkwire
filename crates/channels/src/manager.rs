@@ -5,7 +5,7 @@
 //! with the same `ServerMessage` stream a browser gets; this projects it back
 //! into outbound messages and pushes them to the channel that asked. Both
 //! directions go through the bus, so the queueing, the rate limit and the
-//! bounded capacity are the ones `ghostai-core` already implements rather than a
+//! bounded capacity are the ones `darkwire-core` already implements rather than a
 //! second set per channel.
 //!
 //! What that buys is the point of the whole crate: a Telegram turn is not a
@@ -36,14 +36,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ghostai_core::clock::{Clock, SystemClock};
-use ghostai_core::message_bus::{
+use darkwire_core::clock::{Clock, SystemClock};
+use darkwire_core::message_bus::{
     IdSource, InboundMessage, InboundMessageInput, MessageBus, MessageBusOptions, OutboundKind,
     OutboundMessage, OutboundMessageInput, PublishResult,
 };
-use ghostai_core::messages::text_part;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{
+use darkwire_core::messages::text_part;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{
     Attachment, ClientMessage, ContentPart, ServerMessage, UserMessageRequest, UserMessageTag,
 };
 use indexmap::IndexMap;
@@ -142,7 +142,7 @@ pub struct ChannelManagerOptions {
     /// Ids for messages that arrive without one.
     ///
     /// Injected rather than minted here: a UUIDv7 needs a random source, which
-    /// lives in `ghostai-security` — a crate below this one, and one this crate
+    /// lives in `darkwire-security` — a crate below this one, and one this crate
     /// deliberately does not depend on. The composition root has both.
     pub new_id: IdSource,
     /// The ceiling on bridged `(channel, session)` pairs.
@@ -597,7 +597,7 @@ impl ChannelManager {
     /// failure shows up as replies going to the wrong chat.
     pub fn register(&self, factory: ChannelFactory) -> Result<()> {
         if self.inner.started.load(Ordering::Acquire) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!(
                     "Channel \"{}\" was registered after the manager started",
@@ -607,7 +607,7 @@ impl ChannelManager {
         }
         let mut factories = self.inner.factories.lock();
         if factories.contains_key(factory.id()) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!("Channel \"{}\" is already registered", factory.id()),
             ));
@@ -654,7 +654,7 @@ impl ChannelManager {
             }
             let channel = factory.create(self.context(factory.id(), settings))?;
             if channel.id() != factory.id() {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Config,
                     format!(
                         "Channel factory \"{}\" created a channel with id \"{}\"",

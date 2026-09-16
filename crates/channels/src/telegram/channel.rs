@@ -33,10 +33,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
-use ghostai_core::messages::text_part;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ApprovalScope, ContentPart, ToolApproveMessage, ToolApproveTag, ToolRisk};
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_core::messages::text_part;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ApprovalScope, ContentPart, ToolApproveMessage, ToolApproveTag, ToolRisk};
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 use tokio::task::JoinHandle;
@@ -200,7 +200,7 @@ impl Telegram {
         // token, and one that comes up answering *anybody* is a shell on this
         // machine.
         if self.access.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 "channels.telegram.allowlist is empty, so this bot would answer nobody. \
                  Add your Telegram user id — message the bot and read the log line for it.",
@@ -208,7 +208,7 @@ impl Telegram {
         }
 
         // A wrong token fails here, which fails the manager's `start()` and so
-        // fails `ghostai serve`. That is the documented contract.
+        // fails `darkwire serve`. That is the documented contract.
         let me = self.api.get_me(&self.context.token).await?;
         (*self.username.lock()).clone_from(&me.username);
 
@@ -270,7 +270,7 @@ impl Telegram {
                     }
                     .min(MAX_BACKOFF_MS);
                     self.report_poll_failure(&error, backoff_ms);
-                    if ghostai_core::sleep(Duration::from_millis(backoff_ms), &self.context.token)
+                    if darkwire_core::sleep(Duration::from_millis(backoff_ms), &self.context.token)
                         .await
                         .is_err()
                     {
@@ -522,7 +522,7 @@ impl Telegram {
                 self.ensure(&session_key)?;
                 self.console.store().update_session(
                     &session_key,
-                    ghostai_core::session_store::UpdateSession {
+                    darkwire_core::session_store::UpdateSession {
                         agent_id: Some(Some(agent_id.clone())),
                         ..Default::default()
                     },
@@ -544,7 +544,7 @@ impl Telegram {
                 self.ensure(&session_key)?;
                 self.console.store().update_session(
                     &session_key,
-                    ghostai_core::session_store::UpdateSession {
+                    darkwire_core::session_store::UpdateSession {
                         workspace_id: Some(workspace_id.clone()),
                         ..Default::default()
                     },
@@ -584,7 +584,7 @@ impl Telegram {
     fn ensure(&self, session_key: &str) -> Result<()> {
         self.console.store().ensure_session(
             session_key,
-            ghostai_core::session_store::CreateSession {
+            darkwire_core::session_store::CreateSession {
                 origin: Some(self.id.clone()),
                 ..Default::default()
             },
@@ -605,7 +605,7 @@ impl Telegram {
         let rows: Vec<PickerRow> = if menu == MenuKind::Sessions {
             self.console
                 .store()
-                .list_sessions(&ghostai_core::session_store::ListSessions {
+                .list_sessions(&darkwire_core::session_store::ListSessions {
                     origin: Some(self.id.clone()),
                     limit: Some(PAGE_LISTING_LIMIT),
                     ..Default::default()

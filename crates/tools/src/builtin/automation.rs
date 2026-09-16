@@ -22,9 +22,9 @@
 //! say who it is, and so it does not get to say who the job will be.
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use ghostai_core::Result;
-use ghostai_protocol::json::js_trim;
-use ghostai_protocol::{
+use darkwire_core::Result;
+use darkwire_protocol::json::js_trim;
+use darkwire_protocol::{
     AtKind, AtSchedule, AutomationJob, AutomationPayload, AutomationSchedule, CreateAutomationJob,
     CronKind, CronSchedule, EveryKind, EverySchedule, ScheduledKind, ScheduledPayload,
     ToolAnnotations, ToolRisk,

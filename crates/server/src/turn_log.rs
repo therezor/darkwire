@@ -30,7 +30,7 @@
 //! Only a session with an open turn holds one, so the ceiling on all of this is
 //! the number of turns running at once, not the number of sessions in memory.
 
-use ghostai_protocol::ws::{NestedAgentEvent, ServerMessage};
+use darkwire_protocol::ws::{NestedAgentEvent, ServerMessage};
 use serde_json::Value;
 
 /// Charged per entry on top of its payload, for the fields every frame carries.

@@ -24,19 +24,19 @@ use axum::Json;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use ghostai_core::session_store::{
+use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, SessionCursor, SessionOrderBy,
     SessionRecord, TurnStatsRecord, UpdateSession,
 };
-use ghostai_core::to_stored_message;
-use ghostai_protocol::json::Object;
-use ghostai_protocol::messages::Usage;
-use ghostai_protocol::rest::{
+use darkwire_core::to_stored_message;
+use darkwire_protocol::json::Object;
+use darkwire_protocol::messages::Usage;
+use darkwire_protocol::rest::{
     BranchSessionRequest, ContextResponse, CreateSessionRequest, SessionListResponse,
     SessionMessagesResponse, SessionSummary, TurnStats, TurnStatsResponse, UpdateSessionRequest,
 };
-use ghostai_protocol::subagent::subagent_runs_of;
-use ghostai_protocol::uuid::new_uuid;
+use darkwire_protocol::subagent::subagent_runs_of;
+use darkwire_protocol::uuid::new_uuid;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;

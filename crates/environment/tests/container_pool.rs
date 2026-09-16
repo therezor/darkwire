@@ -19,15 +19,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_environment::container_pool::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_environment::container_pool::{
     CONTAINER_IDLE_MS, ContainerEngine, ContainerPool, ContainerPoolOptions, IdFactory,
     MAX_LIVE_CONTAINERS, OWNER_LABEL, RunnerFactory, owner_process_looks_alive, owner_tag,
 };
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
-use ghostai_security::PolicyStore;
-use ghostai_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunRequest};
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_security::PolicyStore;
+use darkwire_tools::{BoxFuture, CommandRunner, PlacementRequest, RunOutcome, RunRequest};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -95,7 +95,7 @@ impl ContainerEngine for FakeEngine {
     fn start(&self, argv: &[String]) -> Result<()> {
         self.calls.lock().push(Call::Start(argv.to_vec()));
         match self.start_fails.lock().clone() {
-            Some(reason) => Err(GhostError::new(ErrorKind::Tool, reason)),
+            Some(reason) => Err(WireError::new(ErrorKind::Tool, reason)),
             None => Ok(()),
         }
     }
@@ -103,7 +103,7 @@ impl ContainerEngine for FakeEngine {
     fn stop(&self, name: &str) -> Result<()> {
         self.calls.lock().push(Call::Stop(name.to_owned()));
         if self.stop_fails {
-            return Err(GhostError::new(ErrorKind::Tool, "no such container"));
+            return Err(WireError::new(ErrorKind::Tool, "no such container"));
         }
         Ok(())
     }
@@ -111,7 +111,7 @@ impl ContainerEngine for FakeEngine {
     fn probe(&self) -> Result<()> {
         self.calls.lock().push(Call::Probe);
         match self.probe_fails.lock().clone() {
-            Some(reason) => Err(GhostError::new(ErrorKind::Tool, reason)),
+            Some(reason) => Err(WireError::new(ErrorKind::Tool, reason)),
             None => Ok(()),
         }
     }
@@ -119,7 +119,7 @@ impl ContainerEngine for FakeEngine {
     fn reap_orphans(&self) -> Result<()> {
         self.calls.lock().push(Call::Reap);
         if self.reap_fails {
-            return Err(GhostError::new(ErrorKind::Tool, "docker ps failed"));
+            return Err(WireError::new(ErrorKind::Tool, "docker ps failed"));
         }
         Ok(())
     }
@@ -179,7 +179,7 @@ fn ok_outcome() -> RunOutcome {
 /// The shape a daemon reports when the container went away underneath a turn.
 fn gone_outcome() -> RunOutcome {
     RunOutcome {
-        stderr: "Error response from daemon: No such container: ghost-sbx-1".to_owned(),
+        stderr: "Error response from daemon: No such container: dw-sbx-1".to_owned(),
         code: Some(1),
         ..ok_outcome()
     }
@@ -206,7 +206,7 @@ struct Harness {
 /// A container definition with the fields a test cares about patched in.
 fn definition(name: &str, overrides: &Value) -> Value {
     let mut value = json!({
-        "schema": "ghostai.environment/1",
+        "schema": "darkwire.environment/1",
         "name": name,
         "image": DIGEST,
     });
@@ -323,7 +323,7 @@ fn reaching(mode: NetworkMode, request: PlacementRequest) -> PlacementRequest {
 
 fn plan() -> RunRequest {
     RunRequest {
-        plan: ghostai_security::ExecPlan {
+        plan: darkwire_security::ExecPlan {
             file: "nmap".to_owned(),
             args: vec!["-sn".to_owned()],
             cwd: PathBuf::from("/ghost/workspace"),
@@ -334,7 +334,7 @@ fn plan() -> RunRequest {
         },
         timeout_ms: 0,
         token: tokio_util::sync::CancellationToken::new(),
-        clock: Arc::new(ghostai_core::SystemClock),
+        clock: Arc::new(darkwire_core::SystemClock),
         tee: None,
     }
 }
@@ -347,7 +347,7 @@ async fn run(runner: &Arc<dyn CommandRunner>) -> Result<RunOutcome> {
 ///
 /// `common::err` cannot be used here: a runner is not `Debug`, deliberately —
 /// printing one would mean printing the container it is bound to.
-fn refusal(result: Result<Option<Arc<dyn CommandRunner>>>) -> GhostError {
+fn refusal(result: Result<Option<Arc<dyn CommandRunner>>>) -> WireError {
     match result {
         Ok(_) => panic!("expected a refusal, got a runner"),
         Err(error) => error,
@@ -604,8 +604,8 @@ async fn allows_a_sandbox_without_starting_one_then_starts_it_on_the_first_comma
         .unwrap();
     assert!(pool.live().is_empty());
     run(&runner).await.unwrap();
-    assert_eq!(pool.live(), vec!["ghost-sbx-1".to_owned()]);
-    assert_eq!(*h.ran_in.lock(), vec!["ghost-sbx-1".to_owned()]);
+    assert_eq!(pool.live(), vec!["dw-sbx-1".to_owned()]);
+    assert_eq!(*h.ran_in.lock(), vec!["dw-sbx-1".to_owned()]);
 }
 
 #[tokio::test]
@@ -700,7 +700,7 @@ async fn reuses_the_container_for_a_second_turn_in_the_same_session() {
     assert_eq!(h.engine.starts().len(), 1);
     assert_eq!(
         *h.ran_in.lock(),
-        vec!["ghost-sbx-1".to_owned(), "ghost-sbx-1".to_owned()]
+        vec!["dw-sbx-1".to_owned(), "dw-sbx-1".to_owned()]
     );
 }
 
@@ -737,7 +737,7 @@ async fn stops_a_container_that_has_gone_idle() {
     // The sweep runs on the next turn to ask for a runner.
     pool.resolve_turn(&request("b", "w", "s2", "dev")).unwrap();
     assert!(pool.live().is_empty());
-    assert_eq!(h.engine.stops(), vec!["ghost-sbx-1".to_owned()]);
+    assert_eq!(h.engine.stops(), vec!["dw-sbx-1".to_owned()]);
 }
 
 #[tokio::test]
@@ -773,7 +773,7 @@ async fn evicts_the_least_recently_used_beyond_the_cap() {
         run(&runner).await.unwrap();
     }
     assert_eq!(pool.live().len(), 2);
-    assert_eq!(h.engine.stops(), vec!["ghost-sbx-1".to_owned()]);
+    assert_eq!(h.engine.stops(), vec!["dw-sbx-1".to_owned()]);
 }
 
 #[tokio::test]
@@ -791,7 +791,7 @@ async fn a_cap_of_one_still_hands_back_the_container_it_started() {
         .unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 1);
-    assert_eq!(*h.ran_in.lock(), vec!["ghost-sbx-1".to_owned()]);
+    assert_eq!(*h.ran_in.lock(), vec!["dw-sbx-1".to_owned()]);
 }
 
 #[tokio::test]
@@ -864,8 +864,8 @@ async fn labels_the_container_with_its_session_definition_and_owning_process() {
         .unwrap();
     run(&runner).await.unwrap();
     let argv = h.engine.starts().remove(0).join(" ");
-    assert!(argv.contains("ghostai.session=chat"), "{argv}");
-    assert!(argv.contains("ghostai.container=dev"), "{argv}");
+    assert!(argv.contains("darkwire.session=chat"), "{argv}");
+    assert!(argv.contains("darkwire.container=dev"), "{argv}");
     assert!(
         argv.contains(&format!("{OWNER_LABEL}=test-host:1")),
         "{argv}"
@@ -873,11 +873,11 @@ async fn labels_the_container_with_its_session_definition_and_owning_process() {
 }
 
 #[tokio::test]
-async fn translates_every_mount_for_a_containerised_ghostai() {
+async fn translates_every_mount_for_a_containerised_darkwire() {
     let h = Harness::new();
     h.install("dev", &json!({}));
     let mut options = h.options();
-    // A bind path is resolved by the *daemon*, so asking for GhostAI's own
+    // A bind path is resolved by the *daemon*, so asking for DarkWire's own
     // `/ghost/...` would mount the host's path of that name — silently, and
     // usually as an empty directory.
     options.host_path = Some(Arc::new(|path: &str| format!("/host{path}")));
@@ -1050,7 +1050,7 @@ mod a_container_that_disappeared {
         let outcome = run(&runner).await.unwrap();
         assert_eq!(outcome.code, Some(0));
         assert_eq!(h.engine.starts().len(), 2);
-        assert_eq!(pool.live(), vec!["ghost-sbx-2".to_owned()]);
+        assert_eq!(pool.live(), vec!["dw-sbx-2".to_owned()]);
     }
 
     #[tokio::test]
@@ -1071,9 +1071,9 @@ mod a_container_that_disappeared {
         assert_eq!(
             *h.ran_in.lock(),
             vec![
-                "ghost-sbx-1".to_owned(),
-                "ghost-sbx-2".to_owned(),
-                "ghost-sbx-2".to_owned(),
+                "dw-sbx-1".to_owned(),
+                "dw-sbx-2".to_owned(),
+                "dw-sbx-2".to_owned(),
             ]
         );
     }
@@ -1175,7 +1175,7 @@ mod the_definition_is_re_read_every_turn {
             .unwrap();
         assert!(pool.live().is_empty());
         run(&next).await.unwrap();
-        assert_eq!(pool.live(), vec!["ghost-sbx-2".to_owned()]);
+        assert_eq!(pool.live(), vec!["dw-sbx-2".to_owned()]);
     }
 }
 

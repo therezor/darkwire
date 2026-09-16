@@ -30,7 +30,7 @@ import { STATUS } from '@testkit/fixtures.js';
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 
 const DEFINITION = {
-  schema: 'ghostai.environment/1',
+  schema: 'darkwire.environment/1',
   kind: 'container',
   name: 'dev',
   image: IMAGE,

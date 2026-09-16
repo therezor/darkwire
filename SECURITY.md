@@ -3,10 +3,10 @@
 ## Reporting a vulnerability
 
 Report privately through GitHub's
-[Report a vulnerability](https://github.com/therezor/GhostAI/security/advisories/new)
+[Report a vulnerability](https://github.com/therezor/darkwire/security/advisories/new)
 form. Please do not open a public issue for anything exploitable.
 
-Include what you need to make it reproducible: the version (`ghostai --version`), the
+Include what you need to make it reproducible: the version (`darkwire --version`), the
 configuration that matters (with credentials removed — `config.json` never contains any),
 and what an attacker gets. A proof of concept helps more than a description.
 
@@ -31,7 +31,7 @@ Anything that lets someone do something the operator did not authorise, in parti
 - Running an unapproved extension, or getting an extension approval to survive a change
   to the bytes it covers.
 - Running a command in a container whose definition has changed under it, or reaching a
-  definition outside `~/.ghostai/policy/`.
+  definition outside `~/.darkwire/policy/`.
 - Authentication bypass, session fixation, or defeating the login throttle.
 - Escaping a container, or reaching a host its egress gateway should have refused.
 

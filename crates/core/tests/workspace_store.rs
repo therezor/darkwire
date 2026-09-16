@@ -15,20 +15,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{NOW, make_store_on};
-use ghostai_core::ids::{
+use darkwire_core::ids::{
     DEFAULT_WORKSPACE_ID, RESERVED_WORKSPACE_IDS, derive_workspace_id, is_workspace_id,
 };
-use ghostai_core::paths::{GhostPaths, ResolveGhostPaths, shared_dir_for, workspace_dir_for};
-use ghostai_core::session_store::{CreateSession, ListSessions};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::workspace_store::{CreateWorkspace, WorkspaceStore};
-use ghostai_core::{Database, ErrorKind};
+use darkwire_core::paths::{ResolveWirePaths, WirePaths, shared_dir_for, workspace_dir_for};
+use darkwire_core::session_store::{CreateSession, ListSessions};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::workspace_store::{CreateWorkspace, WorkspaceStore};
+use darkwire_core::{Database, ErrorKind};
 use proptest::prelude::*;
 use serde_json::json;
 
 struct Fixture {
     root: tempfile::TempDir,
-    paths: GhostPaths,
+    paths: WirePaths,
     db: Database,
     clock: Arc<ManualClock>,
     store: WorkspaceStore,
@@ -36,10 +36,10 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let root = tempfile::tempdir().unwrap();
-    let paths = GhostPaths::resolve(ResolveGhostPaths {
+    let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(root.path().to_string_lossy().into_owned()),
         home: Some(root.path().to_path_buf()),
-        ..ResolveGhostPaths::default()
+        ..ResolveWirePaths::default()
     })
     .unwrap();
     std::fs::create_dir_all(&paths.workspace).unwrap();
@@ -56,7 +56,7 @@ fn fixture() -> Fixture {
 }
 
 impl Fixture {
-    fn create(&self, name: &str) -> ghostai_core::workspace_store::WorkspaceRecord {
+    fn create(&self, name: &str) -> darkwire_core::workspace_store::WorkspaceRecord {
         self.store
             .create(CreateWorkspace {
                 name: name.to_owned(),
@@ -69,7 +69,7 @@ impl Fixture {
         &self,
         name: &str,
         id: &str,
-    ) -> ghostai_core::Result<ghostai_core::workspace_store::WorkspaceRecord> {
+    ) -> darkwire_core::Result<darkwire_core::workspace_store::WorkspaceRecord> {
         self.store.create(CreateWorkspace {
             name: name.to_owned(),
             id: Some(id.to_owned()),
@@ -91,7 +91,7 @@ impl Fixture {
     }
 }
 
-fn kind_of<T>(result: ghostai_core::Result<T>) -> ErrorKind {
+fn kind_of<T>(result: darkwire_core::Result<T>) -> ErrorKind {
     result.err().map(|e| e.kind).expect("expected an error")
 }
 
@@ -104,10 +104,10 @@ proptest! {
     #[test]
     fn always_derives_something_legal_for_any_name_at_all(name in ".*") {
         // Resolving touches no filesystem, so one fixed root serves every case.
-        let paths = GhostPaths::resolve(ResolveGhostPaths {
-            root: Some("/ghostai-home".to_owned()),
+        let paths = WirePaths::resolve(ResolveWirePaths {
+            root: Some("/darkwire-home".to_owned()),
             home: Some(PathBuf::from("/home/nobody")),
-            ..ResolveGhostPaths::default()
+            ..ResolveWirePaths::default()
         })
         .unwrap();
         let slug = derive_workspace_id(&name);

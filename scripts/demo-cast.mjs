@@ -8,18 +8,18 @@
  *  1. A mock provider on 127.0.0.1:11500 speaking the `openai-chat` wire,
  *     scripted to call `list_dir` and then answer from what came back — the
  *     same shape `packages/e2e/src/harness/script.ts` gives the browser suite.
- *     It drives the **real** `ghostai` binary — `target/release/ghostai`, which
+ *     It drives the **real** `darkwire` binary — `target/release/darkwire`, which
  *     `pnpm demo` builds first — through a real config, because a recording of
  *     a mock is not a recording of the product.
  *  2. A throwaway install, seeded with one file for the agent to find.
- *  3. `scripts/ptyrec.py` records **bash** on a real pty, types `ghostai chat`,
+ *  3. `scripts/ptyrec.py` records **bash** on a real pty, types `darkwire chat`,
  *     waits for the TUI, asks the question, and leaves. Keystrokes are
  *     scheduled so the run reproduces; the timings in the cast are the real
  *     ones, and every byte on screen came back through the pty from the
  *     programs themselves.
  *  4. `svg-term` renders the cast to a self-contained animated SVG.
  *
- * **Why a pty and not a pipe.** Piping `ghostai chat` gets you the plain stream
+ * **Why a pty and not a pipe.** Piping `darkwire chat` gets you the plain stream
  * it writes for a machine: no session header, no composer, no status bar, no
  * spinner. That is a demo of the wrong thing. The child has to believe it is on
  * a terminal, and `script` needs a controlling terminal this repo's tooling does
@@ -50,10 +50,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'docs', 'screenshots', 'demo.svg');
 const REC = join(ROOT, 'scripts', 'ptyrec.py');
 // The release build, which is what `pnpm demo` builds. A debug binary records
-// the same pixels, so `GHOSTAI_BIN` is here for the case where one is already
+// the same pixels, so `DARKWIRE_BIN` is here for the case where one is already
 // to hand rather than as a knob the cast depends on.
 const BIN =
-  process.env.GHOSTAI_BIN ?? join(ROOT, 'target', 'release', 'ghostai');
+  process.env.DARKWIRE_BIN ?? join(ROOT, 'target', 'release', 'darkwire');
 const PORT = 11500;
 const MODEL = 'qwen3:8b';
 const QUESTION = 'what is in the workspace?';
@@ -66,7 +66,7 @@ function seedHome() {
   // workspace and a random suffix would change the picture on every run — and
   // not `tmpdir()` either, which on macOS is a 50-character `/var/folders/...`
   // that wraps the header and tells a reader nothing.
-  const home = '/tmp/ghostai-demo';
+  const home = '/tmp/darkwire-demo';
   rmSync(home, { recursive: true, force: true });
   mkdirSync(join(home, 'workspace'), { recursive: true });
   mkdirSync(join(home, 'bin'), { recursive: true });
@@ -75,15 +75,15 @@ function seedHome() {
     join(home, 'workspace', 'notes.md'),
     '# Notes\n\nRemember to water the plants.\n',
   );
-  // A real `ghostai` on PATH, so the typed command is the one a reader will
+  // A real `darkwire` on PATH, so the typed command is the one a reader will
   // type. The name has to be the one `TAKE` types, or `PATH` shadows nothing
-  // and the take records whatever `ghostai` the operator happens to have
+  // and the take records whatever `darkwire` the operator happens to have
   // installed — a recording of the last release rather than of this checkout,
   // which is the one thing the header above says this script does not do.
   //
-  // A shim rather than a symlink because `GHOSTAI_BIN` is allowed to name a
+  // A shim rather than a symlink because `DARKWIRE_BIN` is allowed to name a
   // binary anywhere, and `exec` keeps the process count the same either way.
-  const shim = join(home, 'bin', 'ghostai');
+  const shim = join(home, 'bin', 'darkwire');
   writeFileSync(shim, `#!/bin/sh\nexec ${BIN} "$@"\n`);
   chmodSync(shim, 0o755);
 
@@ -163,7 +163,7 @@ function brightBlackToGrey(castPath) {
 /** The take. Slow enough to read, short enough to loop. */
 const TAKE = [
   [0.9, ''],
-  ...type('ghostai chat', 0.07),
+  ...type('darkwire chat', 0.07),
   [0.45, '\r'],
   [1.9, ''],
   ...type(QUESTION, 0.055),
@@ -174,12 +174,12 @@ const TAKE = [
 ];
 
 // Before anything is spawned. A missing binary is otherwise a ten-second
-// recording of `bash: ghostai: command not found`, which succeeds, overwrites
+// recording of `bash: darkwire: command not found`, which succeeds, overwrites
 // the committed SVG, and looks like a UI change in `git status`.
 if (!existsSync(BIN)) {
   process.stderr.write(
-    `No ghostai binary at ${BIN}.\n` +
-      'Run `pnpm build && cargo build --release -p ghostai`, or set GHOSTAI_BIN.\n',
+    `No darkwire binary at ${BIN}.\n` +
+      'Run `pnpm build && cargo build --release -p darkwire`, or set DARKWIRE_BIN.\n',
   );
   process.exit(1);
 }
@@ -199,7 +199,7 @@ await new Promise((resolve, reject) => {
 });
 
 const home = seedHome();
-const work = mkdtempSync(join(tmpdir(), 'ghostai-cast-'));
+const work = mkdtempSync(join(tmpdir(), 'darkwire-cast-'));
 
 const record = (keys, castPath) => {
   writeFileSync(join(work, 'keys.json'), JSON.stringify(keys));
@@ -221,7 +221,7 @@ const record = (keys, castPath) => {
       stdio: 'inherit',
       env: {
         ...process.env,
-        GHOSTAI_HOME: home,
+        DARKWIRE_HOME: home,
         PATH: `${join(home, 'bin')}:${process.env.PATH ?? ''}`,
         PS1: '❯ ',
         BASH_SILENCE_DEPRECATION_WARNING: '1',

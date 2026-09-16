@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { AgentSummary, ModelInfo } from '@ghostwire/protocol';
+import type { AgentSummary, ModelInfo } from '@darkwire/protocol';
 
 import {
   commandRows,

@@ -3,18 +3,18 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_channels::channel::ChannelControlFrame;
-use ghostai_channels::telegram::api::TelegramMessageEntity;
-use ghostai_channels::telegram::chats::{ChatState, RenderPrefs};
-use ghostai_channels::telegram::commands::{
+use darkwire_channels::channel::ChannelControlFrame;
+use darkwire_channels::telegram::api::TelegramMessageEntity;
+use darkwire_channels::telegram::chats::{ChatState, RenderPrefs};
+use darkwire_channels::telegram::commands::{
     CommandInput, CommandResult, bot_commands, help_text, parse_command, resolve_seq, run_command,
 };
-use ghostai_channels::telegram::console::{SkillSummary, TelegramConsole};
-use ghostai_channels::telegram::menus::{CallbackLookup, CallbackPayload, CallbackStore};
-use ghostai_core::clock::Clock;
-use ghostai_core::messages::{AssistantOptions, assistant_message, text_part, user_message};
-use ghostai_core::session_store::{AppendOptions, CreateSession, TurnStatsRecord};
-use ghostai_protocol::{ChatMessage, ContextResponse, StopReason, Usage};
+use darkwire_channels::telegram::console::{SkillSummary, TelegramConsole};
+use darkwire_channels::telegram::menus::{CallbackLookup, CallbackPayload, CallbackStore};
+use darkwire_core::clock::Clock;
+use darkwire_core::messages::{AssistantOptions, assistant_message, text_part, user_message};
+use darkwire_core::session_store::{AppendOptions, CreateSession, TurnStatsRecord};
+use darkwire_protocol::{ChatMessage, ContextResponse, StopReason, Usage};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
@@ -797,7 +797,7 @@ async fn memory_explains_the_tool_it_needs_when_the_agent_lacks_it() {
     let harness = harness();
     harness
         .console
-        .set_memory(ghostai_channels::telegram::console::MemoryState {
+        .set_memory(darkwire_channels::telegram::console::MemoryState {
             granted: false,
             count: 0,
             tokens: 0,
@@ -817,7 +817,7 @@ async fn memory_reports_what_is_remembered_and_what_it_costs() {
     let harness = harness();
     harness
         .console
-        .set_memory(ghostai_channels::telegram::console::MemoryState {
+        .set_memory(darkwire_channels::telegram::console::MemoryState {
             granted: true,
             count: 7,
             tokens: 210,
@@ -1281,7 +1281,7 @@ async fn start_opens_with_a_sentence_and_then_the_same_list_help_shows() {
     let help = run(&harness, "/help").await;
 
     assert!(
-        start.text.contains("This chat is a GhostAI session"),
+        start.text.contains("This chat is a DarkWire session"),
         "{}",
         start.text
     );

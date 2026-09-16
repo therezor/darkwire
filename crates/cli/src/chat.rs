@@ -1,4 +1,4 @@
-//! `ghostai chat` — a turn, or a conversation of them.
+//! `darkwire chat` — a turn, or a conversation of them.
 //!
 //! Three shapes over one implementation: a message on the command line runs a
 //! single turn and exits, a piped stdin is read as that message, and an
@@ -37,15 +37,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ghostai_agent::{AgentLoop, PromptPreviewInput, describe_context};
-use ghostai_core::messages::Content;
-use ghostai_core::session_store::CreateSession;
-use ghostai_core::{GhostError, Result};
-use ghostai_i18n::{args, keys};
-use ghostai_protocol::{DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, StopReason};
-use ghostai_runtime::{GhostRuntime, RuntimeOptions};
-use ghostai_server::agent_for_turn;
-use ghostai_tui::{
+use darkwire_agent::{AgentLoop, PromptPreviewInput, describe_context};
+use darkwire_core::messages::Content;
+use darkwire_core::session_store::CreateSession;
+use darkwire_core::{Result, WireError};
+use darkwire_i18n::{args, keys};
+use darkwire_protocol::{DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, StopReason};
+use darkwire_runtime::{RuntimeOptions, WireRuntime};
+use darkwire_server::agent_for_turn;
+use darkwire_tui::{
     CHROME_ROWS, Component, DEFAULT_MAX_ROWS, Editor, EditorOutcome, Key, KeyName, Renderer,
     RendererOptions, SPINNER_INTERVAL_MS, Select, SelectOptions, SelectOutcome, StandardInput,
     StandardOutput, TerminalInput, Theme, Transcript, columns_of, is_ctrl, open_keyboard,
@@ -140,7 +140,7 @@ pub async fn run_turn(deps: RunTurnDeps<'_>, content: Content) -> Result<TurnOut
     let mut stop_reason: Option<StopReason> = None;
 
     let mut turn = agent_loop.run(
-        ghostai_agent::TurnInput {
+        darkwire_agent::TurnInput {
             session_key,
             content,
             channel: Some("cli".to_owned()),
@@ -155,10 +155,10 @@ pub async fn run_turn(deps: RunTurnDeps<'_>, content: Content) -> Result<TurnOut
     );
 
     while let Some(event) = turn.next_event().await {
-        if let ghostai_agent::AgentEvent::Nested(nested) = &event {
+        if let darkwire_agent::AgentEvent::Nested(nested) = &event {
             match nested {
-                ghostai_protocol::NestedAgentEvent::Error(_) => failed = true,
-                ghostai_protocol::NestedAgentEvent::TurnEnd(end) => {
+                darkwire_protocol::NestedAgentEvent::Error(_) => failed = true,
+                darkwire_protocol::NestedAgentEvent::TurnEnd(end) => {
                     stop_reason = Some(end.stop_reason);
                 }
                 _ => {}
@@ -216,7 +216,7 @@ pub struct Attachment {
 
 /// Everything a chat run was asked for, after the flags were read.
 pub struct ChatSession {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     t: Translations,
     theme: Theme,
     colors: Option<bool>,
@@ -242,7 +242,7 @@ impl std::fmt::Debug for ChatSession {
 
 impl ChatSession {
     /// The runtime this prompt is talking to.
-    pub fn runtime(&self) -> &Arc<GhostRuntime> {
+    pub fn runtime(&self) -> &Arc<WireRuntime> {
         &self.runtime
     }
 
@@ -393,7 +393,7 @@ impl ChatSession {
         // on every keystroke.
         let agent_loop = self.runtime.loop_for(Some(&id)).ok().flatten();
         let spec = agent_loop.as_ref().and_then(|one| {
-            ghostai_providers::find_provider(one.provider(), &ghostai_providers::PROVIDERS)
+            darkwire_providers::find_provider(one.provider(), &darkwire_providers::PROVIDERS)
         });
 
         HeaderView {
@@ -433,7 +433,7 @@ impl ChatSession {
 /// Separate from [`run`] so a test can drive a whole prompt without a terminal
 /// or a signal handler.
 pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession> {
-    let runtime = ghostai_runtime::create_runtime(RuntimeOptions {
+    let runtime = darkwire_runtime::create_runtime(RuntimeOptions {
         home: globals.home.clone(),
         workspace: args.workspace.clone(),
         model: args.model.clone(),
@@ -448,7 +448,7 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
     }
 
     // After the runtime, because this is the first point the install's own
-    // answer exists — `config.ui.locale` sits under `GHOSTAI_LANG` and above the
+    // answer exists — `config.ui.locale` sits under `DARKWIRE_LANG` and above the
     // shell's `LANG` in the order the resolution applies.
     let t = Translations::for_env(env, Some(&runtime.config().ui.locale));
 
@@ -462,11 +462,11 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
                 let runtime = Arc::clone(&runtime);
                 let env = env_map(env);
                 Arc::new(move |instance| {
-                    ghostai_runtime::find_credential(
+                    darkwire_runtime::find_credential(
                         instance,
                         &runtime.paths(),
                         &env,
-                        &ghostai_runtime::VaultChoice::Default,
+                        &darkwire_runtime::VaultChoice::Default,
                     )
                     .ok()
                     .flatten()
@@ -494,7 +494,7 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
     })
 }
 
-/// Runs one `ghostai chat` invocation and answers with its exit code.
+/// Runs one `darkwire chat` invocation and answers with its exit code.
 pub async fn run(
     globals: &Globals,
     args: ChatArgs,
@@ -509,7 +509,7 @@ pub async fn run(
     install_logger(
         globals
             .chat_log_level()
-            .unwrap_or(ghostai_core::LogLevel::Error),
+            .unwrap_or(darkwire_core::LogLevel::Error),
         env,
     );
 
@@ -558,13 +558,13 @@ async fn repl(session: &mut ChatSession, args: &ChatArgs, streams: &mut Streams)
     drive_prompt(session, args, &mut surface).await
 }
 
-/// Everything piped in, for `ghostai chat < prompt.txt`.
+/// Everything piped in, for `darkwire chat < prompt.txt`.
 fn read_all_stdin() -> Result<String> {
     use std::io::Read as _;
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(GhostError::from)?;
+        .map_err(WireError::from)?;
     Ok(text)
 }
 
@@ -636,7 +636,7 @@ async fn turn_once(
 
     let chosen = session.agent_for_this_turn(&mut renderer);
     // Requiring a loop rather than taking whatever there is: an unconfigured
-    // install builds a runtime with no loop so that `ghostai serve` can come
+    // install builds a runtime with no loop so that `darkwire serve` can come
     // up, and this is the one caller that genuinely cannot proceed without one.
     // The refusal names what to set.
     let agent_loop = session.runtime.require_loop_for(chosen.as_deref())?;
@@ -712,16 +712,16 @@ async fn streamed(
         tokio::select! {
             biased;
             Some(text) = chunks.recv() => {
-                out.write_all(text.as_bytes()).map_err(GhostError::from)?;
-                out.flush().map_err(GhostError::from)?;
+                out.write_all(text.as_bytes()).map_err(WireError::from)?;
+                out.flush().map_err(WireError::from)?;
             }
             done = &mut turn => break done,
         }
     };
     while let Ok(text) = chunks.try_recv() {
-        out.write_all(text.as_bytes()).map_err(GhostError::from)?;
+        out.write_all(text.as_bytes()).map_err(WireError::from)?;
     }
-    out.flush().map_err(GhostError::from)?;
+    out.flush().map_err(WireError::from)?;
     outcome
 }
 
@@ -940,7 +940,7 @@ async fn prompt_turn(
 
 /// Lines in, lines out, for a stdout that is not a terminal.
 ///
-/// `ghostai chat > log` and `ghostai chat | tee` still open a prompt, because
+/// `darkwire chat > log` and `darkwire chat | tee` still open a prompt, because
 /// stdin is still a keyboard — but nothing here moves a cursor. There is no
 /// frame, no status bar and no menu, and [`NoMenu`] is what makes that last
 /// part a property of the type rather than an `if` at every call site.
@@ -965,7 +965,7 @@ impl<'a> PlainSurface<'a> {
     /// device read in the middle of the loop is what stops an answer streaming
     /// while somebody is typing the next question.
     pub fn open(out: &'a mut (dyn Write + Send), header: &str) -> Result<PlainSurface<'a>> {
-        writeln!(out, "{header}").map_err(GhostError::from)?;
+        writeln!(out, "{header}").map_err(WireError::from)?;
         let (tx, lines) = mpsc::unbounded_channel();
         std::thread::spawn(move || {
             for line in std::io::stdin().lines() {
@@ -1448,7 +1448,7 @@ impl Surface for FramedSurface {
             // Not through the keyboard: that thread is parked inside a
             // blocking device read and will not come back until the terminal
             // sends something. The mode is a property of the tty rather than
-            // of the reader, so it is set from here — otherwise `ghostai chat`
+            // of the reader, so it is set from here — otherwise `darkwire chat`
             // returns the operator to a shell with no echo and no line
             // editing, which looks like a hung terminal.
             if self.owns_raw {

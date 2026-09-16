@@ -9,13 +9,13 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::channel::{
+use darkwire_channels::channel::{
     BoxFuture, CHANNEL_CONTROL_TAGS, Channel, ChannelControlFrame, ChannelFactory, ChannelInbound,
     DEFAULT_ACCEPTED_KINDS,
 };
-use ghostai_core::Result;
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage};
-use ghostai_protocol::{
+use darkwire_core::Result;
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage};
+use darkwire_protocol::{
     ApprovalScope, ClientMessage, EditMessage, EditTag, RegenerateMessage, RegenerateTag,
     SteerMessage, SteerTag, StopTurnMessage, StopTurnTag, ToolApproveMessage, ToolApproveTag,
 };
@@ -187,8 +187,8 @@ fn a_factory_failure_is_a_value() {
     let factory = ChannelFactory::new(
         "bare",
         Arc::new(|_| {
-            Err(ghostai_core::GhostError::new(
-                ghostai_core::ErrorKind::Config,
+            Err(darkwire_core::WireError::new(
+                darkwire_core::ErrorKind::Config,
                 "the settings block is wrong",
             ))
         }),

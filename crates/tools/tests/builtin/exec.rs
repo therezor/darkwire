@@ -12,12 +12,12 @@ use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ghostai_core::{ErrorKind, Result};
-use ghostai_protocol::ToolSource;
-use ghostai_security::ExecPlan;
-use ghostai_tools::builtin::exec::effective_timeout;
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, Result};
+use darkwire_protocol::ToolSource;
+use darkwire_security::ExecPlan;
+use darkwire_tools::builtin::exec::effective_timeout;
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     BoxFuture, CommandRunner, RunOutcome, RunRequest, ToolContext, ToolExecution, ToolInvocation,
     ToolRegistry, exec_tool,
 };
@@ -104,7 +104,7 @@ async fn records_argv_and_the_validated_paths_for_the_audit_log() {
 async fn reports_a_program_that_does_not_exist() {
     let ws = TestWorkspace::new();
     let error = run(
-        json!({"argv": ["ghostai-definitely-not-a-binary"]}),
+        json!({"argv": ["darkwire-definitely-not-a-binary"]}),
         ws.context(),
     )
     .await;
@@ -156,12 +156,12 @@ async fn passes_only_the_allow_listed_environment_through() {
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
     env.insert("HOME".to_owned(), "/home/x".to_owned());
-    env.insert("GHOSTAI_API_KEY".to_owned(), "secret".to_owned());
+    env.insert("DARKWIRE_API_KEY".to_owned(), "secret".to_owned());
     ctx.env = Arc::new(env);
     let result = ok(json!({"argv": ["env"]}), &ctx).await;
     assert!(result.content.contains("PATH="));
     assert!(result.content.contains("HOME=/home/x"));
-    assert!(!result.content.contains("GHOSTAI_API_KEY"));
+    assert!(!result.content.contains("DARKWIRE_API_KEY"));
 }
 
 #[tokio::test]
@@ -321,7 +321,7 @@ async fn still_refuses_a_denied_command_before_any_runner_is_consulted() {
     let runner = recording();
     let mut ctx = with_runner(&ws, &runner);
     ctx = ctx.with_config({
-        let mut config = ghostai_protocol::ToolsConfig::default();
+        let mut config = darkwire_protocol::ToolsConfig::default();
         config.exec.denied_binaries = vec!["printf".to_owned()];
         config
     });
@@ -336,7 +336,7 @@ async fn passes_the_reconciled_timeout_not_the_models_request() {
     let runner = recording();
     let mut ctx = with_runner(&ws, &runner);
     ctx = ctx.with_config({
-        let mut config = ghostai_protocol::ToolsConfig::default();
+        let mut config = darkwire_protocol::ToolsConfig::default();
         config.exec.timeout_ms = 5_000;
         config
     });
@@ -353,15 +353,19 @@ async fn names_the_transcript_when_a_truncated_run_kept_one() {
             stdout: "head".to_owned(),
             truncated: true,
             code: Some(0),
-            transcript_dir: Some("/run/ghost-runs/c/r1".to_owned()),
+            transcript_dir: Some("/run/darkwire-runs/c/r1".to_owned()),
             ..RunOutcome::default()
         },
     });
     let result = ok(json!({"argv": ["printf", "x"]}), &with_runner(&ws, &runner)).await;
-    assert!(result.content.contains("/run/ghost-runs/c/r1/stdout.log"));
+    assert!(
+        result
+            .content
+            .contains("/run/darkwire-runs/c/r1/stdout.log")
+    );
     assert!(result.content.contains("read_file cannot"));
     assert_eq!(
         result.details.get("transcriptDir"),
-        Some(&json!("/run/ghost-runs/c/r1"))
+        Some(&json!("/run/darkwire-runs/c/r1"))
     );
 }

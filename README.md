@@ -1,34 +1,34 @@
 <div align="center">
 
 ```
- ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗ █████╗ ██╗
-██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██║
-██║  ███╗███████║██║   ██║███████╗   ██║   ███████║██║
-██║   ██║██╔══██║██║   ██║╚════██║   ██║   ██╔══██║██║
-╚██████╔╝██║  ██║╚██████╔╝███████║   ██║   ██║  ██║██║
- ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝
+██████╗  █████╗ ██████╗ ██╗  ██╗██╗    ██╗██╗██████╗ ███████╗
+██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝██║    ██║██║██╔══██╗██╔════╝
+██║  ██║███████║██████╔╝█████╔╝ ██║ █╗ ██║██║██████╔╝█████╗
+██║  ██║██╔══██║██╔══██╗██╔═██╗ ██║███╗██║██║██╔══██╗██╔══╝
+██████╔╝██║  ██║██║  ██║██║  ██╗╚███╔███╔╝██║██║  ██║███████╗
+╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝╚═╝  ╚═╝╚══════╝
 ```
 
-# GhostAI
+# DarkWire
 
-### No telemetry. No callbacks. No witnesses.
+### Your models. Your machine. Your wire.
 
 An agent with a real shell and real file tools, running local models on your own
 hardware — Ollama, LM Studio, llama.cpp, vLLM.<br>
 Cloud providers are opt-in, not assumed.
 
-[![licence](https://img.shields.io/github/license/therezor/GhostAI?style=flat-square&color=3fb950&labelColor=0d1117)](LICENSE)
-[![install](https://img.shields.io/badge/install-one%20binary-3fb950?style=flat-square&labelColor=0d1117)](docs/getting-started.md)
-[![build](https://img.shields.io/github/actions/workflow/status/therezor/GhostAI/ci.yml?style=flat-square&color=3fb950&labelColor=0d1117)](.github/workflows/ci.yml)
-[![telemetry](https://img.shields.io/badge/telemetry-zero-3fb950?style=flat-square&labelColor=0d1117)](packages/web/test/self-contained.test.ts)
-[![runs](https://img.shields.io/badge/runs-offline-3fb950?style=flat-square&labelColor=0d1117)](packages/e2e/test/offline.spec.ts)
-[![release](https://img.shields.io/github/v/release/therezor/GhostAI?style=flat-square&color=3fb950&labelColor=0d1117)](https://github.com/therezor/GhostAI/releases/latest)
+[![licence](https://img.shields.io/github/license/therezor/darkwire?style=flat-square&color=00a6b2&labelColor=0d1117)](LICENSE)
+[![install](https://img.shields.io/badge/install-one%20binary-00a6b2?style=flat-square&labelColor=0d1117)](docs/getting-started.md)
+[![build](https://img.shields.io/github/actions/workflow/status/therezor/darkwire/ci.yml?style=flat-square&color=00a6b2&labelColor=0d1117)](.github/workflows/ci.yml)
+[![telemetry](https://img.shields.io/badge/telemetry-zero-00a6b2?style=flat-square&labelColor=0d1117)](packages/web/test/self-contained.test.ts)
+[![runs](https://img.shields.io/badge/runs-offline-00a6b2?style=flat-square&labelColor=0d1117)](packages/e2e/test/offline.spec.ts)
+[![release](https://img.shields.io/github/v/release/therezor/darkwire?style=flat-square&color=00a6b2&labelColor=0d1117)](https://github.com/therezor/darkwire/releases/latest)
 
 </div>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/therezor/GhostAI/main/install.sh | sh
-ghostai serve
+curl -fsSL https://raw.githubusercontent.com/therezor/darkwire/main/install.sh | sh
+darkwire serve
 ```
 
 <div align="center">
@@ -37,9 +37,8 @@ Prints a URL and a one-time code. Open it, pick a model — done.<br>
 One binary, browser UI compiled in. No runtime, no package manager, nothing to
 install alongside it.
 
-Want a team rather than one agent? `ghostai preset install` picks from a
-[catalogue](https://github.com/therezor/GhostAI-presets) — a researcher, a coder, an
-analyst, a coordinator — and builds only the containers the ones you pick need.
+Want more than one agent? Make them in **Agents**: a system prompt, the tools each may
+call, the container each runs in, and which of the others it may hand work to.
 
 **[Get started](docs/getting-started.md)** · [Docs](docs/) ·
 [Security](docs/security.md)
@@ -47,12 +46,12 @@ analyst, a coordinator — and builds only the containers the ones you pick need
 </div>
 
 <div align="center">
-  <img alt="A terminal recording: ghostai chat is launched, asked what is in the workspace, calls the list_dir tool, and streams back an answer with a code block — finishing in 2 steps." src="docs/screenshots/demo.svg" width="100%">
+  <img alt="A terminal recording: darkwire chat is launched, asked what is in the workspace, calls the list_dir tool, and streams back an answer with a code block — finishing in 2 steps." src="docs/screenshots/demo.svg" width="100%">
 </div>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/chat.light.png">
-  <img alt="GhostAI's chat view: a streaming answer with a highlighted code block, the session sidebar, and the context budget under the composer." src="docs/screenshots/chat.dark.png">
+  <img alt="DarkWire's chat view: a streaming answer with a highlighted code block, the session sidebar, and the context budget under the composer." src="docs/screenshots/chat.dark.png">
 </picture>
 
 ---
@@ -68,7 +67,7 @@ analyst, a coordinator — and builds only the containers the ones you pick need
 Built for long, tool-heavy work on infrastructure you control — recon and pen-test runs,
 codebase surgery, research sweeps, scheduled chores.
 
-## Why GhostAI
+## Why DarkWire
 
 - **You hold every key.** Permission is per tool, per agent — `allow | ask | deny` — and a
   tool absent from the map is not refused at call time, it is **never offered to the model
@@ -150,7 +149,6 @@ More in [Web UI](docs/web-ui.md). Generated from the real app, not staged.
 | [**Skills**](docs/skills.md)                           | A folder in the workspace. The agent opens the sheet when it applies; ~20 tokens to index.                                                                            |
 | [**Memory**](docs/memory.md)                           | One markdown file per fact, committed beside the project.                                                                                                             |
 | [**Environments**](docs/environments.md)               | Bound the blast radius. `exec` runs in a digest-pinned container with caps dropped and root read-only, and no image, capability or uid an agent's config could reach. |
-| [**Agent presets**](docs/cli.md#ghost-preset)          | `ghostai preset install` picks agents from a catalogue and builds only the containers those agents named, printing what each one may do as it lands.                  |
 | [**MCP servers**](docs/tools.md#mcp-servers)           | stdio, Streamable HTTP or SSE, with OAuth. Each agent picks which of their tools it may call.                                                                         |
 | [**Extensions**](docs/extensions.md)                   | Tools, channels, providers, prompt sections, commands. Approval is a digest over every byte.                                                                          |
 | [**Subagents**](docs/architecture.md#subagents)        | One agent hands work to another as an `ask_<id>` tool.                                                                                                                |
@@ -220,11 +218,11 @@ one is a folder plus a line.
 <summary>Running from source</summary>
 
 ```bash
-git clone https://github.com/therezor/GhostAI.git
-cd GhostAI
+git clone https://github.com/therezor/darkwire.git
+cd DarkWire
 pnpm install
 pnpm build                                  # the web bundle the binary embeds
-cargo build --release -p ghostai            # → target/release/ghostai
+cargo build --release -p darkwire            # → target/release/darkwire
 ```
 
 Needs pnpm 11 (`corepack enable`) and `rustup`; the compiler version is pinned in

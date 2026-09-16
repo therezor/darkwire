@@ -8,7 +8,7 @@
 
 mod common;
 
-use ghostai_providers::{
+use darkwire_providers::{
     ChatRequest, ChatStreamEvent, FinishReason, ToolChoice, WireAdapterOptions, empty_usage,
 };
 use serde_json::json;

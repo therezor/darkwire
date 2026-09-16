@@ -52,18 +52,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt as _;
-use futures::stream::FuturesUnordered;
-use ghostai_core::history::truncate_head_tail;
-use ghostai_core::messages::{ToolOptions, tool_message};
-use ghostai_core::{Clock, ErrorKind, Result};
-use ghostai_protocol::{
+use darkwire_core::history::truncate_head_tail;
+use darkwire_core::messages::{ToolOptions, tool_message};
+use darkwire_core::{Clock, ErrorKind, Result};
+use darkwire_protocol::{
     AgentEnvironment, ChatMessage, Notice, NoticeKind, ToolApprovalRequest, ToolCall,
     ToolCallStarted, ToolPermission, ToolResult, ToolRisk, ToolsConfig,
 };
-use ghostai_providers::{BoxFuture, ChatResult};
-use ghostai_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
-use ghostai_tools::{ToolContext, ToolExecution, ToolInvocation, ToolScope};
+use darkwire_providers::{BoxFuture, ChatResult};
+use darkwire_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
+use darkwire_tools::{ToolContext, ToolExecution, ToolInvocation, ToolScope};
+use futures::StreamExt as _;
+use futures::stream::FuturesUnordered;
 use indexmap::IndexMap;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -330,7 +330,7 @@ impl ToolDispatcher {
     /// The `tool.call` event a call announces itself with.
     fn call_event(&self, call: &ToolCall, turn_id: &str) -> AgentEvent {
         ToolCallStarted {
-            tag: ghostai_protocol::ToolCallTag,
+            tag: darkwire_protocol::ToolCallTag,
             turn_id: turn_id.to_owned(),
             call_id: call.id.clone(),
             name: call.name.clone(),
@@ -435,7 +435,7 @@ impl ToolDispatcher {
         let truncated = truncation.truncated || execution.truncated;
 
         sink.emit(ToolResult {
-            tag: ghostai_protocol::ToolResultTag,
+            tag: darkwire_protocol::ToolResultTag,
             turn_id: turn.turn_id.clone(),
             call_id: call.id.clone(),
             ok: !execution.is_error,
@@ -463,7 +463,7 @@ impl ToolDispatcher {
                         "prompt injection signals in tool output"
                     );
                     sink.emit(Notice {
-                        tag: ghostai_protocol::NoticeTag,
+                        tag: darkwire_protocol::NoticeTag,
                         kind: NoticeKind::PromptInjection,
                         message: describe_injection_findings(&wrapped.findings),
                         turn_id: Some(turn.turn_id.clone()),
@@ -677,7 +677,7 @@ impl ToolDispatcher {
                 "tool call refused: tools are switched off for this model"
             );
             sink.emit(Notice {
-                tag: ghostai_protocol::NoticeTag,
+                tag: darkwire_protocol::NoticeTag,
                 kind: NoticeKind::ToolsDisabled,
                 message: format!(
                     "Refused \"{}\": tool calling is off for this model, so nothing ran.",
@@ -730,7 +730,7 @@ impl ToolDispatcher {
             };
 
             sink.emit(ToolApprovalRequest {
-                tag: ghostai_protocol::ToolApprovalRequestTag,
+                tag: darkwire_protocol::ToolApprovalRequestTag,
                 turn_id: turn.turn_id.clone(),
                 call_id: call.id.clone(),
                 name: call.name.clone(),
@@ -757,7 +757,7 @@ impl ToolDispatcher {
             "tool call denied"
         );
         sink.emit(Notice {
-            tag: ghostai_protocol::NoticeTag,
+            tag: darkwire_protocol::NoticeTag,
             kind: NoticeKind::ApprovalDenied,
             message: denied_notice(&call.name, denial),
             turn_id: Some(turn.turn_id.clone()),
@@ -866,8 +866,8 @@ fn elapsed_ms(clock: &dyn Clock, started: Duration) -> u64 {
 }
 
 fn progress(turn_id: &str, call: &ToolCall, elapsed_ms: u64) -> AgentEvent {
-    ghostai_protocol::ToolProgress {
-        tag: ghostai_protocol::ToolProgressTag,
+    darkwire_protocol::ToolProgress {
+        tag: darkwire_protocol::ToolProgressTag,
         turn_id: turn_id.to_owned(),
         call_id: call.id.clone(),
         elapsed_ms,

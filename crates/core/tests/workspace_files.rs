@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ghostai_core::workspace_files::{
+use darkwire_core::workspace_files::{
     DEFAULT_MIME_TYPE, MAX_TEXT_BYTES, WorkspaceText, mime_type_for, read_text,
 };
 use tempfile::TempDir;
@@ -129,6 +129,6 @@ mod read {
     fn fails_on_a_file_that_is_not_there() {
         let dir = tempfile::tempdir().unwrap();
         let error = read_text(&dir.path().join("missing"), 10).unwrap_err();
-        assert_eq!(error.kind, ghostai_core::ErrorKind::NotFound);
+        assert_eq!(error.kind, darkwire_core::ErrorKind::NotFound);
     }
 }

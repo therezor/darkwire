@@ -21,6 +21,6 @@ author each half, and the heading came from operator data rather than from this 
 Anything an image needs said goes in `platformPrompt` now. A config still setting
 `environmentPrompt` is reported as a warning rather than read.
 
-The supported placeholders are exported by `@ghostwire/protocol`. The editor flags unknown
+The supported placeholders are exported by `@darkwire/protocol`. The editor flags unknown
 placeholders before saving, while the renderer leaves unknown placeholders visible rather
 than silently deleting text.

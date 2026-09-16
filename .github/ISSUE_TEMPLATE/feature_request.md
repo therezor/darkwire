@@ -6,7 +6,7 @@ labels: enhancement
 
 **What you are trying to do**
 
-The task, not the feature. What are you trying to get done, and where does GhostAI stop
+The task, not the feature. What are you trying to get done, and where does DarkWire stop
 being able to help?
 
 **What you do today instead**

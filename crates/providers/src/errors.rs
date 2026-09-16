@@ -16,7 +16,7 @@
 //! bare 400 still degrades: the ladder drops parameters that were sent rather
 //! than parameters that were named, so it works without the hint.
 //!
-//! A [`ProviderError`] is a *view* over the one [`GhostError`] every crate
+//! A [`ProviderError`] is a *view* over the one [`WireError`] every crate
 //! returns, not a second error type. It writes its `reason` and diagnosis into
 //! `details` under fixed keys and reads them back from there, so a failure
 //! crossing into the agent loop keeps a `kind` from the core taxonomy and the
@@ -26,7 +26,7 @@ use std::error::Error as StdError;
 use std::io;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -163,7 +163,7 @@ impl std::fmt::Display for ProviderErrorReason {
 /// A provider failure, with the diagnosis the ladder reads.
 ///
 /// Built with the `with_*` methods and turned into the error every crate
-/// returns by [`ProviderError::into_ghost`]; read back off one with
+/// returns by [`ProviderError::into_wire`]; read back off one with
 /// [`ProviderError::of`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProviderError {
@@ -255,7 +255,7 @@ impl ProviderError {
     /// The core error, with the diagnosis in `details` where the logger and
     /// [`ProviderError::of`] can find it. Absent fields are absent rather than
     /// present-and-null, because redaction and log filtering work by path.
-    pub fn into_ghost(self) -> GhostError {
+    pub fn into_wire(self) -> WireError {
         let mut details = Map::new();
         details.insert("reason".into(), Value::String(self.reason.as_str().into()));
         if !self.provider_id.is_empty() {
@@ -276,19 +276,19 @@ impl ProviderError {
         for (key, value) in self.details {
             details.insert(key, value);
         }
-        GhostError::new(self.reason.kind(), self.message)
+        WireError::new(self.reason.kind(), self.message)
             .with_retryable(self.retryable)
             .with_details(details)
     }
 
-    /// Reads a provider failure back off any [`GhostError`].
+    /// Reads a provider failure back off any [`WireError`].
     ///
     /// Structural rather than nominal: an error that carries a `reason` this
     /// crate wrote is that failure, whoever raised it. One that carries none
     /// is classified by its kind, the way the request path classifies what the
     /// socket threw: cancelled is `Aborted`, a deadline is `Timeout`, and
     /// everything else on that path is a failed connection.
-    pub fn of(error: &GhostError) -> ProviderError {
+    pub fn of(error: &WireError) -> ProviderError {
         let reason = error
             .details
             .get("reason")
@@ -335,7 +335,7 @@ impl ProviderError {
     }
 
     /// Whether `error` carries a reason this crate wrote.
-    pub fn is_provider_error(error: &GhostError) -> bool {
+    pub fn is_provider_error(error: &WireError) -> bool {
         error
             .details
             .get("reason")
@@ -344,14 +344,14 @@ impl ProviderError {
     }
 
     /// The reason of `error`, read structurally. See [`ProviderError::of`].
-    pub fn reason_of(error: &GhostError) -> ProviderErrorReason {
+    pub fn reason_of(error: &WireError) -> ProviderErrorReason {
         ProviderError::of(error).reason
     }
 }
 
-impl From<ProviderError> for GhostError {
-    fn from(error: ProviderError) -> GhostError {
-        error.into_ghost()
+impl From<ProviderError> for WireError {
+    fn from(error: ProviderError) -> WireError {
+        error.into_wire()
     }
 }
 

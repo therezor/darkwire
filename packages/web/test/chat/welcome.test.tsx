@@ -123,7 +123,7 @@ describe('the welcome card', () => {
   it('names the selected agent’s model, not the install’s', async () => {
     // The reported bug: a new conversation on an agent with its own model
     // announced the default. `agent-context` persists the choice here.
-    localStorage.setItem('ghostai:agent', 'researcher');
+    localStorage.setItem('darkwire:agent', 'researcher');
     mount();
 
     expect(
@@ -138,7 +138,7 @@ describe('the welcome card', () => {
     // binding in place and so does a branch nobody has spoken in. The card read
     // the remembered preference, so on either of those it announced the model of
     // an agent that was not going to answer.
-    localStorage.setItem('ghostai:agent', 'default');
+    localStorage.setItem('darkwire:agent', 'default');
     stubFetch({
       '/api/status': [200, STATUS],
       '/api/agents': [200, AGENTS],
@@ -167,7 +167,7 @@ describe('the welcome card', () => {
     // A `localStorage` id survives the agent being deleted, and a blank line here
     // reads as "no model configured" — a different and more alarming claim than
     // the truth, which is that this conversation will run on the default.
-    localStorage.setItem('ghostai:agent', 'deleted-agent');
+    localStorage.setItem('darkwire:agent', 'deleted-agent');
     mount();
 
     expect(

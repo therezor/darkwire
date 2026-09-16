@@ -3,17 +3,17 @@
 //!
 //! "Verbatim" is the whole design, and it buys one specific thing: **a plain
 //! MCP server is a valid tools-only extension.** A server that has never heard
-//! of GhostAI completes the handshake below, answers `tools/list` and
-//! `tools/call`, replies `-32601` to every `ghostai/` method, and the host
+//! of DarkWire completes the handshake below, answers `tools/list` and
+//! `tools/call`, replies `-32601` to every `darkwire/` method, and the host
 //! registers its tools and moves on. Nothing had to be written for us.
 //!
 //! Three decisions that a reader will otherwise have to reverse-engineer:
 //!
-//!  - **The GhostAI block travels in `params._meta`,** the field MCP reserves
+//!  - **The DarkWire block travels in `params._meta`,** the field MCP reserves
 //!    for implementation data. A server that ignores it is not broken, it is
 //!    the tools-only case; a server that reads it gets its id, its settings
 //!    block, its data directory and the host version without a second round
-//!    trip. There is no `ghostai/hello` handshake because there does not need
+//!    trip. There is no `darkwire/hello` handshake because there does not need
 //!    to be one.
 //!  - **Requests go both ways over one connection.** The extension may ask the
 //!    host for exactly one thing — its own secret — and may announce channel
@@ -32,9 +32,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::json::Object;
 use futures::future::BoxFuture;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::json::Object;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -56,10 +56,10 @@ pub const METHOD_NOT_FOUND: i64 = -32601;
 /// The MCP revision the host announces.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 
-/// What the host tells an extension about itself, under `params._meta.ghostai`.
+/// What the host tells an extension about itself, under `params._meta.darkwire`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GhostaiInit {
+pub struct DarkwireInit {
     /// The id, which is also the directory name and every contributed prefix.
     pub extension_id: String,
     /// This extension's block of `config.extensions.settings`, unparsed.
@@ -132,7 +132,7 @@ pub enum RpcFailure {
     /// The peer answered with a JSON-RPC error object.
     Peer(RpcError),
     /// The connection is gone, the call timed out, or it was cancelled.
-    Transport(GhostError),
+    Transport(WireError),
 }
 
 impl RpcFailure {
@@ -150,11 +150,11 @@ impl RpcFailure {
     }
 }
 
-impl From<RpcFailure> for GhostError {
-    fn from(failure: RpcFailure) -> GhostError {
+impl From<RpcFailure> for WireError {
+    fn from(failure: RpcFailure) -> WireError {
         match failure {
             RpcFailure::Peer(error) => {
-                GhostError::new(ErrorKind::Extension, error.message).with_detail("code", error.code)
+                WireError::new(ErrorKind::Extension, error.message).with_detail("code", error.code)
             }
             RpcFailure::Transport(error) => error,
         }
@@ -223,7 +223,7 @@ impl std::fmt::Debug for RpcClient {
 }
 
 fn transport_gone() -> RpcFailure {
-    RpcFailure::Transport(GhostError::new(
+    RpcFailure::Transport(WireError::new(
         ErrorKind::Extension,
         "The extension process is not answering; its connection is closed.",
     ))
@@ -449,7 +449,7 @@ impl RpcClient {
                     "notifications/cancelled",
                     json!({"requestId": id, "reason": "the host cancelled the request"}),
                 );
-                Err(RpcFailure::Transport(GhostError::new(
+                Err(RpcFailure::Transport(WireError::new(
                     ErrorKind::Aborted,
                     "The call was cancelled.",
                 )))
@@ -457,23 +457,23 @@ impl RpcClient {
         }
     }
 
-    /// The MCP handshake, plus the GhostAI block under `params._meta`.
+    /// The MCP handshake, plus the DarkWire block under `params._meta`.
     ///
     /// `notifications/initialized` follows the reply, as MCP requires, and the
-    /// two together are the whole of the lifecycle: there is no `ghostai/hello`
+    /// two together are the whole of the lifecycle: there is no `darkwire/hello`
     /// and nothing else to complete before the host may call a method.
-    pub async fn initialize(&self, init: &GhostaiInit) -> Result<InitializeResult> {
+    pub async fn initialize(&self, init: &DarkwireInit) -> Result<InitializeResult> {
         let params = json!({
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": {"name": ghostai_mcp::CLIENT_NAME, "version": init.host_version},
-            "_meta": {"ghostai": init},
+            "clientInfo": {"name": darkwire_mcp::CLIENT_NAME, "version": init.host_version},
+            "_meta": {"darkwire": init},
         });
         let result = self
             .request("initialize", params)
             .await
             .map_err(|failure| {
-                GhostError::from(failure).with_detail("extension", init.extension_id.as_str())
+                WireError::from(failure).with_detail("extension", init.extension_id.as_str())
             })?;
         let parsed: InitializeResult = serde_json::from_value(result).unwrap_or_default();
         self.notify("notifications/initialized", json!({}));

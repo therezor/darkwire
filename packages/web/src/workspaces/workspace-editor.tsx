@@ -44,7 +44,7 @@ import {
   deriveWorkspaceId,
   isWorkspaceId,
   type WorkspaceSummary,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';

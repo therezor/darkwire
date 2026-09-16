@@ -10,7 +10,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ghostai_server::cursor::{
+use darkwire_server::cursor::{
     AutomationRunCursor, MessageCursor, NotificationCursor, SessionListCursor,
     assert_one_paging_mode, decode_automation_run_cursor, decode_message_cursor,
     decode_notification_cursor, decode_session_cursor, encode_automation_run_cursor,

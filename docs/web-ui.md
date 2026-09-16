@@ -394,11 +394,11 @@ negotiation, plural handling and right-to-left detection already work.
 
 ## Working on it
 
-Run `pnpm --filter @ghostwire/web dev` for an edit-reload loop; Vite proxies `/api` and
-`/ws` to a running `ghostai serve`.
+Run `pnpm --filter @darkwire/web dev` for an edit-reload loop; Vite proxies `/api` and
+`/ws` to a running `darkwire serve`.
 
 **There is nothing to restart after a production UI build.** The bundle is compiled into
-the binary, so a rebuild produces a new `ghostai` rather than moving files underneath a
+the binary, so a rebuild produces a new `darkwire` rather than moving files underneath a
 running one — which removes the gotcha this paragraph used to warn about, where a fresh
 `index.html` was served beside 404ing hashed assets and the result was a blank page that
 looked like a crash and was not one. `--ui <dir>` serves a directory instead, and is the

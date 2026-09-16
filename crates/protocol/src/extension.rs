@@ -9,8 +9,8 @@
 //!
 //! ## Two schema versions, one shape
 //!
-//! `ghostai.extension/1` named `entry`: a module the host loaded into its own
-//! process. `ghostai.extension/2` names `command`: an argv the host spawns as a
+//! `darkwire.extension/1` named `entry`: a module the host loaded into its own
+//! process. `darkwire.extension/2` names `command`: an argv the host spawns as a
 //! child process speaking JSON-RPC over its stdio. The difference is a process
 //! boundary, so the two cannot be run by the same host — a v1 bundle reaching a
 //! host that spawns lands on its row as `failed` with a sentence saying so.
@@ -74,7 +74,7 @@ pub enum ExtensionContribution {
 pub struct ExtensionEngines {
     /// A semver range this build must satisfy. Empty means any.
     #[serde(default)]
-    pub ghostai: String,
+    pub darkwire: String,
 }
 
 /// The manifest format tag.
@@ -84,10 +84,10 @@ pub struct ExtensionEngines {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum ExtensionSchemaVersion {
     /// A module loaded in-process. No host in this build can run one.
-    #[serde(rename = "ghostai.extension/1")]
+    #[serde(rename = "darkwire.extension/1")]
     V1,
     /// A child process speaking JSON-RPC over its stdio.
-    #[serde(rename = "ghostai.extension/2")]
+    #[serde(rename = "darkwire.extension/2")]
     V2,
 }
 
@@ -202,14 +202,14 @@ pub struct ExtensionManifest {
     /// One sentence, shown beside the Approve button.
     #[serde(default)]
     pub description: String,
-    /// The module a `ghostai.extension/1` host imported. Read on v1 only.
+    /// The module a `darkwire.extension/1` host imported. Read on v1 only.
     ///
     /// Kept so that a v1 manifest still describes itself on the row that
     /// refuses it; a v2 manifest leaves it at its default and nothing reads it.
     #[serde(default = "default_entry")]
     #[garde(length(utf16, min = 1))]
     pub entry: String,
-    /// The argv a `ghostai.extension/2` host spawns. Read on v2 only.
+    /// The argv a `darkwire.extension/2` host spawns. Read on v2 only.
     ///
     /// Never a shell line: element zero is the program and the rest are its
     /// arguments, exactly as they reach `execve`. Empty on a v2 manifest is a

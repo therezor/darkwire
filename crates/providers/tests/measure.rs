@@ -8,9 +8,9 @@
 
 mod common;
 
-use ghostai_core::messages::{FileDetails, file_part, text_part};
-use ghostai_protocol::{ToolAnnotations, ToolDefinition, ToolRisk, ToolSource};
-use ghostai_providers::{estimate_message_tokens, estimate_tokens, estimate_tool_tokens};
+use darkwire_core::messages::{FileDetails, file_part, text_part};
+use darkwire_protocol::{ToolAnnotations, ToolDefinition, ToolRisk, ToolSource};
+use darkwire_providers::{estimate_message_tokens, estimate_tokens, estimate_tool_tokens};
 use serde_json::json;
 
 fn tool() -> ToolDefinition {

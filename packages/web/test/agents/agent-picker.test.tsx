@@ -27,7 +27,7 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-const STORAGE_KEY = 'ghostai:agent';
+const STORAGE_KEY = 'darkwire:agent';
 
 /**
  * A full `SessionSummary`, because the client parses what it is handed.

@@ -6,21 +6,21 @@
 //! a model that legitimately writes about rate limiting ends up triggering a
 //! retry in the client rendering its answer.
 //!
-//! The mapping runs in one direction only: a [`GhostError`]'s `kind` decides
+//! The mapping runs in one direction only: a [`WireError`]'s `kind` decides
 //! the status and the code. Nothing here inspects a message, and nothing
 //! constructs a response body outside [`error_body`].
 
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_protocol::rest::{ErrorBody, ErrorResponse};
-use ghostai_protocol::ws::ErrorCode;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_protocol::rest::{ErrorBody, ErrorResponse};
+use darkwire_protocol::ws::ErrorCode;
 use indexmap::IndexMap;
 use serde_json::Value;
 
 /// A generic message for anything that reached 500 without being a
-/// [`GhostError`].
+/// [`WireError`].
 ///
 /// An unexpected failure carries a message written for a developer reading a
 /// backtrace — a file path, a SQL fragment, a stringified row — and that is not
@@ -31,7 +31,7 @@ pub const OPAQUE_500: &str = "Internal server error";
 /// Status and wire code for one kind in the core taxonomy.
 ///
 /// A `match` rather than a lookup table: exhaustiveness is the proof that every
-/// kind is mapped, so a sixteenth variant added to `ghostai-core` fails to
+/// kind is mapped, so a sixteenth variant added to `darkwire-core` fails to
 /// compile here rather than falling through to a 500 nobody chose.
 pub fn status_and_code(kind: ErrorKind) -> (StatusCode, ErrorCode) {
     match kind {
@@ -66,7 +66,7 @@ pub fn status_and_code(kind: ErrorKind) -> (StatusCode, ErrorCode) {
     }
 }
 
-/// A [`GhostError`] that also names its HTTP status.
+/// A [`WireError`] that also names its HTTP status.
 ///
 /// The kind mapping above covers everything raised from below the transport,
 /// where HTTP does not exist. This covers the cases HTTP itself defines — a
@@ -203,12 +203,12 @@ impl HttpError {
     }
 }
 
-impl From<GhostError> for HttpError {
+impl From<WireError> for HttpError {
     /// The one direction the mapping runs: a kind decides the status.
     ///
-    /// A `GhostError` is written for an operator, so its message survives even
+    /// A `WireError` is written for an operator, so its message survives even
     /// at 5xx; anything that is not one is opaque by the time it reaches here.
-    fn from(error: GhostError) -> HttpError {
+    fn from(error: WireError) -> HttpError {
         let (status, code) = status_and_code(error.kind);
         HttpError {
             status,
@@ -241,13 +241,13 @@ impl IntoResponse for HttpError {
     }
 }
 
-/// Normalises a `GhostError` into the status, code and body to answer with.
+/// Normalises a `WireError` into the status, code and body to answer with.
 ///
-/// The 5xx opacity rule lives here rather than in [`From<GhostError>`]: a
-/// `GhostError` that reached the transport was written by this codebase and
+/// The 5xx opacity rule lives here rather than in [`From<WireError>`]: a
+/// `WireError` that reached the transport was written by this codebase and
 /// names something an operator can act on, so it is kept; `expected` is false
 /// for anything that arrived some other way.
-pub fn resolve_error(error: GhostError, expected: bool) -> HttpError {
+pub fn resolve_error(error: WireError, expected: bool) -> HttpError {
     let mut http = HttpError::from(error);
     if http.status.as_u16() >= 500 && !expected {
         OPAQUE_500.clone_into(&mut http.message);

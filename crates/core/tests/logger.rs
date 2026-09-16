@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use capture::{Captured, NOW, capturing, options};
-use ghostai_core::logger::{
+use darkwire_core::logger::{
     LogLevel, LoggerOptions, REDACT_CENSOR, REDACT_PATHS, create_logger, redact, resolve_level,
     silent_logger, subscriber,
 };
@@ -173,7 +173,7 @@ mod lines {
 
     #[test]
     fn reads_the_level_from_the_environment() {
-        let env = HashMap::from([("GHOSTAI_LOG_LEVEL".to_owned(), "debug".to_owned())]);
+        let env = HashMap::from([("DARKWIRE_LOG_LEVEL".to_owned(), "debug".to_owned())]);
         assert_eq!(resolve_level(None, &env), LogLevel::Debug);
         let fallback = HashMap::from([("LOG_LEVEL".to_owned(), "debug".to_owned())]);
         assert_eq!(resolve_level(None, &fallback), LogLevel::Debug);
@@ -190,7 +190,7 @@ mod lines {
 
     #[test]
     fn prefers_an_explicit_level_over_the_environment() {
-        let env = HashMap::from([("GHOSTAI_LOG_LEVEL".to_owned(), "debug".to_owned())]);
+        let env = HashMap::from([("DARKWIRE_LOG_LEVEL".to_owned(), "debug".to_owned())]);
         assert_eq!(resolve_level(Some(LogLevel::Error), &env), LogLevel::Error);
         let sink = Captured::new();
         let lines = log_with(&sink, LogLevel::Error, || {

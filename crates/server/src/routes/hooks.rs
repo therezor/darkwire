@@ -7,7 +7,7 @@
 //! a client may rely on.
 //!
 //! **Two independent switches, and both are needed.** The cargo feature decides
-//! whether this code is compiled at all, and `GHOSTAI_TEST_HOOKS=1` decides
+//! whether this code is compiled at all, and `DARKWIRE_TEST_HOOKS=1` decides
 //! whether it answers. A release artefact is built without the feature, so the
 //! environment variable reaches nothing; a binary that *was* built with it —
 //! the one CI hands to Playwright — still refuses until the harness says so.
@@ -22,13 +22,13 @@ use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
+use darkwire_core::session_store::{AppendOptions, CreateSession};
+use darkwire_protocol::automation::{AutomationRun, RunStatus};
+use darkwire_protocol::messages::ChatMessage;
+use darkwire_protocol::rest::Notification;
+use darkwire_protocol::ws::NotificationLevel;
 use garde::Validate;
-use ghostai_core::messages::{AssistantOptions, assistant_message, user_message};
-use ghostai_core::session_store::{AppendOptions, CreateSession};
-use ghostai_protocol::automation::{AutomationRun, RunStatus};
-use ghostai_protocol::messages::ChatMessage;
-use ghostai_protocol::rest::Notification;
-use ghostai_protocol::ws::NotificationLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::automation_store::FinishRunInput;
@@ -39,7 +39,7 @@ use crate::routes::AppState;
 use crate::schema::parse_body;
 
 /// The environment variable that arms the hooks at run time.
-pub const TEST_HOOKS_ENV: &str = "GHOSTAI_TEST_HOOKS";
+pub const TEST_HOOKS_ENV: &str = "DARKWIRE_TEST_HOOKS";
 
 /// Whether the hooks are armed.
 ///

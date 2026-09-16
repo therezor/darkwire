@@ -1,6 +1,6 @@
 //! The tool approval gate.
 //!
-//! `ghostai-protocol` describes this end to end — a risk band per tool, a
+//! `darkwire-protocol` describes this end to end — a risk band per tool, a
 //! policy per band, a scope per answer — but the loop is where it has to be
 //! read, because the loop is the only thing that sits between a model asking
 //! for `exec` and a shell running.
@@ -23,9 +23,9 @@
 //! tool: that is what keeps a one-shot terminal turn working. A `deny` policy
 //! is refused either way, since refusing needs no one to answer.
 
-use ghostai_core::Result;
-use ghostai_protocol::{ApprovalScope, ToolRisk};
-use ghostai_providers::BoxFuture;
+use darkwire_core::Result;
+use darkwire_protocol::{ApprovalScope, ToolRisk};
+use darkwire_providers::BoxFuture;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 

@@ -12,9 +12,9 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Database, ErrorKind};
-use ghostai_security::{ExtensionResolutionState, ExtensionStore};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Database, ErrorKind};
+use darkwire_security::{ExtensionResolutionState, ExtensionStore};
 use serde_json::{Value, json};
 
 use common::{read_fixture, temp_base, write};
@@ -45,12 +45,12 @@ fn setup() -> Setup {
 
 fn install(root: &Path, id: &str, overrides: &Value) -> PathBuf {
     let dir = root.join(id);
-    let mut manifest = json!({"schema": "ghostai.extension/1", "id": id});
+    let mut manifest = json!({"schema": "darkwire.extension/1", "id": id});
     for (key, value) in overrides.as_object().unwrap() {
         manifest[key] = value.clone();
     }
     write(
-        &dir.join("ghostai.extension.yaml"),
+        &dir.join("darkwire.extension.yaml"),
         serde_json::to_string(&manifest).unwrap(),
     );
     write(
@@ -148,7 +148,7 @@ fn a_digest_that_cannot_be_computed_is_failed_with_the_manifest_kept() {
     let s = setup();
     let dir = install(&s.base, "huge", &json!({}));
     let many = dir.join("many");
-    for index in 0..=ghostai_security::MAX_EXTENSION_FILES {
+    for index in 0..=darkwire_security::MAX_EXTENSION_FILES {
         write(&many.join(format!("{index}.txt")), "x");
     }
     let resolution = s.store.resolve("huge").unwrap();
@@ -241,7 +241,7 @@ fn resolves_an_extension_from_an_explicit_path() {
     );
 
     let bad = s.base.join("bad");
-    write(&bad.join("ghostai.extension.yaml"), "{");
+    write(&bad.join("darkwire.extension.yaml"), "{");
     let failed = s.store.resolve_path(&bad).unwrap().unwrap();
     assert_eq!(failed.state, ExtensionResolutionState::Failed);
     assert_eq!(failed.id, bad.to_string_lossy());

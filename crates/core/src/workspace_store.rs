@@ -8,7 +8,7 @@
 //! keeps named workspaces isolated from each other because `../sibling`
 //! resolves outside their own root.
 //!
-//! **It lives in `ghostai-core`, not `ghostai-server`.** The runtime builds a
+//! **It lives in `darkwire-core`, not `darkwire-server`.** The runtime builds a
 //! jail from an id and the agent binds a turn to one, and neither may depend
 //! on the server.
 //!
@@ -21,7 +21,7 @@
 //! directories only" a convention rather than a fact, and the first API that
 //! accepted one would hand an authenticated caller the whole filesystem. The
 //! directory is derived from the id by [`workspace_dir_for`], which also means
-//! relocating `GHOSTAI_HOME` moves every workspace with it.
+//! relocating `DARKWIRE_HOME` moves every workspace with it.
 
 use std::sync::Arc;
 
@@ -30,12 +30,12 @@ use serde_json::{Map, Value};
 
 use crate::clock::Clock;
 use crate::db::Database;
-use crate::errors::{ErrorKind, GhostError, Result};
+use crate::errors::{ErrorKind, Result, WireError};
 use crate::ids::{
     DEFAULT_WORKSPACE_ID, MAX_SLUG_ID_LENGTH, RESERVED_WORKSPACE_IDS, derive_workspace_id,
     is_workspace_id,
 };
-use crate::paths::{GhostPaths, ensure_dir, shared_dir_for, workspace_dir_for};
+use crate::paths::{WirePaths, ensure_dir, shared_dir_for, workspace_dir_for};
 use crate::sqlite_row::{RowReader, parse_metadata};
 
 /// The `workspaces` table. No comment may appear inside the column list; see
@@ -101,13 +101,13 @@ fn is_reserved(id: &str) -> bool {
     RESERVED_WORKSPACE_IDS.contains(&id)
 }
 
-fn not_found(id: &str) -> GhostError {
-    GhostError::new(ErrorKind::NotFound, format!("No workspace called \"{id}\""))
+fn not_found(id: &str) -> WireError {
+    WireError::new(ErrorKind::NotFound, format!("No workspace called \"{id}\""))
         .with_detail("id", id)
 }
 
-fn already_exists(id: &str) -> GhostError {
-    GhostError::new(
+fn already_exists(id: &str) -> WireError {
+    WireError::new(
         ErrorKind::Conflict,
         format!("A workspace called \"{id}\" already exists"),
     )
@@ -117,7 +117,7 @@ fn already_exists(id: &str) -> GhostError {
 /// The registry of workspaces, over the shared connection.
 pub struct WorkspaceStore {
     db: Database,
-    paths: GhostPaths,
+    paths: WirePaths,
     clock: Arc<dyn Clock>,
 }
 
@@ -136,7 +136,7 @@ impl WorkspaceStore {
     /// `SessionStore::ensure_session` is: two processes opening the same file
     /// both end up with one row rather than one of them failing on the primary
     /// key.
-    pub fn new(db: Database, paths: GhostPaths, clock: Arc<dyn Clock>) -> Result<WorkspaceStore> {
+    pub fn new(db: Database, paths: WirePaths, clock: Arc<dyn Clock>) -> Result<WorkspaceStore> {
         for statement in SCHEMA {
             db.execute_batch(statement)?;
         }
@@ -178,7 +178,7 @@ impl WorkspaceStore {
     pub fn create(&self, options: CreateWorkspace) -> Result<WorkspaceRecord> {
         let name = options.name.trim();
         if name.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "A workspace needs a name",
             ));
@@ -189,7 +189,7 @@ impl WorkspaceStore {
             None => self.unique_slug(&derive_workspace_id(name))?,
         };
         if !is_workspace_id(&id) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!(
                     "Not a usable workspace id: {id}. Use 1-40 lowercase letters, digits and \
@@ -199,7 +199,7 @@ impl WorkspaceStore {
             .with_detail("id", id));
         }
         if is_reserved(&id) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!("\"{id}\" is reserved and cannot name a workspace"),
             )
@@ -213,7 +213,7 @@ impl WorkspaceStore {
         if let Ok(existing) = std::fs::metadata(&directory)
             && !existing.is_dir()
         {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!("\"{id}\" already exists in the default workspace and is not a folder"),
             )
@@ -230,7 +230,7 @@ impl WorkspaceStore {
         )?;
 
         self.get(&id)?.ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!("Workspace {id} vanished immediately after creation"),
             )
@@ -241,7 +241,7 @@ impl WorkspaceStore {
     pub fn rename(&self, id: &str, name: &str) -> Result<WorkspaceRecord> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "A workspace needs a name",
             ));
@@ -277,7 +277,7 @@ impl WorkspaceStore {
     ///
     ///  - **The default**, whose directory *is* the workspace root and is also
     ///    the parent of every other workspace. There is no rename of it that
-    ///    does not mean relocating the entire tree, which is `GHOSTAI_HOME`'s
+    ///    does not mean relocating the entire tree, which is `DARKWIRE_HOME`'s
     ///    job.
     ///  - **A folder something already occupies.** `rename(2)` onto an existing
     ///    empty directory succeeds on POSIX, which would silently swallow it.
@@ -291,7 +291,7 @@ impl WorkspaceStore {
     pub fn relocate(&self, id: &str, folder: &str) -> Result<WorkspaceRecord> {
         let existing = self.get(id)?.ok_or_else(|| not_found(id))?;
         if existing.is_default {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 "The default workspace is the folder that holds the others and cannot be moved",
             )
@@ -302,7 +302,7 @@ impl WorkspaceStore {
         }
 
         if !is_workspace_id(folder) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!(
                     "Not a usable workspace folder: {folder}. Use 1-40 lowercase letters, digits \
@@ -312,7 +312,7 @@ impl WorkspaceStore {
             .with_detail("id", folder));
         }
         if is_reserved(folder) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!("\"{folder}\" is reserved and cannot name a folder"),
             )
@@ -328,7 +328,7 @@ impl WorkspaceStore {
         // empty directory at the destination — and the thing it would replace
         // is a folder the user or the agent put there.
         if std::fs::symlink_metadata(&to).is_ok() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!("\"{folder}\" already exists in the default workspace"),
             )
@@ -340,7 +340,7 @@ impl WorkspaceStore {
         // registry naming a folder that does not exist, and every turn in that
         // workspace creating an empty one beside the real files.
         std::fs::rename(&from, &to).map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!("Could not move the workspace folder to \"{folder}\""),
             )
@@ -362,7 +362,7 @@ impl WorkspaceStore {
         )?;
 
         self.get(folder)?.ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!("Workspace {id} vanished while being moved to {folder}"),
             )
@@ -383,7 +383,7 @@ impl WorkspaceStore {
     pub fn delete(&self, id: &str) -> Result<()> {
         let existing = self.get(id)?.ok_or_else(|| not_found(id))?;
         if existing.is_default {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 "The default workspace cannot be deleted",
             )
@@ -413,7 +413,7 @@ impl WorkspaceStore {
                 return Ok(candidate);
             }
         }
-        Err(GhostError::new(
+        Err(WireError::new(
             ErrorKind::Internal,
             "Ran out of workspace slugs",
         ))

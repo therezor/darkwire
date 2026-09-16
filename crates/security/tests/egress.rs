@@ -2,14 +2,14 @@
 
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
-use ghostai_security::egress::gateway_rules;
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_security::egress::gateway_rules;
 use serde_json::json;
 
 fn container() -> EnvironmentDefinition {
     serde_json::from_value(json!({
-        "schema": "ghostai.environment/1",
+        "schema": "darkwire.environment/1",
         "name": "test",
         "image": format!("sha256:{}", "e".repeat(64)),
         "user": "1000:1000",

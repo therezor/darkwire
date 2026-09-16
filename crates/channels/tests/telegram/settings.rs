@@ -1,7 +1,7 @@
 //! `channels.telegram`, and what it refuses.
 
-use ghostai_channels::telegram::settings::{TelegramSettings, parse_telegram_settings};
-use ghostai_core::ErrorKind;
+use darkwire_channels::telegram::settings::{TelegramSettings, parse_telegram_settings};
+use darkwire_core::ErrorKind;
 use serde_json::{Map, Value, json};
 
 fn block(value: &Value) -> Map<String, Value> {

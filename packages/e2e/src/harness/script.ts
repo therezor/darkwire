@@ -15,7 +15,7 @@
  *  - `exec` is `ask`, so it produces the approval prompt. Both the approve and
  *    the deny path continue into the same second turn.
  *  - `e2e_wait` is the binary's own, compiled in behind the `test-hooks`
- *    feature and armed by `GHOSTAI_TEST_HOOKS=1`. It exists because "Stop
+ *    feature and armed by `DARKWIRE_TEST_HOOKS=1`. It exists because "Stop
  *    aborts mid-tool" and "a reload rebuilds an in-flight turn" both need a
  *    tool that is reliably still running a moment after it started. Sleeping on
  *    a real binary would make those two assertions depend on `sleep(1)`

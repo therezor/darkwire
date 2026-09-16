@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, Datelike as _, TimeZone as _, Timelike as _, Utc};
 use chrono_tz::Tz;
-use ghostai_core::cron::{CronSpec, next_cron_run, parse_cron};
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::cron::{CronSpec, next_cron_run, parse_cron};
+use darkwire_core::{ErrorKind, WireError};
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
@@ -41,7 +41,7 @@ fn next_local(expr: &str, tz: &str, from: &str) -> String {
     local_of(next, tz)
 }
 
-fn err(result: Result<CronSpec, GhostError>) -> GhostError {
+fn err(result: Result<CronSpec, WireError>) -> WireError {
     match result {
         Ok(spec) => panic!("expected an error, got {spec:?}"),
         Err(error) => error,

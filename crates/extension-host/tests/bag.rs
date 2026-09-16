@@ -9,18 +9,18 @@
 
 use std::sync::Arc;
 
-use ghostai_agent::ContextContributor;
-use ghostai_channels::{Channel, ChannelContext, ChannelFactory};
-use ghostai_core::Result;
-use ghostai_core::message_bus::OutboundMessage;
-use ghostai_extension_host::{RegistrationBag, kind_name};
-use ghostai_protocol::{ExtensionCommand, ExtensionContribution, ExtensionManifest};
-use ghostai_providers::{ProviderSpec, WireProtocol};
+use darkwire_agent::ContextContributor;
+use darkwire_channels::{Channel, ChannelContext, ChannelFactory};
+use darkwire_core::Result;
+use darkwire_core::message_bus::OutboundMessage;
+use darkwire_extension_host::{RegistrationBag, kind_name};
+use darkwire_protocol::{ExtensionCommand, ExtensionContribution, ExtensionManifest};
+use darkwire_providers::{ProviderSpec, WireProtocol};
 use serde_json::json;
 
 fn manifest(contributes: &[&str]) -> ExtensionManifest {
     serde_json::from_value(json!({
-        "schema": "ghostai.extension/2",
+        "schema": "darkwire.extension/2",
         "id": "slack",
         "command": ["node", "index.mjs"],
         "contributes": contributes,
@@ -34,7 +34,7 @@ impl Channel for Nothing {
     fn id(&self) -> &str {
         &self.0
     }
-    fn send(&self, _message: OutboundMessage) -> ghostai_channels::BoxFuture<'_, Result<()>> {
+    fn send(&self, _message: OutboundMessage) -> darkwire_channels::BoxFuture<'_, Result<()>> {
         Box::pin(std::future::ready(Ok(())))
     }
 }

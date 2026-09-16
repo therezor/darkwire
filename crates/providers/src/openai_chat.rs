@@ -24,15 +24,15 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::stream::{BoxStream, StreamExt};
-use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::{
+use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::{
     AssistantMessage, AssistantRole, ContentPart, ModelInfo, ReasoningEffort, TextPart, TextTag,
     ToolCall, Usage,
 };
-use ghostai_security::{
+use darkwire_security::{
     AddressCategory, OsRandom, RandomSource, classify_address, parse_ip_literal,
 };
+use futures::stream::{BoxStream, StreamExt};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Method, Response, Url};
 use serde_json::{Map, Value, json};
@@ -78,14 +78,14 @@ const ERROR_DETAIL_UNITS: usize = 500;
 /// or private ranges (every local server), which covers the legitimate cases.
 pub fn assert_usable_api_base(raw_base: &str, has_api_key: bool) -> Result<Url> {
     let url = Url::parse(raw_base).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("Provider apiBase is not a URL: {raw_base}"),
         )
         .with_source(error)
     })?;
     if url.scheme() != "http" && url.scheme() != "https" {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             format!(
                 "Provider apiBase must be http or https, got \"{}:\"",
@@ -112,7 +112,7 @@ pub fn assert_usable_api_base(raw_base: &str, has_api_key: bool) -> Result<Url> 
         return Ok(url);
     }
 
-    Err(GhostError::new(
+    Err(WireError::new(
         ErrorKind::Config,
         format!(
             "Refusing to send an API key over plain HTTP to {host}. Use https, or configure the \
@@ -463,11 +463,10 @@ pub fn create_openai_chat_provider(options: WireAdapterOptions) -> Result<Arc<dy
 
 fn header_pair(name: &str, value: &str) -> Result<(HeaderName, HeaderValue)> {
     let name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
-        GhostError::new(ErrorKind::Config, format!("Invalid header name: {name}"))
-            .with_source(error)
+        WireError::new(ErrorKind::Config, format!("Invalid header name: {name}")).with_source(error)
     })?;
     let value = HeaderValue::from_str(value).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("Invalid value for header {name}"),
         )
@@ -488,7 +487,7 @@ impl OpenAiChatProvider {
             .or_else(|| spec.default_api_base.clone())
             .unwrap_or_default();
         if raw_base.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "Provider \"{}\" has no apiBase; set one in configuration.",
@@ -517,7 +516,7 @@ impl OpenAiChatProvider {
         }
         if let Some(key) = &api_key {
             let mut value = HeaderValue::from_str(&format!("Bearer {key}")).map_err(|error| {
-                GhostError::new(ErrorKind::Config, "API key is not a valid header value")
+                WireError::new(ErrorKind::Config, "API key is not a valid header value")
                     .with_source(error)
             })?;
             value.set_sensitive(true);
@@ -571,22 +570,22 @@ impl Inner {
             .read_timeout(self.stream_idle_timeout)
             .build()
             .map_err(|error| {
-                GhostError::new(ErrorKind::Internal, "Could not build the HTTP client")
+                WireError::new(ErrorKind::Internal, "Could not build the HTTP client")
                     .with_source(error)
             })?;
         *slot = Some(client.clone());
         Ok(client)
     }
 
-    fn aborted(&self) -> GhostError {
+    fn aborted(&self) -> WireError {
         ProviderError::new(ProviderErrorReason::Aborted, "Request aborted")
             .with_provider(self.spec.id.clone())
-            .into_ghost()
+            .into_wire()
     }
 
     /// Turns a non-2xx into a typed error, reading the provider's own error
     /// object.
-    async fn failure(&self, response: Response, url: &str) -> GhostError {
+    async fn failure(&self, response: Response, url: &str) -> WireError {
         let status = response.status().as_u16();
         let retry_after = response
             .headers()
@@ -618,7 +617,7 @@ impl Inner {
             .with_param(wire.param)
             .with_retry_after_ms(retry_after_ms)
             .with_detail("url", url)
-            .into_ghost()
+            .into_wire()
     }
 
     /// Sends one request and returns a 2xx response, or the typed failure.
@@ -646,7 +645,7 @@ impl Inner {
         let response = match sent {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
-                return Err(to_provider_error(&error, &self.spec.id, &context).into_ghost());
+                return Err(to_provider_error(&error, &self.spec.id, &context).into_wire());
             }
             Err(_elapsed) => {
                 return Err(ProviderError::new(
@@ -659,7 +658,7 @@ impl Inner {
                 )
                 .with_provider(self.spec.id.clone())
                 .with_detail("url", url.as_str())
-                .into_ghost());
+                .into_wire());
             }
         };
         if !response.status().is_success() {
@@ -681,7 +680,7 @@ impl Inner {
         let text = tokio::select! {
             () = token.cancelled() => return Err(self.aborted()),
             text = response.text() => text.map_err(|error| {
-                to_provider_error(&error, &self.spec.id, &self.context(&url)).into_ghost()
+                to_provider_error(&error, &self.spec.id, &self.context(&url)).into_wire()
             })?,
         };
         let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -701,7 +700,7 @@ impl Inner {
             .with_provider(self.spec.id.clone())
             .with_status(status.as_u16())
             .with_detail("body", head_units(&text, ERROR_DETAIL_UNITS))
-            .into_ghost());
+            .into_wire());
         };
 
         let message = choice.get("message");
@@ -731,7 +730,7 @@ impl Inner {
     async fn list_models(&self, token: &CancellationToken) -> Result<Vec<ModelInfo>> {
         let (response, url) = self.send(Method::GET, "models", None, token).await?;
         let text = response.text().await.map_err(|error| {
-            to_provider_error(&error, &self.spec.id, &self.context(&url)).into_ghost()
+            to_provider_error(&error, &self.spec.id, &self.context(&url)).into_wire()
         })?;
         let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         Ok(parsed
@@ -774,7 +773,7 @@ impl Inner {
         // The adapter's contract is that it only ever raises a typed provider
         // error, so the conversion happens once, on every chunk.
         let bytes = response.bytes_stream().map(move |chunk| {
-            chunk.map_err(|error| to_provider_error(&error, &inner.spec.id, &context).into_ghost())
+            chunk.map_err(|error| to_provider_error(&error, &inner.spec.id, &context).into_wire())
         });
         Ok(parse_sse(
             bytes,
@@ -850,7 +849,7 @@ impl StreamState {
         self.first_content_at.get_or_insert(now);
     }
 
-    fn fail(&mut self, error: GhostError) -> Result<ChatStreamEvent> {
+    fn fail(&mut self, error: WireError) -> Result<ChatStreamEvent> {
         self.finished = true;
         self.events = None;
         Err(error)
@@ -940,7 +939,7 @@ impl StreamState {
             )
             .with_provider(spec_id)
             .with_detail("frame", head_units(data, 200))
-            .into_ghost());
+            .into_wire());
         }
         // An error can arrive *inside* a 200 stream: providers do this when
         // the failure is discovered after the headers are already on the
@@ -967,7 +966,7 @@ impl StreamState {
             .with_provider(spec_id)
             .with_code(wire.code)
             .with_param(wire.param)
-            .into_ghost());
+            .into_wire());
         }
 
         if let Some(model) = str_field(Some(&chunk), "model") {

@@ -28,7 +28,7 @@
 //! Kept pure, with no transport, no clock and no I/O, which is what lets the
 //! measuring side call it as often as a turn iterates.
 
-use ghostai_protocol::{ChatMessage, ContentPart, ToolDefinition};
+use darkwire_protocol::{ChatMessage, ContentPart, ToolDefinition};
 use serde::{Deserialize, Serialize};
 
 /// One part of a multimodal message on the wire.
@@ -121,7 +121,7 @@ pub struct WireFunction {
     /// The sentence that decides whether the model reaches for it.
     pub description: String,
     /// The argument schema.
-    pub parameters: ghostai_protocol::json::Object,
+    pub parameters: darkwire_protocol::json::Object,
 }
 
 /// One canonical part on the wire.

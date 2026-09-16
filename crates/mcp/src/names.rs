@@ -2,14 +2,14 @@
 //!
 //! The arithmetic — the character class, the 64-character cap, the digest tail
 //! that keeps two truncated names apart — is `namespaced_tool_name` in
-//! `ghostai-tools`, because the extension host needs exactly the same rule
+//! `darkwire-tools`, because the extension host needs exactly the same rule
 //! under a different prefix and a copy would drift the first time the cap
 //! moved. What is MCP's here is the prefix and nothing else; the prefix stays
 //! a parameter so the extension host can hand in `ext` through the same bridge.
 
-pub use ghostai_tools::names::NamespacedNames as FlattenedNames;
-pub use ghostai_tools::names::is_advertisable_name;
-use ghostai_tools::names::{namespaced_tool_name, namespaced_tool_names};
+pub use darkwire_tools::names::NamespacedNames as FlattenedNames;
+pub use darkwire_tools::names::is_advertisable_name;
+use darkwire_tools::names::{namespaced_tool_name, namespaced_tool_names};
 
 /// The prefix every MCP server's tools carry.
 pub const MCP_TOOL_PREFIX: &str = "mcp";

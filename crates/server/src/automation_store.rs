@@ -1,6 +1,6 @@
 //! Scheduled jobs and their run history.
 //!
-//! Here rather than in `ghostai-core` for the reason the auth tables are:
+//! Here rather than in `darkwire-core` for the reason the auth tables are:
 //! nothing below the transport schedules anything. The agent loop has no
 //! opinion about when it is called, and the one thing that does — the
 //! scheduler — sits at this level beside the hub it drives turns through.
@@ -31,12 +31,12 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use ghostai_core::clock::Clock;
-use ghostai_core::db::Database;
-use ghostai_core::errors::{ErrorKind, GhostError, Result};
-use ghostai_core::session_store::IdSource;
-use ghostai_core::sqlite_row::RowReader;
-use ghostai_protocol::automation::{
+use darkwire_core::clock::Clock;
+use darkwire_core::db::Database;
+use darkwire_core::errors::{ErrorKind, Result, WireError};
+use darkwire_core::session_store::IdSource;
+use darkwire_core::sqlite_row::RowReader;
+use darkwire_protocol::automation::{
     AutomationJob, AutomationJobCreator, AutomationJobState, AutomationPayload, AutomationRun,
     AutomationSchedule, RunStatus,
 };
@@ -344,11 +344,11 @@ fn tolerate(row: &Row<'_>) -> Result<Option<AutomationJob>> {
 fn row_to_job(row: &Row<'_>) -> Result<AutomationJob> {
     let schedule = serde_json::from_str::<AutomationSchedule>(&READ.string(row, "schedule_json")?)
         .map_err(|error| {
-            GhostError::new(ErrorKind::Storage, format!("Unreadable schedule: {error}"))
+            WireError::new(ErrorKind::Storage, format!("Unreadable schedule: {error}"))
         })?;
     let payload = serde_json::from_str::<AutomationPayload>(&READ.string(row, "payload_json")?)
         .map_err(|error| {
-            GhostError::new(ErrorKind::Storage, format!("Unreadable payload: {error}"))
+            WireError::new(ErrorKind::Storage, format!("Unreadable payload: {error}"))
         })?;
 
     Ok(AutomationJob {
@@ -467,7 +467,7 @@ impl AutomationStore {
                 zones.insert(zone.clone());
             }
             let rewritten = serde_json::to_string(&Value::Object(object)).map_err(|error| {
-                GhostError::new(ErrorKind::Storage, format!("Unwritable schedule: {error}"))
+                WireError::new(ErrorKind::Storage, format!("Unwritable schedule: {error}"))
             })?;
             self.db.lock().execute(
                 "UPDATE automation_jobs SET schedule_json = ? WHERE id = ?",
@@ -523,7 +523,7 @@ impl AutomationStore {
         )?;
 
         self.get_job(&id)?.ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 "Automation job vanished immediately after insert",
             )
@@ -900,8 +900,8 @@ impl AutomationStore {
     }
 }
 
-fn unwritable(error: &serde_json::Error) -> GhostError {
-    GhostError::new(
+fn unwritable(error: &serde_json::Error) -> WireError {
+    WireError::new(
         ErrorKind::Storage,
         format!("An automation field could not be written as JSON: {error}"),
     )

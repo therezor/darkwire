@@ -31,7 +31,7 @@
 
 use std::sync::LazyLock;
 
-use ghostai_protocol::json::js_trim;
+use darkwire_protocol::json::js_trim;
 use regex::Regex;
 use serde_json::Value;
 

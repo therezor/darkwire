@@ -19,13 +19,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::harness::{Behaviour, FakeTool, Harness, Setup, answer, events_of};
-use futures::StreamExt as _;
-use ghostai_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
-use ghostai_agent::{AgentLoopOptions, LoopAgent, TurnInput};
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{
+use darkwire_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
+use darkwire_agent::{AgentLoopOptions, LoopAgent, TurnInput};
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{
     AgentSettings, ChatMessage, PromptMode, StopReason, ToolPermission, ToolRisk, Usage,
 };
+use futures::StreamExt as _;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -161,13 +161,13 @@ async fn it_sends_a_temperature_that_was_configured() {
 #[tokio::test]
 async fn it_refuses_to_construct_without_a_model() {
     let harness = Harness::simple();
-    let error = ghostai_agent::AgentLoop::new(AgentLoopOptions::new(
+    let error = darkwire_agent::AgentLoop::new(AgentLoopOptions::new(
         harness.provider.clone(),
         harness
             .registry
-            .select(ghostai_protocol::ToolPermissions::new()),
+            .select(darkwire_protocol::ToolPermissions::new()),
         Arc::clone(&harness.store),
-        Arc::new(ghostai_security::single_jail(Arc::clone(&harness.jail))),
+        Arc::new(darkwire_security::single_jail(Arc::clone(&harness.jail))),
     ))
     .expect_err("no model configured");
 
@@ -418,7 +418,7 @@ async fn the_static_half_stays_byte_identical_across_iterations() {
         let ChatMessage::User(user) = last else {
             panic!("the last message is the reminder")
         };
-        let text = ghostai_core::text_of(last);
+        let text = darkwire_core::text_of(last);
         assert!(text.starts_with("<system-reminder>"), "{text}");
         assert_eq!(user.content.len(), 1);
     }
@@ -430,11 +430,11 @@ async fn the_runtime_half_is_sent_and_never_stored() {
     let _ = harness.say("web:1", "hi").await;
 
     let request = &harness.provider.requests()[0];
-    let reminder = ghostai_core::text_of(request.messages.last().unwrap());
+    let reminder = darkwire_core::text_of(request.messages.last().unwrap());
     assert!(reminder.contains("Current time"));
 
     for message in harness.stored("web:1") {
-        assert!(!ghostai_core::text_of(&message).contains("system-reminder"));
+        assert!(!darkwire_core::text_of(&message).contains("system-reminder"));
     }
 }
 
@@ -554,7 +554,7 @@ async fn it_stops_at_the_iteration_cap_and_says_so() {
     // Unlike an error, this is persisted: the next turn's history has to
     // explain why the task stopped half-done.
     let stored = harness.stored("web:1");
-    let last = ghostai_core::text_of(stored.last().unwrap());
+    let last = darkwire_core::text_of(stored.last().unwrap());
     assert!(last.contains("I stopped after 3 tool iterations"));
     assert!(answer(&events).contains("I stopped after 3"));
 }
@@ -815,7 +815,7 @@ async fn a_correction_that_arrives_during_the_final_answer_continues_the_turn() 
 
     let stored = harness.stored("web:1");
     // The correction is in history, prefixed, before the model's answer.
-    let steered = ghostai_core::text_of(&stored[1]);
+    let steered = darkwire_core::text_of(&stored[1]);
     assert!(steered.starts_with("[Steering"));
     assert!(steered.contains("no, the other one"));
     assert_eq!(result.text, "first answer");
@@ -883,11 +883,11 @@ async fn it_corrects_a_model_that_wrote_a_call_as_text_and_takes_the_retry() {
 
     // The correction rides in the runtime half, so it costs no cached prefix
     // and leaves nothing behind in history.
-    let second = ghostai_core::text_of(harness.provider.requests()[1].messages.last().unwrap());
+    let second = darkwire_core::text_of(harness.provider.requests()[1].messages.last().unwrap());
     assert!(second.contains("## Correction"));
     assert!(second.contains("Call `read_file` now, properly."));
     for message in harness.stored("web:1") {
-        assert!(!ghostai_core::text_of(&message).contains("## Correction"));
+        assert!(!darkwire_core::text_of(&message).contains("## Correction"));
     }
 }
 
@@ -1142,7 +1142,7 @@ async fn the_preview_is_the_prompt_a_turn_would_carry() {
 
     let preview = harness
         .agent_loop
-        .preview_prompt(&ghostai_agent::PromptPreviewInput {
+        .preview_prompt(&darkwire_agent::PromptPreviewInput {
             session_key: "web:1".to_owned(),
             ..Default::default()
         })
@@ -1165,7 +1165,7 @@ async fn a_preview_of_a_session_that_does_not_exist_uses_the_default_workspace()
     let harness = Harness::simple();
     let preview = harness
         .agent_loop
-        .preview_prompt(&ghostai_agent::PromptPreviewInput {
+        .preview_prompt(&darkwire_agent::PromptPreviewInput {
             session_key: "web:never".to_owned(),
             channel: Some("cli".to_owned()),
             ..Default::default()
@@ -1181,7 +1181,7 @@ async fn a_raw_agent_sends_one_blob_and_no_trailing_turn() {
     let harness = Harness::build(Setup {
         agent: Some(LoopAgent {
             id: "raw".to_owned(),
-            prompt: ghostai_agent::PromptAgent {
+            prompt: darkwire_agent::PromptAgent {
                 label: "Raw".to_owned(),
                 prompt_mode: Some(PromptMode::Raw),
                 system_prompt: "Only this. {{time}}".to_owned(),
@@ -1205,7 +1205,7 @@ async fn a_raw_agent_sends_one_blob_and_no_trailing_turn() {
         request.messages.last(),
         Some(ChatMessage::User(_))
     ));
-    let last = ghostai_core::text_of(request.messages.last().unwrap());
+    let last = darkwire_core::text_of(request.messages.last().unwrap());
     assert_eq!(last, "hi");
 }
 
@@ -1214,15 +1214,15 @@ async fn a_contributor_static_section_runs_once_per_turn_not_once_per_iteration(
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Counting(AtomicUsize);
-    impl ghostai_agent::prompt::ContextContributor for Counting {
+    impl darkwire_agent::prompt::ContextContributor for Counting {
         fn name(&self) -> &'static str {
             "counting"
         }
 
         fn static_section<'a>(
             &'a self,
-            _context: &'a ghostai_agent::prompt::StaticPromptContext,
-        ) -> ghostai_providers::BoxFuture<'a, Option<String>> {
+            _context: &'a darkwire_agent::prompt::StaticPromptContext,
+        ) -> darkwire_providers::BoxFuture<'a, Option<String>> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Box::pin(std::future::ready(Some("# Section".to_owned())))
         }
@@ -1304,10 +1304,10 @@ async fn it_reports_the_arguments_a_model_sent_malformed_or_absent() {
 
 #[tokio::test]
 async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
-    let mut overrides = ghostai_protocol::ToolPromptOverrides::new();
+    let mut overrides = darkwire_protocol::ToolPromptOverrides::new();
     overrides.insert(
         "read_file".to_owned(),
-        ghostai_protocol::ToolPromptOverride {
+        darkwire_protocol::ToolPromptOverride {
             description: "Open a file in this project.".to_owned(),
             fields: indexmap::IndexMap::new(),
         },
@@ -1335,7 +1335,7 @@ async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
 
 #[tokio::test]
 async fn a_denied_tool_is_never_advertised() {
-    let mut permissions = ghostai_protocol::ToolPermissions::new();
+    let mut permissions = darkwire_protocol::ToolPermissions::new();
     permissions.insert("read_file".to_owned(), ToolPermission::Allow);
     permissions.insert("write_file".to_owned(), ToolPermission::Deny);
 

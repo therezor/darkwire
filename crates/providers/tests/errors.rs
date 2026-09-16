@@ -8,8 +8,8 @@
 
 use std::io;
 
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_providers::{
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_providers::{
     ProviderError, ProviderErrorReason, TransportContext, WireErrorBody, classify_status,
     parse_retry_after, transport_error,
 };
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 #[test]
 fn a_reason_maps_onto_the_core_taxonomy() {
-    let kind = |reason: ProviderErrorReason| ProviderError::new(reason, "x").into_ghost().kind;
+    let kind = |reason: ProviderErrorReason| ProviderError::new(reason, "x").into_wire().kind;
     assert_eq!(kind(ProviderErrorReason::RateLimit), ErrorKind::RateLimited);
     assert_eq!(kind(ProviderErrorReason::Transport), ErrorKind::Network);
     assert_eq!(kind(ProviderErrorReason::Auth), ErrorKind::PermissionDenied);
@@ -39,7 +39,7 @@ fn retryability_comes_from_the_reason_unless_overridden() {
     assert!(!ProviderError::new(ProviderErrorReason::InvalidRequest, "x").retryable);
     let overridden = ProviderError::new(ProviderErrorReason::InvalidRequest, "x")
         .with_retryable(true)
-        .into_ghost();
+        .into_wire();
     assert!(overridden.retryable);
 }
 
@@ -50,7 +50,7 @@ fn the_diagnosis_lives_in_structured_details() {
         .with_status(400)
         .with_code(Some("unsupported_parameter".into()))
         .with_param(Some("reasoning_effort".into()))
-        .into_ghost();
+        .into_wire();
     assert_eq!(
         Value::Object(error.details.clone()),
         json!({
@@ -63,7 +63,7 @@ fn the_diagnosis_lives_in_structured_details() {
     );
     // Redaction and log filtering work by path, so absent fields must be
     // absent rather than present-and-null.
-    let bare = ProviderError::new(ProviderErrorReason::Server, "x").into_ghost();
+    let bare = ProviderError::new(ProviderErrorReason::Server, "x").into_wire();
     let keys: Vec<&String> = bare.details.keys().collect();
     assert_eq!(keys, vec!["reason"]);
     // Empty code and param are absent too.
@@ -81,7 +81,7 @@ fn a_provider_error_round_trips_through_the_core_error() {
         .with_status(429)
         .with_retry_after_ms(Some(2000))
         .with_detail("url", "http://x/v1/chat/completions");
-    let ghost: GhostError = original.clone().into();
+    let ghost: WireError = original.clone().into();
     assert!(ProviderError::is_provider_error(&ghost));
     assert_eq!(ghost.kind, ErrorKind::RateLimited);
     assert_eq!(ProviderError::of(&ghost), original);
@@ -95,22 +95,22 @@ fn a_provider_error_round_trips_through_the_core_error() {
 #[test]
 fn a_bare_core_error_is_classified_by_kind() {
     assert_eq!(
-        ProviderError::of(&GhostError::aborted("Request")).reason,
+        ProviderError::of(&WireError::aborted("Request")).reason,
         ProviderErrorReason::Aborted
     );
     assert_eq!(
-        ProviderError::of(&GhostError::new(ErrorKind::Timeout, "slow")).reason,
+        ProviderError::of(&WireError::new(ErrorKind::Timeout, "slow")).reason,
         ProviderErrorReason::Timeout
     );
     // Everything else on the request path is a failed connection.
-    let plain = GhostError::new(ErrorKind::Internal, "x");
+    let plain = WireError::new(ErrorKind::Internal, "x");
     assert!(!ProviderError::is_provider_error(&plain));
     assert_eq!(
         ProviderError::of(&plain).reason,
         ProviderErrorReason::Transport
     );
     // A detail that spells a reason nothing recognises is not one.
-    let foreign = GhostError::new(ErrorKind::Provider, "x").with_detail("reason", "teapot");
+    let foreign = WireError::new(ErrorKind::Provider, "x").with_detail("reason", "teapot");
     assert!(!ProviderError::is_provider_error(&foreign));
 }
 

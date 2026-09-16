@@ -1,6 +1,6 @@
 //! The `automation` tool's reach into the scheduler, scoped to one turn.
 //!
-//! Here rather than in `ghostai-tools` because this is where the stores are —
+//! Here rather than in `darkwire-tools` because this is where the stores are —
 //! and because every guard below needs to read something the tool has no
 //! business being told. The tool passes arguments a model wrote; it does not
 //! get to claim which agent it is, which session it is in, or whether it is
@@ -20,23 +20,23 @@
 //!  - **`NotYours`** — an agent lists and deletes only what it created. The
 //!    operator's own jobs are invisible to it.
 //!
-//! The delegation refusal in `ghostai-agent` is the nearest existing guard and
+//! The delegation refusal in `darkwire-agent` is the nearest existing guard and
 //! does **not** cover the first one: it works off the turn's delegation chain,
 //! which is empty for a turn a person started — and the scheduler starts turns
 //! exactly the same way. Origin is the only honest signal.
 
 use std::sync::Arc;
 
-use ghostai_core::clock::Clock;
-use ghostai_core::errors::ErrorKind;
-use ghostai_core::session_store::SessionStore;
-use ghostai_protocol::automation::{
+use darkwire_core::clock::Clock;
+use darkwire_core::errors::ErrorKind;
+use darkwire_core::session_store::SessionStore;
+use darkwire_protocol::automation::{
     AUTOMATION_ORIGIN, AutomationJob, AutomationJobCreator, AutomationPayload, CreateAutomationJob,
 };
-use ghostai_tools::automation::{
+use darkwire_tools::automation::{
     AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver,
 };
-use ghostai_tools::runner::PlacementRequest;
+use darkwire_tools::runner::PlacementRequest;
 
 use crate::automation_store::{AutomationStore, CreateJobInput};
 use crate::scheduler::first_run_at;

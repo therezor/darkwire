@@ -11,13 +11,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_mcp::testkit::{FakeServer, echo_tool};
-use ghostai_mcp::{BackoffOptions, McpManager, McpManagerOptions, McpToolDescriptor, McpToolSink};
-use ghostai_protocol::{McpServerConfig, McpServerState};
-use ghostai_security::testkit::FixedRandom;
-use ghostai_tools::AnyTool;
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_mcp::testkit::{FakeServer, echo_tool};
+use darkwire_mcp::{BackoffOptions, McpManager, McpManagerOptions, McpToolDescriptor, McpToolSink};
+use darkwire_protocol::{McpServerConfig, McpServerState};
+use darkwire_security::testkit::FixedRandom;
+use darkwire_tools::AnyTool;
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -102,8 +102,8 @@ async fn settle() {
     }
 }
 
-fn refused() -> GhostError {
-    GhostError::new(ErrorKind::Network, "ECONNREFUSED")
+fn refused() -> WireError {
+    WireError::new(ErrorKind::Network, "ECONNREFUSED")
 }
 
 #[tokio::test(start_paused = true)]

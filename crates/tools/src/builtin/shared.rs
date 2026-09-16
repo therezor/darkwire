@@ -1,7 +1,7 @@
 //! Turning filesystem failures into something a model can act on.
 //!
 //! A raw `No such file or directory (os error 2)` for
-//! `/Users/x/.ghostai/workspace/notes.md` is wrong for this surface twice over.
+//! `/Users/x/.darkwire/workspace/notes.md` is wrong for this surface twice over.
 //! It reports an absolute path, when the tool contract the model was given is
 //! workspace-relative — so the model's next call tends to copy the absolute
 //! form straight back and be rejected by the jail. And it carries a `kind` of
@@ -10,8 +10,8 @@
 
 use std::io;
 
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_security::JailAccept;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_security::JailAccept;
 use nix::errno::Errno;
 
 /// The kind and the sentence for one class of failure.
@@ -78,7 +78,7 @@ pub fn clamp_note(requested: &str, accepted: &JailAccept) -> String {
 /// `note` carries [`clamp_note`]'s sentence, so a miss on a path the model
 /// wrote as absolute explains itself rather than reading as "that file is not
 /// there".
-pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> GhostError {
+pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> WireError {
     let (kind, detail) = if is_loop(error) {
         (
             ErrorKind::InvalidInput,
@@ -87,7 +87,7 @@ pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> GhostError {
     } else {
         describe(error.kind())
     };
-    GhostError::new(kind, format!("{path} {detail}.{note}"))
+    WireError::new(kind, format!("{path} {detail}.{note}"))
         .with_detail("path", path)
         .with_detail("code", format!("{:?}", error.kind()))
 }

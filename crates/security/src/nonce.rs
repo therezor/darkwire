@@ -30,8 +30,8 @@
 
 use std::sync::LazyLock;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{effective_tool_policy, render_prompt_template};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{effective_tool_policy, render_prompt_template};
 use indexmap::IndexMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,7 @@ pub fn create_tool_output_nonce(random: &dyn RandomSource) -> String {
 /// same as having none, so it is refused rather than wrapped with.
 pub fn tool_output_tag(nonce: &str) -> Result<String> {
     if !is_nonce(nonce) {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::InvalidInput,
             "Tool-output nonce must be at least 8 hex bytes",
         ));

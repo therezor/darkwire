@@ -14,13 +14,13 @@
 
 use std::sync::Arc;
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{
     AutomationJob, AutomationJobState, AutomationPayload, AutomationSchedule, CreateAutomationJob,
     CronKind, CronSchedule, ScheduledKind, ScheduledPayload, ToolRisk,
 };
-use ghostai_tools::testkit::TestWorkspace;
-use ghostai_tools::{
+use darkwire_tools::testkit::TestWorkspace;
+use darkwire_tools::{
     AutomationOutcome, AutomationPort, AutomationRefusal, ToolContext, ToolExecution,
     automation_tool,
 };

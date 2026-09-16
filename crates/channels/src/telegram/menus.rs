@@ -22,8 +22,8 @@
 
 use std::sync::Arc;
 
-use ghostai_core::clock::Clock;
-use ghostai_protocol::ApprovalScope;
+use darkwire_core::clock::Clock;
+use darkwire_protocol::ApprovalScope;
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 

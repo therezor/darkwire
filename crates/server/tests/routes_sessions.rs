@@ -25,16 +25,16 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ghostai_core::messages::{AssistantOptions, assistant_message, user_message};
-use ghostai_core::session_store::{
+use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
+use darkwire_core::session_store::{
     AppendOptions, CreateSession, SessionStore, TurnStatsRecord, UpdateSession,
 };
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_protocol::config::{AgentEntry, Config};
-use ghostai_protocol::messages::{ChatMessage, StopReason, Usage};
-use ghostai_server::cursor::{SessionListCursor, encode_session_cursor};
-use ghostai_server::runtime::ServerRuntime as _;
-use ghostai_server::testkit::{
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_protocol::config::{AgentEntry, Config};
+use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
+use darkwire_server::cursor::{SessionListCursor, encode_session_cursor};
+use darkwire_server::runtime::ServerRuntime as _;
+use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
 use serde_json::{Value, json};
@@ -898,7 +898,7 @@ async fn a_transcript_with_no_failures_carries_an_empty_map() {
 async fn the_context_route_reports_the_prompt_and_the_window() {
     let test = start_test_server(TestServerOptions {
         runtime: FakeRuntimeOptions {
-            system_prompt: Some("# GhostAI\n\nSession: {session}".to_owned()),
+            system_prompt: Some("# DarkWire\n\nSession: {session}".to_owned()),
             runtime_block: Some("## Live state".to_owned()),
             ..FakeRuntimeOptions::default()
         },

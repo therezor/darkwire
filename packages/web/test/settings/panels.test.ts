@@ -8,7 +8,7 @@
  * `settings.panels.x.summary` — rather than as an error.
  */
 
-import { createWebI18n } from '@ghostwire/i18n/web';
+import { createWebI18n } from '@darkwire/i18n/web';
 import { describe, expect, it } from 'vitest';
 
 import {

@@ -3,7 +3,7 @@
 //! The store lives in the server, four layers above this crate, so the tool
 //! cannot depend on it. The established answer is the one `runner` gives for
 //! `exec`: **the interface is declared down here, and the composition root
-//! supplies the implementation.** `JailResolver` in `ghostai-security` is the
+//! supplies the implementation.** `JailResolver` in `darkwire-security` is the
 //! same shape for the same reason.
 //!
 //! Worth stating, because the subagent design deliberately went the other way:
@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use ghostai_protocol::{AutomationJob, CreateAutomationJob};
+use darkwire_protocol::{AutomationJob, CreateAutomationJob};
 
 use crate::runner::PlacementRequest;
 

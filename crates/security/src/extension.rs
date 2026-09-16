@@ -28,11 +28,11 @@ use std::path::{Path, PathBuf};
 
 use crate::environment::{parse_manifest, sha256_hex};
 use crate::exec_guard::{SHELL_BINARIES, binary_name};
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
 
 /// The file every installed extension is found by.
-pub const EXTENSION_MANIFEST_FILE: &str = "ghostai.extension.yaml";
+pub const EXTENSION_MANIFEST_FILE: &str = "darkwire.extension.yaml";
 
 /// How many files of an install directory the digest will walk.
 ///
@@ -54,8 +54,8 @@ pub fn parse_extension(bytes: &[u8]) -> Result<ExtensionManifest> {
     parse_manifest(bytes, "Extension manifest")
 }
 
-fn policy_error(id: &str, message: String) -> GhostError {
-    GhostError::new(ErrorKind::Config, message).with_detail("id", id)
+fn policy_error(id: &str, message: String) -> WireError {
+    WireError::new(ErrorKind::Config, message).with_detail("id", id)
 }
 
 /// Whether `candidate` sits strictly under `root`.
@@ -96,7 +96,7 @@ pub fn assert_extension_policy(manifest: &ExtensionManifest, dir: &Path) -> Resu
     // either side win would mean the id an operator approved and the id the host
     // registers under could differ, and the approval row is keyed by id.
     let absolute = std::path::absolute(dir).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("Extension directory cannot be resolved: {}", dir.display()),
         )
@@ -123,7 +123,7 @@ pub fn assert_extension_policy(manifest: &ExtensionManifest, dir: &Path) -> Resu
     }
 }
 
-/// The `ghostai.extension/1` rule: `entry` is an ES module inside the install.
+/// The `darkwire.extension/1` rule: `entry` is an ES module inside the install.
 ///
 /// Kept whole. No host in this build loads a v1 bundle, but approving one is
 /// still a thing an operator can ask for, and an approval that skipped its
@@ -167,7 +167,7 @@ fn assert_entry_policy(id: &str, entry: &str, root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The `ghostai.extension/2` rule: `command` is an argv the host can spawn.
+/// The `darkwire.extension/2` rule: `command` is an argv the host can spawn.
 ///
 /// The same question the `entry` rule asks — "will the code that runs be the
 /// code that was approved?" — put to an argv instead of a module path, plus one
@@ -192,7 +192,7 @@ fn assert_command_policy(id: &str, command: &[String], root: &Path) -> Result<()
         return Err(policy_error(
             id,
             format!(
-                "Extension \"{id}\" names no command.\n  A \"ghostai.extension/2\" manifest runs as a child process, so it has to\n  say what to run: \"command\": [\"node\", \"index.mjs\"]."
+                "Extension \"{id}\" names no command.\n  A \"darkwire.extension/2\" manifest runs as a child process, so it has to\n  say what to run: \"command\": [\"node\", \"index.mjs\"]."
             ),
         ));
     };
@@ -238,8 +238,8 @@ fn assert_command_policy(id: &str, command: &[String], root: &Path) -> Result<()
     Ok(())
 }
 
-fn too_large(dir: &Path) -> GhostError {
-    GhostError::new(
+fn too_large(dir: &Path) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!(
             "The extension in {} is too large to authorise.\n  The limit is {MAX_EXTENSION_FILES} files and {} MB, and every byte under the\n  directory is hashed. An extension is expected to ship a bundled entry\n  rather than an installed dependency tree.",
@@ -254,8 +254,8 @@ fn unreadable(
     dir: &Path,
     what: &Path,
     error: impl std::error::Error + Send + Sync + 'static,
-) -> GhostError {
-    GhostError::new(
+) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!(
             "The extension in {} could not be read: {}",
@@ -321,7 +321,7 @@ pub fn extension_digest(dir: &Path) -> Result<String> {
 pub fn read_extension_manifest(dir: &Path) -> Result<ExtensionManifest> {
     let file: PathBuf = dir.join(EXTENSION_MANIFEST_FILE);
     let bytes = std::fs::read(&file).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("Extension manifest could not be read: {}", file.display()),
         )

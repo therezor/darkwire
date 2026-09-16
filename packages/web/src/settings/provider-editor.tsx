@@ -31,7 +31,7 @@ import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
 import { useId, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ProviderInstanceInfo } from '@ghostwire/protocol';
+import type { ProviderInstanceInfo } from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';

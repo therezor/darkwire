@@ -29,7 +29,7 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
-import type { SessionListResponse, SessionSummary } from '@ghostwire/protocol';
+import type { SessionListResponse, SessionSummary } from '@darkwire/protocol';
 
 import type { MutationHandle } from '@/components/crud/mutation.js';
 import { PAGE_SIZE } from '@/components/crud/use-pagination.js';

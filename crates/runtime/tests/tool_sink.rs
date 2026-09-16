@@ -12,9 +12,9 @@ mod common;
 use std::sync::Arc;
 
 use common::tool;
-use ghostai_protocol::ToolSource;
-use ghostai_runtime::registry_tool_sink;
-use ghostai_tools::ToolRegistry;
+use darkwire_protocol::ToolSource;
+use darkwire_runtime::registry_tool_sink;
+use darkwire_tools::ToolRegistry;
 
 fn registry() -> Arc<ToolRegistry> {
     Arc::new(ToolRegistry::new())

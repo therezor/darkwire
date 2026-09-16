@@ -21,7 +21,7 @@ use std::sync::Arc;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use rusqlite::Connection;
 
-use crate::errors::{ErrorKind, GhostError, Result};
+use crate::errors::{ErrorKind, Result, WireError};
 use crate::paths::ensure_dir;
 
 struct Inner {
@@ -134,8 +134,9 @@ impl Database {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
-            return Err(GhostError::new(ErrorKind::Internal, "Not a table name")
-                .with_detail("table", table));
+            return Err(
+                WireError::new(ErrorKind::Internal, "Not a table name").with_detail("table", table)
+            );
         }
         let guard = self.lock();
         let mut statement = guard.prepare(&format!("PRAGMA table_info({table})"))?;

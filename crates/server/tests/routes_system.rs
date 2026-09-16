@@ -16,11 +16,11 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ghostai_protocol::config::Config;
-use ghostai_server::testkit::{
+use darkwire_protocol::config::Config;
+use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
-use ghostai_server::version::SERVER_VERSION;
+use darkwire_server::version::SERVER_VERSION;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
@@ -184,12 +184,12 @@ async fn status_reports_a_workspace_id_and_a_count_never_a_host_path() {
 
 #[tokio::test]
 async fn status_counts_the_tools_the_agent_advertises_not_the_registry() {
-    let tool = |name: &str| ghostai_protocol::tools::ToolDefinition {
+    let tool = |name: &str| darkwire_protocol::tools::ToolDefinition {
         name: name.to_owned(),
         description: String::new(),
         parameters: indexmap::IndexMap::new(),
-        risk: ghostai_protocol::tools::ToolRisk::Safe,
-        source: ghostai_protocol::tools::ToolSource::default(),
+        risk: darkwire_protocol::tools::ToolRisk::Safe,
+        source: darkwire_protocol::tools::ToolSource::default(),
         annotations: None,
     };
     let test = server(TestServerOptions {
@@ -241,7 +241,7 @@ async fn the_openapi_route_serves_the_generated_document() {
     let test = server(TestServerOptions::default());
     let (status, body) = get(&test, "/api/openapi.json").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, ghostai_server::openapi::openapi_document());
+    assert_eq!(body, darkwire_server::openapi::openapi_document());
 }
 
 #[tokio::test]

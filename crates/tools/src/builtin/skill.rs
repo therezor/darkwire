@@ -28,8 +28,8 @@
 //! what may be read. Checking it here would gate one door while `read_file`
 //! walks past the other.
 
-use ghostai_core::Result;
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_core::Result;
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

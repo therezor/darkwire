@@ -24,9 +24,9 @@
 //! *mechanism* differs, and the rest say only whether they are the one in
 //! force.
 
-use ghostai_i18n::keys;
-use ghostai_protocol::ReasoningEffort;
-use ghostai_tui::SelectItem;
+use darkwire_i18n::keys;
+use darkwire_protocol::ReasoningEffort;
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from, position_of, with_current};

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use ghostai_i18n::{
+use darkwire_i18n::{
     DEFAULT_LOCALE, Locale, SUPPORTED_LOCALES, cli_locale_candidates, is_rtl, match_locale,
     normalise_locale, resolve_cli_locale, resolve_first_locale, resolve_locale,
 };
@@ -140,7 +140,7 @@ fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
 #[test]
 fn cli_precedence_is_override_then_config_then_the_posix_chain() {
     let env = env_of(&[
-        ("GHOSTAI_LANG", "de"),
+        ("DARKWIRE_LANG", "de"),
         ("LC_ALL", "fr_FR.UTF-8"),
         ("LC_MESSAGES", "it"),
         ("LANG", "es"),
@@ -176,7 +176,7 @@ fn cli_precedence_leaves_a_hole_where_a_source_is_silent() {
 #[test]
 fn cli_locale_resolves_to_a_shipped_language() {
     assert_eq!(
-        resolve_cli_locale(env_of(&[("GHOSTAI_LANG", "en_US.UTF-8")]), None),
+        resolve_cli_locale(env_of(&[("DARKWIRE_LANG", "en_US.UTF-8")]), None),
         DEFAULT_LOCALE
     );
     assert_eq!(

@@ -16,9 +16,9 @@
 
 use std::fmt::Write as _;
 
-use ghostai_core::Result;
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_core::Result;
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 
 use crate::environment::assert_gateway_compatible;
 use crate::environment::invalid;
@@ -41,7 +41,7 @@ pub fn gateway_rules(
     }
     assert_gateway_compatible(container)?;
     let mut rules = String::from(
-        "table inet ghostai {\n chain output { type filter hook output priority 0; policy drop;\n ct state established,related accept\n",
+        "table inet darkwire {\n chain output { type filter hook output priority 0; policy drop;\n ct state established,related accept\n",
     );
     if network.hosts.is_empty() {
         for range in &network.allow {

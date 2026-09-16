@@ -1,7 +1,7 @@
 //! The schema drift gate.
 //!
 //! `packages/protocol/schema/<Name>.json` is what the browser's zod schemas
-//! say, written by `pnpm --filter @ghostwire/protocol schema:dump` in input
+//! say, written by `pnpm --filter @darkwire/protocol schema:dump` in input
 //! mode; this generates the same document from the Rust type registered under
 //! the same name and compares the two after both are normalised. Anything that
 //! survives normalisation is real drift: a field, a bound, a default or a
@@ -44,7 +44,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-use ghostai_protocol::PROTOCOL_SCHEMAS;
+use darkwire_protocol::PROTOCOL_SCHEMAS;
 use serde_json::{Map, Value};
 
 use common::{canonical_numbers, diff};
@@ -59,9 +59,9 @@ fn schema_dir() -> PathBuf {
 
 fn typescript_schemas() -> BTreeMap<String, Value> {
     let mut out = BTreeMap::new();
-    for entry in fs::read_dir(schema_dir()).expect(
-        "packages/protocol/schema exists; run pnpm --filter @ghostwire/protocol schema:dump",
-    ) {
+    for entry in fs::read_dir(schema_dir())
+        .expect("packages/protocol/schema exists; run pnpm --filter @darkwire/protocol schema:dump")
+    {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|e| e == "json") {
             let name = path.file_stem().unwrap().to_string_lossy().into_owned();

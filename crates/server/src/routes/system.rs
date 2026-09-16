@@ -8,12 +8,12 @@
 
 use axum::Json;
 use axum::extract::State;
-use ghostai_core::Database;
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
-use ghostai_protocol::rest::{
+use darkwire_core::Database;
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_protocol::rest::{
     HealthCheck, HealthCheckStatus, HealthResponse, HealthStatus, StatusResponse,
 };
-use ghostai_protocol::ws::PROTOCOL_VERSION;
+use darkwire_protocol::ws::PROTOCOL_VERSION;
 use serde_json::Value;
 
 use crate::errors::HttpError;

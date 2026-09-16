@@ -27,7 +27,7 @@ pub const INDEX_FILE: &str = "index.html";
 /// `rust-embed` reads the folder at compile time, so a checkout that has never
 /// run `pnpm build` fails to compile the crate rather than the request.
 /// `build.rs` sets `headless_ui` only when a headless build was asked for —
-/// `GHOSTAI_HEADLESS_BUILD=1`, which is how the workspace CI builds without the
+/// `DARKWIRE_HEADLESS_BUILD=1`, which is how the workspace CI builds without the
 /// bundle, or `embed-ui` switched off. A bundle that is merely missing is an
 /// error there, not a quiet fallback.
 #[cfg(all(feature = "embed-ui", not(headless_ui)))]
@@ -174,6 +174,6 @@ fn content_type_for(path: &str) -> &'static str {
         "ttf" => "font/ttf",
         "txt" => "text/plain; charset=utf-8",
         "webmanifest" => "application/manifest+json",
-        _ => ghostai_core::workspace_files::DEFAULT_MIME_TYPE,
+        _ => darkwire_core::workspace_files::DEFAULT_MIME_TYPE,
     }
 }

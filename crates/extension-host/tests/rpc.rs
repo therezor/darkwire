@@ -13,8 +13,8 @@
 
 use std::sync::Arc;
 
+use darkwire_extension_host::{DarkwireInit, NoHostMethods, RpcClient, RpcError, RpcHandler};
 use futures::future::BoxFuture;
-use ghostai_extension_host::{GhostaiInit, NoHostMethods, RpcClient, RpcError, RpcHandler};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
@@ -82,8 +82,8 @@ fn connect(handler: Arc<dyn RpcHandler>) -> (Arc<RpcClient>, Peer, CancellationT
     )
 }
 
-fn init() -> GhostaiInit {
-    GhostaiInit {
+fn init() -> DarkwireInit {
+    DarkwireInit {
         extension_id: "hello".to_owned(),
         settings: serde_json::from_value(json!({"greeting": "Ahoy"})).unwrap(),
         data_dir: "/tmp/extension-data/hello".to_owned(),
@@ -99,10 +99,10 @@ async fn the_handshake_is_mcp_plus_one_block_under_meta() {
     let frame = peer.next_request().await;
     assert_eq!(frame["method"], "initialize");
     assert_eq!(frame["jsonrpc"], "2.0");
-    // The name is what an MCP server sees; everything GhostAI-specific is one
+    // The name is what an MCP server sees; everything DarkWire-specific is one
     // block below, where a server that never heard of us simply ignores it.
-    assert_eq!(frame["params"]["clientInfo"]["name"], "ghostai");
-    let ours = &frame["params"]["_meta"]["ghostai"];
+    assert_eq!(frame["params"]["clientInfo"]["name"], "darkwire");
+    let ours = &frame["params"]["_meta"]["darkwire"];
     assert_eq!(ours["extensionId"], "hello");
     assert_eq!(ours["settings"]["greeting"], "Ahoy");
     assert_eq!(ours["dataDir"], "/tmp/extension-data/hello");
@@ -126,7 +126,7 @@ async fn a_method_the_peer_does_not_implement_is_a_typed_failure() {
     let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
     let call = {
         let client = Arc::clone(&client);
-        tokio::spawn(async move { client.request("ghostai/commands/list", json!({})).await })
+        tokio::spawn(async move { client.request("darkwire/commands/list", json!({})).await })
     };
 
     let frame = peer.next_request().await;
@@ -173,7 +173,7 @@ impl RpcHandler for RecordingHost {
     ) -> BoxFuture<'_, std::result::Result<Value, RpcError>> {
         self.seen.lock().push((method.clone(), params));
         Box::pin(async move {
-            if method == "ghostai/secret" {
+            if method == "darkwire/secret" {
                 Ok(json!({"value": "shhh"}))
             } else {
                 Err(RpcError::method_not_found(&method))
@@ -194,7 +194,7 @@ async fn an_extension_can_ask_the_host_and_announce_to_it() {
     }));
 
     peer.write(&json!({
-        "jsonrpc": "2.0", "id": 7, "method": "ghostai/secret", "params": {}
+        "jsonrpc": "2.0", "id": 7, "method": "darkwire/secret", "params": {}
     }))
     .await;
     let answer = peer.next().await;
@@ -203,13 +203,13 @@ async fn an_extension_can_ask_the_host_and_announce_to_it() {
 
     // A method the host does not serve is refused with the same code the
     // extension side uses, rather than met with silence.
-    peer.write(&json!({"jsonrpc": "2.0", "id": 8, "method": "ghostai/vault/read"}))
+    peer.write(&json!({"jsonrpc": "2.0", "id": 8, "method": "darkwire/vault/read"}))
         .await;
     let refusal = peer.next().await;
     assert_eq!(refusal["error"]["code"], -32601);
 
     peer.write(&json!({
-        "jsonrpc": "2.0", "method": "ghostai/channels/publish", "params": {"text": "hi"}
+        "jsonrpc": "2.0", "method": "darkwire/channels/publish", "params": {"text": "hi"}
     }))
     .await;
     tokio::task::yield_now().await;
@@ -217,7 +217,7 @@ async fn an_extension_can_ask_the_host_and_announce_to_it() {
     assert!(
         recorded
             .iter()
-            .any(|(method, _)| method == "ghostai/channels/publish")
+            .any(|(method, _)| method == "darkwire/channels/publish")
     );
 }
 
@@ -230,7 +230,7 @@ async fn cancelling_a_call_notifies_the_peer_and_stops_waiting() {
         let token = token.clone();
         tokio::spawn(async move {
             client
-                .request_cancellable("ghostai/commands/run", json!({"id": "slow"}), &token)
+                .request_cancellable("darkwire/commands/run", json!({"id": "slow"}), &token)
                 .await
         })
     };
@@ -254,7 +254,7 @@ async fn a_closed_connection_fails_everything_still_waiting() {
     let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
     let call = {
         let client = Arc::clone(&client);
-        tokio::spawn(async move { client.request("ghostai/context/static", json!({})).await })
+        tokio::spawn(async move { client.request("darkwire/context/static", json!({})).await })
     };
     peer.next_request().await;
 

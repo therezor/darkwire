@@ -12,7 +12,7 @@ import { CircleAlert, CircleCheck } from 'lucide-react';
 import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ProviderTestResponse } from '@ghostwire/protocol';
+import type { ProviderTestResponse } from '@darkwire/protocol';
 
 import { TextField } from '@/components/form/controls.js';
 import { describeProbe } from './use-provider.js';

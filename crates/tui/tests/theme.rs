@@ -1,6 +1,6 @@
 //! Seven roles over a palette, the identity under no colour, and the bytes that come out.
 
-use ghostai_tui::{PLAIN_THEME, Style, Theme, palette_for, strip_ansi, theme_for, theme_from};
+use darkwire_tui::{PLAIN_THEME, Style, Theme, palette_for, strip_ansi, theme_for, theme_from};
 
 /// SGR 2, "faint" — the attribute this crate deliberately does not use.
 const FAINT: &str = "\x1b[2m";

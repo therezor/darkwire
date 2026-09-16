@@ -20,9 +20,9 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::ProviderConfig;
-use ghostai_security::RandomSource;
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::ProviderConfig;
+use darkwire_security::RandomSource;
 use indexmap::IndexMap;
 
 use crate::registry::{ProviderSpec, find_builtin};
@@ -123,12 +123,12 @@ pub fn create_provider(options: CreateProviderOptions) -> Result<Arc<dyn ChatPro
     let spec = match options.provider {
         ProviderRef::Spec(spec) => *spec,
         ProviderRef::Id(id) => find_builtin(&id).cloned().ok_or_else(|| {
-            GhostError::new(ErrorKind::Config, format!("Unknown provider \"{id}\""))
+            WireError::new(ErrorKind::Config, format!("Unknown provider \"{id}\""))
         })?,
     };
 
     let Some(adapter) = wire_adapter_for(spec.wire, options.wires.as_ref()) else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             format!(
                 "Provider \"{}\" speaks the {wire} wire, which this build has no adapter for. Use \

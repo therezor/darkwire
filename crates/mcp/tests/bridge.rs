@@ -9,17 +9,17 @@
 
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_mcp::testkit::echo_tool;
-use ghostai_mcp::{
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_mcp::testkit::echo_tool;
+use darkwire_mcp::{
     BridgeOptions, BridgedTool, McpCallOptions, McpCallResult, McpCallTarget, McpContentPart,
     McpResourceContents, McpToolDescriptor, bridge_tool, flatten_content,
 };
-use ghostai_protocol::json::Object;
-use ghostai_protocol::{ToolAnnotations, ToolRisk, ToolSource};
-use ghostai_tools::ToolContext;
-use ghostai_tools::testkit::TestWorkspace;
+use darkwire_protocol::json::Object;
+use darkwire_protocol::{ToolAnnotations, ToolRisk, ToolSource};
+use darkwire_tools::ToolContext;
+use darkwire_tools::testkit::TestWorkspace;
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -253,7 +253,7 @@ async fn reports_a_remote_failure_as_a_result_the_model_can_read() {
 #[tokio::test]
 async fn reports_a_transport_failure_as_a_result_with_a_kind() {
     let descriptor = echo_tool();
-    let recorder = Recorder::answering(Err(GhostError::new(ErrorKind::Network, "gone")));
+    let recorder = Recorder::answering(Err(WireError::new(ErrorKind::Network, "gone")));
     let bridged = bridge_tool(
         &descriptor,
         recorder,
@@ -465,16 +465,16 @@ fn is_empty_for_a_result_that_genuinely_carried_nothing() {
 async fn a_session_is_a_call_target() {
     // What the extension host hands the bridge: the session itself, with no
     // connection in between.
-    let fake = ghostai_mcp::testkit::FakeServer::default();
+    let fake = darkwire_mcp::testkit::FakeServer::default();
     let session = fake
         .connector()
         .connect(
-            ghostai_mcp::resolve_spec(
+            darkwire_mcp::resolve_spec(
                 "demo",
                 &serde_json::from_value(json!({ "command": "npx" })).unwrap(),
             )
             .unwrap(),
-            ghostai_mcp::McpConnectContext::bare(CancellationToken::new()),
+            darkwire_mcp::McpConnectContext::bare(CancellationToken::new()),
         )
         .await
         .unwrap();

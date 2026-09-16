@@ -12,7 +12,7 @@
     reason = "each test binary uses a subset of these helpers, and a fixture that cannot be built is a failing test either way"
 )]
 
-use ghostai_protocol::{
+use darkwire_protocol::{
     AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, ErrorCode, ErrorEvent,
     ErrorTag, MessageQueued, MessageQueuedTag, NestedAgentEvent, Notice, NoticeKind, NoticeTag,
     ReasoningDelta, ReasoningDeltaTag, Sequenced, ServerMessage, SessionStatus, SessionStatusTag,

@@ -5,7 +5,7 @@
 //! and `agent`, and on nothing above them: the agent loop must never be able to
 //! reach back into the transport, so the dependency only points one way and the
 //! event stream is the only path out. The composition root arrives as the
-//! [`ServerRuntime`] trait, so this crate never depends on `ghostai-runtime`.
+//! [`ServerRuntime`] trait, so this crate never depends on `darkwire-runtime`.
 //!
 //! Two invariants this crate exists to hold:
 //!
@@ -51,7 +51,7 @@ pub mod workspace;
 pub mod testkit;
 
 pub use agent_binding::agent_for_turn;
-pub use app::{GhostServer, ServerOptions, create_server};
+pub use app::{ServerOptions, WireServer, create_server};
 pub use approvals::{HubApprovalGate, HubApprovalGateOptions, UnattendedApproval};
 pub use auth::{
     Credential, SESSION_COOKIE, authenticate, clear_session_cookie, cookie_secure, media_claim_of,

@@ -10,11 +10,11 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::messages::{
+use darkwire_protocol::messages::{
     AssistantMessage, AssistantRole, ChatMessage, ContentPart, TextPart, TextTag, ToolCall, Usage,
 };
-use ghostai_providers::{ChatResult, FinishReason};
-use ghostai_server::heartbeat::{
+use darkwire_providers::{ChatResult, FinishReason};
+use darkwire_server::heartbeat::{
     DecideMessagesInput, EvaluateMessagesInput, HEARTBEAT_RESULT_TOOL, HEARTBEAT_TOOL,
     HeartbeatAction, MAX_TASK_FILE_BYTES, build_decide_messages, build_evaluate_messages,
     read_decision, read_evaluation,
@@ -62,8 +62,8 @@ fn the_two_tools_are_safe_builtins_the_model_is_told_to_call() {
     assert_eq!(HEARTBEAT_TOOL.name, "heartbeat");
     assert_eq!(HEARTBEAT_RESULT_TOOL.name, "heartbeat_result");
     for tool in [&*HEARTBEAT_TOOL, &*HEARTBEAT_RESULT_TOOL] {
-        assert_eq!(tool.risk, ghostai_protocol::tools::ToolRisk::Safe);
-        assert_eq!(tool.source, ghostai_protocol::tools::ToolSource::Builtin);
+        assert_eq!(tool.risk, darkwire_protocol::tools::ToolRisk::Safe);
+        assert_eq!(tool.source, darkwire_protocol::tools::ToolSource::Builtin);
         assert_eq!(tool.parameters["type"], "object");
         assert_eq!(tool.parameters["additionalProperties"], false);
     }

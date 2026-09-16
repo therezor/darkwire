@@ -15,8 +15,8 @@
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_protocol::config::Config;
-use ghostai_server::testkit::{
+use darkwire_protocol::config::Config;
+use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
 };
 use serde_json::{Value, json};
@@ -61,7 +61,7 @@ async fn send(
 }
 
 fn config_with(raw: Value) -> Config {
-    ghostai_protocol::config::parse_config(raw).expect("a parseable config")
+    darkwire_protocol::config::parse_config(raw).expect("a parseable config")
 }
 
 // GET /api/providers
@@ -75,8 +75,8 @@ async fn it_describes_every_provider_type_in_the_registry() {
     let types = body["types"].as_array().expect("a catalogue");
     // A provider is data, so the catalogue is the table rather than a list this
     // route keeps in step with it by hand.
-    assert_eq!(types.len(), ghostai_providers::PROVIDERS.len());
-    for spec in ghostai_providers::PROVIDERS.iter() {
+    assert_eq!(types.len(), darkwire_providers::PROVIDERS.len());
+    for spec in darkwire_providers::PROVIDERS.iter() {
         assert!(
             types.iter().any(|entry| entry["id"] == spec.id),
             "{} is missing from the catalogue",

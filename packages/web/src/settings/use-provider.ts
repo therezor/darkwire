@@ -24,7 +24,7 @@ import type {
   ConfigPatch,
   ProviderTestRequest,
   ProviderTestResponse,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { toast } from '@/components/ui/toast.js';
@@ -250,7 +250,7 @@ export function useRemoveProvider(): {
  * One line of prose for a probe result.
  *
  * Written from `reason`, not from `message`, wherever the reason is enough to
- * say something better: the classification is what `ghostai-providers` is sure
+ * say something better: the classification is what `darkwire-providers` is sure
  * of, and it separates the two answers an operator actually came for — the key
  * is wrong, or nothing is there. `message` carries the detail underneath, and
  * for a transport fault it is already a full sentence naming the host and the

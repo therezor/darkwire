@@ -31,7 +31,7 @@ import { Download, File } from 'lucide-react';
 import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { Attachment } from '@ghostwire/protocol';
+import type { Attachment } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { formatBytes } from '@/lib/format.js';

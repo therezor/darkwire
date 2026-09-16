@@ -17,8 +17,8 @@ mod common;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ghostai_extension_host::testkit::{Expect, extension_conformance};
-use ghostai_protocol::{ExtensionState, ExtensionsConfig};
+use darkwire_extension_host::testkit::{Expect, extension_conformance};
+use darkwire_protocol::{ExtensionState, ExtensionsConfig};
 use tokio_util::sync::CancellationToken;
 
 use common::{Harness, eventually};
@@ -64,7 +64,7 @@ async fn the_handshake_carries_the_settings_the_extension_reads() {
     harness.settle(&config).await;
     assert_eq!(harness.state("hello"), ExtensionState::Ready);
 
-    // The settings reached the child through `params._meta.ghostai` and it read
+    // The settings reached the child through `params._meta.darkwire` and it read
     // them once, exactly where a v1 extension read them in `activate`.
     let outcome = harness
         .host
@@ -86,7 +86,7 @@ async fn a_tool_call_reaches_the_child_and_comes_back() {
     let tool = &tools[0];
     assert_eq!(tool.definition().name, "ext_hello_greet");
     // The one hint the bridge believes at face value.
-    assert_eq!(tool.risk(), ghostai_protocol::ToolRisk::Safe);
+    assert_eq!(tool.risk(), darkwire_protocol::ToolRisk::Safe);
     // And the description says whose it is, not "from the hello MCP server".
     assert!(tool.definition().description.contains("Greet"));
 }
@@ -100,8 +100,8 @@ async fn a_kind_the_manifest_declares_and_the_extension_lacks_is_a_row_warning()
     let row = harness.row("absent");
     assert_eq!(row.state, ExtensionState::Ready);
     let warnings = row.warnings.join("\n");
-    assert!(warnings.contains("ghostai/commands/list"), "{warnings}");
-    assert!(warnings.contains("ghostai/context/static"), "{warnings}");
+    assert!(warnings.contains("darkwire/commands/list"), "{warnings}");
+    assert!(warnings.contains("darkwire/context/static"), "{warnings}");
     // `tools` is declared *and* implemented, so it earns no sentence.
     assert!(!warnings.contains("tools/list"), "{warnings}");
 }
@@ -137,8 +137,8 @@ async fn a_v1_bundle_lands_failed_with_the_sentence_that_names_the_reason() {
     let row = harness.row("oldschool");
     assert_eq!(row.state, ExtensionState::Failed);
     let sentence = row.last_error.clone().unwrap_or_default();
-    assert!(sentence.contains("ghostai.extension/1"), "{sentence}");
-    assert!(sentence.contains("ghostai.extension/2"), "{sentence}");
+    assert!(sentence.contains("darkwire.extension/1"), "{sentence}");
+    assert!(sentence.contains("darkwire.extension/2"), "{sentence}");
     // And it is described, not merely refused: the row carries its manifest.
     assert_eq!(row.label, "Old School");
 }
@@ -232,7 +232,7 @@ async fn cancelling_a_command_ends_it_inside_the_grace_period() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_runtime_context_section_that_never_arrives_costs_only_itself() {
-    use ghostai_agent::StaticPromptContext;
+    use darkwire_agent::StaticPromptContext;
 
     let harness = Harness::with(&["slow"]);
     harness.approve("slow");

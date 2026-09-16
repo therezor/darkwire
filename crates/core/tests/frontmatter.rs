@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use ghostai_core::frontmatter::parse_frontmatter;
+use darkwire_core::frontmatter::parse_frontmatter;
 
 fn fields(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs

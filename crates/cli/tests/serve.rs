@@ -25,19 +25,19 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use futures::future::BoxFuture;
-use ghostai::i18n::Env;
-use ghostai::i18n::Translations;
-use ghostai::program::{Globals, ServeArgs};
-use ghostai::serve::{
+use darkwire::i18n::Env;
+use darkwire::i18n::Translations;
+use darkwire::program::{Globals, ServeArgs};
+use darkwire::serve::{
     ReadyRecord, ServeOptions, banner, coalesce, read_workspace_file, resolve_ui_root, start,
     write_ready_file,
 };
-use ghostai_channels::{Channel, ChannelFactory};
-use ghostai_core::message_bus::OutboundMessage;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_server::UiRoot;
-use ghostai_server::scheduler::ReadTaskFile;
+use darkwire_channels::{Channel, ChannelFactory};
+use darkwire_core::message_bus::OutboundMessage;
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_server::UiRoot;
+use darkwire_server::scheduler::ReadTaskFile;
+use futures::future::BoxFuture;
 
 /// A serve run over a temporary home, on a port the operating system picks.
 fn options(home: &Path, args: ServeArgs) -> ServeOptions {
@@ -291,7 +291,7 @@ fn no_flag_takes_whatever_this_build_carries() {
     );
     assert_eq!(
         root == UiRoot::Embedded,
-        ghostai_server::ui::has_embedded_bundle()
+        darkwire_server::ui::has_embedded_bundle()
     );
 }
 
@@ -319,11 +319,11 @@ async fn the_banner_names_the_url_the_workspace_and_where_the_ui_came_from() {
     // error — and the banner is where an operator finds that out.
     let t = Translations::default();
     assert!(
-        text.contains(&t.t(ghostai_i18n::keys::serve::AGENT_UNCONFIGURED)),
+        text.contains(&t.t(darkwire_i18n::keys::serve::AGENT_UNCONFIGURED)),
         "{text}"
     );
     assert!(
-        text.contains(&t.t(ghostai_i18n::keys::serve::PRESS_CTRL_C)),
+        text.contains(&t.t(darkwire_i18n::keys::serve::PRESS_CTRL_C)),
         "{text}"
     );
 }
@@ -354,7 +354,7 @@ async fn the_banner_prints_the_setup_code_and_only_on_a_first_run() {
     )
     .await;
     assert!(
-        !text.contains(&Translations::default().t(ghostai_i18n::keys::serve::FIRST_RUN)),
+        !text.contains(&Translations::default().t(darkwire_i18n::keys::serve::FIRST_RUN)),
         "{text}"
     );
 }
@@ -384,17 +384,17 @@ impl Channel for Counted {
         &self.id
     }
 
-    fn start(&self) -> BoxFuture<'_, ghostai_core::Result<()>> {
+    fn start(&self) -> BoxFuture<'_, darkwire_core::Result<()>> {
         Box::pin(async move {
             if self.refuses {
-                return Err(GhostError::new(ErrorKind::Config, "the token was refused"));
+                return Err(WireError::new(ErrorKind::Config, "the token was refused"));
             }
             self.started.fetch_add(1, Ordering::SeqCst);
             Ok(())
         })
     }
 
-    fn send(&self, _message: OutboundMessage) -> BoxFuture<'_, ghostai_core::Result<()>> {
+    fn send(&self, _message: OutboundMessage) -> BoxFuture<'_, darkwire_core::Result<()>> {
         Box::pin(std::future::ready(Ok(())))
     }
 }

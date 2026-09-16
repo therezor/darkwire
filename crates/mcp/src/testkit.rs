@@ -4,15 +4,15 @@
 //! whole point of [`McpSession`] existing: proving that a backoff timer fires
 //! on the right cadence should not require a subprocess, and a suite that
 //! spawns one is a suite that is slow on a laptop and flaky on a shared runner.
-//! `ghostai-runtime`'s tests drive it too, so nothing here depends on a test
+//! `darkwire-runtime`'s tests drive it too, so nothing here depends on a test
 //! framework.
 
 use std::sync::Arc;
 
+use darkwire_core::{Result, WireError};
+use darkwire_protocol::ToolAnnotations;
+use darkwire_protocol::json::Object;
 use futures::future::BoxFuture;
-use ghostai_core::{GhostError, Result};
-use ghostai_protocol::ToolAnnotations;
-use ghostai_protocol::json::Object;
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio::sync::broadcast;
@@ -69,8 +69,8 @@ struct Shared {
     attempts: usize,
     last_context: Option<McpConnectContext>,
     closed: bool,
-    one_shot_failure: Option<GhostError>,
-    standing_failure: Option<GhostError>,
+    one_shot_failure: Option<WireError>,
+    standing_failure: Option<WireError>,
     handler: CallHandler,
     events: Option<broadcast::Sender<McpSessionEvent>>,
 }
@@ -91,9 +91,9 @@ impl std::fmt::Debug for FakeServer {
     }
 }
 
-/// A `GhostError` cannot be cloned; a failure is replayed by rebuilding it.
-fn replay(error: &GhostError) -> GhostError {
-    GhostError::new(error.kind, error.message.clone())
+/// A `WireError` cannot be cloned; a failure is replayed by rebuilding it.
+fn replay(error: &WireError) -> WireError {
+    WireError::new(error.kind, error.message.clone())
         .with_retryable(error.retryable)
         .with_details(error.details.clone())
 }
@@ -168,12 +168,12 @@ impl FakeServer {
     }
 
     /// The next `connect` fails with this, then normal service resumes.
-    pub fn fail_next_connect(&self, error: GhostError) {
+    pub fn fail_next_connect(&self, error: WireError) {
         self.shared.lock().one_shot_failure = Some(error);
     }
 
     /// Every `connect` fails until [`FakeServer::recover`].
-    pub fn fail_connects(&self, error: GhostError) {
+    pub fn fail_connects(&self, error: WireError) {
         self.shared.lock().standing_failure = Some(error);
     }
 
@@ -190,7 +190,7 @@ impl FakeServer {
     }
 
     /// Simulates the server going away mid-session.
-    pub fn drop_session(&self, error: Option<GhostError>) {
+    pub fn drop_session(&self, error: Option<WireError>) {
         let events = self.shared.lock().events.clone();
         if let Some(events) = events {
             let _ = events.send(McpSessionEvent::Closed(error.map(Arc::new)));

@@ -1,6 +1,6 @@
 //! Shell bindings, grapheme-wise movement, history, and folding at the real window edge.
 
-use ghostai_tui::{
+use darkwire_tui::{
     CURSOR_MARKER, Component, Editor, EditorOutcome, Key, KeyName, PLAIN_THEME, parse_key,
     theme_for,
 };

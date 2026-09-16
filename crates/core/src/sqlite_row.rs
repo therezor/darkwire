@@ -12,7 +12,7 @@
 use rusqlite::Row;
 use serde_json::{Map, Value};
 
-use crate::errors::{ErrorKind, GhostError, Result};
+use crate::errors::{ErrorKind, Result, WireError};
 
 /// Typed readers bound to the store whose rows they read, so an error names it.
 #[derive(Debug, Clone, Copy)]
@@ -52,8 +52,8 @@ impl RowReader {
         row.get::<_, Option<String>>(column).ok().flatten()
     }
 
-    fn bad(&self, column: &str, expected: &str) -> GhostError {
-        GhostError::new(
+    fn bad(&self, column: &str, expected: &str) -> WireError {
+        WireError::new(
             ErrorKind::Storage,
             format!("Expected {expected} in column \"{column}\""),
         )

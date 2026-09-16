@@ -5,9 +5,9 @@
 //! question nobody asked and implies an ownership that does not hold. The id is
 //! what goes there instead, because it is what `/workspace <id>` takes.
 
-use ghostai_core::WorkspaceRecord;
-use ghostai_i18n::keys;
-use ghostai_tui::SelectItem;
+use darkwire_core::WorkspaceRecord;
+use darkwire_i18n::keys;
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from, position_of, with_current};

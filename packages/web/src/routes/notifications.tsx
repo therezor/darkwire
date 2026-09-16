@@ -32,7 +32,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   Notification,
   NotificationListResponse,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';

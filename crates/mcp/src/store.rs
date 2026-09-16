@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ghostai_core::Result;
-use ghostai_security::CredentialVault;
+use darkwire_core::Result;
+use darkwire_security::CredentialVault;
 use parking_lot::Mutex;
 
 /// The vault namespace every MCP credential lives under.

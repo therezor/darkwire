@@ -16,8 +16,8 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::log_line::format_log_line;
-use ghostai_tui::{Palette, palette_for, strip_ansi};
+use darkwire::log_line::format_log_line;
+use darkwire_tui::{Palette, palette_for, strip_ansi};
 use serde_json::{Value, json};
 
 /// The identity palette, so every assertion below is about text.
@@ -71,7 +71,7 @@ fn keeps_the_context_after_the_sentence_rather_than_before_it() {
 #[test]
 fn drops_the_fields_every_record_carries_and_none_identify_it_by() {
     // `time` because the line is read as it happens, `name` because it is
-    // `ghostai` on every line this will ever see.
+    // `darkwire` on every line this will ever see.
     let line = format_log_line(
         &record(&json!({"pid": 4, "hostname": "h", "msg": "hi"})),
         &plain(),
@@ -170,7 +170,7 @@ fn dims_the_context_but_not_the_sentence() {
 
 #[test]
 fn says_the_level_in_words_so_colour_is_never_the_only_signal() {
-    // `ghostai-tui`'s theme states this rule. Under NO_COLOR, in a pipe, or to a
+    // `darkwire-tui`'s theme states this rule. Under NO_COLOR, in a pipe, or to a
     // reader who cannot tell the yellow from the red, `warn` still reads.
     let line = format_log_line(&record(&json!({"msg": "x"})), &colour());
     assert_eq!(strip_ansi(&line), "warn  x\n");

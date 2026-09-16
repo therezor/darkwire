@@ -1,7 +1,7 @@
 /**
  * The app renders with no network access.
  *
- * `self-contained.test.ts` in `@ghostwire/web` already fails on any external
+ * `self-contained.test.ts` in `@darkwire/web` already fails on any external
  * origin appearing in the shipped source, which is the cheap half of this and
  * runs on every commit. The expensive half is the one that cannot be read off
  * the source at all: a font, an icon set or a highlighter theme that a bundler
@@ -31,7 +31,7 @@ test.describe('with every foreign origin blocked', () => {
     });
 
     const response = await page.request.post(`${harness.url}/api/auth/login`, {
-      data: { username: 'ghost', password: 'e2e-password' },
+      data: { username: 'darkwire', password: 'e2e-password' },
     });
     expect(response.ok()).toBe(true);
 

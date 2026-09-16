@@ -3,7 +3,7 @@
 //! Four conversions, and each one has a rule that is not obvious:
 //!
 //!  - **Tools go through the MCP bridge, unchanged.** Not a copy of it, not a
-//!    variant of it — [`ghostai_mcp::bridge_tool`] itself, with the prefix `ext`
+//!    variant of it — [`darkwire_mcp::bridge_tool`] itself, with the prefix `ext`
 //!    instead of `mcp`. That is the whole of the difference between an
 //!    extension's tools and an MCP server's, and it should stay the whole of
 //!    it: one bridge, two prefixes. What the bridge already decides — that a
@@ -25,13 +25,13 @@
 //!    runtime one is cached per session.
 //!  - **A channel is built over the same connection.** The factory the host
 //!    registers closes over the RPC client, so starting a channel is
-//!    `ghostai/channels/start` and sending on it is `ghostai/channels/send`.
+//!    `darkwire/channels/start` and sending on it is `darkwire/channels/send`.
 
 use std::sync::Arc;
 
-use ghostai_mcp::{BridgeOptions, McpCallTarget, McpToolDescriptor, bridge_tool};
-use ghostai_protocol::{ExtensionProviderSpec, ToolSource};
-use ghostai_providers::{ProviderSpec, WireProtocol};
+use darkwire_mcp::{BridgeOptions, McpCallTarget, McpToolDescriptor, bridge_tool};
+use darkwire_protocol::{ExtensionProviderSpec, ToolSource};
+use darkwire_providers::{ProviderSpec, WireProtocol};
 
 use crate::bag::RegistrationBag;
 
@@ -141,13 +141,13 @@ pub fn add_provider(bag: &mut RegistrationBag, spec: &ExtensionProviderSpec) {
     });
 }
 
-fn max_tokens_param(spec: &ExtensionProviderSpec) -> ghostai_providers::MaxTokensParam {
+fn max_tokens_param(spec: &ExtensionProviderSpec) -> darkwire_providers::MaxTokensParam {
     match spec.max_tokens_param {
-        ghostai_protocol::ExtensionMaxTokensParam::MaxTokens => {
-            ghostai_providers::MaxTokensParam::MaxTokens
+        darkwire_protocol::ExtensionMaxTokensParam::MaxTokens => {
+            darkwire_providers::MaxTokensParam::MaxTokens
         }
-        ghostai_protocol::ExtensionMaxTokensParam::MaxCompletionTokens => {
-            ghostai_providers::MaxTokensParam::MaxCompletionTokens
+        darkwire_protocol::ExtensionMaxTokensParam::MaxCompletionTokens => {
+            darkwire_providers::MaxTokensParam::MaxCompletionTokens
         }
     }
 }

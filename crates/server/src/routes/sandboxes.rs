@@ -16,8 +16,8 @@
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_protocol::rest::{SandboxListResponse, SandboxRequest};
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_protocol::rest::{SandboxListResponse, SandboxRequest};
 
 use crate::errors::HttpError;
 use crate::routes::AppState;
@@ -31,11 +31,11 @@ pub async fn list_sandboxes(
         .runtime
         .sandbox_request(
             serde_json::to_value(SandboxRequest::List)
-                .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?,
+                .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?,
         )
         .await?;
     let response: SandboxListResponse = serde_json::from_value(value)
-        .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+        .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
     Ok(Json(response))
 }
 
@@ -52,13 +52,13 @@ pub async fn manage(
     let Json(raw) = body.map_err(|error| HttpError::bad_request(error.body_text()))?;
     let request: SandboxRequest = parse_body("sandbox request", raw)?;
     if matches!(request, SandboxRequest::Exec { .. }) {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::PermissionDenied,
             "Tool execution is not a management operation",
         )
         .into());
     }
     let request = serde_json::to_value(request)
-        .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))?;
+        .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))?;
     Ok(Json(state.runtime.sandbox_request(request).await?))
 }

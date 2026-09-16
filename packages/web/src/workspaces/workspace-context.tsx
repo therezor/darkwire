@@ -29,9 +29,9 @@ import {
   type ReactNode,
 } from 'react';
 
-import { DEFAULT_WORKSPACE_ID } from '@ghostwire/protocol';
+import { DEFAULT_WORKSPACE_ID } from '@darkwire/protocol';
 
-const STORAGE_KEY = 'ghostai:workspace';
+const STORAGE_KEY = 'darkwire:workspace';
 
 /**
  * The workspace every install has. Also the parent folder of all the others.

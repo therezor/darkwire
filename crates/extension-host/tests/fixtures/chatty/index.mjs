@@ -14,7 +14,7 @@ const METHODS = {
     ],
   }),
   // Undeclared: `contributes` says tools and nothing else.
-  'ghostai/commands/list': () => ({
+  'darkwire/commands/list': () => ({
     commands: [{ id: 'chatty-now', description: 'Undeclared.' }],
   }),
 };

@@ -45,7 +45,7 @@ import {
   newUuid,
   type Attachment,
   type ReasoningEffort,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
@@ -129,7 +129,7 @@ interface StagedFile {
 /**
  * The largest upload the server will take.
  *
- * Mirrored from `MAX_UPLOAD_BYTES` in `ghostai-server`, where it is enforced as
+ * Mirrored from `MAX_UPLOAD_BYTES` in `darkwire-server`, where it is enforced as
  * the body arrives rather than after it is all in memory. The copy is
  * deliberate: the browser cannot import from the server, and a value that only
  * exists there means the user finds out by waiting for a 413.

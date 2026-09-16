@@ -132,7 +132,7 @@ pub fn resolve_locale(requested: Option<&str>, available: &[Locale]) -> Locale {
 /// The first request that matches something, or the default when none do.
 ///
 /// This is the shape every consumer's preference order actually has — the CLI
-/// asks `GHOSTAI_LANG`, then the config, then `LANG`; the web asks storage, then
+/// asks `DARKWIRE_LANG`, then the config, then `LANG`; the web asks storage, then
 /// the browser. Expressing it once keeps "first one that means anything wins"
 /// from being re-implemented per surface with a different opinion about what
 /// "anything" is.
@@ -160,7 +160,7 @@ pub fn is_rtl(locale: &str) -> bool {
 ///
 /// In order:
 ///
-/// 1. `GHOSTAI_LANG` — the override, for a script that wants one language
+/// 1. `DARKWIRE_LANG` — the override, for a script that wants one language
 ///    regardless of the shell it runs in.
 /// 2. `configured` — `config.ui.locale`, the install's own answer and the same
 ///    value the web UI uses. Only available once a command has loaded the
@@ -198,7 +198,7 @@ pub fn cli_locale_candidates<F>(env: F, configured: Option<&str>) -> Vec<Option<
 where
     F: Fn(&str) -> Option<String>,
 {
-    let mut candidates = vec![env("GHOSTAI_LANG"), configured.map(str::to_owned)];
+    let mut candidates = vec![env("DARKWIRE_LANG"), configured.map(str::to_owned)];
     candidates.extend(POSIX_LOCALE_VARS.iter().map(|name| env(name)));
     candidates
 }

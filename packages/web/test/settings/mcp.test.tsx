@@ -15,7 +15,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { ConfigSchema, type ConfigPatch } from '@ghostwire/protocol';
+import { ConfigSchema, type ConfigPatch } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
@@ -293,7 +293,7 @@ describe('the MCP editor', () => {
     });
 
     const link = await screen.findByRole('link', {
-      name: /Authorize GhostAI with github/,
+      name: /Authorize DarkWire with github/,
     });
     expect(link).toHaveAttribute(
       'href',

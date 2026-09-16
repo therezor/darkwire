@@ -20,13 +20,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ghostai::messages::{recent_messages, resolve_seq};
-use ghostai_core::messages::{AssistantOptions, ToolOptions};
-use ghostai_core::session_store::{AppendOptions, CreateSession};
-use ghostai_core::{
+use darkwire::messages::{recent_messages, resolve_seq};
+use darkwire_core::messages::{AssistantOptions, ToolOptions};
+use darkwire_core::session_store::{AppendOptions, CreateSession};
+use darkwire_core::{
     Database, ErrorKind, SessionStore, SystemClock, assistant_message, tool_message, user_message,
 };
-use ghostai_protocol::ToolCall;
+use darkwire_protocol::ToolCall;
 
 const SESSION: &str = "cli:default";
 

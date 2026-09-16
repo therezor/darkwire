@@ -13,8 +13,8 @@
  * starts, not when the operator presses Save, so the five values that vary are
  * holes the renderer fills.
  *
- * This lives in `@ghostwire/protocol` because packages that share nothing else
- * need the identical text: `ghostai-agent` renders it and `@ghostwire/web`
+ * This lives in `@darkwire/protocol` because packages that share nothing else
+ * need the identical text: `darkwire-agent` renders it and `@darkwire/web`
  * shows it in the editor. The browser depends on this package and no other, and
  * a second copy of the text in either is a copy that goes stale.
  *
@@ -265,8 +265,8 @@ const DELIMITER_PLACEHOLDER: RegExp = /\{\{(?:nonce|tag)\}\}/;
  * Whether a template spells out the turn's tool-output delimiter.
  *
  * Here rather than beside any one caller because three of them ask the
- * question — `ghostai-security` against the *effective* template,
- * `ghostai-runtime` and the agent editor against the raw string — and three
+ * question — `darkwire-security` against the *effective* template,
+ * `darkwire-runtime` and the agent editor against the raw string — and three
  * spellings of one rule disagree sooner or later. The placeholders they look
  * for are defined in this file, so this is where the rule belongs.
  *
@@ -446,7 +446,7 @@ before relying on it.`;
 /**
  * The section that makes the tool-output delimiters mean something.
  *
- * Here rather than beside `wrap_tool_output` in `ghostai-security` for the same
+ * Here rather than beside `wrap_tool_output` in `darkwire-security` for the same
  * reason the identity template is here: the browser edits it, and the browser
  * depends on this package and no other. Security imports it — the layer graph
  * runs that way and not the other.

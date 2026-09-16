@@ -1,4 +1,4 @@
-name: ghostai
+name: darkwire
 services:
   sandbox:
     build:
@@ -6,15 +6,15 @@ services:
       dockerfile: deploy/sandbox/Dockerfile
       target: service
     environment:
-      GHOSTAI_DATA_DIR: ${GHOSTAI_DATA_DIR:?Set an absolute host data directory}
-      GHOSTAI_ENVIRONMENTS: ${GHOSTAI_ENVIRONMENTS:-dev}
-      GHOSTAI_GATEWAY_IMAGE: ${GHOSTAI_GATEWAY_IMAGE:-}
+      DARKWIRE_DATA_DIR: ${DARKWIRE_DATA_DIR:?Set an absolute host data directory}
+      DARKWIRE_ENVIRONMENTS: ${DARKWIRE_ENVIRONMENTS:-dev}
+      DARKWIRE_GATEWAY_IMAGE: ${DARKWIRE_GATEWAY_IMAGE:-}
     volumes:
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
-      - ${GHOSTAI_DATA_DIR}/policies:/policies:ro
-      - ${GHOSTAI_DATA_DIR}/sandbox-state:/sandbox-state
-      - ${GHOSTAI_DATA_DIR}/workspaces/default:/workspaces/default
-      - control:/run/ghostai
+      - ${DARKWIRE_DATA_DIR}/policies:/policies:ro
+      - ${DARKWIRE_DATA_DIR}/sandbox-state:/sandbox-state
+      - ${DARKWIRE_DATA_DIR}/workspaces/default:/workspaces/default
+      - control:/run/darkwire
     restart: unless-stopped
     stop_grace_period: 20s
   app:
@@ -23,19 +23,19 @@ services:
       dockerfile: deploy/sandbox/Dockerfile
       target: app
     environment:
-      GHOSTAI_HOME: /app-state
-      GHOSTAI_SANDBOX_SOCKET: /run/ghostai/sandbox.sock
-      GHOSTAI_PASSWORD: ${GHOSTAI_PASSWORD:?Set the web login password}
+      DARKWIRE_HOME: /app-state
+      DARKWIRE_SANDBOX_SOCKET: /run/darkwire/sandbox.sock
+      DARKWIRE_PASSWORD: ${DARKWIRE_PASSWORD:?Set the web login password}
     ports:
       - '127.0.0.1:3000:3000'
     volumes:
-      - ${GHOSTAI_DATA_DIR}/app-state:/app-state
+      - ${DARKWIRE_DATA_DIR}/app-state:/app-state
       # Read-only, and the same directory the service reads. The app resolves
       # approvals for itself rather than being told them, so both have to see
       # the same bytes; neither may write them.
-      - ${GHOSTAI_DATA_DIR}/policies:/app-state/policy:ro
-      - ${GHOSTAI_DATA_DIR}/workspaces/default:/workspaces/default
-      - control:/run/ghostai
+      - ${DARKWIRE_DATA_DIR}/policies:/app-state/policy:ro
+      - ${DARKWIRE_DATA_DIR}/workspaces/default:/workspaces/default
+      - control:/run/darkwire
     depends_on:
       - sandbox
     restart: unless-stopped

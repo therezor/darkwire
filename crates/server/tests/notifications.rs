@@ -11,11 +11,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ghostai_core::Database;
-use ghostai_core::session_store::IdSource;
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::ws::NotificationLevel;
-use ghostai_server::notifications::{
+use darkwire_core::Database;
+use darkwire_core::session_store::IdSource;
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::ws::NotificationLevel;
+use darkwire_server::notifications::{
     CreateNotificationInput, ListNotifications, NotificationAfter, NotificationStore,
 };
 

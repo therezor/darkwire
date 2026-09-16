@@ -35,11 +35,11 @@ use std::process;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::{Clock, ErrorKind, GhostError, Result, SystemClock};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode, SandboxInstanceSummary};
-use ghostai_security::{InstalledEnvironment, PolicyStore, assert_environment_network};
-use ghostai_tools::{
+use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode, SandboxInstanceSummary};
+use darkwire_security::{InstalledEnvironment, PolicyStore, assert_environment_network};
+use darkwire_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerRunner, ContainerRunnerOptions,
     PlacementRequest, RunOutcome, RunRequest, WorkspaceMount, container_create_argv,
     container_is_gone,
@@ -57,13 +57,13 @@ pub const CONTAINER_IDLE_MS: i64 = 10 * 60_000;
 /// Label naming the process that created a sandbox.
 ///
 /// Without it, the orphan sweep cannot tell an orphan from a *peer's live
-/// container* — `ghostai.session` is on every sandbox this install ever starts,
-/// so a second GhostAI process, a `ghostai chat` beside a running `ghostai
+/// container* — `darkwire.session` is on every sandbox this install ever starts,
+/// so a second DarkWire process, a `darkwire chat` beside a running `darkwire
 /// serve`, or a restart that overlaps the old process by a second, would force
 /// away containers a turn was executing in. The symptom is the daemon's "No such
 /// container" landing in the model's tool result, which is the one this label
 /// exists to prevent.
-pub const OWNER_LABEL: &str = "ghostai.owner";
+pub const OWNER_LABEL: &str = "darkwire.owner";
 
 /// This process, as a label value.
 ///
@@ -120,7 +120,7 @@ pub trait ContainerEngine: Send + Sync {
         network: &EnvironmentNetwork,
     ) -> Result<Option<String>> {
         if network.mode == NetworkMode::Allowlist {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Tool,
                 "This engine cannot enforce restricted egress",
             ));
@@ -140,7 +140,7 @@ pub trait ContainerEngine: Send + Sync {
     /// Without a sweep those containers accumulate silently, each holding a
     /// workspace mount and its share of memory, and the only sign is a machine
     /// that is slowly more loaded than it should be. Every sandbox carries a
-    /// `ghostai.session` label so this can find them without guessing at names.
+    /// `darkwire.session` label so this can find them without guessing at names.
     fn reap_orphans(&self) -> Result<()>;
 }
 
@@ -152,7 +152,7 @@ pub trait ContainerEngine: Send + Sync {
 pub type RunnerFactory =
     Arc<dyn Fn(&str, &EnvironmentDefinition) -> Arc<dyn CommandRunner> + Send + Sync>;
 
-/// Translates GhostAI's view of a path into the *daemon's*.
+/// Translates DarkWire's view of a path into the *daemon's*.
 pub type HostPathFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// Supplies container and run names. Injected for deterministic tests.
@@ -171,9 +171,9 @@ pub struct ContainerPoolOptions {
     /// Outside the workspace, because the host writes them while the container
     /// holds the workspace writable.
     pub runs_dir: std::path::PathBuf,
-    /// How the *daemon* sees a path, given GhostAI's view of it.
+    /// How the *daemon* sees a path, given DarkWire's view of it.
     ///
-    /// Identity for a host install. A containerised GhostAI has to translate,
+    /// Identity for a host install. A containerised DarkWire has to translate,
     /// because a bind path is resolved by the daemon and not by this process —
     /// the failure otherwise is a silently empty mount rather than an error.
     /// Applied to every path that reaches a volume.
@@ -317,7 +317,7 @@ fn key_of(request: &PlacementRequest) -> Result<String> {
         &request.environment,
         &request.network,
     ))
-    .map_err(|error| GhostError::new(ErrorKind::Internal, error.to_string()))
+    .map_err(|error| WireError::new(ErrorKind::Internal, error.to_string()))
 }
 
 /// The approved definition a request resolves to, with its approval hash.
@@ -361,7 +361,7 @@ impl ContainerPool {
                 .iter()
                 .find(|(_, entry)| entry.name == name)
                 .ok_or_else(|| {
-                    GhostError::new(ErrorKind::InvalidInput, "Unknown managed container")
+                    WireError::new(ErrorKind::InvalidInput, "Unknown managed container")
                 })?;
             key.clone()
         };
@@ -379,7 +379,7 @@ impl ContainerPool {
                 .iter()
                 .find(|(_, entry)| entry.name == name)
                 .ok_or_else(|| {
-                    GhostError::new(ErrorKind::InvalidInput, "Unknown managed container")
+                    WireError::new(ErrorKind::InvalidInput, "Unknown managed container")
                 })?;
             (key.clone(), entry.request.clone())
         };
@@ -472,7 +472,7 @@ impl ContainerPool {
     /// pool is built whenever any agent names a container, which happens at boot —
     /// and listing containers against a socket whose daemon has gone away does
     /// not fail fast, it blocks. Measured at 62 seconds. Sweeping at
-    /// construction therefore hung `ghostai serve` for a minute before it bound
+    /// construction therefore hung `darkwire serve` for a minute before it bound
     /// its port, on an install whose only sin was having a research agent
     /// configured while the daemon was closed.
     ///
@@ -554,7 +554,7 @@ impl ContainerPool {
         let _starting = self.starting.lock();
         let approved = self
             .container_spec(spec)?
-            .ok_or_else(|| GhostError::new(ErrorKind::Config, "No container selected"))?;
+            .ok_or_else(|| WireError::new(ErrorKind::Config, "No container selected"))?;
         assert_environment_network(&spec.network, &spec.agent_id)?;
         if let Some(entry) = self.live.lock().entries.get_mut(key) {
             entry.agents.insert(spec.agent_id.clone());
@@ -572,7 +572,7 @@ impl ContainerPool {
                         .find(|(_, entry)| entry.busy == 0)
                         .map(|(key, _)| key.clone())
                         .ok_or_else(|| {
-                            GhostError::new(
+                            WireError::new(
                                 ErrorKind::Tool,
                                 "All sandbox capacity is busy; retry when a command completes",
                             )
@@ -623,12 +623,12 @@ impl ContainerPool {
     /// Builds and registers one container.
     fn start(&self, request: &PlacementRequest, approved: &ContainerSpec) -> Result<Entry> {
         let container = &approved.definition;
-        let name = format!("ghost-sbx-{}", self.next_id());
+        let name = format!("dw-sbx-{}", self.next_id());
         fs::create_dir_all(self.options.runs_dir.join(&name))
-            .map_err(|e| GhostError::new(ErrorKind::Tool, e.to_string()))?;
+            .map_err(|e| WireError::new(ErrorKind::Tool, e.to_string()))?;
 
         // **Every** path handed to the daemon goes through the translation, not
-        // just the workspace. A containerised GhostAI that translated only the
+        // just the workspace. A containerised DarkWire that translated only the
         // workspace would ask the daemon to mount its own copy of a path that
         // means something else on the host, and usually nothing. The failure is
         // a container that starts with the wrong directory bound into it, which
@@ -654,10 +654,10 @@ impl ContainerPool {
         create.runs_path = Some(self.daemon_path(&self.options.runs_dir.to_string_lossy()));
         create
             .labels
-            .insert("ghostai.session".to_owned(), request.session_key.clone());
+            .insert("darkwire.session".to_owned(), request.session_key.clone());
         create
             .labels
-            .insert("ghostai.container".to_owned(), container.name.clone());
+            .insert("darkwire.container".to_owned(), container.name.clone());
         create
             .labels
             .insert(OWNER_LABEL.to_owned(), self.owner.clone());
@@ -674,7 +674,7 @@ impl ContainerPool {
         // has to be one that already existed. The per-container subdirectory is
         // created on the host side, inside a mount the container already has.
         if let Err(error) = fs::create_dir_all(&self.options.runs_dir) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Tool,
                 format!(
                     "The transcript directory {} could not be created, so the sandbox was not \
@@ -691,7 +691,7 @@ impl ContainerPool {
         // difference between an operator starting the daemon and an operator
         // debugging a manifest.
         self.options.engine.probe().map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Tool,
                 format!(
                     "No container runtime is reachable, so agent \"{}\" could not run its \
@@ -726,7 +726,7 @@ impl ContainerPool {
             if let Some(gateway) = &create.gateway_container {
                 let _ = self.options.engine.stop(gateway);
             }
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Tool,
                 format!(
                     "The sandbox for agent \"{}\" could not be started, so the command was not \
@@ -767,7 +767,7 @@ impl ContainerPool {
                 // `ensure` either puts an entry in place or fails — so this is a
                 // bug rather than a state to recover from, and it says which
                 // one.
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Internal,
                     "The sandbox for this turn is no longer in the pool.",
                 )
@@ -879,13 +879,13 @@ impl CommandRunner for Facade {
             // filesystem: the workspace was already shared across containers by
             // bind mount, and a pid file is keyed per run.
             let Some(pool) = self.pool.upgrade() else {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Tool,
                     "The sandbox pool this turn belongs to has been shut down.",
                 ));
             };
             if pool.epoch_of(&self.key) != self.epoch {
-                return Err(GhostError::aborted("Sandbox was stopped or restarted"));
+                return Err(WireError::aborted("Sandbox was stopped or restarted"));
             }
 
             // Where the container actually comes from now. Anything this raises
@@ -1119,7 +1119,7 @@ impl DockerEngine {
             return Ok(());
         }
         if output.code.is_none() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Tool,
                 format!(
                     "{} {what} did not respond within {}ms — is the daemon running?",
@@ -1130,7 +1130,7 @@ impl DockerEngine {
             .with_detail("bin", self.bin.clone())
             .with_detail("what", what));
         }
-        Err(GhostError::new(
+        Err(WireError::new(
             ErrorKind::Tool,
             format!("{} {what} failed: {}", self.bin, output.stderr.trim()),
         )
@@ -1154,7 +1154,7 @@ impl DockerEngine {
             .stderr(process::Stdio::piped())
             .spawn()
             .map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Tool,
                     format!("Could not run {}: {error}", self.bin),
                 )
@@ -1177,7 +1177,7 @@ impl DockerEngine {
                 }
                 Ok(None) => std::thread::sleep(Duration::from_millis(20)),
                 Err(error) => {
-                    return Err(GhostError::new(
+                    return Err(WireError::new(
                         ErrorKind::Tool,
                         format!("Could not wait for {}: {error}", self.bin),
                     )
@@ -1186,7 +1186,7 @@ impl DockerEngine {
             }
         }
         let output = child.wait_with_output().map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Tool,
                 format!("Could not read {} output: {error}", self.bin),
             )
@@ -1219,7 +1219,7 @@ impl ContainerEngine for DockerEngine {
             return Ok(None);
         }
         let image = self.gateway_image.as_ref().ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Config,
                 "Restricted egress requires a pinned gatewayImage in service configuration",
             )
@@ -1229,8 +1229,8 @@ impl ContainerEngine for DockerEngine {
         // place in the system where an unreviewed image rewrites the filter.
         let mut gateway_definition = container.clone();
         gateway_definition.image.clone_from(image);
-        ghostai_security::assert_environment_policy(&gateway_definition)?;
-        let rules = ghostai_security::egress::gateway_rules(container, network)?;
+        darkwire_security::assert_environment_policy(&gateway_definition)?;
+        let rules = darkwire_security::egress::gateway_rules(container, network)?;
         let gateway = format!("{name}-gateway");
         let mut args = argv(&[
             "run",
@@ -1251,10 +1251,10 @@ impl ContainerEngine for DockerEngine {
             "--label",
             &format!("{OWNER_LABEL}={}", self.owner),
             "--label",
-            "ghostai.session=gateway",
+            "darkwire.session=gateway",
             "--env",
         ]);
-        args.push(format!("GHOSTAI_NFT_RULES={rules}"));
+        args.push(format!("DARKWIRE_NFT_RULES={rules}"));
         args.push(image.clone());
         args.extend(network.hosts.clone());
         self.run(&args, "gateway start", self.start_timeout)?;
@@ -1284,7 +1284,7 @@ impl ContainerEngine for DockerEngine {
             "ps",
             "--all",
             "--filter",
-            "label=ghostai.session",
+            "label=darkwire.session",
             "--format",
             &format,
         ]));

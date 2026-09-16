@@ -13,8 +13,8 @@
 //! surrounding context. `replaceAll` is available when the model means every
 //! occurrence, and saying so is a different claim from not having noticed.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -66,7 +66,7 @@ impl ToolHandler for EditFile {
         Box::pin(async move {
             assert_not_aborted(&ctx.token, "edit_file")?;
             if args.old_text == args.new_text {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::InvalidInput,
                     "oldText and newText are identical; nothing to do.",
                 )
@@ -82,7 +82,7 @@ impl ToolHandler for EditFile {
 
             let occurrences = original.matches(args.old_text.as_str()).count();
             if occurrences == 0 {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::NotFound,
                     format!(
                         "oldText was not found in {where_}. Read the file and copy the text exactly, including indentation."
@@ -91,7 +91,7 @@ impl ToolHandler for EditFile {
                 .with_detail("path", where_));
             }
             if occurrences > 1 && !args.replace_all {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Conflict,
                     format!(
                         "oldText occurs {occurrences} times in {where_}. Include more surrounding context to make it unique, or set replaceAll."

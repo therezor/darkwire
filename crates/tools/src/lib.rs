@@ -2,7 +2,7 @@
 //!
 //! Everything a model can *do* enters through this crate: a tool is defined
 //! here, registered here, and called here, and there is no second path. That
-//! is what makes the security boundary reviewable — `ghostai-security` decides
+//! is what makes the security boundary reviewable — `darkwire-security` decides
 //! whether a path, a binary or a host is acceptable, and this crate is the only
 //! caller that asks.
 //!

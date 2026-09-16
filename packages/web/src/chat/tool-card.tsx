@@ -54,7 +54,7 @@ import type {
   StoredMessage,
   SubagentRunRef,
   ToolRisk,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';

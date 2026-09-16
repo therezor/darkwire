@@ -14,7 +14,7 @@ import { cleanup, render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ConfigSchema, type ClientMessage } from '@ghostwire/protocol';
+import { ConfigSchema, type ClientMessage } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';

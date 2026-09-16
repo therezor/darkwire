@@ -77,7 +77,7 @@
    * micro-label.
    *
    * The name is the full-strength text tier, not the accent. The accent is on
-   * the mark beside it — one green thing in the header rather than a green
+   * the mark beside it — one cyan thing in the header rather than a cyan
    * header — and a near-white name at semibold is what makes the wordmark read
    * as the most important thing in the bar without being the loudest. */
   .app-header__brand {

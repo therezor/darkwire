@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::routing::{MethodFilter, on};
-use ghostai_core::{Clock, Database};
-use ghostai_protocol::config::Config;
-use ghostai_security::random::RandomSource;
+use darkwire_core::{Clock, Database};
+use darkwire_protocol::config::Config;
+use darkwire_security::random::RandomSource;
 
 use crate::auth_store::AuthStore;
 use crate::automation_store::AutomationStore;

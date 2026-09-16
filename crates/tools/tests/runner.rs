@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::{ErrorKind, SystemClock};
-use ghostai_security::ExecPlan;
-use ghostai_tools::{
+use darkwire_core::{ErrorKind, SystemClock};
+use darkwire_security::ExecPlan;
+use darkwire_tools::{
     CommandRunner, KILL_GRACE_MS, LocalRunner, OutputStream, OutputTee, RunRequest,
 };
 use indexmap::IndexMap;
@@ -88,7 +88,10 @@ async fn reports_a_non_zero_exit_with_its_stderr() {
 #[tokio::test]
 async fn fails_to_start_a_program_that_does_not_exist() {
     let error = LocalRunner::new()
-        .run(request(plan(&["ghostai-definitely-not-a-binary"], 1024), 0))
+        .run(request(
+            plan(&["darkwire-definitely-not-a-binary"], 1024),
+            0,
+        ))
         .await
         .err()
         .unwrap();
@@ -191,14 +194,14 @@ async fn cancelling_with_a_timeout_armed_is_still_an_abort() {
 async fn the_child_inherits_only_the_plan_environment() {
     let mut p = plan(&["env"], 65_536);
     p.env
-        .insert("GHOSTAI_RUNNER_TEST".to_owned(), "yes".to_owned());
+        .insert("DARKWIRE_RUNNER_TEST".to_owned(), "yes".to_owned());
     let outcome = LocalRunner::new().run(request(p, 0)).await.unwrap();
-    assert!(outcome.stdout.contains("GHOSTAI_RUNNER_TEST=yes"));
+    assert!(outcome.stdout.contains("DARKWIRE_RUNNER_TEST=yes"));
     let lines: Vec<&str> = outcome.stdout.lines().collect();
     assert!(
         lines
             .iter()
-            .all(|line| line.starts_with("PATH=") || line.starts_with("GHOSTAI_RUNNER_TEST=")),
+            .all(|line| line.starts_with("PATH=") || line.starts_with("DARKWIRE_RUNNER_TEST=")),
         "{lines:?}"
     );
 }

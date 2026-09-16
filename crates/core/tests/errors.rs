@@ -8,12 +8,12 @@
 
 use std::error::Error as _;
 
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 use serde_json::{Map, Value, json};
 
 #[test]
 fn carries_its_kind_and_message() {
-    let error = GhostError::new(ErrorKind::Tool, "read_file failed");
+    let error = WireError::new(ErrorKind::Tool, "read_file failed");
     assert_eq!(error.kind, ErrorKind::Tool);
     assert_eq!(error.message, "read_file failed");
     assert_eq!(error.to_string(), "read_file failed");
@@ -21,19 +21,19 @@ fn carries_its_kind_and_message() {
 
 #[test]
 fn defaults_retryable_from_the_kind() {
-    assert!(GhostError::new(ErrorKind::Network, "boom").retryable);
-    assert!(GhostError::new(ErrorKind::RateLimited, "slow down").retryable);
-    assert!(GhostError::new(ErrorKind::Timeout, "too slow").retryable);
-    assert!(!GhostError::new(ErrorKind::InvalidInput, "nope").retryable);
+    assert!(WireError::new(ErrorKind::Network, "boom").retryable);
+    assert!(WireError::new(ErrorKind::RateLimited, "slow down").retryable);
+    assert!(WireError::new(ErrorKind::Timeout, "too slow").retryable);
+    assert!(!WireError::new(ErrorKind::InvalidInput, "nope").retryable);
     // A provider 400 is the common case, and retrying it burns quota to reach
     // the same answer; the adapter overrides this when it knows the status.
-    assert!(!GhostError::new(ErrorKind::Provider, "bad request").retryable);
+    assert!(!WireError::new(ErrorKind::Provider, "bad request").retryable);
 }
 
 #[test]
 fn lets_the_caller_override_retryable() {
     assert!(
-        GhostError::new(ErrorKind::Provider, "overloaded")
+        WireError::new(ErrorKind::Provider, "overloaded")
             .with_retryable(true)
             .retryable
     );
@@ -41,12 +41,12 @@ fn lets_the_caller_override_retryable() {
 
 #[test]
 fn defaults_details_to_an_empty_object() {
-    assert!(GhostError::new(ErrorKind::Internal, "x").details.is_empty());
+    assert!(WireError::new(ErrorKind::Internal, "x").details.is_empty());
 }
 
 #[test]
 fn keeps_structured_details() {
-    let error = GhostError::new(ErrorKind::Storage, "x")
+    let error = WireError::new(ErrorKind::Storage, "x")
         .with_detail("sessionKey", "s")
         .with_detail("seq", 3);
     assert_eq!(error.details["sessionKey"], "s");
@@ -61,10 +61,10 @@ fn keeps_structured_details() {
 #[test]
 fn preserves_a_source() {
     let cause = std::io::Error::other("underlying");
-    let error = GhostError::new(ErrorKind::Storage, "wrapper").with_source(cause);
+    let error = WireError::new(ErrorKind::Storage, "wrapper").with_source(cause);
     assert_eq!(error.source().unwrap().to_string(), "underlying");
     assert!(
-        GhostError::new(ErrorKind::Storage, "bare")
+        WireError::new(ErrorKind::Storage, "bare")
             .source()
             .is_none()
     );
@@ -107,21 +107,21 @@ fn spells_every_kind_in_snake_case_and_reads_it_back() {
 
 #[test]
 fn builds_a_non_retryable_aborted_error() {
-    let error = GhostError::aborted("Turn");
+    let error = WireError::aborted("Turn");
     assert_eq!(error.kind, ErrorKind::Aborted);
     assert!(!error.retryable);
     assert_eq!(error.message, "Turn aborted");
     assert!(error.is_aborted());
-    assert!(!GhostError::new(ErrorKind::Timeout, "x").is_aborted());
+    assert!(!WireError::new(ErrorKind::Timeout, "x").is_aborted());
 }
 
 #[test]
 fn maps_io_errors_by_kind() {
-    let missing: GhostError = std::io::Error::from(std::io::ErrorKind::NotFound).into();
+    let missing: WireError = std::io::Error::from(std::io::ErrorKind::NotFound).into();
     assert_eq!(missing.kind, ErrorKind::NotFound);
-    let denied: GhostError = std::io::Error::from(std::io::ErrorKind::PermissionDenied).into();
+    let denied: WireError = std::io::Error::from(std::io::ErrorKind::PermissionDenied).into();
     assert_eq!(denied.kind, ErrorKind::PermissionDenied);
-    let other: GhostError = std::io::Error::other("disk on fire").into();
+    let other: WireError = std::io::Error::other("disk on fire").into();
     assert_eq!(other.kind, ErrorKind::Storage);
     assert_eq!(other.message, "disk on fire");
     assert!(other.source().is_some());
@@ -129,14 +129,14 @@ fn maps_io_errors_by_kind() {
 
 #[test]
 fn maps_sqlite_errors_to_storage() {
-    let error: GhostError = rusqlite::Error::InvalidQuery.into();
+    let error: WireError = rusqlite::Error::InvalidQuery.into();
     assert_eq!(error.kind, ErrorKind::Storage);
     assert!(error.source().is_some());
 }
 
 #[test]
 fn has_a_debug_form_naming_the_kind() {
-    let text = format!("{:?}", GhostError::new(ErrorKind::JailEscape, "outside"));
+    let text = format!("{:?}", WireError::new(ErrorKind::JailEscape, "outside"));
     assert!(text.contains("JailEscape"));
     assert!(text.contains("outside"));
 }

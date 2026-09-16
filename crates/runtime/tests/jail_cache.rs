@@ -13,25 +13,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{ErrorKind, GhostPaths};
-use ghostai_protocol::DEFAULT_WORKSPACE_ID;
-use ghostai_runtime::jail_cache::JailFactory;
-use ghostai_runtime::{JailCache, MAX_CACHED_JAILS};
-use ghostai_security::{JailOptions, JailResolver, WorkspaceJail};
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{ErrorKind, WirePaths};
+use darkwire_protocol::DEFAULT_WORKSPACE_ID;
+use darkwire_runtime::jail_cache::JailFactory;
+use darkwire_runtime::{JailCache, MAX_CACHED_JAILS};
+use darkwire_security::{JailOptions, JailResolver, WorkspaceJail};
 use tempfile::TempDir;
 
 struct Setup {
     _temp: TempDir,
     root: PathBuf,
-    paths: GhostPaths,
+    paths: WirePaths,
     built: Arc<AtomicUsize>,
 }
 
 fn setup() -> Setup {
     let temp = TempDir::new().unwrap();
     let root = temp.path().to_path_buf();
-    let paths = GhostPaths::resolve(ResolveGhostPaths {
+    let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(root.to_string_lossy().into_owned()),
         env: Some(std::collections::HashMap::new()),
         home: Some(PathBuf::from("/home/someone-else")),

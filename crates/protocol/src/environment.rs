@@ -174,7 +174,7 @@ impl Default for ContainerLimits {
 
 literal! {
     /// The environment definition format tag.
-    pub struct EnvironmentDefinitionTag = "ghostai.environment/1";
+    pub struct EnvironmentDefinitionTag = "darkwire.environment/1";
 }
 
 /// What kind of place an environment is.
@@ -211,7 +211,7 @@ fn environment_user() -> String {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct EnvironmentDefinition {
-    /// Always `ghostai.environment/1`.
+    /// Always `darkwire.environment/1`.
     pub schema: EnvironmentDefinitionTag,
     /// What kind of place this is. Omitting it means a container.
     #[serde(default)]
@@ -223,9 +223,9 @@ pub struct EnvironmentDefinition {
     /// one section now, `agents.list.<id>.platform_prompt`, which says both
     /// where they run and what is installed there.
     ///
-    /// Still parsed because every installed definition predates the change and
-    /// the preset catalogue ships on its own release cycle. A definition
-    /// setting it is reported on its row. It goes one release after that.
+    /// Still parsed because every definition written before the change carries
+    /// it. A definition setting it is reported on its row. It goes one release
+    /// after that.
     ///
     /// `skip_serializing_if` is load-bearing: `save_environment` re-emits the
     /// whole definition, so without it every save from the editor would write

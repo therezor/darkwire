@@ -136,7 +136,7 @@ describe('an unclaimed install', () => {
 
     // The username is prefilled with the default, so a first run is a password
     // and nothing else unless the operator wants otherwise.
-    expect(await screen.findByLabelText('Username')).toHaveValue('ghost');
+    expect(await screen.findByLabelText('Username')).toHaveValue('darkwire');
     await user.type(screen.getByLabelText('Password'), 'a-good-password');
     await user.type(
       screen.getByLabelText('Confirm password'),
@@ -153,7 +153,7 @@ describe('an unclaimed install', () => {
     expect(
       calls.find((call) => call.path === '/api/setup/password')?.body,
     ).toEqual({
-      username: 'ghost',
+      username: 'darkwire',
       password: 'a-good-password',
     });
   });

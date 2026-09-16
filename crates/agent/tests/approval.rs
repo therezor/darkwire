@@ -18,10 +18,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::harness::{Answer, FakeTool, Harness, ScriptedGate, Setup, events_of};
-use ghostai_agent::TurnInput;
-use ghostai_agent::approval::{ApprovalDecision, DenialReason, denied_notice, denied_tool_result};
-use ghostai_agent::testkit::{ScriptedTurn, tool_call};
-use ghostai_protocol::{ApprovalScope, StopReason, ToolPermission, ToolPermissions, ToolsConfig};
+use darkwire_agent::TurnInput;
+use darkwire_agent::approval::{ApprovalDecision, DenialReason, denied_notice, denied_tool_result};
+use darkwire_agent::testkit::{ScriptedTurn, tool_call};
+use darkwire_protocol::{ApprovalScope, StopReason, ToolPermission, ToolPermissions, ToolsConfig};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -92,7 +92,7 @@ fn a_decision_is_a_value_with_or_without_a_scope() {
 async fn it_asks_before_an_ask_tool_and_runs_it_once_approved() {
     let exec = FakeTool::new(
         "exec",
-        ghostai_protocol::ToolRisk::Exec,
+        darkwire_protocol::ToolRisk::Exec,
         common::harness::Behaviour::Answer("ok".to_owned()),
     );
     let gate = ScriptedGate::new(vec![Answer::Allow]);
@@ -137,7 +137,7 @@ async fn a_tool_the_agent_allows_is_never_asked_about() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         approvals: Some(gate.clone()),
@@ -154,7 +154,7 @@ async fn a_tool_the_agent_allows_is_never_asked_about() {
 async fn a_refused_call_is_answered_and_the_turn_continues() {
     let exec = FakeTool::new(
         "exec",
-        ghostai_protocol::ToolRisk::Exec,
+        darkwire_protocol::ToolRisk::Exec,
         common::harness::Behaviour::Answer("ok".to_owned()),
     );
     let harness = Harness::build(Setup {
@@ -191,7 +191,7 @@ async fn a_gate_that_fails_denies() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
@@ -216,7 +216,7 @@ async fn nobody_answering_denies_at_the_deadline() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
@@ -248,7 +248,7 @@ async fn a_turn_stopped_under_an_open_prompt_is_a_stop_not_a_denial() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
@@ -285,7 +285,7 @@ async fn a_turn_stopped_under_an_open_prompt_is_a_stop_not_a_denial() {
 async fn deny_is_enforced_with_no_gate_installed() {
     let exec = FakeTool::new(
         "exec",
-        ghostai_protocol::ToolRisk::Exec,
+        darkwire_protocol::ToolRisk::Exec,
         common::harness::Behaviour::Answer("ok".to_owned()),
     );
     let harness = Harness::build(Setup {
@@ -320,7 +320,7 @@ async fn an_ask_policy_with_no_gate_runs_the_tool() {
     // terminal session, where the operator asking for it *is* the approval.
     let exec = FakeTool::new(
         "exec",
-        ghostai_protocol::ToolRisk::Exec,
+        darkwire_protocol::ToolRisk::Exec,
         common::harness::Behaviour::Answer("ok".to_owned()),
     );
     let harness = Harness::build(Setup {
@@ -350,7 +350,7 @@ async fn calls_are_gated_one_at_a_time_in_the_order_the_model_asked() {
         ],
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
@@ -385,7 +385,7 @@ async fn a_subagent_delegation_is_gated_on_the_conversation_not_the_delegation()
             )]),
             ScriptedTurn::text("done"),
         ],
-        subagents: vec![ghostai_agent::SubagentBinding {
+        subagents: vec![darkwire_agent::SubagentBinding {
             tool_name: "ask_researcher".to_owned(),
             agent_id: "researcher".to_owned(),
             label: "Researcher".to_owned(),
@@ -413,14 +413,14 @@ async fn an_approval_request_names_the_agent_that_asked() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
         approvals: Some(gate.clone()),
-        agent: Some(ghostai_agent::LoopAgent {
+        agent: Some(darkwire_agent::LoopAgent {
             id: "locked-down".to_owned(),
-            ..ghostai_agent::LoopAgent::default()
+            ..darkwire_agent::LoopAgent::default()
         }),
         ..Setup::default()
     });
@@ -440,11 +440,11 @@ async fn the_request_is_debuggable_without_leaking_the_token() {
         turns: one_exec_call(),
         tools: vec![FakeTool::new(
             "exec",
-            ghostai_protocol::ToolRisk::Exec,
+            darkwire_protocol::ToolRisk::Exec,
             common::harness::Behaviour::Answer("ok".to_owned()),
         )],
         permissions: Some(asking("exec")),
-        approvals: Some(Arc::clone(&gate) as Arc<dyn ghostai_agent::ApprovalGate>),
+        approvals: Some(Arc::clone(&gate) as Arc<dyn darkwire_agent::ApprovalGate>),
         ..Setup::default()
     });
     let _ = harness.say("web:1", "run it").await;

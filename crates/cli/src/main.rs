@@ -1,4 +1,4 @@
-//! The `ghostai` binary.
+//! The `darkwire` binary.
 //!
 //! Everything this file does is set an exit code. The work lives in the library
 //! beside it, which is what lets the whole parser and every command be driven
@@ -6,14 +6,14 @@
 //! be read in one sitting.
 //!
 //! `anyhow` is allowed here and nowhere else in the tree: below this line every
-//! failure is a `GhostError`, which carries a kind a caller can branch on. Here
+//! failure is a `WireError`, which carries a kind a caller can branch on. Here
 //! there is no caller left, only a number.
 #![forbid(unsafe_code)]
 
 use std::process::ExitCode;
 
-use ghostai::i18n::Env;
-use ghostai::{Streams, run};
+use darkwire::i18n::Env;
+use darkwire::{Streams, run};
 
 fn main() -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()

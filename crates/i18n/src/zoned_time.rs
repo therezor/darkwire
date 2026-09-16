@@ -7,7 +7,7 @@
 //! exactly what the install-wide `ui.timezone` exists to remove: the field would
 //! then mean one thing while the row it renders back means another.
 //!
-//! **This duplicates the wall-clock resolution in `ghostai-core`'s cron module,
+//! **This duplicates the wall-clock resolution in `darkwire-core`'s cron module,
 //! on purpose.** The scheduler and the browser-facing input agree about what a
 //! wall clock means without one depending on the other, and the two are kept
 //! honest by having the same DST cases in both test files rather than by sharing

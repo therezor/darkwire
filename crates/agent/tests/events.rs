@@ -29,8 +29,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use common::canonical_numbers;
-use ghostai_agent::events::{AgentEvent, Stamped};
-use ghostai_protocol::{
+use darkwire_agent::events::{AgentEvent, Stamped};
+use darkwire_protocol::{
     AssistantDelta, ContextUsage, ErrorCode, ErrorEvent, NestedAgentEvent, NoticeKind,
     ServerMessage, StopReason, ToolRisk, TurnEnd,
 };
@@ -138,7 +138,7 @@ fn every_frame_an_event_can_carry_round_trips_through_one() {
 #[test]
 fn the_pair_conversion_and_the_method_are_the_same_step() {
     let event: AgentEvent = AssistantDelta {
-        tag: ghostai_protocol::AssistantDeltaTag,
+        tag: darkwire_protocol::AssistantDeltaTag,
         turn_id: "t1".to_owned(),
         text: "hi".to_owned(),
     }
@@ -190,8 +190,8 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
     // One per body, because a missing one is a call site that has to spell out
     // two layers of enum.
     let events: Vec<AgentEvent> = vec![
-        ghostai_protocol::TurnStart {
-            tag: ghostai_protocol::TurnStartTag,
+        darkwire_protocol::TurnStart {
+            tag: darkwire_protocol::TurnStartTag,
             session_key: "s".to_owned(),
             turn_id: "t".to_owned(),
             first_seq: None,
@@ -201,19 +201,19 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
         }
         .into(),
         AssistantDelta {
-            tag: ghostai_protocol::AssistantDeltaTag,
+            tag: darkwire_protocol::AssistantDeltaTag,
             turn_id: "t".to_owned(),
             text: "a".to_owned(),
         }
         .into(),
-        ghostai_protocol::ReasoningDelta {
-            tag: ghostai_protocol::ReasoningDeltaTag,
+        darkwire_protocol::ReasoningDelta {
+            tag: darkwire_protocol::ReasoningDeltaTag,
             turn_id: "t".to_owned(),
             text: "r".to_owned(),
         }
         .into(),
-        ghostai_protocol::ToolCallStarted {
-            tag: ghostai_protocol::ToolCallTag,
+        darkwire_protocol::ToolCallStarted {
+            tag: darkwire_protocol::ToolCallTag,
             turn_id: "t".to_owned(),
             call_id: "c".to_owned(),
             name: "read_file".to_owned(),
@@ -221,16 +221,16 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             risk: ToolRisk::Safe,
         }
         .into(),
-        ghostai_protocol::ToolProgress {
-            tag: ghostai_protocol::ToolProgressTag,
+        darkwire_protocol::ToolProgress {
+            tag: darkwire_protocol::ToolProgressTag,
             turn_id: "t".to_owned(),
             call_id: "c".to_owned(),
             elapsed_ms: 1,
             message: None,
         }
         .into(),
-        ghostai_protocol::ToolResult {
-            tag: ghostai_protocol::ToolResultTag,
+        darkwire_protocol::ToolResult {
+            tag: darkwire_protocol::ToolResultTag,
             turn_id: "t".to_owned(),
             call_id: "c".to_owned(),
             ok: true,
@@ -239,8 +239,8 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             duration_ms: 0,
         }
         .into(),
-        ghostai_protocol::ToolApprovalRequest {
-            tag: ghostai_protocol::ToolApprovalRequestTag,
+        darkwire_protocol::ToolApprovalRequest {
+            tag: darkwire_protocol::ToolApprovalRequestTag,
             turn_id: "t".to_owned(),
             call_id: "c".to_owned(),
             name: "exec".to_owned(),
@@ -249,8 +249,8 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             expires_at_ms: 1,
         }
         .into(),
-        ghostai_protocol::Notice {
-            tag: ghostai_protocol::NoticeTag,
+        darkwire_protocol::Notice {
+            tag: darkwire_protocol::NoticeTag,
             kind: NoticeKind::Degraded,
             message: "m".to_owned(),
             turn_id: None,
@@ -258,7 +258,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
         }
         .into(),
         TurnEnd {
-            tag: ghostai_protocol::TurnEndTag,
+            tag: darkwire_protocol::TurnEndTag,
             turn_id: "t".to_owned(),
             stop_reason: StopReason::Complete,
             usage: None,
@@ -272,15 +272,15 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
         }
         .into(),
         ErrorEvent {
-            tag: ghostai_protocol::ErrorTag,
+            tag: darkwire_protocol::ErrorTag,
             code: ErrorCode::Internal,
             message: "m".to_owned(),
             retryable: false,
             turn_id: None,
         }
         .into(),
-        ghostai_protocol::SubagentEventBody {
-            tag: ghostai_protocol::SubagentEventTag,
+        darkwire_protocol::SubagentEventBody {
+            tag: darkwire_protocol::SubagentEventTag,
             turn_id: "t".to_owned(),
             parent_session_key: "s".to_owned(),
             parent_call_id: "c".to_owned(),
@@ -289,14 +289,14 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             session_key: "sub".to_owned(),
             depth: 1,
             event: NestedAgentEvent::AssistantDelta(AssistantDelta {
-                tag: ghostai_protocol::AssistantDeltaTag,
+                tag: darkwire_protocol::AssistantDeltaTag,
                 turn_id: "t2".to_owned(),
                 text: "x".to_owned(),
             }),
         }
         .into(),
         ContextUsage {
-            tag: ghostai_protocol::ContextUsageTag,
+            tag: darkwire_protocol::ContextUsageTag,
             session_key: "s".to_owned(),
             estimated_tokens: 1,
             context_window_tokens: 2,

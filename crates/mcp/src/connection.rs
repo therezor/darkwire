@@ -21,11 +21,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::{McpServerState, McpServerStatus};
+use darkwire_security::RandomSource;
+use darkwire_tools::AnyTool;
 use futures::future::BoxFuture;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::{McpServerState, McpServerStatus};
-use ghostai_security::RandomSource;
-use ghostai_tools::AnyTool;
 use parking_lot::Mutex;
 use serde_json::Value;
 use tokio::task::JoinHandle;
@@ -164,7 +164,7 @@ impl McpCallTarget for ConnectionTarget {
     fn call(
         &self,
         upstream_name: &str,
-        args: ghostai_protocol::json::Object,
+        args: darkwire_protocol::json::Object,
         options: McpCallOptions,
     ) -> BoxFuture<'_, Result<McpCallResult>> {
         let session = self.shared.inner.lock().session.clone();
@@ -172,7 +172,7 @@ impl McpCallTarget for ConnectionTarget {
         let upstream_name = upstream_name.to_owned();
         Box::pin(async move {
             let Some(session) = session else {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Network,
                     format!("The {server_id} MCP server is not connected"),
                 ));
@@ -315,7 +315,7 @@ impl McpConnection {
         let ready = {
             let mut inner = self.shared.inner.lock();
             if transport_fingerprint(&spec) != transport_fingerprint(&inner.spec) {
-                return Err(GhostError::new(
+                return Err(WireError::new(
                     ErrorKind::Internal,
                     "rebridge was given a spec that needs a new connection",
                 ));
@@ -479,13 +479,13 @@ async fn adopt(shared: &Arc<Shared>, session: Arc<dyn McpSession>, generation: u
                             // should say which happened.
                             let error = error.map_or_else(
                                 || {
-                                    GhostError::new(
+                                    WireError::new(
                                         ErrorKind::Network,
                                         "The MCP server closed the connection",
                                     )
                                 },
                                 |shared_error| {
-                                    GhostError::new(shared_error.kind, shared_error.message.clone())
+                                    WireError::new(shared_error.kind, shared_error.message.clone())
                                         .with_details(shared_error.details.clone())
                                 },
                             );
@@ -607,7 +607,7 @@ fn republish(shared: &Arc<Shared>) {
 }
 
 /// Records why this server is down and arms the next attempt.
-fn fail(shared: &Arc<Shared>, error: &GhostError) {
+fn fail(shared: &Arc<Shared>, error: &WireError) {
     let needs_auth = error.details.get("needsAuthorization") == Some(&Value::Bool(true));
     let server_id = {
         let mut inner = shared.inner.lock();

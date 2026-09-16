@@ -11,9 +11,9 @@
 //! shorter list, which reads as "that model is gone" rather than "that laptop is
 //! shut".
 
-use ghostai_i18n::{args, keys};
-use ghostai_protocol::ModelsResponse;
-use ghostai_tui::SelectItem;
+use darkwire_i18n::{args, keys};
+use darkwire_protocol::ModelsResponse;
+use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
 use crate::pickers::{PickerMenu, choose_from, position_of, with_current};

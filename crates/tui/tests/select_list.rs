@@ -1,6 +1,6 @@
 //! The cursor, the substring filter and the visible window, with no terminal attached.
 
-use ghostai_tui::{PLAIN_THEME, SelectItem, SelectList, Theme, theme_for, visible_width};
+use darkwire_tui::{PLAIN_THEME, SelectItem, SelectList, Theme, theme_for, visible_width};
 
 /// Values are their own labels, which keeps every assertion below readable.
 fn items(labels: &[&str]) -> Vec<SelectItem<String>> {

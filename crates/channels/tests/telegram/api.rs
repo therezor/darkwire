@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::telegram::api::{
+use darkwire_channels::telegram::api::{
     BotApi, BotCommand, EditMessageInput, HttpClient, InlineKeyboardButton, InlineKeyboardMarkup,
     ReqwestHttpClient, SendMessageInput, TelegramApiError,
 };
-use ghostai_core::{ErrorKind, GhostError};
+use darkwire_core::{ErrorKind, WireError};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -364,8 +364,8 @@ async fn a_transport_failure_is_not_a_telegram_failure() {
     let error = api(&fake).get_me(&live()).await.expect_err("it fails");
 
     assert!(error.api().is_none());
-    let ghost: GhostError = error.into();
-    assert_eq!(ghost.kind, ErrorKind::Network);
+    let wire: WireError = error.into();
+    assert_eq!(wire.kind, ErrorKind::Network);
 }
 
 #[tokio::test]
@@ -432,11 +432,11 @@ async fn nothing_a_failure_carries_leaks_the_token() {
         .await
         .expect_err("it fails");
 
-    let ghost: GhostError = error.into();
-    let rendered = format!("{} {:?}", ghost.message, ghost.details);
+    let wire: WireError = error.into();
+    let rendered = format!("{} {:?}", wire.message, wire.details);
     assert!(!rendered.contains(TOKEN), "{rendered}");
-    assert_eq!(ghost.details["method"], json!("sendMessage"));
-    assert_eq!(ghost.details["code"], json!(400));
+    assert_eq!(wire.details["method"], json!("sendMessage"));
+    assert_eq!(wire.details["code"], json!(400));
 }
 
 #[test]
@@ -449,15 +449,15 @@ fn a_telegram_failure_becomes_the_error_kind_it_means() {
         (500, ErrorKind::Network),
     ];
     for (code, expected) in kinds {
-        let ghost: GhostError = TelegramApiError {
+        let wire: WireError = TelegramApiError {
             code,
             retry_after_sec: Some(3),
             method: "getMe".to_owned(),
             description: "nope".to_owned(),
         }
         .into();
-        assert_eq!(ghost.kind, expected, "{code}");
-        assert_eq!(ghost.details["retryAfterSec"], json!(3));
+        assert_eq!(wire.kind, expected, "{code}");
+        assert_eq!(wire.details["retryAfterSec"], json!(3));
     }
 }
 
@@ -502,9 +502,9 @@ async fn the_reqwest_transport_reports_an_unreachable_host_without_the_url() {
         .await
         .expect_err("it fails");
 
-    let ghost: GhostError = error.into();
-    assert_eq!(ghost.kind, ErrorKind::Network);
-    assert!(!ghost.message.contains(TOKEN), "{}", ghost.message);
+    let wire: WireError = error.into();
+    assert_eq!(wire.kind, ErrorKind::Network);
+    assert!(!wire.message.contains(TOKEN), "{}", wire.message);
 }
 
 #[tokio::test]

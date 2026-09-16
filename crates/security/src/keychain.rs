@@ -15,11 +15,11 @@ use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use ghostai_core::Result;
+use darkwire_core::Result;
 
 use crate::vault::{KeyStore, VAULT_KEY_BYTES};
 
-const KEYCHAIN_SERVICE: &str = "ghostai-vault";
+const KEYCHAIN_SERVICE: &str = "darkwire-vault";
 const KEYCHAIN_ACCOUNT: &str = "master-key";
 
 /// What a command produced.
@@ -233,7 +233,7 @@ impl KeychainStore {
             "secret-tool",
             &[
                 "store",
-                "--label=GhostAI vault key",
+                "--label=DarkWire vault key",
                 "service",
                 &self.options.service,
                 "account",

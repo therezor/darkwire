@@ -23,9 +23,9 @@ use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use ghostai_core::WorkspaceRecord;
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_protocol::rest::{
+use darkwire_core::WorkspaceRecord;
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_protocol::rest::{
     CreateWorkspaceRequest, MoveSessionsRequest, MoveSessionsResponse, UpdateWorkspaceRequest,
     WorkspaceListResponse, WorkspaceSummary,
 };

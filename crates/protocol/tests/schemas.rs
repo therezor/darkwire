@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use ghostai_protocol::PROTOCOL_SCHEMAS;
+use darkwire_protocol::PROTOCOL_SCHEMAS;
 use regex::Regex;
 
 /// `JsonSchema` types the browser does not publish on its own.
@@ -152,9 +152,9 @@ fn every_entry_generates() {
             entry.name
         );
         assert_eq!(
-            ghostai_protocol::registered(entry.name).map(|e| e.name),
+            darkwire_protocol::registered(entry.name).map(|e| e.name),
             Some(entry.name)
         );
     }
-    assert!(ghostai_protocol::registered("NoSuchSchema").is_none());
+    assert!(darkwire_protocol::registered("NoSuchSchema").is_none());
 }

@@ -5,10 +5,10 @@ import { createInterface } from 'node:readline';
 
 const METHODS = {
   initialize: () => ({ protocolVersion: '2025-06-18', capabilities: {} }),
-  'ghostai/commands/list': () => ({
+  'darkwire/commands/list': () => ({
     commands: [{ id: 'slow-forever', description: 'Never answers.' }],
   }),
-  'ghostai/context/static': () => ({
+  'darkwire/context/static': () => ({
     sections: [{ title: 'Slow', body: 'A section that arrives.' }],
   }),
 };
@@ -19,8 +19,8 @@ lines.on('line', (line) => {
   if (message.id === undefined || message.id === null) return;
   // These two are answered by never answering.
   if (
-    message.method === 'ghostai/commands/run' ||
-    message.method === 'ghostai/context/runtime'
+    message.method === 'darkwire/commands/run' ||
+    message.method === 'darkwire/context/runtime'
   ) {
     return;
   }

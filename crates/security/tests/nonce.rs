@@ -9,10 +9,10 @@
 
 mod common;
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::tool_policy_uses_nonce;
-use ghostai_security::testkit::FixedRandom;
-use ghostai_security::{
+use darkwire_core::ErrorKind;
+use darkwire_protocol::tool_policy_uses_nonce;
+use darkwire_security::testkit::FixedRandom;
+use darkwire_security::{
     InjectionFinding, InjectionSignal, OsRandom, TOOL_OUTPUT_NONCE_BYTES, WrapToolOutputOptions,
     WrappedToolOutput, create_tool_output_nonce, describe_injection_findings,
     detect_prompt_injection, tool_output_policy, tool_output_tag, wrap_tool_output,

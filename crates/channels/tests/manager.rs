@@ -14,16 +14,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use common::{SESSION, session_status};
-use ghostai_channels::channel::{
+use darkwire_channels::channel::{
     BoxFuture, Channel, ChannelContext, ChannelControl, ChannelControlFrame, ChannelFactory,
     ChannelInbound, DEFAULT_ACCEPTED_KINDS,
 };
-use ghostai_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
-use ghostai_channels::testkit::{ReceivedFrame, ScriptedHub, counter_ids, flush};
-use ghostai_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
-use ghostai_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::{
+use darkwire_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
+use darkwire_channels::testkit::{ReceivedFrame, ScriptedHub, counter_ids, flush};
+use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{
     ClientMessage, StopTurnMessage, StopTurnTag, ToolApproveMessage, ToolApproveTag,
 };
 use parking_lot::Mutex;
@@ -89,7 +89,7 @@ impl Recorder {
                     .content
                     .iter()
                     .map(|part| match part {
-                        ghostai_protocol::ContentPart::Text(text) => text.text.clone(),
+                        darkwire_protocol::ContentPart::Text(text) => text.text.clone(),
                         _ => String::new(),
                     })
                     .collect()
@@ -112,7 +112,7 @@ impl Channel for Recorder {
         let fails = self.faults.start;
         Box::pin(async move {
             if fails {
-                return Err(GhostError::new(ErrorKind::Config, "the token is wrong"));
+                return Err(WireError::new(ErrorKind::Config, "the token is wrong"));
             }
             Ok(())
         })
@@ -123,7 +123,7 @@ impl Channel for Recorder {
         let fails = self.faults.stop;
         Box::pin(async move {
             if fails {
-                return Err(GhostError::new(ErrorKind::Network, "the socket is gone"));
+                return Err(WireError::new(ErrorKind::Network, "the socket is gone"));
             }
             Ok(())
         })
@@ -137,7 +137,7 @@ impl Channel for Recorder {
                 tokio::time::sleep(delay).await;
             }
             if fails {
-                return Err(GhostError::new(ErrorKind::Network, "the send failed"));
+                return Err(WireError::new(ErrorKind::Network, "the send failed"));
             }
             self.sent.lock().push(message);
             Ok(())
@@ -411,7 +411,7 @@ async fn withholds_progress_from_a_channel_that_did_not_ask_for_it() {
     connection.emit(common::turn_start());
     connection.emit(common::delta("so far"));
     connection.emit(common::tool_call("c1", "read_file"));
-    connection.emit(common::turn_end(ghostai_protocol::StopReason::Complete));
+    connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
     flush().await;
     flush().await;
 
@@ -444,7 +444,7 @@ async fn delivers_progress_to_a_channel_that_renders_it() {
     connection.emit(common::turn_start());
     connection.emit(common::delta("so far"));
     connection.emit(common::tool_call("c1", "read_file"));
-    connection.emit(common::turn_end(ghostai_protocol::StopReason::Complete));
+    connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
     flush().await;
     flush().await;
 
@@ -514,10 +514,10 @@ async fn keeps_one_channels_order_without_making_it_another_channels_problem() {
     for connection in &connections {
         connection.emit(common::turn_start());
         connection.emit(common::delta("first"));
-        connection.emit(common::turn_end(ghostai_protocol::StopReason::Complete));
+        connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
         connection.emit(common::turn_start());
         connection.emit(common::delta("second"));
-        connection.emit(common::turn_end(ghostai_protocol::StopReason::Complete));
+        connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
     }
     flush().await;
 
@@ -537,7 +537,7 @@ async fn drops_an_outbound_message_addressed_to_a_channel_it_does_not_have() {
 
     let result = manager
         .bus()
-        .publish_outbound(ghostai_core::message_bus::OutboundMessageInput {
+        .publish_outbound(darkwire_core::message_bus::OutboundMessageInput {
             channel_id: "nobody".to_owned(),
             session_key: "nobody:1".to_owned(),
             target: "chat-1".to_owned(),
@@ -871,9 +871,9 @@ async fn start_twice_is_a_no_op() {
 
 #[tokio::test]
 async fn a_shared_bus_is_left_open_for_its_owner() {
-    let bus = Arc::new(ghostai_core::message_bus::MessageBus::new(
-        ghostai_core::message_bus::MessageBusOptions::new(
-            Arc::new(ghostai_core::clock::SystemClock),
+    let bus = Arc::new(darkwire_core::message_bus::MessageBus::new(
+        darkwire_core::message_bus::MessageBusOptions::new(
+            Arc::new(darkwire_core::clock::SystemClock),
             counter_ids("shared-"),
         ),
     ));
@@ -908,12 +908,12 @@ fn approve_frame() -> ChannelControlFrame {
         tag: ToolApproveTag,
         call_id: "call-1".to_owned(),
         approved: true,
-        scope: ghostai_protocol::ApprovalScope::Once,
+        scope: darkwire_protocol::ApprovalScope::Once,
     })
 }
 
 fn control_frames(
-    connection: &ghostai_channels::testkit::ScriptedConnection,
+    connection: &darkwire_channels::testkit::ScriptedConnection,
 ) -> Vec<ReceivedFrame> {
     connection
         .frames()

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use ghostai_security::{
+use darkwire_security::{
     CommandResult, CommandRunner, KeyStore, KeychainOptions, KeychainStore, Platform,
     SystemCommandRunner, VAULT_KEY_BYTES,
 };
@@ -105,7 +105,7 @@ fn reads_a_key_from_the_macos_keychain() {
             args: [
                 "find-generic-password",
                 "-s",
-                "ghostai-vault",
+                "darkwire-vault",
                 "-a",
                 "master-key",
                 "-w"
@@ -201,7 +201,7 @@ fn defaults_to_this_platform_and_the_real_runner() {
     // Constructed only — loading here would prompt the developer's own keychain.
     let options = KeychainOptions::default();
     assert_eq!(options.platform, Platform::current());
-    assert!(format!("{options:?}").contains("ghostai-vault"));
+    assert!(format!("{options:?}").contains("darkwire-vault"));
     let store = KeychainStore::new(options);
     assert!(store.name().starts_with("keychain:"));
     assert!(format!("{store:?}").contains("KeychainStore"));
@@ -241,7 +241,7 @@ fn the_system_runner_captures_output_status_and_stdin() {
     let failed = SystemCommandRunner.run("false", &[], None);
     assert_eq!(failed.status, Some(1));
 
-    let missing = SystemCommandRunner.run("ghostai-no-such-binary", &[], Some("x"));
+    let missing = SystemCommandRunner.run("darkwire-no-such-binary", &[], Some("x"));
     assert_eq!(missing, unavailable());
     assert!(format!("{SystemCommandRunner:?}").contains("SystemCommandRunner"));
 }

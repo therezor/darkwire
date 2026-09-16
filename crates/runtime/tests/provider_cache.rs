@@ -14,11 +14,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::local_spec;
-use ghostai_core::{ErrorKind, GhostError};
-use ghostai_providers::testkit::ScriptedProvider;
-use ghostai_providers::{ChatProvider, CreateProviderOptions, ProviderSpec};
-use ghostai_runtime::provider_cache::{ProviderFactory, ProviderRequest};
-use ghostai_runtime::{MAX_CACHED_PROVIDERS, ProviderCache, provider_cache_key};
+use darkwire_core::{ErrorKind, WireError};
+use darkwire_providers::testkit::ScriptedProvider;
+use darkwire_providers::{ChatProvider, CreateProviderOptions, ProviderSpec};
+use darkwire_runtime::provider_cache::{ProviderFactory, ProviderRequest};
+use darkwire_runtime::{MAX_CACHED_PROVIDERS, ProviderCache, provider_cache_key};
 use indexmap::IndexMap;
 
 const SECRET: &str = "sk-do-not-print-me";
@@ -49,8 +49,8 @@ fn counting(max: usize) -> (Arc<ProviderCache>, Arc<AtomicUsize>) {
     let factory: ProviderFactory = Arc::new(move |options: CreateProviderOptions| {
         counter.fetch_add(1, Ordering::SeqCst);
         let spec = match &options.provider {
-            ghostai_providers::ProviderRef::Spec(spec) => (**spec).clone(),
-            ghostai_providers::ProviderRef::Id(id) => local_spec(id),
+            darkwire_providers::ProviderRef::Spec(spec) => (**spec).clone(),
+            darkwire_providers::ProviderRef::Id(id) => local_spec(id),
         };
         Ok(ScriptedProvider::new(spec, Vec::new()) as Arc<dyn ChatProvider>)
     });
@@ -158,7 +158,7 @@ fn ignores_the_wire_adapters_which_are_not_part_of_the_identity() {
     let (cache, built) = counting(8);
     cache.get(&request("m")).unwrap();
     let mut with_wires = request("m");
-    with_wires.wires = Some(ghostai_providers::WireAdapters::new());
+    with_wires.wires = Some(darkwire_providers::WireAdapters::new());
     cache.get(&with_wires).unwrap();
     assert_eq!(built.load(Ordering::SeqCst), 1);
 }
@@ -227,7 +227,7 @@ fn does_not_cache_a_construction_that_failed() {
         // Fails once, as a wire with no adapter does, and then succeeds once the
         // operator has fixed the config.
         if counter.fetch_add(1, Ordering::SeqCst) == 0 {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 "no adapter for that wire",
             ));
@@ -287,19 +287,22 @@ impl ChatProvider for Closing {
 
     fn chat<'a>(
         &'a self,
-        request: &'a ghostai_providers::ChatRequest,
+        request: &'a darkwire_providers::ChatRequest,
         token: &'a tokio_util::sync::CancellationToken,
-    ) -> ghostai_providers::BoxFuture<'a, ghostai_core::Result<ghostai_providers::ChatResult>> {
+    ) -> darkwire_providers::BoxFuture<'a, darkwire_core::Result<darkwire_providers::ChatResult>>
+    {
         let _ = (request, token);
-        Box::pin(async { Err(GhostError::new(ErrorKind::Internal, "not scripted")) })
+        Box::pin(async { Err(WireError::new(ErrorKind::Internal, "not scripted")) })
     }
 
     fn stream(
         &self,
-        request: ghostai_providers::ChatRequest,
+        request: darkwire_providers::ChatRequest,
         token: tokio_util::sync::CancellationToken,
-    ) -> futures::stream::BoxStream<'static, ghostai_core::Result<ghostai_providers::ChatStreamEvent>>
-    {
+    ) -> futures::stream::BoxStream<
+        'static,
+        darkwire_core::Result<darkwire_providers::ChatStreamEvent>,
+    > {
         let _ = (request, token);
         Box::pin(futures::stream::empty())
     }
@@ -307,13 +310,13 @@ impl ChatProvider for Closing {
     fn list_models<'a>(
         &'a self,
         token: &'a tokio_util::sync::CancellationToken,
-    ) -> ghostai_providers::BoxFuture<'a, ghostai_core::Result<Vec<ghostai_protocol::ModelInfo>>>
+    ) -> darkwire_providers::BoxFuture<'a, darkwire_core::Result<Vec<darkwire_protocol::ModelInfo>>>
     {
         let _ = token;
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    fn close(&self) -> ghostai_providers::BoxFuture<'_, ()> {
+    fn close(&self) -> darkwire_providers::BoxFuture<'_, ()> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {})
     }

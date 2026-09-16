@@ -111,7 +111,7 @@ if events:
 
 header = {"version": 2, "width": cols, "height": rows, "timestamp": 0,
           "env": {"TERM": "xterm-256color", "SHELL": "/bin/zsh"},
-          "title": "ghostai chat"}
+          "title": "darkwire chat"}
 with open(out_path, "w") as f:
     f.write(json.dumps(header) + "\n")
     for e in events:

@@ -13,7 +13,7 @@
 //!    or may not end on a newline, and a tool card printed straight after one
 //!    would land mid-sentence. [`TurnRenderer`] tracks the cursor so a break is
 //!    emitted exactly when one is needed, and never twice.
-//!  - **Colour as an injected boolean.** [`ghostai_tui::palette_for`] answers
+//!  - **Colour as an injected boolean.** [`darkwire_tui::palette_for`] answers
 //!    with the same shape and identity styles when colour is off, so tests
 //!    assert on the text rather than on escape sequences, and `--no-color` is
 //!    one flag rather than a branch at every call site.
@@ -29,14 +29,14 @@
 
 use std::collections::HashMap;
 
-use ghostai_agent::AgentEvent;
-use ghostai_core::TurnStatsRecord;
-use ghostai_i18n::{args, keys};
-use ghostai_protocol::{
+use darkwire_agent::AgentEvent;
+use darkwire_core::TurnStatsRecord;
+use darkwire_i18n::{args, keys};
+use darkwire_protocol::{
     ErrorCode, NestedAgentEvent, StopReason, SubagentEventBody, ToolRisk, TurnTiming, Usage,
     turn_rate,
 };
-use ghostai_tui::{Palette, Style, palette_for, strip_ansi};
+use darkwire_tui::{Palette, Style, palette_for, strip_ansi};
 use serde_json::Value;
 
 use crate::i18n::Translations;
@@ -321,7 +321,7 @@ fn error_code(code: ErrorCode) -> &'static str {
 
 /// The colour a tool card is badged in.
 ///
-/// This stays here rather than moving to `ghostai-tui` with the rest of the
+/// This stays here rather than moving to `darkwire-tui` with the rest of the
 /// palette: it takes a [`ToolRisk`], and a crate whose whole claim is that it
 /// has never heard of an agent cannot be the one that knows `exec` is red.
 fn risk_style(colors: &Palette, risk: ToolRisk) -> Style {
@@ -423,7 +423,7 @@ impl TurnRenderer {
             // the staleness this event exists to fix, just less visibly than a
             // bar sitting under a composer. What stops wiring it up being free
             // is that the header redraws the whole prompt line, and doing that
-            // mid-stream is the thing `ghostai-tui` was written to make safe
+            // mid-stream is the thing `darkwire-tui` was written to make safe
             // rather than something to bolt on here.
             AgentEvent::ContextUsage(_) => {}
             AgentEvent::Nested(nested) => {
@@ -482,7 +482,7 @@ impl TurnRenderer {
             NestedAgentEvent::ToolResult(result) => {
                 self.tool_result(session_key, result);
             }
-            // The terminal has no way to answer one — `ghostai chat` installs
+            // The terminal has no way to answer one — `darkwire chat` installs
             // no gate, so an `ask` tool simply runs. Reaching here means the
             // CLI is watching a turn some other surface is driving, and saying
             // so beats a gap.
@@ -712,7 +712,7 @@ impl TurnRenderer {
         self.line(&line);
     }
 
-    fn tool_result(&mut self, session_key: &str, result: &ghostai_protocol::ToolResult) {
+    fn tool_result(&mut self, session_key: &str, result: &darkwire_protocol::ToolResult) {
         let mark = if result.ok {
             self.colors.green.apply("✓")
         } else {

@@ -50,7 +50,7 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use ghostai_protocol::json::js_trim;
+use darkwire_protocol::json::js_trim;
 use regex::Regex;
 
 /// A parsed document: its frontmatter fields, and everything after the fence.

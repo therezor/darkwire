@@ -14,7 +14,7 @@
 use std::fs;
 use std::path::Path;
 
-use ghostai_agent::skills::{
+use darkwire_agent::skills::{
     MAX_DESCRIPTION_CHARS, MAX_SKILLS, SKILL_FILENAME, SKILL_MAX_BYTES, SKILLS_DIRNAME, Skill,
     parse_skill_agents, read_skills, skills_for_agent,
 };

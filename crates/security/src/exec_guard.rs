@@ -37,7 +37,7 @@
 //! enforce by inspection, and lifting one without the other produces a shell
 //! that refuses the redirects it was enabled for.
 //!
-//! That is also why this is the one place in GhostAI where a path outside the
+//! That is also why this is the one place in DarkWire where a path outside the
 //! workspace is **refused instead of clamped**. [`WorkspaceJail`] resolves
 //! `/etc/passwd` to `<workspace>/etc/passwd`, but clamping is a property of
 //! *its* resolution and a spawned child does not honour it: handing `/etc/passwd`
@@ -49,8 +49,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::ExecToolConfig;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::ExecToolConfig;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
@@ -151,8 +151,8 @@ pub struct ExecPlan {
     pub paths: Vec<PathBuf>,
 }
 
-fn denied(message: impl Into<String>, details: Map<String, Value>) -> GhostError {
-    GhostError::new(ErrorKind::PermissionDenied, message).with_details(details)
+fn denied(message: impl Into<String>, details: Map<String, Value>) -> WireError {
+    WireError::new(ErrorKind::PermissionDenied, message).with_details(details)
 }
 
 fn detail(key: &str, value: impl Into<Value>) -> Map<String, Value> {
@@ -246,7 +246,7 @@ fn assert_inside_by_shape(
     }
     details.insert("path".to_owned(), Value::from(candidate));
     details.insert("shapes".to_owned(), shapes_value(&shapes));
-    Err(GhostError::new(
+    Err(WireError::new(
         ErrorKind::JailEscape,
         format!(
             "{what} points outside the workspace ({}): {candidate}",
@@ -340,7 +340,7 @@ fn check_program(argv0: &str, jail: &WorkspaceJail, paths: &mut Vec<PathBuf>) ->
             paths.push(accept.path.clone());
             Ok(accept.path.to_string_lossy().into_owned())
         }
-        JailCheck::Reject { rejection, message } => Err(GhostError::new(
+        JailCheck::Reject { rejection, message } => Err(WireError::new(
             ErrorKind::JailEscape,
             format!("Program path is not inside the workspace: {message}"),
         )
@@ -369,7 +369,7 @@ fn check_argument(argument: &str, jail: &WorkspaceJail, paths: &mut Vec<PathBuf>
             if !is_fatal_rejection(rejection, candidate) {
                 return Ok(());
             }
-            Err(GhostError::new(
+            Err(WireError::new(
                 ErrorKind::JailEscape,
                 format!("Argument is not inside the workspace: {message}"),
             )
@@ -399,7 +399,7 @@ pub fn guard_exec(argv: &[String], options: &ExecGuardOptions<'_>) -> Result<Exe
     let argv0 = match argv.first() {
         Some(program) if !program.is_empty() => program.as_str(),
         _ => {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "argv must start with a program to run",
             ));

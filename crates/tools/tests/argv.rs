@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_tools::coerce_argv;
+use darkwire_tools::coerce_argv;
 use serde_json::{Value, json};
 
 fn argv(value: &Value) -> Vec<String> {

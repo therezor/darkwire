@@ -10,7 +10,7 @@ use axum::Json;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use ghostai_protocol::rest::{Notification, NotificationListResponse};
+use darkwire_protocol::rest::{Notification, NotificationListResponse};
 
 use crate::cursor::{
     NotificationCursor, assert_one_paging_mode, decode_notification_cursor,

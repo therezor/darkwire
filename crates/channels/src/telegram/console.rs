@@ -15,13 +15,13 @@
 //! every channel any extension registers. The composition root compiles this
 //! channel in and hands it a store deliberately, which is a different act.
 //!
-//! Typed entirely in `ghostai-core` and `ghostai-protocol` vocabulary, because
+//! Typed entirely in `darkwire-core` and `darkwire-protocol` vocabulary, because
 //! that is the whole of what this crate may import — and because it happens to
 //! be the same vocabulary the REST API answers in, so the composition root
 //! satisfies most of it with what it already exposes.
 
-use ghostai_core::{Result, SessionStore, WorkspaceStore};
-use ghostai_protocol::{AgentSummary, ContextResponse, ModelsResponse};
+use darkwire_core::{Result, SessionStore, WorkspaceStore};
+use darkwire_protocol::{AgentSummary, ContextResponse, ModelsResponse};
 
 use crate::channel::BoxFuture;
 

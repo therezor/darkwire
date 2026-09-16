@@ -8,8 +8,8 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::ws::{AssistantDelta, AssistantDeltaTag, PongTag, Sequenced, ServerMessage};
-use ghostai_server::replay::ReplayBuffer;
+use darkwire_protocol::ws::{AssistantDelta, AssistantDeltaTag, PongTag, Sequenced, ServerMessage};
+use darkwire_server::replay::ReplayBuffer;
 
 fn delta(seq: u64, text: &str) -> ServerMessage {
     ServerMessage::AssistantDelta(Sequenced {
@@ -122,7 +122,7 @@ fn ignores_a_connection_level_event_that_carries_no_seq() {
     // history, so retaining one would invent a position it never held.
     let mut buffer = ReplayBuffer::new(4);
     buffer.push(delta(1, "x"));
-    buffer.push(ServerMessage::Pong(ghostai_protocol::ws::PongEvent {
+    buffer.push(ServerMessage::Pong(darkwire_protocol::ws::PongEvent {
         tag: PongTag,
         server_time_ms: 1_700_000_000_000,
     }));

@@ -1,5 +1,5 @@
-import { createWebI18n } from '@ghostwire/i18n/web';
-import { McpServerConfigSchema } from '@ghostwire/protocol';
+import { createWebI18n } from '@darkwire/i18n/web';
+import { McpServerConfigSchema } from '@darkwire/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {

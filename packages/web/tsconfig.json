@@ -9,8 +9,8 @@
 
     // Vite owns the JavaScript here, so `tsc -b` is a checker rather than a
     // compiler — unlike every other package, where tsup emits the JS and tsc
-    // emits the declarations. Nothing imports `@ghostwire/web` for its types:
-    // `ghostai serve` resolves its `package.json` to find `dist/`, at runtime.
+    // emits the declarations. Nothing imports `@darkwire/web` for its types:
+    // `darkwire serve` resolves its `package.json` to find `dist/`, at runtime.
     "noEmit": true,
     "emitDeclarationOnly": false,
     "tsBuildInfoFile": "./.tsbuildinfo",

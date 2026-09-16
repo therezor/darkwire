@@ -27,7 +27,7 @@
 //!    one whose digest is not the one an operator approved.
 //!
 //! The layering that makes the isolation true is enforced by Cargo:
-//! `ghostai-core` lists no HTTP client and spawns no process, so there is no
+//! `darkwire-core` lists no HTTP client and spawns no process, so there is no
 //! way to reach either without coming through here first.
 #![forbid(unsafe_code)]
 

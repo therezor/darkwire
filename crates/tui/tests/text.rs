@@ -1,6 +1,6 @@
 //! Display width, cutting and folding — the invariant the frame arithmetic rests on.
 
-use ghostai_tui::{
+use darkwire_tui::{
     STYLE_RESET, carry_styles, drop_last_grapheme, fit_to_width, justify, next_boundary,
     pad_to_width, previous_boundary, rule, strip_ansi, truncate_start_to_width, truncate_to_width,
     visible_width, wrap_to_width,
@@ -299,13 +299,13 @@ fn carry_styles_keeps_what_is_open_and_drops_it_on_a_reset() {
 #[test]
 fn the_escapes_that_cost_no_columns_include_apc_strings() {
     // The cursor marker is one. Matching only the two-byte introducer left
-    // `ghostai:cursor` behind as visible text and measured the marker as
+    // `darkwire:cursor` behind as visible text and measured the marker as
     // fifteen columns, which folded the editor's line fifteen columns early.
     // Both terminators: ST is what the marker uses and what the standard says,
     // BEL is the xterm extension a stray sequence may well arrive with.
     for apc in [
-        format!("{ESC}_ghostai:cursor{ESC}\\"),
-        format!("{ESC}_ghostai:cursor{BEL}"),
+        format!("{ESC}_darkwire:cursor{ESC}\\"),
+        format!("{ESC}_darkwire:cursor{BEL}"),
     ] {
         assert_eq!(visible_width(&apc), 0);
         assert_eq!(strip_ansi(&format!("a{apc}b")), "ab");

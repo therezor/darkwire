@@ -19,10 +19,10 @@ use std::path::Path;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_protocol::config::Config;
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
-use ghostai_server::ui::{INDEX_FILE, UiRoot};
-use ghostai_server::version::SERVER_VERSION;
+use darkwire_protocol::config::Config;
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_server::ui::{INDEX_FILE, UiRoot};
+use darkwire_server::version::SERVER_VERSION;
 use serde_json::Value;
 use tower::ServiceExt as _;
 
@@ -30,7 +30,7 @@ use tower::ServiceExt as _;
 fn bundle(root: &Path) {
     fs::write(
         root.join(INDEX_FILE),
-        "<!doctype html><title>GhostAI</title>",
+        "<!doctype html><title>DarkWire</title>",
     )
     .expect("a shell on disk");
     fs::create_dir_all(root.join("assets")).expect("an assets directory");
@@ -94,7 +94,7 @@ async fn the_shell_is_served_at_the_root() {
 
     let answer = request(&test, Method::GET, "/", None).await;
     assert_eq!(answer.status, StatusCode::OK);
-    assert!(answer.body.contains("<title>GhostAI</title>"));
+    assert!(answer.body.contains("<title>DarkWire</title>"));
     assert_eq!(answer.content_type, "text/html; charset=utf-8");
 }
 
@@ -112,7 +112,7 @@ async fn a_path_only_the_client_knows_about_becomes_the_shell() {
     for uri in ["/settings", "/session/abc-123", "/workspaces/research"] {
         let answer = request(&test, Method::GET, uri, None).await;
         assert_eq!(answer.status, StatusCode::OK, "{uri}");
-        assert!(answer.body.contains("<title>GhostAI</title>"), "{uri}");
+        assert!(answer.body.contains("<title>DarkWire</title>"), "{uri}");
     }
 }
 
@@ -228,7 +228,7 @@ fn a_non_loopback_bind_with_authentication_off_is_refused_rather_than_served() {
     // A refusal, not a warning, and before there is anything to unwind.
     match outcome {
         Ok(_) => panic!("an unauthenticated LAN bind must not produce a server"),
-        Err(refusal) => assert_eq!(refusal.kind, ghostai_core::ErrorKind::Config),
+        Err(refusal) => assert_eq!(refusal.kind, darkwire_core::ErrorKind::Config),
     }
 }
 

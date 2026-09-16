@@ -50,23 +50,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::clock::Clock;
-use ghostai_core::cron::{next_cron_run, parse_cron};
-use ghostai_core::errors::{ErrorKind, GhostError, Result};
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
-use ghostai_core::session_store::IdSource;
-use ghostai_protocol::automation::{
+use darkwire_core::clock::Clock;
+use darkwire_core::cron::{next_cron_run, parse_cron};
+use darkwire_core::errors::{ErrorKind, Result, WireError};
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_core::session_store::IdSource;
+use darkwire_protocol::automation::{
     AUTOMATION_ORIGIN, AutomationJob, AutomationPayload, AutomationRun, AutomationSchedule,
     HeartbeatPayload, RunStatus,
 };
-use ghostai_protocol::config::Config;
-use ghostai_protocol::messages::StopReason;
-use ghostai_protocol::rest::Notification;
-use ghostai_protocol::ws::{
+use darkwire_protocol::config::Config;
+use darkwire_protocol::messages::StopReason;
+use darkwire_protocol::rest::Notification;
+use darkwire_protocol::ws::{
     ClientMessage, NotificationLevel, ServerMessage, StopTurnMessage, StopTurnTag,
     UserMessageRequest, UserMessageTag,
 };
-use ghostai_providers::{ChatResult, ToolChoice};
+use darkwire_providers::{ChatResult, ToolChoice};
 use parking_lot::Mutex;
 use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -189,9 +189,9 @@ pub struct DirectChat {
     /// Overrides the agent's own model — how a cheap heartbeat model is chosen.
     pub model: Option<String>,
     /// The whole conversation for this one request.
-    pub messages: Vec<ghostai_protocol::messages::ChatMessage>,
+    pub messages: Vec<darkwire_protocol::messages::ChatMessage>,
     /// The one tool this request offers.
-    pub tools: Vec<ghostai_protocol::tools::ToolDefinition>,
+    pub tools: Vec<darkwire_protocol::tools::ToolDefinition>,
     /// How hard to push the model towards calling it.
     pub tool_choice: ToolChoice,
     /// A ceiling on the answer.
@@ -969,7 +969,7 @@ impl Scheduler {
         warnings.extend(turn.warnings.iter().cloned());
         output.push_str(&turn.text);
         if let Some(failure) = turn.error {
-            return Err(GhostError::new(ErrorKind::Tool, failure));
+            return Err(WireError::new(ErrorKind::Tool, failure));
         }
 
         if matches!(job.payload, AutomationPayload::Heartbeat(_)) {
@@ -1171,7 +1171,7 @@ impl Scheduler {
         let (Some(chat), Some(read_file)) = (&self.inner.chat, &self.inner.read_file) else {
             // Not a silent "always run": that would start an unbounded turn on
             // whatever the file happens to say, every interval, forever.
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::NotFound,
                 "This build has no direct provider access, so a heartbeat cannot decide whether to run.",
             ));
@@ -1296,13 +1296,13 @@ impl SchedulerPort for Scheduler {
     /// not holding a request open for the length of an agent run.
     fn run_now(&self, job_id: &str) -> Result<AutomationRun> {
         let Some(job) = self.inner.jobs.get_job(job_id)? else {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::NotFound,
                 format!("No automation job with id \"{job_id}\"."),
             ));
         };
         if self.inner.state.lock().in_flight.contains_key(job_id) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Conflict,
                 format!("\"{}\" is already running.", job.name),
             ));

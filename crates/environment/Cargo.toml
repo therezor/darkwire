@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-environment"
+name = "darkwire-environment"
 description = "Execution environment service and client"
 version.workspace = true
 edition.workspace = true
@@ -11,10 +11,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-security.workspace = true
-ghostai-tools.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-security.workspace = true
+darkwire-tools.workspace = true
 gethostname.workspace = true
 indexmap.workspace = true
 nix.workspace = true
@@ -30,12 +30,12 @@ uuid.workspace = true
 [dev-dependencies]
 # The pool suite runs no daemon: the engine is a double, the clock is manual and
 # the only real thing on disk is the policy directory.
-ghostai-core = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
 tokio = { workspace = true, features = ["test-util"] }
 parking_lot.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
 [[bin]]
-name = "ghostai-environment"
+name = "darkwire-environment"
 path = "src/main.rs"

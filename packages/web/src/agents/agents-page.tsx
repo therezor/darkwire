@@ -41,7 +41,7 @@ import {
   DEFAULT_AGENT_ID,
   deriveAgentId,
   type AgentEntry,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';

@@ -15,7 +15,7 @@ import type {
   ContentPart,
   SubagentRunRef,
   ToolRisk,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import {
   type SubagentPart,
@@ -29,7 +29,7 @@ import {
 /**
  * The nonce envelope, as the agent writes it.
  *
- * Duplicated from `nonce.rs` in `ghostai-security` rather than imported: that
+ * Duplicated from `nonce.rs` in `darkwire-security` rather than imported: that
  * crate is Rust, so the browser cannot reach it, and restating one delimiter is
  * the cheaper half of the trade. `transcript.test.ts` pins the exact shape.
  */

@@ -17,13 +17,13 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::messages::user_message;
-use ghostai_core::session_store::{AppendOptions, CreateSession};
-use ghostai_protocol::config::Config;
-use ghostai_protocol::messages::ChatMessage;
-use ghostai_server::context::build_context_response;
-use ghostai_server::runtime::ServerRuntime as _;
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_core::messages::user_message;
+use darkwire_core::session_store::{AppendOptions, CreateSession};
+use darkwire_protocol::config::Config;
+use darkwire_protocol::messages::ChatMessage;
+use darkwire_server::context::build_context_response;
+use darkwire_server::runtime::ServerRuntime as _;
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use serde_json::json;
 
 fn server(config: Option<Config>) -> TestServer {
@@ -119,7 +119,7 @@ async fn a_bound_agent_that_is_gone_falls_back_and_says_so() {
 
 #[tokio::test]
 async fn an_agent_that_still_exists_is_not_reported_as_a_fallback() {
-    let config = ghostai_protocol::config::parse_config(json!({
+    let config = darkwire_protocol::config::parse_config(json!({
         "agents": {"list": {"reviewer": {"label": "Reviewer"}}},
     }))
     .expect("a parseable config");
@@ -160,10 +160,10 @@ async fn the_prompt_is_the_one_the_agent_would_actually_send() {
     // It comes from the loop rather than being reassembled here, so the preview
     // and the turn cannot drift.
     let test = start_test_server(TestServerOptions {
-        runtime: ghostai_server::testkit::FakeRuntimeOptions {
-            system_prompt: Some("# GhostAI\n\nSession: {session}".to_owned()),
+        runtime: darkwire_server::testkit::FakeRuntimeOptions {
+            system_prompt: Some("# DarkWire\n\nSession: {session}".to_owned()),
             runtime_block: Some("## Live state".to_owned()),
-            ..ghostai_server::testkit::FakeRuntimeOptions::default()
+            ..darkwire_server::testkit::FakeRuntimeOptions::default()
         },
         ..TestServerOptions::default()
     })

@@ -1,6 +1,6 @@
 //! The key map over a list: chosen, cancelled, or still open.
 
-use ghostai_tui::{
+use darkwire_tui::{
     CHROME_ROWS, Component, DEFAULT_MAX_ROWS, PLAIN_THEME, Select, SelectItem, SelectLabels,
     SelectOptions, SelectOutcome, parse_key, theme_for, visible_width,
 };

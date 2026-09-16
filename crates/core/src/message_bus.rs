@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ghostai_protocol::ContentPart;
+use darkwire_protocol::ContentPart;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;

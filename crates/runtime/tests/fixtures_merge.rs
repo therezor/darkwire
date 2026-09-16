@@ -23,9 +23,9 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::Config;
-use ghostai_runtime::merge_config_patch;
+use darkwire_core::ErrorKind;
+use darkwire_protocol::Config;
+use darkwire_runtime::merge_config_patch;
 use serde_json::Value;
 
 const PATCHES: &str = include_str!(concat!(

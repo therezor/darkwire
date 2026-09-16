@@ -16,10 +16,10 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_core::Clock;
-use ghostai_protocol::ws::NotificationLevel;
-use ghostai_server::notifications::{CreateNotificationInput, NotificationStore};
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_core::Clock;
+use darkwire_protocol::ws::NotificationLevel;
+use darkwire_server::notifications::{CreateNotificationInput, NotificationStore};
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use parking_lot::Mutex;
 use serde_json::Value;
 use tower::ServiceExt as _;

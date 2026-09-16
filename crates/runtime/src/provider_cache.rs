@@ -26,8 +26,8 @@
 
 use std::sync::Arc;
 
-use ghostai_core::Result;
-use ghostai_providers::{
+use darkwire_core::Result;
+use darkwire_providers::{
     ChatProvider, CreateProviderOptions, ProviderSpec, Resilience, WireAdapters, create_provider,
 };
 use indexmap::IndexMap;

@@ -227,7 +227,7 @@ impl LogLevel {
     }
 }
 
-/// The level to run at: the explicit one, else `GHOSTAI_LOG_LEVEL`, else
+/// The level to run at: the explicit one, else `DARKWIRE_LOG_LEVEL`, else
 /// `LOG_LEVEL`, else `info`.
 ///
 /// An unrecognised level must not take the process down at boot: losing the
@@ -240,7 +240,7 @@ pub fn resolve_level<S: std::hash::BuildHasher>(
     if let Some(level) = explicit {
         return level;
     }
-    env.get("GHOSTAI_LOG_LEVEL")
+    env.get("DARKWIRE_LOG_LEVEL")
         .or_else(|| env.get("LOG_LEVEL"))
         .and_then(|value| LogLevel::parse(value))
         .unwrap_or(LogLevel::Info)
@@ -269,7 +269,7 @@ impl LogSink for StdoutSink {
 
 /// Inputs to [`create_logger`].
 pub struct LoggerOptions {
-    /// Defaults to `GHOSTAI_LOG_LEVEL`, then `LOG_LEVEL`, then `info`.
+    /// Defaults to `DARKWIRE_LOG_LEVEL`, then `LOG_LEVEL`, then `info`.
     pub level: Option<LogLevel>,
     /// Component name, emitted as `name` on every line.
     pub name: Option<String>,

@@ -19,8 +19,8 @@
 //! the seqs, so the number in `/edit 12` is one that was read rather than
 //! counted.
 
-use ghostai_core::session_store::ReadMessages;
-use ghostai_core::{ErrorKind, GhostError, Result, SessionStore, text_of};
+use darkwire_core::session_store::ReadMessages;
+use darkwire_core::{ErrorKind, Result, SessionStore, WireError, text_of};
 
 /// How many rows `/messages` prints when no count is given.
 pub const DEFAULT_MESSAGE_LINES: usize = 12;
@@ -59,7 +59,7 @@ pub fn resolve_seq(
             },
         )?;
         if found.is_empty() {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::NotFound,
                 format!("No message {raw} in this session"),
             )
@@ -94,7 +94,7 @@ pub fn resolve_seq(
         } else {
             format!("Only {available} of your messages are in this session")
         };
-        return Err(GhostError::new(ErrorKind::NotFound, message)
+        return Err(WireError::new(ErrorKind::NotFound, message)
             .with_detail("offset", raw)
             .with_detail("available", i64::try_from(available).unwrap_or(i64::MAX)));
     };
@@ -102,8 +102,8 @@ pub fn resolve_seq(
 }
 
 /// The refusal for a reference that is not one.
-fn not_a_reference(trimmed: &str) -> GhostError {
-    GhostError::new(
+fn not_a_reference(trimmed: &str) -> WireError {
+    WireError::new(
         ErrorKind::InvalidInput,
         format!("Not a message reference: {trimmed}"),
     )

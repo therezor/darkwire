@@ -27,7 +27,7 @@
 //!    `error` carry no `seq` and are the only frames sent to one client.
 //!  - **`AgentEvent` + `seq` *is* `ServerMessage`.** Forwarding a turn is a
 //!    counter and a broadcast, not a mapping table: the hub reaches
-//!    [`ghostai_agent::AgentEvent::sequenced`] and adds nothing of its own.
+//!    [`darkwire_agent::AgentEvent::sequenced`] and adds nothing of its own.
 //!  - **Nothing an inbound frame contains can escape from here.** Every frame is
 //!    parsed fallibly and every failure is an `error` event on the socket that
 //!    sent it. A hub that fails on a malformed frame is a hub a client can kill.
@@ -41,16 +41,16 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ghostai_agent::{AgentEvent, TurnInput, TurnResult};
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
-use ghostai_core::messages::Content;
-use ghostai_core::messages::{FileDetails, file_part, text_part};
-use ghostai_core::session_store::{ReadMessages, StoredMessageRecord, to_stored_message};
-use ghostai_core::{Clock, GhostError, Result, SessionStore, SystemClock};
-use ghostai_protocol::config::Config;
-use ghostai_protocol::messages::{ChatMessage, ContentPart, StopReason};
-use ghostai_protocol::uuid::new_uuid;
-use ghostai_protocol::ws::{
+use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_core::messages::Content;
+use darkwire_core::messages::{FileDetails, file_part, text_part};
+use darkwire_core::session_store::{ReadMessages, StoredMessageRecord, to_stored_message};
+use darkwire_core::{Clock, Result, SessionStore, SystemClock, WireError};
+use darkwire_protocol::config::Config;
+use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason};
+use darkwire_protocol::uuid::new_uuid;
+use darkwire_protocol::ws::{
     Attachment, ClientMessage, ConnectedEvent, ConnectedTag, EditMessage, ErrorCode, ErrorEvent,
     ErrorTag, MessageAck, MessageAckTag, MessageQueued, MessageQueuedTag, Notice, NoticeKind,
     NoticeTag, NotificationBody, PongEvent, PongTag, ProtocolVersion, RegenerateMessage, Sequenced,
@@ -58,8 +58,8 @@ use ghostai_protocol::ws::{
     SessionStatusTag, SessionTruncated, SessionTruncatedTag, Steer, SteerEventTag, ToolsChanged,
     TurnEnd, TurnEndTag, UserMessageRequest,
 };
-use ghostai_providers::BoxFuture;
-use ghostai_security::random::{OsRandom, RandomSource};
+use darkwire_providers::BoxFuture;
+use darkwire_security::random::{OsRandom, RandomSource};
 use indexmap::IndexMap;
 use lru::LruCache;
 use parking_lot::Mutex;
@@ -115,7 +115,7 @@ const RESUME_MESSAGE_LIMIT: usize = 200;
 /// regenerate that checks *before* truncating. Both must say the same thing, or
 /// the same install describes itself two ways.
 const NO_MODEL_MESSAGE: &str = "No model is configured. Add a provider and choose a model in \
-     Settings, or run `ghostai init` from a terminal.";
+     Settings, or run `darkwire init` from a terminal.";
 
 /// Idempotency keys remembered per session.
 ///
@@ -130,7 +130,7 @@ const MAX_TRACKED_CLIENT_MESSAGE_IDS: usize = 64;
 ///
 /// Three methods, which is all the hub ever reaches for: read the next event,
 /// hold the cancellation a stop frame fires, and collect the outcome.
-/// [`ghostai_agent::Turn`] satisfies it as written, and a test drives the hub
+/// [`darkwire_agent::Turn`] satisfies it as written, and a test drives the hub
 /// with a scripted double instead of a provider, a jail, a registry and a store.
 pub trait TurnHandle: Send {
     /// The next event, or `None` once the turn has emitted its last.
@@ -142,17 +142,17 @@ pub trait TurnHandle: Send {
     fn finish(self: Box<Self>) -> BoxFuture<'static, Result<TurnResult>>;
 }
 
-impl TurnHandle for ghostai_agent::Turn {
+impl TurnHandle for darkwire_agent::Turn {
     fn next_event(&mut self) -> BoxFuture<'_, Option<AgentEvent>> {
-        Box::pin(ghostai_agent::Turn::next_event(self))
+        Box::pin(darkwire_agent::Turn::next_event(self))
     }
 
     fn token(&self) -> &CancellationToken {
-        ghostai_agent::Turn::token(self)
+        darkwire_agent::Turn::token(self)
     }
 
     fn finish(self: Box<Self>) -> BoxFuture<'static, Result<TurnResult>> {
-        Box::pin(ghostai_agent::Turn::finish(*self))
+        Box::pin(darkwire_agent::Turn::finish(*self))
     }
 }
 
@@ -478,7 +478,7 @@ pub struct SessionHubOptions {
 /// "did anyone see this turn open", which is what decides whether a failure can
 /// be closed at an address the client already holds.
 struct TurnFailure {
-    error: GhostError,
+    error: WireError,
     first_seq: Option<u64>,
 }
 
@@ -1479,7 +1479,7 @@ impl SessionHub {
         // can fail, so in practice this is set whenever the loop ran at all.
         let mut opened: Option<u64> = None;
         while let Some(event) = running_turn.next_event().await {
-            if let AgentEvent::Nested(ghostai_protocol::ws::NestedAgentEvent::TurnStart(start)) =
+            if let AgentEvent::Nested(darkwire_protocol::ws::NestedAgentEvent::TurnStart(start)) =
                 &event
             {
                 opened = start.first_seq;
@@ -1601,7 +1601,7 @@ impl SessionHub {
     /// to a connection or a turn rather than to a session's replayable history —
     /// so it broadcasts without a counter and never enters the ring.
     fn forward(&self, session_key: &str, event: AgentEvent) {
-        if let AgentEvent::Nested(ghostai_protocol::ws::NestedAgentEvent::Error(body)) = event {
+        if let AgentEvent::Nested(darkwire_protocol::ws::NestedAgentEvent::Error(body)) = event {
             self.inner
                 .lock()
                 .broadcast_to_session(session_key, &ServerMessage::Error(body));
@@ -1830,7 +1830,7 @@ impl SessionHub {
 
     /// The last messages of a conversation, as a replay or a truncation reports
     /// them.
-    fn tail(&self, session_key: &str) -> Vec<ghostai_protocol::messages::StoredMessage> {
+    fn tail(&self, session_key: &str) -> Vec<darkwire_protocol::messages::StoredMessage> {
         self.store
             .messages(
                 session_key,
@@ -2032,8 +2032,8 @@ fn turn_end(turn_id: &str, stop_reason: StopReason, first_seq: Option<u64>) -> T
 
 /// A shallow copy of an error, for the one place that needs to both log it and
 /// map it.
-fn clone_error(error: &GhostError) -> GhostError {
-    GhostError::new(error.kind, error.message.clone())
+fn clone_error(error: &WireError) -> WireError {
+    WireError::new(error.kind, error.message.clone())
         .with_retryable(error.retryable)
         .with_details(error.details.clone())
 }

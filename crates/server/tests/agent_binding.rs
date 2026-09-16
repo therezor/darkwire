@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_server::agent_binding::agent_for_turn;
+use darkwire_server::agent_binding::agent_for_turn;
 
 /// Everything but `deleted` resolves.
 fn resolves(agent_id: &str) -> bool {

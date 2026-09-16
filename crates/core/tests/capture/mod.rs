@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ghostai_core::logger::{LogLevel, LogSink, LoggerOptions, subscriber};
-use ghostai_core::testkit::ManualClock;
+use darkwire_core::logger::{LogLevel, LogSink, LoggerOptions, subscriber};
+use darkwire_core::testkit::ManualClock;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 use tracing::Subscriber;

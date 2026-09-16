@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostai_core::Result;
+use darkwire_core::Result;
 use serde_json::Value;
 
 /// The repository's `fixtures/` directory.
@@ -55,7 +55,7 @@ pub fn message_of<T>(result: &Result<T>) -> String {
 /// different places.
 pub fn temp_base() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::Builder::new()
-        .prefix("ghostai-security-")
+        .prefix("darkwire-security-")
         .tempdir()
         .expect("temp dir");
     let canonical = std::fs::canonicalize(dir.path()).expect("canonical temp dir");

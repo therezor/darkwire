@@ -1,7 +1,7 @@
 //! A remote `inputSchema`, made into something this crate will advertise and
 //! validate against.
 //!
-//! Every other tool in GhostAI is declared with one argument struct and has its
+//! Every other tool in DarkWire is declared with one argument struct and has its
 //! JSON Schema *derived* from it. An MCP server hands over the JSON Schema
 //! directly, so the derivation runs the other way, and the temptation is to
 //! convert it into a struct so the typed adapter can be reused. It cannot be:
@@ -23,9 +23,9 @@
 //!   coercing `1` into `"1"` for a string argument would hide a model that has
 //!   genuinely misunderstood the tool.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::json::Object;
-use ghostai_tools::ArgIssue;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::json::Object;
+use darkwire_tools::ArgIssue;
 use jsonschema::error::ValidationErrorKind;
 use jsonschema::{Retrieve, Uri, Validator};
 use serde_json::{Map, Value};
@@ -48,8 +48,8 @@ pub struct NormalisedSchema {
     pub issues: Vec<SchemaIssue>,
 }
 
-fn unusable(tool_name: &str, message: String) -> GhostError {
-    GhostError::new(ErrorKind::InvalidInput, message).with_detail("tool", tool_name)
+fn unusable(tool_name: &str, message: String) -> WireError {
+    WireError::new(ErrorKind::InvalidInput, message).with_detail("tool", tool_name)
 }
 
 /// Normalises a raw `inputSchema`.
@@ -245,14 +245,14 @@ pub struct ArgFailure {
     pub issues: Vec<ArgIssue>,
 }
 
-impl From<ArgFailure> for GhostError {
-    fn from(failure: ArgFailure) -> GhostError {
+impl From<ArgFailure> for WireError {
+    fn from(failure: ArgFailure) -> WireError {
         let listed: Vec<Value> = failure
             .issues
             .iter()
             .map(|issue| serde_json::json!({ "path": issue.path, "message": issue.message }))
             .collect();
-        GhostError::new(ErrorKind::InvalidInput, failure.message)
+        WireError::new(ErrorKind::InvalidInput, failure.message)
             .with_detail("issues", Value::Array(listed))
     }
 }

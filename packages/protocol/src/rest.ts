@@ -112,7 +112,7 @@ export const StatusResponseSchema = z.object({
 });
 export type StatusResponse = z.infer<typeof StatusResponseSchema>;
 
-/** `ghost doctor` output. Defined early so the shape is stable before the CLI depends on it. */
+/** `darkwire doctor` output. Defined early so the shape is stable before the CLI depends on it. */
 export const HealthCheckSchema = z.object({
   name: z.string().min(1),
   status: z.enum(['ok', 'warn', 'fail', 'skipped']),
@@ -131,7 +131,7 @@ export type HealthResponse = z.infer<typeof HealthResponseSchema>;
  * Something the settings say that could not be honoured, but did not stop the
  * install from running.
  *
- * The counterpart to a `config` `GhostError`, which refuses the whole tree. An
+ * The counterpart to a `config` `WireError`, which refuses the whole tree. An
  * agent id is user-authored and deletable, so a reference to one that has gone
  * has to be survivable — and the only alternative to a warning is discarding it
  * silently, which is how an operator ends up with a delegation that stopped
@@ -272,7 +272,7 @@ export type SetCredentialRequest = z.infer<typeof SetCredentialRequestSchema>;
 
 /**
  * A provider *type*, projected from the `PROVIDERS` table in
- * `ghostai-providers`. The catalogue an operator adds an endpoint from.
+ * `darkwire-providers`. The catalogue an operator adds an endpoint from.
  *
  * It carries no credential flag. A credential belongs to a configured
  * instance — two Ollama entries can have different tokens — so the boolean
@@ -357,7 +357,7 @@ export type ModelsResponse = z.infer<typeof ModelsResponseSchema>;
  * which is the thing the check exists to happen before.
  */
 export const ProviderTestRequestSchema = z.object({
-  /** A `ghostai-providers` registry id. */
+  /** A `darkwire-providers` registry id. */
   type: z.string().min(1),
   /** Empty means the type's own default endpoint. */
   apiBase: z.string().default(''),
@@ -773,10 +773,10 @@ export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
  * this says what is. Folding the second into the first would mean writing
  * "unreachable" into `config.yaml`.
  *
- * Declared in `@ghostwire/protocol` rather than in `ghostai-mcp` so that the
+ * Declared in `@darkwire/protocol` rather than in `darkwire-mcp` so that the
  * server and the browser can name it without either of them depending on the
  * client package — the same reason `ToolDefinition` lives here rather than in
- * `ghostai-tools`.
+ * `darkwire-tools`.
  */
 export const McpServerStateSchema = z.enum([
   'connecting',
@@ -1215,7 +1215,7 @@ export type AutomationRunListResponse = z.infer<
  * is exported so the sign-in form can prefill it and the CLI can name it in
  * help text; changing it is done from the same form that changes the password.
  */
-export const DEFAULT_USERNAME = 'ghost';
+export const DEFAULT_USERNAME = 'darkwire';
 
 /** Bounds on the login name. */
 const USERNAME_MIN_LENGTH = 1;

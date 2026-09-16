@@ -2,8 +2,8 @@
   "description": "extensionDigest over `tree/`. Every regular file under the directory contributes one line `<relative path>\\0<sha256 hex of its bytes>` (a literal NUL between the two halves; the path uses `/` whatever the platform). The lines are sorted with JavaScript's default sort — by UTF-16 code unit, not by byte — joined with `\\n` and the digest is the sha256 hex of that string. `lines` is the sorted list as the implementation sees it. A symlinked file (`link.txt`) is NOT walked: readdir with file types reports a symlink as neither a file nor a directory, so it contributes no line — despite the module comment saying symlinks to files are followed. Symlinked directories are never walked. The tree assumes a POSIX checkout that preserves symlinks and byte-exact contents (see fixtures/README.md). `manifestHash` cases are sha256 hex over the given UTF-8 bytes.",
   "tree": [
     {
-      "path": "ghostai.extension.json",
-      "contents": "{\"schema\":\"ghostai.extension/1\",\"id\":\"tree\",\"entry\":\"dist/index.txt\"}\n"
+      "path": "darkwire.extension.json",
+      "contents": "{\"schema\":\"darkwire.extension/1\",\"id\":\"tree\",\"entry\":\"dist/index.txt\"}\n"
     },
     {
       "path": "dist/index.txt",
@@ -45,16 +45,16 @@
   "symlinksWalked": false,
   "lines": [
     "a.txt\u0000037ecd1db38c230c248787e60fd7bfc0cb0101b187b59535b6e7483be762d350",
+    "darkwire.extension.json\u0000c14ee916ee86aca294fa547cc0af7191d419d81625b5424c09f4d24ea8ddd082",
     "dist.txt\u00002fa094a71c4db3487671e0e47c06e35146c20603ae81fd2a7b37b60066d4585d",
     "dist/index.txt\u0000b40dedde60828bf61d1fadbfc3bb7ea2e0421e9511d22f1b5fb44ae5ba07dbb3",
     "dist/nested/deep/thing.txt\u00005ab7ac5312eb208d9ee0f2f62e1e6fb432690f61d4a5e269454ead1c821ec3b3",
     "empty.txt\u0000e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "ghostai.extension.json\u00000c3f219ccd99a7a72c50205f837397a635bd6bafc6b54e0c6e180b8072990803",
     "z.txt\u00001c27ebdee0f1d1c6e5685fc06b6d7f93b0e1d827589a5708768e923049c3ebe6",
     "𝔘𝔫𝔦𝔠𝔬𝔡𝔢.txt\u000003f17a9664526cc9f1780ea9286fb78fee652114ac0d8b2750540719c73bca1a",
     ".txt\u000044f7eb5e82b7b2b08b670f478b5545831163d7afaf8c0ee6feebc7432bd35bc9"
   ],
-  "digest": "4e55ca0196a57203942124e227458a389f34dcb4ac303eab63a7c9840e545857",
+  "digest": "11e8afe1aa60cff1a5876d8a9c298b5ced88084e8b5504701bcd24c1ddf6101f",
   "manifestHash": [
     {
       "name": "empty bytes",
@@ -63,13 +63,13 @@
     },
     {
       "name": "a toolbox manifest",
-      "input": "{\"schema\":\"ghostai.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}",
-      "output": "4fbd58f762c9575cc57a812b28fc561873a83a5e2e3aadab9c955661e85fdd22"
+      "input": "{\"schema\":\"darkwire.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}",
+      "output": "c23c6e625f7f941deac55ba9d411165847f0905cbe7720881ee0c137dee5271a"
     },
     {
       "name": "the same manifest with a trailing newline hashes differently",
-      "input": "{\"schema\":\"ghostai.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}\n",
-      "output": "b1a5765efeaca9edb612882a7ae2fadb98c558ca07fb9a0f49dcc75602f4b1f1"
+      "input": "{\"schema\":\"darkwire.toolbox/1\",\"name\":\"research\",\"image\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}\n",
+      "output": "0d821cdca10d5fa912bc5b3c38b3c508017bb4f6bc83ff06ae4db829873c8d8b"
     },
     {
       "name": "non-ASCII bytes",

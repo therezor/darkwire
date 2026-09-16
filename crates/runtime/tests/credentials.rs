@@ -14,24 +14,24 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use common::local_spec;
-use ghostai_core::GhostPaths;
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_protocol::ProviderConfig;
-use ghostai_providers::{PROVIDERS, ProviderInstance};
-use ghostai_runtime::{PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, find_credential};
-use ghostai_security::CredentialVault;
-use ghostai_security::testkit::FixedRandom;
+use darkwire_core::WirePaths;
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_protocol::ProviderConfig;
+use darkwire_providers::{PROVIDERS, ProviderInstance};
+use darkwire_runtime::{PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, find_credential};
+use darkwire_security::CredentialVault;
+use darkwire_security::testkit::FixedRandom;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
 struct Setup {
     _temp: TempDir,
-    paths: GhostPaths,
+    paths: WirePaths,
 }
 
 fn setup() -> Setup {
     let temp = TempDir::new().unwrap();
-    let paths = GhostPaths::resolve(ResolveGhostPaths {
+    let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(temp.path().to_string_lossy().into_owned()),
         env: Some(HashMap::new()),
         home: Some(PathBuf::from("/home/someone-else")),
@@ -43,7 +43,7 @@ fn setup() -> Setup {
 }
 
 /// A vault under a fixed key, so nothing reaches the OS keychain.
-fn vault(paths: &GhostPaths) -> Arc<Mutex<CredentialVault>> {
+fn vault(paths: &WirePaths) -> Arc<Mutex<CredentialVault>> {
     let opened = CredentialVault::open(
         &paths.vault_file,
         &[7u8; 32],

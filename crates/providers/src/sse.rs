@@ -19,8 +19,8 @@
 //!   behind a Windows proxy do send `\r\n`, and a parser that splits on `\n`
 //!   alone leaves a `\r` at the end of every JSON payload.
 
+use darkwire_core::Result;
 use futures::stream::{BoxStream, Stream, StreamExt};
-use ghostai_core::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{ProviderError, ProviderErrorReason};
@@ -116,7 +116,7 @@ impl SseParser {
             if let Some(provider_id) = &self.provider_id {
                 error = error.with_provider(provider_id.clone());
             }
-            return Err(error.into_ghost());
+            return Err(error.into_wire());
         }
         Ok(events)
     }

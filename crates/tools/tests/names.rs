@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_tools::{is_advertisable_name, namespaced_tool_name, namespaced_tool_names};
+use darkwire_tools::{is_advertisable_name, namespaced_tool_name, namespaced_tool_names};
 
 #[test]
 fn qualifies_by_prefix_and_owner() {

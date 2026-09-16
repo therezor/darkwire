@@ -18,8 +18,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ghostai_server::manifest::{ROUTE_MANIFEST, Route, RouteAuth, RouteMethod};
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_server::manifest::{ROUTE_MANIFEST, Route, RouteAuth, RouteMethod};
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use tower::ServiceExt as _;
 
 fn server() -> TestServer {
@@ -224,7 +224,7 @@ async fn no_route_is_served_that_is_not_in_the_manifest() {
 
 #[tokio::test]
 async fn authentication_disabled_opens_the_required_routes_and_not_the_signed_one() {
-    let mut config = ghostai_protocol::config::Config::default();
+    let mut config = darkwire_protocol::config::Config::default();
     config.server.auth.enabled = false;
     let test = start_test_server(TestServerOptions {
         config: Some(config),

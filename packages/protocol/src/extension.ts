@@ -9,8 +9,8 @@
  *
  * ## Two schema versions, one shape
  *
- * `ghostai.extension/1` named `entry`: a module the host loaded into its own
- * process. `ghostai.extension/2` names `command`: an argv the host spawns as a
+ * `darkwire.extension/1` named `entry`: a module the host loaded into its own
+ * process. `darkwire.extension/2` names `command`: an argv the host spawns as a
  * child process speaking JSON-RPC over its stdio. The difference is a process
  * boundary, so the two cannot be loaded by the same host — a v1 bundle reaching
  * a host that spawns lands on its row as `failed` with a sentence saying so.
@@ -30,7 +30,7 @@
  *
  *  - **`command` is an argv, never a shell line.** `argv[0]` is either a bare
  *    program name resolved on the host `PATH` (`node`, `python3`) or a path
- *    relative to the install directory, which `ghostai-security` resolves and
+ *    relative to the install directory, which `darkwire-security` resolves and
  *    refuses if it escapes — the same rule `entry` had, and for the same reason:
  *    the approval digest covers the directory, so the code that runs has to live
  *    inside it. A shell binary is refused outright, because a shell turns the
@@ -38,7 +38,7 @@
  *
  *  - **`env` is an allow-list of host variable *names*, never values.** A child
  *    gets `PATH`, `HOME`, `LANG` and `TMPDIR` plus whatever it names here, and
- *    nothing else — so the provider API key in `ghostai serve`'s own environment
+ *    nothing else — so the provider API key in `darkwire serve`'s own environment
  *    does not silently land inside third-party code.
  *
  *  - **`contributes` is disclosure, not enforcement.** It is what the approval
@@ -81,8 +81,8 @@ export type ExtensionContribution = z.infer<typeof ExtensionContributionSchema>;
  * still parses far enough to be *described* on the panel that refuses it.
  */
 export const ExtensionSchemaVersionSchema = z.enum([
-  'ghostai.extension/1',
-  'ghostai.extension/2',
+  'darkwire.extension/1',
+  'darkwire.extension/2',
 ]);
 export type ExtensionSchemaVersion = z.infer<
   typeof ExtensionSchemaVersionSchema
@@ -176,18 +176,18 @@ export const ExtensionManifestSchema = z.object({
   /** One sentence, shown beside the Approve button. */
   description: z.string().default(''),
   /**
-   * The ESM module a `ghostai.extension/1` host imported. Read on v1 only.
+   * The ESM module a `darkwire.extension/1` host imported. Read on v1 only.
    *
    * Kept so that a v1 manifest still describes itself on the row that refuses
    * it; a v2 manifest leaves it at its default and nothing reads it.
    */
   entry: z.string().min(1).default('dist/index.js'),
   /**
-   * The argv a `ghostai.extension/2` host spawns. Read on v2 only.
+   * The argv a `darkwire.extension/2` host spawns. Read on v2 only.
    *
    * Never a shell line: element zero is the program and the rest are its
    * arguments, exactly as they reach `execve`. Empty on a v2 manifest is a
-   * refusal — with a sentence, from `ghostai-security`, not a parse error,
+   * refusal — with a sentence, from `darkwire-security`, not a parse error,
    * because the row still needs the id.
    */
   command: z.array(z.string()).default([]),
@@ -205,7 +205,7 @@ export const ExtensionManifestSchema = z.object({
   engines: z
     .object({
       /** A semver range this build must satisfy. Empty means any. */
-      ghostai: z.string().default(''),
+      darkwire: z.string().default(''),
     })
     .prefault({}),
 });

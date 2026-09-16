@@ -20,13 +20,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use common::{NOW, make_store_on};
-use ghostai_core::Database;
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
-use ghostai_core::paths::{GhostPaths, ResolveGhostPaths};
-use ghostai_core::session_store::{self, ReadMessages, SessionStore};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::workspace_store::{self, WorkspaceStore};
-use ghostai_protocol::messages::{ChatMessage, StopReason};
+use darkwire_core::Database;
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_core::paths::{ResolveWirePaths, WirePaths};
+use darkwire_core::session_store::{self, ReadMessages, SessionStore};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::workspace_store::{self, WorkspaceStore};
+use darkwire_protocol::messages::{ChatMessage, StopReason};
 use rusqlite::types::ValueRef;
 use serde_json::{Map, Value, json};
 
@@ -41,11 +41,11 @@ fn fixture_json(name: &str) -> Value {
     serde_json::from_str(&raw).unwrap()
 }
 
-fn paths_in(root: &Path) -> GhostPaths {
-    let paths = GhostPaths::resolve(ResolveGhostPaths {
+fn paths_in(root: &Path) -> WirePaths {
+    let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(root.to_string_lossy().into_owned()),
         home: Some(root.to_path_buf()),
-        ..ResolveGhostPaths::default()
+        ..ResolveWirePaths::default()
     })
     .unwrap();
     std::fs::create_dir_all(&paths.workspace).unwrap();
@@ -285,7 +285,7 @@ fn the_seed_database_opens_and_every_row_of_the_four_tables_reads_back() {
 
     // The seed message count is what the listing reports.
     let summaries = sessions
-        .list_sessions(&ghostai_core::session_store::ListSessions::default())
+        .list_sessions(&darkwire_core::session_store::ListSessions::default())
         .unwrap();
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].message_count, 4);
@@ -301,7 +301,7 @@ fn the_seed_database_can_be_written_to_by_the_rust_stores() {
         .append(
             "session-1",
             common::user_message("continued in Rust"),
-            &ghostai_core::session_store::AppendOptions::default(),
+            &darkwire_core::session_store::AppendOptions::default(),
         )
         .unwrap();
     // `next_seq` in the seed is 5.

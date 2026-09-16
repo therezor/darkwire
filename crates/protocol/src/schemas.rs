@@ -24,9 +24,7 @@ use schemars::transform::{Transform, transform_subschemas};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::Value;
 
-use crate::{
-    automation, config, environment, extension, messages, preset, rest, subagent, tools, ws,
-};
+use crate::{automation, config, environment, extension, messages, rest, subagent, tools, ws};
 
 /// One published schema: the name the browser's registry uses, and how to
 /// generate it.
@@ -412,11 +410,6 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "ExtensionManifest",
         schema: schema_for::<extension::ExtensionManifest>,
-    },
-    // preset
-    RegisteredSchema {
-        name: "AgentPreset",
-        schema: schema_for::<preset::AgentPreset>,
     },
     // automation
     RegisteredSchema {

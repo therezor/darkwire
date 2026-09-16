@@ -40,7 +40,7 @@
 
 use std::sync::Arc;
 
-use ghostai_core::{Clock, Database, Result, RowReader};
+use darkwire_core::{Clock, Database, Result, RowReader};
 use rusqlite::params;
 
 /// The `auth_throttle` table.

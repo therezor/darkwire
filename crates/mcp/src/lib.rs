@@ -1,7 +1,7 @@
 //! The MCP client.
 //!
 //! Third-party tools, from servers an operator configured. The crate sits above
-//! `ghostai-tools` and below `ghostai-runtime`, and it is deliberately ignorant
+//! `darkwire-tools` and below `darkwire-runtime`, and it is deliberately ignorant
 //! of everything on either side: it has never heard of a config file, an HTTP
 //! route or a WebSocket. The composition root hands [`McpManager`] a map of
 //! servers and a sink, and the rest — a connecting server's tools appearing in

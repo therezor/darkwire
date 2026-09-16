@@ -8,7 +8,7 @@
 //! The other half of `examples/loopback-channel` — the test that drove a real
 //! hub, a real agent loop and a real store end to end — cannot live here,
 //! because this crate must not depend on the agent or the server. It moves to
-//! `ghostai-runtime`'s tests, where the composition root already has all three.
+//! `darkwire-runtime`'s tests, where the composition root already has all three.
 
 #![allow(
     clippy::expect_used,
@@ -20,13 +20,13 @@
 
 use std::sync::Arc;
 
-use ghostai_channels::channel::BoxFuture;
-use ghostai_channels::manager::{ChannelManager, ChannelManagerOptions};
-use ghostai_channels::testkit::{
+use darkwire_channels::channel::BoxFuture;
+use darkwire_channels::manager::{ChannelManager, ChannelManagerOptions};
+use darkwire_channels::testkit::{
     ChannelConformanceOptions, ChannelProbe, ChannelUnderTest, ScriptedHub, channel_conformance,
     counter_ids, flush,
 };
-use ghostai_core::message_bus::PublishResult;
+use darkwire_core::message_bus::PublishResult;
 
 #[path = "../examples/loopback.rs"]
 mod loopback;

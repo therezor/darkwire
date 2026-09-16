@@ -82,7 +82,7 @@ What actually constrains the child:
 - **Shell binaries refused unless explicitly listed**, and the `-c` family refused even
   then.
 - **Every path-shaped argument classified and refused** if it points outside the
-  workspace. This is the one place in GhostAI that refuses rather than clamping, for the
+  workspace. This is the one place in DarkWire that refuses rather than clamping, for the
   reason above.
 - **An environment allow-list** — `PATH`, `HOME`, `LANG`, `TZ` by default — so the child
   inherits what it needs and nothing holding a token.
@@ -203,8 +203,8 @@ the decision, the same way writing `config.yaml` is. There is no second file rec
 consent, because a consent file kept beside the thing it consents to answers no question
 the first file did not: whoever can write one can write the other. What makes the
 definition trustworthy is that `policy/` sits **outside the workspace jail**, so no tool
-an agent runs — and so no prompt injection — can reach it. The only writer today is
-`ghostai preset install`, a command with a terminal behind it.
+an agent runs — and so no prompt injection — can reach it. The only writer is the
+Environments tab in Settings, behind the server's own authentication.
 
 **Every definition still carries a digest, and it is identity rather than consent.** The
 digest is taken over the definition's own bytes, never over a re-serialisation of the
@@ -262,7 +262,7 @@ shape of it that reads another extension's credential.
 
 **The limit is stated rather than papered over.** That process still runs under
 the operator's account, with the operator's filesystem and the operator's
-network. It can open `~/.ghostai/vault.json` itself, spawn a program and open a
+network. It can open `~/.darkwire/vault.json` itself, spawn a program and open a
 socket, and nothing in this repository stops it. **The trust class is unchanged
 from the in-process design** — what the boundary narrows is the reach of a
 mistake, not the reach of an attack. That is the same trust level as an environment
@@ -299,7 +299,7 @@ Three smaller rules fall out of the same reasoning.
   host.
 
 An extension's runtime state is written to a _sibling_ directory
-(`~/.ghostai/extension-data/<id>`), never inside the install, because the first
+(`~/.darkwire/extension-data/<id>`), never inside the install, because the first
 write would otherwise revoke its own approval.
 
 Full detail in [Extensions](extensions.md).
@@ -329,7 +329,7 @@ Full detail in [Extensions](extensions.md).
 
 ### Login throttling
 
-Two scopes at once, asymmetric on purpose. Counters live in `ghost.db`, so a restart does
+Two scopes at once, asymmetric on purpose. Counters live in `darkwire.db`, so a restart does
 not clear them.
 
 | Scope                                       | After      | Backoff         | Caps at    |

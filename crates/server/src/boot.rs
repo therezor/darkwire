@@ -16,8 +16,8 @@
 //! terminal the operator is already looking at, and refuses everything else
 //! until it is spent.
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::config::{Config, is_loopback_host};
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::config::{Config, is_loopback_host};
 
 /// Returns a `config` error if this configuration must not be served.
 ///
@@ -31,7 +31,7 @@ pub fn assert_boot_policy(config: &Config) -> Result<()> {
 
     let host = &server.host;
     let port = server.port;
-    Err(GhostError::new(
+    Err(WireError::new(
         ErrorKind::Config,
         format!(
             "Refusing to start: server.host is \"{host}\" and server.auth.enabled is false.\n\

@@ -16,9 +16,9 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use ghostai_core::{ErrorKind, Result};
-use ghostai_security::testkit::FixedRandom;
-use ghostai_security::{
+use darkwire_core::{ErrorKind, Result};
+use darkwire_security::testkit::FixedRandom;
+use darkwire_security::{
     CredentialVault, KeyFileStore, KeyStore, OsRandom, RandomSource, VAULT_KEY_BYTES,
     resolve_vault_key,
 };
@@ -28,7 +28,7 @@ use common::{cases, kind_of, read_fixture, temp_base, write};
 
 const KEY: [u8; 32] = [7; 32];
 const OTHER_KEY: [u8; 32] = [9; 32];
-const AAD: &[u8] = b"ghostai-vault-v1";
+const AAD: &[u8] = b"darkwire-vault-v1";
 
 fn open_at(file: &Path, key: &[u8]) -> Result<CredentialVault> {
     CredentialVault::open(file, key, Arc::new(OsRandom))

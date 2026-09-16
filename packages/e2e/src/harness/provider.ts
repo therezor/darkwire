@@ -1,7 +1,7 @@
 /**
  * A model on a port, answering the `openai-chat` wire from a lookup table.
  *
- * The server under test is `ghostai serve` as a child process, and the only
+ * The server under test is `darkwire serve` as a child process, and the only
  * seam left between it and a real model is the one every install already has —
  * an HTTP endpoint. So the fake lives out at that seam. Two routes of the wire,
  * `GET /models` and `POST /chat/completions`, are the whole of it.

@@ -10,16 +10,16 @@
 use std::sync::Arc;
 
 use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, Result};
-use ghostai_protocol::config::Config;
-use ghostai_security::random::RandomSource;
-use ghostai_server::auth::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, Result};
+use darkwire_protocol::config::Config;
+use darkwire_security::random::RandomSource;
+use darkwire_server::auth::{
     Credential, SESSION_COOKIE, authenticate, clear_session_cookie, cookie_secure, media_claim_of,
     read_credential, scheme_and_host, session_cookie, session_of, verify_signed,
 };
-use ghostai_server::auth_store::{AuthStore, AuthStoreOptions, PasswordHasher};
-use ghostai_server::signing::{MEDIA_SECRET_NAME, MediaClaim, sign_media_token};
+use darkwire_server::auth_store::{AuthStore, AuthStoreOptions, PasswordHasher};
+use darkwire_server::signing::{MEDIA_SECRET_NAME, MediaClaim, sign_media_token};
 
 const NOW: i64 = 1_700_000_000_000;
 
@@ -205,7 +205,7 @@ fn the_scheme_and_host_come_off_the_request_with_the_port_stripped() {
 #[test]
 fn the_session_cookie_carries_every_attribute_that_protects_it() {
     let value = session_cookie("abc.def", NOW + 60_000, NOW, true);
-    assert!(value.starts_with("ghost_session=abc.def"), "{value}");
+    assert!(value.starts_with("darkwire_session=abc.def"), "{value}");
     assert!(value.contains("HttpOnly"), "{value}");
     assert!(value.contains("SameSite=Strict"), "{value}");
     assert!(value.contains("Secure"), "{value}");
@@ -232,7 +232,7 @@ fn a_lifetime_that_has_already_passed_becomes_zero_not_a_negative_number() {
 #[test]
 fn clearing_repeats_the_attributes_it_was_set_with() {
     let value = clear_session_cookie(true);
-    assert!(value.starts_with("ghost_session="), "{value}");
+    assert!(value.starts_with("darkwire_session="), "{value}");
     assert!(value.contains("HttpOnly"), "{value}");
     assert!(value.contains("SameSite=Strict"), "{value}");
     assert!(value.contains("Secure"), "{value}");

@@ -20,7 +20,7 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
-use ghostai_protocol::rest::ExtensionListResponse;
+use darkwire_protocol::rest::ExtensionListResponse;
 
 use crate::errors::HttpError;
 use crate::queries::IdParams;

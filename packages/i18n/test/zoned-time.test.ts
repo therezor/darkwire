@@ -1,7 +1,7 @@
 /**
  * Wall clock ⇄ instant, and the two days a year it is hard.
  *
- * The DST cases mirror the ones in `ghostai-core`'s `cron.rs` tests on purpose.
+ * The DST cases mirror the ones in `darkwire-core`'s `cron.rs` tests on purpose.
  * The two implementations cannot share code — one is Rust and the other runs in
  * the browser — so what keeps them honest is that they are held to the same
  * answers.

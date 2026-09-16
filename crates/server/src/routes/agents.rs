@@ -24,7 +24,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use ghostai_protocol::rest::{AgentListResponse, AgentSummary};
+use darkwire_protocol::rest::{AgentListResponse, AgentSummary};
 
 use crate::errors::HttpError;
 use crate::routes::AppState;

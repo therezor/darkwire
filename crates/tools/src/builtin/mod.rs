@@ -34,8 +34,8 @@ pub mod write_file;
 
 use std::sync::Arc;
 
-use ghostai_core::Result;
-use ghostai_protocol::{ToolSource, ToolsConfig};
+use darkwire_core::Result;
+use darkwire_protocol::{ToolSource, ToolsConfig};
 
 pub use automation::automation_tool;
 pub use edit_file::edit_file_tool;

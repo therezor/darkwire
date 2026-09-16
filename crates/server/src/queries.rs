@@ -1,6 +1,6 @@
 //! Query-string and path-parameter shapes.
 //!
-//! These live here rather than in `ghostai-protocol` for one reason: a query
+//! These live here rather than in `darkwire-protocol` for one reason: a query
 //! string carries only strings, so `limit=50` arrives as `"50"` and reading it
 //! as a number is a coercion. The protocol crate's types describe what a client
 //! *sends* as JSON, where a number is already a number; these describe the same
@@ -19,8 +19,8 @@
 //! and the composition would have been a Rust-side convenience that the wire
 //! cannot express.
 
+use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use garde::Validate;
-use ghostai_core::ids::DEFAULT_WORKSPACE_ID;
 use schemars::JsonSchema;
 use serde::Deserialize;
 

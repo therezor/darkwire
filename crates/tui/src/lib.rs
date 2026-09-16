@@ -11,7 +11,7 @@
 //! dependency at all, so a `use` of one does not resolve: the layering is a
 //! fact about the crate graph rather than a rule a reviewer has to remember.
 //! It sits beside the roots of the graph, not under them, and only the
-//! `ghostai` binary reaches for it.
+//! `darkwire` binary reaches for it.
 //!
 //! Components render rows for a width, and one renderer owns the whole frame
 //! and redraws it whole when the window changes size. A terminal rewraps its

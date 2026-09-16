@@ -8,16 +8,16 @@ the manifest names a program, so approving the manifest alone would approve a
 pointer.
 
 ```
-~/.ghostai/extensions/hello/
-  ghostai.extension.yaml     ← the manifest
+~/.darkwire/extensions/hello/
+  darkwire.extension.yaml     ← the manifest
   index.mjs                  ← whatever `command` runs
-~/.ghostai/extension-data/hello/   ← what it writes at runtime
+~/.darkwire/extension-data/hello/   ← what it writes at runtime
 ```
 
 ```bash
-ghostai extension list        # what is installed, and what state each is in
-ghostai extension approve hello
-ghostai extension revoke hello
+darkwire extension list        # what is installed, and what state each is in
+darkwire extension approve hello
+darkwire extension revoke hello
 ```
 
 Or Settings → Extensions, which is the same three actions and reloads without a
@@ -29,35 +29,35 @@ The wire is MCP's stdio transport, verbatim: newline-delimited JSON-RPC 2.0, one
 JSON object per line, the `initialize` handshake, protocol revision
 `2025-06-18`. "Verbatim" is the whole design, and it buys one specific thing —
 **a plain MCP server is already a valid tools-only extension.** A server that
-has never heard of GhostAI completes the handshake, answers `tools/list` and
+has never heard of DarkWire completes the handshake, answers `tools/list` and
 `tools/call`, replies `-32601` to everything else, and the host registers its
 tools and moves on. Nothing had to be written for us.
 
-Everything past tools is namespaced under `ghostai/`, and the asymmetry in the
+Everything past tools is namespaced under `darkwire/`, and the asymmetry in the
 set is the security argument. The host asks an extension for **five** things;
 an extension may ask the host for **one**.
 
 ```text
-host  → ext   ghostai/context/static    {agentId}               → {sections}
-host  → ext   ghostai/context/runtime   {agentId, sessionKey}   → {sections}
-host  → ext   ghostai/commands/list     {}                      → {commands}
-host  → ext   ghostai/commands/run      {id, args, sessionKey}  → {message, ok}
-host  → ext   ghostai/channels/list     {}                      → {channels}
-host  → ext   ghostai/channels/start    {channelId, settings}   → {}
-host  → ext   ghostai/channels/send     {channelId, message}    → {}
-ext   → host  ghostai/secret            {}                      → {value?}
-ext  ~> host  ghostai/channels/publish  {channelId, …}          (notification)
-ext  ~> host  ghostai/channels/control  {channelId, frame}      (notification)
+host  → ext   darkwire/context/static    {agentId}               → {sections}
+host  → ext   darkwire/context/runtime   {agentId, sessionKey}   → {sections}
+host  → ext   darkwire/commands/list     {}                      → {commands}
+host  → ext   darkwire/commands/run      {id, args, sessionKey}  → {message, ok}
+host  → ext   darkwire/channels/list     {}                      → {channels}
+host  → ext   darkwire/channels/start    {channelId, settings}   → {}
+host  → ext   darkwire/channels/send     {channelId, message}    → {}
+ext   → host  darkwire/secret            {}                      → {value?}
+ext  ~> host  darkwire/channels/publish  {channelId, …}          (notification)
+ext  ~> host  darkwire/channels/control  {channelId, frame}      (notification)
 ```
 
-`ghostai/secret` is the only ext→host _request_, and it takes no arguments on
+`darkwire/secret` is the only ext→host _request_, and it takes no arguments on
 purpose: an extension asks for "my secret", never for a namespace and a key, so
 there is no shape of that call that reads another extension's credential. The
 two notifications are the inbound half of a channel, and they are notifications
 because nothing the host would answer is useful — a message that could not be
 published is a host-side problem the extension cannot act on.
 
-**There is no `ghostai/hello` handshake, because there does not need to be
+**There is no `darkwire/hello` handshake, because there does not need to be
 one.** Everything the host tells an extension about itself travels in
 `params._meta` on `initialize`, the field MCP reserves for implementation data:
 its id, its settings block, its data directory and the host's version. A server
@@ -67,7 +67,7 @@ that ignores `_meta` is not broken — it is the tools-only case.
 
 ```yaml
 {
-  'schema': 'ghostai.extension/2',
+  'schema': 'darkwire.extension/2',
   'id': 'hello',
   'version': '2.0.0',
   'label': 'Hello',
@@ -77,18 +77,18 @@ that ignores `_meta` is not broken — it is the tools-only case.
 }
 ```
 
-| Field             | Type                    | Default                           | Notes                                                                         |
-| ----------------- | ----------------------- | --------------------------------- | ----------------------------------------------------------------------------- |
-| `schema`          | `'ghostai.extension/2'` | —                                 | Required. `/1` parses, and is refused with a sentence — see below.            |
-| `id`              | string                  | —                                 | 1–40 lowercase alphanumerics and hyphens. **Must equal the directory name.**  |
-| `version`         | string                  | `'0.0.0'`                         |                                                                               |
-| `label`           | string                  | `''`                              | Shown in the UI. Empty falls back to the id.                                  |
-| `description`     | string                  | `''`                              | One sentence, shown beside the Approve button.                                |
-| `command`         | string[]                | `[]`                              | The argv to spawn. Never a shell line. Empty on a `/2` manifest is a refusal. |
-| `env`             | string[]                | `['PATH','HOME','LANG','TMPDIR']` | Host variable **names** the child may additionally inherit. Never values.     |
-| `providers`       | `ProviderSpec[]`        | `[]`                              | Provider types, as data. No code.                                             |
-| `contributes`     | string[]                | `[]`                              | `tools`, `channels`, `providers`, `context`, `commands`.                      |
-| `engines.ghostai` | string                  | `''`                              | A semver range. It parses; nothing in this build enforces it.                 |
+| Field              | Type                     | Default                           | Notes                                                                         |
+| ------------------ | ------------------------ | --------------------------------- | ----------------------------------------------------------------------------- |
+| `schema`           | `'darkwire.extension/2'` | —                                 | Required. `/1` parses, and is refused with a sentence — see below.            |
+| `id`               | string                   | —                                 | 1–40 lowercase alphanumerics and hyphens. **Must equal the directory name.**  |
+| `version`          | string                   | `'0.0.0'`                         |                                                                               |
+| `label`            | string                   | `''`                              | Shown in the UI. Empty falls back to the id.                                  |
+| `description`      | string                   | `''`                              | One sentence, shown beside the Approve button.                                |
+| `command`          | string[]                 | `[]`                              | The argv to spawn. Never a shell line. Empty on a `/2` manifest is a refusal. |
+| `env`              | string[]                 | `['PATH','HOME','LANG','TMPDIR']` | Host variable **names** the child may additionally inherit. Never values.     |
+| `providers`        | `ProviderSpec[]`         | `[]`                              | Provider types, as data. No code.                                             |
+| `contributes`      | string[]                 | `[]`                              | `tools`, `channels`, `providers`, `context`, `commands`.                      |
+| `engines.darkwire` | string                   | `''`                              | A semver range. It parses; nothing in this build enforces it.                 |
 
 **The id and the directory name have to agree.** Neither side wins a
 disagreement — it is refused — because the approval row is keyed by id and the
@@ -119,11 +119,11 @@ request `NODE_EXTRA_CA_CERTS` and cannot invent it. The four defaults are enough
 to find a program and behave like one run from a terminal, and none of them
 could be a credential; a name the host does not have is simply absent in the
 child, rather than an empty string a program reading `TMPDIR` would treat as a
-directory. The host adds two of its own, `GHOSTAI_EXTENSION_ID` and
-`GHOSTAI_EXTENSION_DATA_DIR`, which are the whole of what an extension knows
+directory. The host adds two of its own, `DARKWIRE_EXTENSION_ID` and
+`DARKWIRE_EXTENSION_DATA_DIR`, which are the whole of what an extension knows
 about its own installation before `initialize` arrives.
 
-**A `ghostai.extension/1` manifest still parses.** It named an `entry`: a
+**A `darkwire.extension/1` manifest still parses.** It named an `entry`: a
 JavaScript module a host loaded into its own process, and no amount of care
 makes that contract into this one. So it is refused — but refused _late_, after
 the manifest has produced an id and a label, so the operator gets a row naming
@@ -134,13 +134,13 @@ into one shape rather than a discriminated union.
 
 ## What an extension may add
 
-| Kind        | Contract                                                                                 |
-| ----------- | ---------------------------------------------------------------------------------------- |
-| `tools`     | MCP tool descriptors from `tools/list`. Bridged, registered under source `extension`.    |
-| `channels`  | `ghostai/channels/list`, then `start`, `send` and the two inbound notifications.         |
-| `providers` | `providers[]` in the manifest. Data, not code.                                           |
-| `context`   | `ghostai/context/static` and `ghostai/context/runtime` — the seam Skills and Memory use. |
-| `commands`  | `ghostai/commands/list` and `run`. A slash command, from the composer and the terminal.  |
+| Kind        | Contract                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `tools`     | MCP tool descriptors from `tools/list`. Bridged, registered under source `extension`.      |
+| `channels`  | `darkwire/channels/list`, then `start`, `send` and the two inbound notifications.          |
+| `providers` | `providers[]` in the manifest. Data, not code.                                             |
+| `context`   | `darkwire/context/static` and `darkwire/context/runtime` — the seam Skills and Memory use. |
+| `commands`  | `darkwire/commands/list` and `run`. A slash command, from the composer and the terminal.   |
 
 **Tools go through the MCP bridge, unchanged.** Not a copy of it and not a
 variant of it — the same bridge an MCP server's tools go through, with the
@@ -180,7 +180,7 @@ per session.
 extension and the translation layer has never seen it. `ok: false` renders the
 answer as an error rather than a note.
 
-**`ghostai/channels/list` is not in the obvious design and had to be.** A
+**`darkwire/channels/list` is not in the obvious design and had to be.** A
 channel is registered as a _factory_ keyed by id and the manager builds it
 before anything starts, so the host has to know the ids before the first
 `start`. `contributes: ["channels"]` says that there are channels, not what
@@ -219,7 +219,7 @@ unchanged, because the three things it buys were never about being in-process:
 - **Unload is exact.** The host holds what the extension turned out to
   contribute, so removing it removes exactly that. Nothing has to be diffed.
 - **A partial activation installs nothing.** An extension whose `tools/list`
-  answers and whose `ghostai/commands/list` dies leaves no trace — the bag is
+  answers and whose `darkwire/commands/list` dies leaves no trace — the bag is
   discarded whole. Registering each kind as it arrives leaves four tools
   registered by an extension that is not running.
 - **Nothing an extension holds outlives it.** There is no handle to take back,
@@ -236,7 +236,7 @@ an operator who mistyped it should read about it.
 
 **Credentials do not go there.** Put a secret in the vault under the
 `extensions` namespace keyed by extension id, and read it with
-`ghostai/secret` — the same arrangement a channel's bot token gets, for the same
+`darkwire/secret` — the same arrangement a channel's bot token gets, for the same
 reason: `config.yaml` is a plain file that backups, dotfile repositories and
 screen shares all reach.
 
@@ -253,7 +253,7 @@ describes:
   not_, because a child whose stderr pipe fills up blocks on its next write and
   looks, from out here, exactly like one that hung.
 - **Everything the host tells you arrives in `initialize`**, under
-  `params._meta.ghostai`. There is no config file to find and no environment to
+  `params._meta.darkwire`. There is no config file to find and no environment to
   read beyond the two variables the host sets.
 - **`contributes` has to match what you answer**, in both directions.
 - **Every id is namespaced.** The command is `hello-time`, not `time`.
@@ -333,7 +333,7 @@ pid or a timestamp. It would differ on every pass and announce a change that did
 not happen.
 
 **Drift is noticed at the next reconcile, and the two surfaces say so
-differently.** `ghostai extension list` reads the directory every time it runs,
+differently.** `darkwire extension list` reads the directory every time it runs,
 so it reports `DRIFTED` the moment a file changes. `GET /api/extensions` and the
 Settings panel report what the _server has loaded_, which is still the old copy
 until something reconciles — a settings save, an approve or revoke, or a
@@ -351,7 +351,7 @@ holds crosses the pipe: there is no registry handle, no vault object, no
 database connection and no jail on the other side, and the only thing an
 extension may ask the host for is its own secret. But the process it runs in is
 an ordinary process under the operator's account, with the operator's
-filesystem and the operator's network — it can open `~/.ghostai/vault.json`
+filesystem and the operator's network — it can open `~/.darkwire/vault.json`
 itself, spawn a program and open a socket, and nothing here stops it. **The
 trust class is unchanged from the in-process design**; what changed is the reach
 of a mistake, not the reach of an attack. That is the same trust level as an
@@ -390,8 +390,8 @@ be there and a `load` entry is something an operator wrote down.
 The conformance suite runs the real host against a real child:
 
 ```bash
-cargo run -p ghostai-extension-host --example check --features testkit -- \
-  ~/.ghostai/extensions/hello --tools 1 --commands 1 --context 1
+cargo run -p darkwire-extension-host --example check --features testkit -- \
+  ~/.darkwire/extensions/hello --tools 1 --commands 1 --context 1
 ```
 
 It catches what an extension's own tests structurally cannot, because three of

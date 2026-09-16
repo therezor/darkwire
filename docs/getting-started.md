@@ -1,6 +1,6 @@
 # Getting started
 
-**Who this is for:** anyone who wants a working GhostAI and has not installed it yet. It
+**Who this is for:** anyone who wants a working DarkWire and has not installed it yet. It
 runs from nothing to a first answer, then points at the pages that go deeper. Everything
 here is a thing to do; the reasoning lives in the pages it links to.
 
@@ -14,7 +14,7 @@ Budget about ten minutes, most of which is a model download.
 | **A model** | Either [Ollama](https://ollama.com) running locally, or an API key for a cloud provider. |
 | **Docker**  | Optional. Only for [containers](environments.md).                                        |
 
-That is the whole list. GhostAI is a single binary with the browser UI compiled into
+That is the whole list. DarkWire is a single binary with the browser UI compiled into
 it: no runtime to install, no database, no compiler, no second service.
 
 On Linux the builds are against glibc 2.35, which is Ubuntu 22.04, Debian 12, RHEL 9 and
@@ -40,7 +40,7 @@ ollama pull qwen3     # a few gigabytes; this is the slow part
 ## 2. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/therezor/GhostAI/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/therezor/darkwire/main/install.sh | sh
 ```
 
 It picks the build for your machine, verifies it against the release's `SHA256SUMS`
@@ -52,18 +52,18 @@ latest.
 <details>
 <summary>Or download it yourself</summary>
 
-Every [release](https://github.com/therezor/GhostAI/releases/latest) carries four
+Every [release](https://github.com/therezor/darkwire/releases/latest) carries four
 tarballs and a `SHA256SUMS` file. Take the one for your machine — `aarch64` or
 `x86_64`, `apple-darwin` or `unknown-linux-gnu` — and put the binary on your PATH:
 
 ```bash
 # Substitute your target for the placeholder; `latest` resolves to the current release.
-curl -fsSLO https://github.com/therezor/GhostAI/releases/latest/download/ghostai-<target>.tar.gz
-curl -fsSLO https://github.com/therezor/GhostAI/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/therezor/darkwire/releases/latest/download/darkwire-<target>.tar.gz
+curl -fsSLO https://github.com/therezor/darkwire/releases/latest/download/SHA256SUMS
 shasum -a 256 --ignore-missing -c SHA256SUMS     # sha256sum -c on Linux
 
-tar xzf ghostai-<target>.tar.gz
-sudo install ghostai-*/ghostai /usr/local/bin/
+tar xzf darkwire-<target>.tar.gz
+sudo install darkwire-*/darkwire /usr/local/bin/
 ```
 
 Do run the checksum line. It is the one step that distinguishes "the release" from
@@ -72,7 +72,7 @@ step that can be skipped.
 
 If you downloaded the tarball in a browser rather than with `curl`, macOS attaches a
 quarantine flag and Gatekeeper will refuse the binary. `xattr -d com.apple.quarantine
-ghostai` removes it.
+darkwire` removes it.
 
 </details>
 
@@ -90,15 +90,15 @@ process groups. Windows is not built yet; both of those are POSIX here.
 <details>
 <summary>Running from source instead</summary>
 
-For working on GhostAI, or for running a commit that has not been released. Needs
+For working on DarkWire, or for running a commit that has not been released. Needs
 pnpm 11 (`corepack enable`) and `rustup`.
 
 ```bash
-git clone https://github.com/therezor/GhostAI.git
-cd GhostAI
+git clone https://github.com/therezor/darkwire.git
+cd DarkWire
 pnpm install
 pnpm build                                  # the web bundle the binary embeds
-cargo build --release -p ghostai            # → target/release/ghostai
+cargo build --release -p darkwire            # → target/release/darkwire
 ```
 
 `pnpm build` is not optional even if you only want the API: `rust-embed` compiles
@@ -110,18 +110,18 @@ producing a server with no UI. See [Development](development.md).
 ## 3. First run
 
 ```bash
-ghostai serve
+darkwire serve
 ```
 
 It starts with nothing configured and prints a one-time code:
 
 ```
-GhostAI is listening.
+DarkWire is listening.
 
   URL        http://127.0.0.1:3000
   Auth       enabled
-  Agent      not configured — add a provider in the UI, or run `ghostai init`
-  Workspace  /Users/you/.ghostai/workspace
+  Agent      not configured — add a provider in the UI, or run `darkwire init`
+  Workspace  /Users/you/.darkwire/workspace
 
 First run. Open the URL above and enter this one-time code:
 
@@ -150,36 +150,29 @@ Two things worth knowing here:
   files, manages workspaces and settings, and shows notifications — only the composer is
   disabled, and it says so and links to the panel that fixes it.
 
-Prefer the terminal? `ghostai init` asks the same questions with no browser, then
-`ghostai chat` talks to it. Both surfaces share one `ghost.db`, so a session you start in
+Prefer the terminal? `darkwire init` asks the same questions with no browser, then
+`darkwire chat` talks to it. Both surfaces share one `darkwire.db`, so a session you start in
 one is the row the other lists.
 
-**Ready-made agents** — a researcher, an analyst for documents and data, a media
-specialist for audio and video, a coder, a coordinator that delegates to all of them, and
-a no-tools fast lane — live in the separate
-[`GhostAI-presets`](https://github.com/therezor/GhostAI-presets) repository, versioned and
-updated on their own. One command fetches it and asks which ones you want:
+**More agents** are made in the web UI, under **Agents**. An agent is a system prompt,
+a set of tool permissions, an optional environment and a roster of other agents it may
+delegate to; `darkwire agent list` prints the ones this install has. There is no
+catalogue to install from yet.
 
-```bash
-ghostai preset install
-```
-
-Tick the agents you want and it does the rest — including building the container images
-the ones you ticked need, which is why picking only `nano` needs no Docker at all. The run
-`ghostai environment list` then prints what each installed container may do — its limits,
-its capabilities, any hardening it switches off — so you can read a definition before an
-agent uses it. [Environments](environments.md) explains what each definition decides.
+`darkwire environment list` prints what each installed container may do: its limits, its
+capabilities, any hardening it switches off. So you can read a definition before an agent
+uses it. [Environments](environments.md) explains what each definition decides.
 
 ## 4. Your first conversation
 
 The agent can only read and write inside one folder, called the **workspace** — by default
-`~/.ghostai/workspace`, which starts empty. Give it something to look at:
+`~/.darkwire/workspace`, which starts empty. Give it something to look at:
 
 ```bash
-mkdir -p ~/.ghostai/workspace
+mkdir -p ~/.darkwire/workspace
 echo '# Notes
 
-Remember to water the plants.' > ~/.ghostai/workspace/notes.md
+Remember to water the plants.' > ~/.darkwire/workspace/notes.md
 ```
 
 Then ask, in the composer:
@@ -207,10 +200,10 @@ back:
 ## 5. Giving it a real project
 
 A single note is not much to work with. Either copy a project into the workspace, or point
-GhostAI at one where it already lives:
+DarkWire at one where it already lives:
 
 ```bash
-ghostai serve --workspace ~/code/my-project
+darkwire serve --workspace ~/code/my-project
 ```
 
 Now browse and edit it on the **Files** screen, or just ask the agent to.
@@ -254,12 +247,12 @@ See [Tools & permissions](tools.md).
 
 ## 7. Where your things live
 
-Everything is under `~/.ghostai`, or `$GHOSTAI_HOME`:
+Everything is under `~/.darkwire`, or `$DARKWIRE_HOME`:
 
 | Path                         | What                                                                                |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
 | `config.yaml`                | The settings tree. **Safe to commit** — no credentials are in it.                   |
-| `ghost.db`                   | Sessions, messages, turn stats, auth, notifications, approvals.                     |
+| `darkwire.db`                | Sessions, messages, turn stats, auth, notifications, approvals.                     |
 | `vault.json` + `vault.key`   | The encrypted credential vault. The key moves to the OS keychain when there is one. |
 | `workspace/`                 | The only tree the agent's file tools can reach.                                     |
 | `containers/`, `extensions/` | Installed manifests — beside the workspace, never inside it.                        |
@@ -306,5 +299,5 @@ Not working? Two things account for most of it:
 - **The composer says no model is configured.** The provider saved but the model did not,
   or the endpoint is unreachable. Settings → Providers tests the connection.
 - **The browser gets a JSON 404 rather than the app.** That is a binary built without
-  the web bundle — `GHOSTAI_HEADLESS_BUILD=1`, or a source build where `pnpm build`
+  the web bundle — `DARKWIRE_HEADLESS_BUILD=1`, or a source build where `pnpm build`
   did not run. A release tarball always has it.

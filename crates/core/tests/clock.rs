@@ -8,8 +8,8 @@
 
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, ErrorKind, SystemClock, sleep};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, ErrorKind, SystemClock, sleep};
 use tokio_util::sync::CancellationToken;
 
 mod system_clock {

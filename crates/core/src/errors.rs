@@ -123,7 +123,7 @@ impl fmt::Display for ErrorKind {
 /// which redacts it by path.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
-pub struct GhostError {
+pub struct WireError {
     /// Which closed kind this is.
     pub kind: ErrorKind,
     /// For humans. Never branched on.
@@ -137,9 +137,9 @@ pub struct GhostError {
 }
 
 /// `Result` with the crate's error.
-pub type Result<T> = std::result::Result<T, GhostError>;
+pub type Result<T> = std::result::Result<T, WireError>;
 
-impl GhostError {
+impl WireError {
     /// A new error of `kind` with the kind's default `retryable`.
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
@@ -190,19 +190,19 @@ impl GhostError {
     }
 }
 
-impl From<rusqlite::Error> for GhostError {
+impl From<rusqlite::Error> for WireError {
     fn from(error: rusqlite::Error) -> Self {
-        GhostError::new(ErrorKind::Storage, error.to_string()).with_source(error)
+        WireError::new(ErrorKind::Storage, error.to_string()).with_source(error)
     }
 }
 
-impl From<std::io::Error> for GhostError {
+impl From<std::io::Error> for WireError {
     fn from(error: std::io::Error) -> Self {
         let kind = match error.kind() {
             std::io::ErrorKind::NotFound => ErrorKind::NotFound,
             std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
             _ => ErrorKind::Storage,
         };
-        GhostError::new(kind, error.to_string()).with_source(error)
+        WireError::new(kind, error.to_string()).with_source(error)
     }
 }

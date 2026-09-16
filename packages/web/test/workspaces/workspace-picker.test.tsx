@@ -31,7 +31,7 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-const STORAGE_KEY = 'ghostai:workspace';
+const STORAGE_KEY = 'darkwire:workspace';
 
 /**
  * A full `SessionSummary`, because the client parses what it is handed.

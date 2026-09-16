@@ -22,12 +22,12 @@
  *    actually drifted.
  *  - **`fidelity/capture.ts` writes the pictures.** Both screens and their
  *    pixel diff, into `artifacts/fidelity/`, for the review the plan also asks
- *    for. `pnpm --filter @ghostwire/e2e baseline` is the command. It is not a
+ *    for. `pnpm --filter @darkwire/e2e baseline` is the command. It is not a
  *    threshold, and it does not fail a build.
  *
  * Dark only, because there is no light-mode reference: the product being
  * replaced has one theme. Light is held to the contrast assertion in
- * `@ghostwire/web` and the sweep in `a11y.spec.ts`, which is the whole of what
+ * `@darkwire/web` and the sweep in `a11y.spec.ts`, which is the whole of what
  * can be said about a theme with nothing to compare it to.
  */
 
@@ -71,12 +71,12 @@ const SCALE_CEILING = 1.2;
  *
  * The channel tolerance is the one documented deviation, stated as a number.
  * The replacement's neutral axis carries a small chroma — surfaces and text
- * hold a trace of the accent hue, which is what keeps a green accent from
+ * hold a trace of the accent hue, which is what keeps a cyan accent from
  * looking pasted onto a slate UI — so a grey the reference paints as (13,13,13)
  * is painted here as (9,11,10). Four of 255 on the red channel, and nothing on
  * the perceived lightness: the muted-text luminance below lands within one.
  *
- * The accent itself is not compared, and cannot be: it is a green where the
+ * The accent itself is not compared, and cannot be: it is a cyan where the
  * reference's is a gold, which is the one place this UI deliberately stops
  * matching the product it replaces. The neutral axis follows the accent's hue,
  * which is why a *grey* shows up in a tolerance at all.

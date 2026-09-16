@@ -15,8 +15,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_server::rate_limit::{Quota, RateLimiter, WINDOW_MS};
+use darkwire_core::testkit::ManualClock;
+use darkwire_server::rate_limit::{Quota, RateLimiter, WINDOW_MS};
 
 const NOW: i64 = 1_700_000_000_000;
 

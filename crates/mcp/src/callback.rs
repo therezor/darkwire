@@ -1,8 +1,8 @@
 //! The loopback listener an OAuth redirect lands on.
 //!
-//! **Why a listener of our own rather than a route on the GhostAI server.**
+//! **Why a listener of our own rather than a route on the DarkWire server.**
 //! Three reasons, and any one of them is sufficient. This crate sits below
-//! `ghostai-server` in the layer graph and may not reach it. `ghostai chat` in
+//! `darkwire-server` in the layer graph and may not reach it. `darkwire chat` in
 //! a terminal has no HTTP server at all and still has to be able to authorize
 //! a server. And the server's public route list is three entries long on
 //! purpose — an OAuth redirect cannot carry the session cookie, because it
@@ -27,9 +27,9 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_security::RandomSource;
 use futures::future::BoxFuture;
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_security::RandomSource;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
@@ -60,7 +60,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 fn page(message: &str) -> String {
     format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>GhostAI</title>\
+        "<!doctype html><meta charset=\"utf-8\"><title>DarkWire</title>\
          <body style=\"font:16px system-ui;padding:3rem;max-width:32rem;margin:auto\">\
          <p>{message}</p></body>"
     )
@@ -132,12 +132,12 @@ impl AuthorizationHandle {
         Box::pin(async move {
             match receiver {
                 Some(receiver) => receiver.await.unwrap_or_else(|_| {
-                    Err(GhostError::new(
+                    Err(WireError::new(
                         ErrorKind::Aborted,
                         "The authorization was dropped before it settled",
                     ))
                 }),
-                None => Err(GhostError::new(
+                None => Err(WireError::new(
                     ErrorKind::Conflict,
                     "The authorization code was already taken",
                 )),
@@ -148,10 +148,7 @@ impl AuthorizationHandle {
     /// Gives up on this authorization; `code()` fails with `aborted`.
     pub async fn cancel(&self, reason: &str) {
         self.listener
-            .settle_now(
-                &self.state,
-                Err(GhostError::new(ErrorKind::Aborted, reason)),
-            )
+            .settle_now(&self.state, Err(WireError::new(ErrorKind::Aborted, reason)))
             .await;
     }
 }
@@ -238,7 +235,7 @@ impl CallbackListener {
                 inner
                     .settle_now(
                         &token,
-                        Err(GhostError::new(
+                        Err(WireError::new(
                             ErrorKind::Timeout,
                             format!(
                                 "Authorization for MCP server \"{server_id}\" was not completed in time"
@@ -286,7 +283,7 @@ impl CallbackListener {
             self.inner
                 .settle_now(
                     &token,
-                    Err(GhostError::new(
+                    Err(WireError::new(
                         ErrorKind::Aborted,
                         "The MCP client is shutting down",
                     )),
@@ -353,7 +350,7 @@ impl Inner {
             Ok(listener) => listener,
             Err(error) if self.port != 0 => {
                 // Something else already holds the fixed port — commonly a
-                // second GhostAI on the same machine. An ephemeral port still
+                // second DarkWire on the same machine. An ephemeral port still
                 // works wherever the authorization server accepts a dynamically
                 // registered redirect URI.
                 tracing::debug!(
@@ -415,7 +412,7 @@ async fn handle(
         // probe for the difference.
         return answer(
             StatusCode::BAD_REQUEST,
-            "This authorization link is not one GhostAI is waiting for.",
+            "This authorization link is not one DarkWire is waiting for.",
         );
     };
 
@@ -427,7 +424,7 @@ async fn handle(
         let running = inner
             .settle(
                 &token,
-                Err(GhostError::new(
+                Err(WireError::new(
                     ErrorKind::PermissionDenied,
                     format!(
                         "Authorization for MCP server \"{server_id}\" was refused: {description}"
@@ -447,7 +444,7 @@ async fn handle(
             let running = inner
                 .settle(
                     &token,
-                    Err(GhostError::new(
+                    Err(WireError::new(
                         ErrorKind::InvalidInput,
                         format!("The authorization redirect for \"{server_id}\" carried no code"),
                     )),
@@ -465,7 +462,7 @@ async fn handle(
             answer(
                 StatusCode::OK,
                 &format!(
-                    "GhostAI is now connected to <b>{}</b>. You can close this tab.",
+                    "DarkWire is now connected to <b>{}</b>. You can close this tab.",
                     escape(&server_id)
                 ),
             )

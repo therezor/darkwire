@@ -26,16 +26,16 @@
 //! given one, while the `authUrl`/`tokenUrl` the operator typed — the fallback
 //! when discovery fails — are trusted the way the MCP `url` is.
 //!
-//! GhostAI registers as a **public client**: it runs on the operator's own
+//! DarkWire registers as a **public client**: it runs on the operator's own
 //! machine and has nowhere to keep a client secret the operator cannot already
 //! read. PKCE is what stands in for one, which is what it is for.
 
 use std::sync::Arc;
 
 use base64::Engine as _;
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::McpOAuthConfig;
-use ghostai_security::{DnsResolver, NetworkPolicy, RandomSource, validate_target};
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::McpOAuthConfig;
+use darkwire_security::{DnsResolver, NetworkPolicy, RandomSource, validate_target};
 use oauth2::basic::BasicClient;
 use oauth2::url::Url;
 use oauth2::{
@@ -47,8 +47,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::store::{McpSecretSlot, McpSecretStore};
 
-/// How GhostAI describes itself to an authorization server.
-pub const OAUTH_CLIENT_NAME: &str = "GhostAI";
+/// How DarkWire describes itself to an authorization server.
+pub const OAUTH_CLIENT_NAME: &str = "DarkWire";
 
 /// A token whose expiry is this close is refreshed before it is used, so a
 /// call that starts just under the line does not fail just over it.
@@ -207,7 +207,7 @@ fn write_json<T: Serialize>(
     value: &T,
 ) -> Result<()> {
     let text = serde_json::to_string(value).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Internal,
             "An OAuth record could not be serialised",
         )
@@ -298,8 +298,8 @@ struct RegistrationResponse {
     client_secret: Option<String>,
 }
 
-fn oauth_error(server_id: &str, message: impl Into<String>) -> GhostError {
-    GhostError::new(ErrorKind::PermissionDenied, message.into()).with_detail("server", server_id)
+fn oauth_error(server_id: &str, message: impl Into<String>) -> WireError {
+    WireError::new(ErrorKind::PermissionDenied, message.into()).with_detail("server", server_id)
 }
 
 /// `RequestTokenError` as the taxonomy: a server that answered is
@@ -308,23 +308,23 @@ fn token_error<T: oauth2::ErrorResponse + 'static>(
     server_id: &str,
     what: &str,
     error: RequestTokenError<HttpError, T>,
-) -> GhostError {
+) -> WireError {
     match error {
         RequestTokenError::ServerResponse(response) => {
             oauth_error(server_id, format!("{what} was refused: {response}"))
                 .with_detail("refused", true)
         }
         RequestTokenError::Request(inner) => {
-            GhostError::new(ErrorKind::Network, format!("{what} failed: {inner}"))
+            WireError::new(ErrorKind::Network, format!("{what} failed: {inner}"))
                 .with_detail("server", server_id)
         }
-        RequestTokenError::Parse(inner, _) => GhostError::new(
+        RequestTokenError::Parse(inner, _) => WireError::new(
             ErrorKind::Provider,
             format!("{what} answered with something that is not a token response: {inner}"),
         )
         .with_detail("server", server_id),
         RequestTokenError::Other(message) => {
-            GhostError::new(ErrorKind::Network, format!("{what} failed: {message}"))
+            WireError::new(ErrorKind::Network, format!("{what} failed: {message}"))
                 .with_detail("server", server_id)
         }
     }
@@ -447,7 +447,7 @@ impl OAuthFlow {
     /// The outstanding verifier, or `conflict` when none is.
     pub fn code_verifier(&self) -> Result<String> {
         self.verifier.lock().clone().ok_or_else(|| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Conflict,
                 format!(
                     "No PKCE verifier is outstanding for MCP server \"{}\"",
@@ -642,7 +642,7 @@ impl OAuthFlow {
         let auth = AuthUrl::from_url(endpoints.authorization.clone());
         let token = TokenUrl::from_url(endpoints.token.clone());
         let redirect = RedirectUrl::new(self.options.redirect_url.clone()).map_err(|error| {
-            GhostError::new(ErrorKind::Internal, "The callback URL is not a URL").with_source(error)
+            WireError::new(ErrorKind::Internal, "The callback URL is not a URL").with_source(error)
         })?;
         let mut client = BasicClient::new(ClientId::new(information.client_id))
             .set_auth_uri(auth)
@@ -658,7 +658,7 @@ impl OAuthFlow {
     /// RFC 7591 dynamic client registration.
     async fn register(&self, endpoints: &Endpoints) -> Result<ClientInformation> {
         let Some(registration) = &endpoints.registration else {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
                     "MCP server \"{}\" needs OAuth but names no clientId and its authorization server offers no registration",
@@ -675,7 +675,7 @@ impl OAuthFlow {
             .send()
             .await
             .map_err(|error| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Network,
                     format!("OAuth client registration failed: {error}"),
                 )
@@ -689,7 +689,7 @@ impl OAuthFlow {
             ));
         }
         let issued: RegistrationResponse = response.json().await.map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Provider,
                 format!("OAuth client registration answered with something unreadable: {error}"),
             )
@@ -724,7 +724,7 @@ impl OAuthFlow {
     fn configured(&self) -> Result<Endpoints> {
         let parse = |what: &str, raw: &str| {
             Url::parse(raw).map_err(|_| {
-                GhostError::new(
+                WireError::new(
                     ErrorKind::Config,
                     format!(
                         "MCP server \"{}\": oauth.{what} \"{raw}\" is not a URL",
@@ -802,7 +802,7 @@ impl OAuthFlow {
             validate_target(target.as_str(), &guard.policy, guard.resolver.as_ref())
                 .await
                 .map_err(|error| {
-                    GhostError::new(
+                    WireError::new(
                         ErrorKind::Network,
                         format!(
                             "MCP server \"{}\" named an OAuth endpoint this client will not use: {}",

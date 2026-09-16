@@ -38,9 +38,9 @@ use std::collections::BTreeSet;
 
 use chrono::{DateTime, Datelike as _, Local, MappedLocalTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
-use ghostai_protocol::json::js_trim;
+use darkwire_protocol::json::js_trim;
 
-use crate::errors::{ErrorKind, GhostError, Result};
+use crate::errors::{ErrorKind, Result, WireError};
 
 /// Cap on the forward search. `0 0 30 2 *` matches nothing, ever.
 const MAX_SEARCH_DAYS: u32 = 1464;
@@ -103,8 +103,8 @@ pub struct CronSpec {
     pub tz: Option<Tz>,
 }
 
-fn fail(expr: &str, detail: &str) -> GhostError {
-    GhostError::new(
+fn fail(expr: &str, detail: &str) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!("Invalid cron expression \"{expr}\": {detail}"),
     )
@@ -241,7 +241,7 @@ pub fn parse_cron(expr: &str, tz: Option<&str>) -> Result<CronSpec> {
     let tz = match tz {
         None => None,
         Some(name) => Some(name.parse::<Tz>().map_err(|_| {
-            GhostError::new(ErrorKind::Config, format!("Unknown timezone \"{name}\"."))
+            WireError::new(ErrorKind::Config, format!("Unknown timezone \"{name}\"."))
                 .with_detail("tz", name)
         })?),
     };

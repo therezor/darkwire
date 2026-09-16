@@ -43,8 +43,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use ghostai_core::frontmatter::parse_frontmatter;
-use ghostai_protocol::is_agent_id;
+use darkwire_core::frontmatter::parse_frontmatter;
+use darkwire_protocol::is_agent_id;
 use regex::Regex;
 
 /// The folder inside the workspace that holds them.

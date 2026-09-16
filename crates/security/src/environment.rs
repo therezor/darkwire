@@ -38,11 +38,11 @@
 
 use std::sync::LazyLock;
 
+use darkwire_core::{ErrorKind, Result, WireError};
+pub use darkwire_protocol::BUILTIN_TOOL_NAMES;
+use darkwire_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 use garde::Validate;
-use ghostai_core::{ErrorKind, GhostError, Result};
-pub use ghostai_protocol::BUILTIN_TOOL_NAMES;
-use ghostai_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
 use regex::Regex;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -51,8 +51,8 @@ use crate::random::hex_lower;
 use crate::{parse_cidr, parse_ip_literal};
 
 /// Construct an operator-actionable policy error.
-pub fn invalid(message: impl Into<String>) -> GhostError {
-    GhostError::new(ErrorKind::Config, message)
+pub fn invalid(message: impl Into<String>) -> WireError {
+    WireError::new(ErrorKind::Config, message)
 }
 
 /// Ensure a reference names a file within the operator policy directory.
@@ -124,12 +124,12 @@ pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
     what: &str,
 ) -> Result<T> {
     let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_slice(bytes).map_err(|error| {
-        GhostError::new(ErrorKind::Config, format!("{what} is not valid YAML")).with_source(error)
+        WireError::new(ErrorKind::Config, format!("{what} is not valid YAML")).with_source(error)
     })?;
     let parsed: T = serde_path_to_error::deserialize(yaml).map_err(|error| {
         let path = error.path().to_string();
         let field = if path == "." { "(root)" } else { path.as_str() };
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("{what} is not valid: {field}: {}", error.inner()),
         )
@@ -148,7 +148,7 @@ pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
             })
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Config,
             format!("{what} is not valid: {detail}"),
         ));
@@ -233,9 +233,8 @@ pub fn assert_environment_network(network: &EnvironmentNetwork, agent_id: &str) 
     Ok(())
 }
 
-fn policy_error(environment: &EnvironmentDefinition, message: String) -> GhostError {
-    GhostError::new(ErrorKind::Config, message)
-        .with_detail("environment", environment.name.as_str())
+fn policy_error(environment: &EnvironmentDefinition, message: String) -> WireError {
+    WireError::new(ErrorKind::Config, message).with_detail("environment", environment.name.as_str())
 }
 
 /// Refuses a container the machinery cannot honour.

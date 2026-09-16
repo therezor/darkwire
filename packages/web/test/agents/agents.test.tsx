@@ -12,7 +12,7 @@
  *
  * What is no longer asserted anywhere is inheritance *on the screen*. The
  * config format still allows an absent field to fall through to
- * `agents.list.default`, and `ghostai-runtime` has the cases for it — but the
+ * `agents.list.default`, and `darkwire-runtime` has the cases for it — but the
  * editor fills every box from the defaults and writes them down, so the
  * assertions here are that an agent shows its own settings rather than a blank
  * where somebody else's would have been used.
@@ -27,7 +27,7 @@ import {
   ConfigSchema,
   defaultSubagentPrompt,
   type ConfigPatch,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
@@ -128,7 +128,7 @@ const patchesOf = (calls: readonly RecordedRequest[]): ConfigPatch[] =>
  * fails for a reason the product does not have.
  *
  * Shallow over `agents.list` is all these cases need; the real merge is
- * `ghostai-runtime`'s to prove, and `crates/runtime/tests/merge.rs` does.
+ * `darkwire-runtime`'s to prove, and `crates/runtime/tests/merge.rs` does.
  */
 function statefulSettings(base = CONFIG): Record<string, StubRoute> {
   let current = base;
@@ -1264,7 +1264,7 @@ describe('a named agent', () => {
   it('groups the MCP servers’ tools away from the built-in ones', async () => {
     // Alphabetical mixed them: `mcp_github_search_issues` sat between
     // `list_dir` and `read_file`, where nothing said that one of the three
-    // arrives with a server the operator configured and two ship with GhostAI.
+    // arrives with a server the operator configured and two ship with DarkWire.
     mount('/agents/reviewer', {
       '/api/tools': [
         200,
@@ -1866,7 +1866,7 @@ describe('choosing an environment', () => {
     // `api.environments` parses the response: a definition missing a field is a
     // failed query rather than a smaller fixture.
     definition: {
-      schema: 'ghostai.environment/1',
+      schema: 'darkwire.environment/1',
       kind: 'container',
       name: 'development',
       prompt: '',

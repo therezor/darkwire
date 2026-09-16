@@ -16,12 +16,12 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::automation::{AutomationRun, RunStatus};
-use ghostai_protocol::config::Config;
-use ghostai_server::automation_store::{AutomationStore, FinishRunInput};
-use ghostai_server::scheduler::SchedulerPort;
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::automation::{AutomationRun, RunStatus};
+use darkwire_protocol::config::Config;
+use darkwire_server::automation_store::{AutomationStore, FinishRunInput};
+use darkwire_server::scheduler::SchedulerPort;
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -82,7 +82,7 @@ impl SchedulerPort for FakeScheduler {
     fn run_now(&self, job_id: &str) -> Result<AutomationRun> {
         self.ran.lock().push(job_id.to_owned());
         if let Some((kind, message)) = &self.fails {
-            return Err(GhostError::new(*kind, message.clone()));
+            return Err(WireError::new(*kind, message.clone()));
         }
         Ok(AutomationRun {
             id: format!("run-{job_id}"),
@@ -876,7 +876,7 @@ async fn the_crud_surface_still_works_with_no_engine_so_jobs_can_be_authored_fir
 /// the security-relevant half, and it is the state every build but the
 /// end-to-end suite's runs in.
 fn hooks_armed() -> bool {
-    std::env::var("GHOSTAI_TEST_HOOKS").is_ok_and(|value| value == "1")
+    std::env::var("DARKWIRE_TEST_HOOKS").is_ok_and(|value| value == "1")
 }
 
 #[tokio::test]

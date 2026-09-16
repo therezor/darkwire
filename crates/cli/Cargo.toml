@@ -1,6 +1,6 @@
 [package]
-name = "ghostai"
-description = "The ghostai binary: chat, serve, and the install commands"
+name = "darkwire"
+description = "The darkwire binary: chat, serve, and the install commands"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,11 +13,11 @@ publish.workspace = true
 # module lives in the library, `main.rs` is the shim that maps a run to an exit
 # code, and the integration tests drive the same code the binary does.
 [lib]
-name = "ghostai"
+name = "darkwire"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ghostai"
+name = "darkwire"
 path = "src/main.rs"
 
 [lints]
@@ -28,28 +28,28 @@ workspace = true
 # `schemars` comes with it rather than unconditionally: the only thing this
 # crate derives a JSON Schema for is `e2e_wait`'s argument type, which no
 # shipping build contains.
-test-hooks = ["ghostai-server/test-hooks", "dep:schemars"]
+test-hooks = ["darkwire-server/test-hooks", "dep:schemars"]
 
 [dependencies]
-ghostai-agent.workspace = true
-ghostai-channels.workspace = true
-ghostai-core.workspace = true
-ghostai-extension-host.workspace = true
-ghostai-i18n.workspace = true
-ghostai-protocol.workspace = true
-ghostai-providers.workspace = true
-ghostai-runtime.workspace = true
-ghostai-environment.workspace = true
-ghostai-security.workspace = true
-ghostai-server.workspace = true
-ghostai-tools.workspace = true
-ghostai-tui.workspace = true
-# Only `main.rs` may use it; everything else returns `GhostError`.
+darkwire-agent.workspace = true
+darkwire-channels.workspace = true
+darkwire-core.workspace = true
+darkwire-extension-host.workspace = true
+darkwire-i18n.workspace = true
+darkwire-protocol.workspace = true
+darkwire-providers.workspace = true
+darkwire-runtime.workspace = true
+darkwire-environment.workspace = true
+darkwire-security.workspace = true
+darkwire-server.workspace = true
+darkwire-tools.workspace = true
+darkwire-tui.workspace = true
+# Only `main.rs` may use it; everything else returns `WireError`.
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-# Preset validation: the schema declares its constraints with `garde`, and a
-# preset that parsed but violates one is a refusal with a line per issue.
+# Definition validation: the schema declares its constraints with `garde`, and a
+# document that parsed but violates one is a refusal with a line per issue.
 garde.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true
@@ -65,13 +65,13 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-ghostai-agent = { workspace = true, features = ["testkit"] }
-ghostai-channels = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-providers = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
-ghostai-server = { workspace = true, features = ["testkit"] }
-ghostai-tools = { workspace = true, features = ["testkit"] }
+darkwire-agent = { workspace = true, features = ["testkit"] }
+darkwire-channels = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-providers = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
+darkwire-server = { workspace = true, features = ["testkit"] }
+darkwire-tools = { workspace = true, features = ["testkit"] }
 # A real client for the tests that drive a bound listener; everything else in
 # this crate talks to the server in-process.
 reqwest.workspace = true

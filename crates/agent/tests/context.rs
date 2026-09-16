@@ -13,12 +13,14 @@
 mod common;
 
 use common::harness::{FakeTool, Harness, Setup};
-use ghostai_agent::context::{ContextBreakdown, MeasureContext, describe_context, measure_context};
-use ghostai_agent::testkit::{ScriptedTurn, tool_call};
-use ghostai_agent::{PromptPreview, PromptPreviewInput};
-use ghostai_core::messages::{AssistantOptions, assistant_message, tool_message, user_message};
-use ghostai_core::session_store::AppendOptions;
-use ghostai_protocol::{ChatMessage, ToolCall};
+use darkwire_agent::context::{
+    ContextBreakdown, MeasureContext, describe_context, measure_context,
+};
+use darkwire_agent::testkit::{ScriptedTurn, tool_call};
+use darkwire_agent::{PromptPreview, PromptPreviewInput};
+use darkwire_core::messages::{AssistantOptions, assistant_message, tool_message, user_message};
+use darkwire_core::session_store::AppendOptions;
+use darkwire_protocol::{ChatMessage, ToolCall};
 use serde_json::json;
 
 fn preview() -> PromptPreview {
@@ -127,7 +129,7 @@ async fn the_tools_are_returned_as_well_as_measured() {
     assert_eq!(report.tools.len(), 1);
     // The list is fuller than the figure: risk is on the entry because the
     // panel badges it, and it is not billed because it is not sent.
-    assert_eq!(report.tools[0].risk, ghostai_protocol::ToolRisk::Safe);
+    assert_eq!(report.tools[0].risk, darkwire_protocol::ToolRisk::Safe);
 }
 
 #[tokio::test]
@@ -174,7 +176,7 @@ async fn a_window_the_walker_trims_keeps_the_rows_it_kept() {
                     "orphan",
                     "read_file",
                     "no call made this",
-                    ghostai_core::messages::ToolOptions::default(),
+                    darkwire_core::messages::ToolOptions::default(),
                 )),
                 ChatMessage::User(user_message("the real start")),
                 ChatMessage::Assistant(assistant_message("hello", AssistantOptions::default())),

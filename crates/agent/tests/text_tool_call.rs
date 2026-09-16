@@ -4,7 +4,7 @@
 //! prose about tools, not an attempt to use one, and the correction is
 //! worthless when the model was only explaining itself.
 
-use ghostai_agent::text_tool_call::{text_tool_call_correction, text_tool_call_name};
+use darkwire_agent::text_tool_call::{text_tool_call_correction, text_tool_call_name};
 
 fn known() -> Vec<String> {
     vec![

@@ -17,12 +17,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::ErrorKind;
-use ghostai_mcp::{
+use darkwire_core::ErrorKind;
+use darkwire_mcp::{
     McpCallOptions, McpConnectContext, McpConnectionSpec, McpConnector, McpSession,
     McpSessionEvent, SdkConnector, SdkConnectorOptions, default_environment, resolve_spec,
 };
-use ghostai_protocol::json::Object;
+use darkwire_protocol::json::Object;
 use parking_lot::Mutex;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
@@ -135,7 +135,7 @@ async fn live() -> Live {
 
     let pipe = Mutex::new(Some((client_read, client_write)));
     let connector = SdkConnector::new(SdkConnectorOptions {
-        client_name: Some("ghostai-test".to_owned()),
+        client_name: Some("darkwire-test".to_owned()),
         client_version: None,
         http: reqwest::Client::new(),
         pipe: Some(Arc::new(move || {
@@ -143,8 +143,8 @@ async fn live() -> Live {
                 .take()
                 .map(|(read, write)| {
                     (
-                        Box::new(read) as ghostai_mcp::sdk_connector::BoxRead,
-                        Box::new(write) as ghostai_mcp::sdk_connector::BoxWrite,
+                        Box::new(read) as darkwire_mcp::sdk_connector::BoxRead,
+                        Box::new(write) as darkwire_mcp::sdk_connector::BoxWrite,
                     )
                 })
                 .ok_or_else(|| std::io::Error::other("the pipe was already used"))
@@ -423,8 +423,8 @@ async fn a_cancelled_connect_is_aborted() {
                 .take()
                 .map(|(read, write)| {
                     (
-                        Box::new(read) as ghostai_mcp::sdk_connector::BoxRead,
-                        Box::new(write) as ghostai_mcp::sdk_connector::BoxWrite,
+                        Box::new(read) as darkwire_mcp::sdk_connector::BoxRead,
+                        Box::new(write) as darkwire_mcp::sdk_connector::BoxWrite,
                     )
                 })
                 .ok_or_else(|| std::io::Error::other("used"))
@@ -453,7 +453,7 @@ async fn a_stdio_command_that_does_not_exist_is_a_network_error_naming_it() {
     let connector = SdkConnector::new(SdkConnectorOptions::default());
     let spec = resolve_spec(
         "ghost",
-        &serde_json::from_value(json!({ "command": "/nonexistent/ghostai-mcp-test-binary" }))
+        &serde_json::from_value(json!({ "command": "/nonexistent/darkwire-mcp-test-binary" }))
             .unwrap(),
     )
     .unwrap();
@@ -462,7 +462,7 @@ async fn a_stdio_command_that_does_not_exist_is_a_network_error_naming_it() {
         .await
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Network);
-    assert!(error.message.contains("ghostai-mcp-test-binary"));
+    assert!(error.message.contains("darkwire-mcp-test-binary"));
 }
 
 #[tokio::test]
@@ -509,7 +509,7 @@ fn the_default_environment_is_the_minimal_inherited_set() {
     let env = default_environment();
     for name in env.keys() {
         assert!(
-            ghostai_mcp::DEFAULT_INHERITED_ENV_VARS.contains(&name.as_str()),
+            darkwire_mcp::DEFAULT_INHERITED_ENV_VARS.contains(&name.as_str()),
             "{name} leaked into the child environment"
         );
     }

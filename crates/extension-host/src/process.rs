@@ -42,8 +42,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
-use ghostai_protocol::DEFAULT_EXTENSION_ENV;
+use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::DEFAULT_EXTENSION_ENV;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout, Command};
 use tokio::sync::watch;
@@ -54,14 +54,14 @@ pub const KILL_GRACE_MS: u64 = 2000;
 
 /// Beyond this many stderr bytes the logging stops. The stream is still
 /// drained, so the child never blocks on a full pipe.
-pub const STDERR_BUDGET_BYTES: usize = ghostai_mcp::STDERR_BUDGET_BYTES;
+pub const STDERR_BUDGET_BYTES: usize = darkwire_mcp::STDERR_BUDGET_BYTES;
 
 /// The extension's own id, for a child that wants to know what it was
 /// installed as without waiting for `initialize`.
-pub const ENV_EXTENSION_ID: &str = "GHOSTAI_EXTENSION_ID";
+pub const ENV_EXTENSION_ID: &str = "DARKWIRE_EXTENSION_ID";
 
 /// The directory an extension may write to.
-pub const ENV_EXTENSION_DATA_DIR: &str = "GHOSTAI_EXTENSION_DATA_DIR";
+pub const ENV_EXTENSION_DATA_DIR: &str = "DARKWIRE_EXTENSION_DATA_DIR";
 
 /// What to spawn, and the environment to spawn it in.
 #[derive(Debug, Clone)]
@@ -260,7 +260,7 @@ impl ExtensionProcess {
 pub fn spawn(options: SpawnOptions) -> Result<Spawned> {
     let Some((program, args)) = options.command.split_first() else {
         return Err(
-            GhostError::new(ErrorKind::Config, "The extension names no command to run.")
+            WireError::new(ErrorKind::Config, "The extension names no command to run.")
                 .with_detail("extension", options.id.as_str()),
         );
     };
@@ -287,7 +287,7 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned> {
     }
 
     let mut child = command.spawn().map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Extension,
             format!(
                 "The extension \"{}\" could not be started: {program} ({error})",
@@ -303,7 +303,7 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned> {
     let (Some(stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Internal,
             "The extension process was spawned without its pipes.",
         )
@@ -378,7 +378,7 @@ async fn wait_for(
 ) -> Result<Option<std::process::ExitStatus>> {
     match tokio::time::timeout(grace, child.wait()).await {
         Ok(status) => Ok(Some(status.map_err(|error| {
-            GhostError::new(ErrorKind::Extension, "Could not wait for the extension.")
+            WireError::new(ErrorKind::Extension, "Could not wait for the extension.")
                 .with_source(error)
         })?)),
         Err(_) => Ok(None),

@@ -1,4 +1,4 @@
-//! The id every generated thing in GhostAI is named by.
+//! The id every generated thing in DarkWire is named by.
 //!
 //! UUIDv7 rather than v4, and the difference is the first 48 bits: a v7 is a
 //! millisecond timestamp followed by randomness, so ids sort in creation order

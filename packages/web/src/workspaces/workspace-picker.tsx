@@ -43,7 +43,7 @@ import { ChevronDown, Folder, Settings2, TriangleAlert } from 'lucide-react';
 import { useEffect, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DEFAULT_WORKSPACE_ID } from '@ghostwire/protocol';
+import { DEFAULT_WORKSPACE_ID } from '@darkwire/protocol';
 
 import { Button } from '@/components/ui/button.js';
 import {

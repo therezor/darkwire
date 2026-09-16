@@ -41,10 +41,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
-use ghostai_core::{Clock, Result, SystemClock};
-use ghostai_protocol::tools::ApprovalScope;
-use ghostai_providers::BoxFuture;
+use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
+use darkwire_core::{Clock, Result, SystemClock};
+use darkwire_protocol::tools::ApprovalScope;
+use darkwire_providers::BoxFuture;
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 

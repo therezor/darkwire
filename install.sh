@@ -1,7 +1,7 @@
 #!/bin/sh
-# Install GhostAI: one binary, from the GitHub release, checksum-verified.
+# Install DarkWire: one binary, from the GitHub release, checksum-verified.
 #
-#   curl -fsSL https://raw.githubusercontent.com/therezor/GhostAI/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/therezor/darkwire/main/install.sh | sh
 #
 # The whole reason this exists rather than a `curl` line in the README is the
 # verification. The manual instructions ask a reader to download SHA256SUMS and
@@ -14,27 +14,27 @@
 #   --dir <path>      install here instead of /usr/local/bin
 #   --help
 #
-# GHOSTAI_INSTALL_DIR does the same as --dir, for a caller that would rather set
+# DARKWIRE_INSTALL_DIR does the same as --dir, for a caller that would rather set
 # an environment variable than pass an argument.
 
 set -eu
 
-REPO='therezor/GhostAI'
+REPO='therezor/darkwire'
 VERSION='latest'
-INSTALL_DIR="${GHOSTAI_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${DARKWIRE_INSTALL_DIR:-/usr/local/bin}"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
 	cat <<'USAGE'
-Install GhostAI.
+Install DarkWire.
 
 Usage: install.sh [--version <tag>] [--dir <path>]
 
   --version <tag>   a release tag such as v1.2.3 (default: the latest release)
   --dir <path>      where to put the binary (default: /usr/local/bin, or
-                    $GHOSTAI_INSTALL_DIR)
+                    $DARKWIRE_INSTALL_DIR)
 USAGE
 }
 
@@ -143,7 +143,7 @@ if [ "$VERSION" = 'latest' ]; then
 else
 	base="https://github.com/$REPO/releases/download/$VERSION"
 fi
-asset="ghostai-$target.tar.gz"
+asset="darkwire-$target.tar.gz"
 
 work=$(mktemp -d)
 cleanup() { rm -rf "$work"; }
@@ -173,40 +173,40 @@ fi
 say 'Checksum verified.'
 
 tar -xzf "$work/$asset" -C "$work"
-binary=$(find "$work" -type f -name ghostai -perm -u+x | head -n 1)
-[ -n "$binary" ] || die "the tarball did not contain a ghostai binary."
+binary=$(find "$work" -type f -name darkwire -perm -u+x | head -n 1)
+[ -n "$binary" ] || die "the tarball did not contain a darkwire binary."
 
 # `sudo` only where it is actually needed, and only after saying so: a script
 # read from the internet that reaches for root without a word is one nobody
 # should run.
 if [ -w "$INSTALL_DIR" ] || { [ ! -d "$INSTALL_DIR" ] && mkdir -p "$INSTALL_DIR" 2>/dev/null; }; then
-	install -m 755 "$binary" "$INSTALL_DIR/ghostai"
+	install -m 755 "$binary" "$INSTALL_DIR/darkwire"
 elif command -v sudo >/dev/null 2>&1; then
 	say "$INSTALL_DIR is not writable; using sudo to install there."
 	sudo install -d -m 755 "$INSTALL_DIR"
-	sudo install -m 755 "$binary" "$INSTALL_DIR/ghostai"
+	sudo install -m 755 "$binary" "$INSTALL_DIR/darkwire"
 else
 	die "$INSTALL_DIR is not writable and sudo is not installed.
 Pass --dir with somewhere you can write, such as --dir \"\$HOME/.local/bin\"."
 fi
 
-say "Installed $INSTALL_DIR/ghostai"
+say "Installed $INSTALL_DIR/darkwire"
 
 # Two ways the install can be right and still not be what runs. Neither is worth
 # refusing over — the binary is where it was asked to go — but both are worth a
 # sentence, because the alternative is someone debugging a version they did not
 # install.
-found=$(command -v ghostai 2>/dev/null || true)
+found=$(command -v darkwire 2>/dev/null || true)
 if [ -z "$found" ]; then
 	say ''
 	say "Note: $INSTALL_DIR is not on your PATH. Add it, or run the binary by its full path."
-elif [ "$found" != "$INSTALL_DIR/ghostai" ]; then
+elif [ "$found" != "$INSTALL_DIR/darkwire" ]; then
 	say ''
-	say "Note: another ghostai comes first on your PATH, at $found."
+	say "Note: another darkwire comes first on your PATH, at $found."
 	say "That one is what the shell will run until it is removed or the PATH order changes."
 fi
 
 say ''
-"$INSTALL_DIR/ghostai" --version
+"$INSTALL_DIR/darkwire" --version
 say ''
-say 'Next: ghostai serve — it prints a URL and a one-time code.'
+say 'Next: darkwire serve — it prints a URL and a one-time code.'

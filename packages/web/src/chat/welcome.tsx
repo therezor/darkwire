@@ -37,7 +37,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { Skull } from 'lucide-react';
+import { Webhook } from 'lucide-react';
 import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -84,7 +84,7 @@ export function Welcome({
 
   return (
     <div className="stack welcome">
-      <Skull className="welcome__mark" aria-hidden="true" />
+      <Webhook className="welcome__mark" aria-hidden="true" />
 
       <div className="stack welcome__heading">
         <h1 className="welcome__title">{t('chat.ready')}</h1>

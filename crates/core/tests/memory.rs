@@ -12,10 +12,10 @@ use std::fs;
 use std::path::Path;
 
 use capture::{Captured, capturing};
-use ghostai_core::ErrorKind;
-use ghostai_core::frontmatter::parse_frontmatter;
-use ghostai_core::logger::LogLevel;
-use ghostai_core::memory::{
+use darkwire_core::ErrorKind;
+use darkwire_core::frontmatter::parse_frontmatter;
+use darkwire_core::logger::LogLevel;
+use darkwire_core::memory::{
     MAX_MEMORIES, MEMORY_MAX_BYTES, MEMORY_TYPES, Memory, MemoryInput, MemoryType, memory_slug,
     read_memories, render_index, render_memory, save_memory,
 };

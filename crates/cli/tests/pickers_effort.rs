@@ -11,11 +11,11 @@
     reason = "fixture helpers in an integration test"
 )]
 
-use ghostai::i18n::Translations;
-use ghostai::pickers::effort::{
+use darkwire::i18n::Translations;
+use darkwire::pickers::effort::{
     DEFAULT_LEVEL, LEVELS, effort_items, effort_listing, effort_value, parse_effort,
 };
-use ghostai_protocol::ReasoningEffort;
+use darkwire_protocol::ReasoningEffort;
 
 fn english() -> Translations {
     Translations::default()

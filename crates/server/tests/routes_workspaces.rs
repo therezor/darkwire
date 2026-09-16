@@ -21,10 +21,10 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ghostai_core::session_store::CreateSession;
-use ghostai_core::workspace_store::CreateWorkspace;
-use ghostai_server::runtime::ServerRuntime as _;
-use ghostai_server::testkit::{TestServer, TestServerOptions, start_test_server};
+use darkwire_core::session_store::CreateSession;
+use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_server::runtime::ServerRuntime as _;
+use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 

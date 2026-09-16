@@ -8,7 +8,7 @@
  * patch goes to a route that answers with the settings tree.
  */
 
-import { ConfigPatchSchema, ProviderConfigSchema } from '@ghostwire/protocol';
+import { ConfigPatchSchema, ProviderConfigSchema } from '@darkwire/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -183,7 +183,7 @@ describe('toProviderTestRequest', () => {
         form: { ...FORM, apiBase: '  http://typed-just-now/v1  ' },
         keyField: KEY_PLACEHOLDER,
         credentialsPresent: true,
-        extraHeaders: { 'X-Title': 'GhostAI' },
+        extraHeaders: { 'X-Title': 'DarkWire' },
         instanceId: 'ollama',
       }),
     ).toEqual({
@@ -192,7 +192,7 @@ describe('toProviderTestRequest', () => {
       // The bug this function exists to hold shut: sending `{}` here checked a
       // gateway without the headers a turn sends it, which is a different
       // endpoint wearing the same URL.
-      extraHeaders: { 'X-Title': 'GhostAI' },
+      extraHeaders: { 'X-Title': 'DarkWire' },
       instanceId: 'ollama',
     });
   });

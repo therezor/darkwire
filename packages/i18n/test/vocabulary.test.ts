@@ -14,7 +14,7 @@
  *
  * So "conversation" is gone, and "chat" is gone as a noun for one of these —
  * which is the harder half, because "chat" is a real word here in two other
- * senses: `ghostai chat` is a command, and a Telegram chat is a destination. The
+ * senses: `darkwire chat` is a command, and a Telegram chat is a destination. The
  * allowlist below is where those live, with their reasons attached.
  *
  * **"Session" is not banned anywhere.** That is the whole point of the choice,
@@ -57,7 +57,7 @@ const CHAT = /\bchats?\b/iu;
 const ALLOWED: ReadonlyArray<{ readonly key: string; readonly why: string }> = [
   {
     key: 'web.settings.appearance.languageDesc',
-    why: '`ghostai chat` is the name of a command, quoted here as the thing the language setting also applies to. The subcommand is not being renamed, and a sentence that named it anything else would name a command that does not exist.',
+    why: '`darkwire chat` is the name of a command, quoted here as the thing the language setting also applies to. The subcommand is not being renamed, and a sentence that named it anything else would name a command that does not exist.',
   },
 ];
 
@@ -67,7 +67,7 @@ const ALLOWED_KEYS = new Set(ALLOWED.map((entry) => entry.key));
  * Namespaces whose *paths* legitimately contain "chat".
  *
  * `web.chat.*` is the transcript surface — the composer, the approval card, the
- * message list — and `cli.chat.*` belongs to the `ghostai chat` subcommand.
+ * message list — and `cli.chat.*` belongs to the `darkwire chat` subcommand.
  * Neither names a session, and neither is being renamed, so the path rule skips
  * them. Their values are still checked; only the key path is exempt.
  */

@@ -1,6 +1,6 @@
 // A channel, and the two notifications a channel sends back.
 //
-// `ghostai/channels/start` is answered *and* followed by a publish, because an
+// `darkwire/channels/start` is answered *and* followed by a publish, because an
 // inbound message arriving the moment a transport connects is the case the
 // binding order has to survive: the context must be bound at build time, not at
 // start time.
@@ -12,13 +12,13 @@ function send(frame) {
 
 const METHODS = {
   initialize: () => ({ protocolVersion: '2025-06-18', capabilities: {} }),
-  'ghostai/channels/list': () => ({
+  'darkwire/channels/list': () => ({
     channels: [{ id: 'talkative' }, { id: 'talkative-dm' }, { id: 'squatter' }],
   }),
-  'ghostai/channels/start': (params) => {
+  'darkwire/channels/start': (params) => {
     send({
       jsonrpc: '2.0',
-      method: 'ghostai/channels/publish',
+      method: 'darkwire/channels/publish',
       params: {
         channelId: params.channelId,
         sessionKey: 'inbound',
@@ -28,7 +28,7 @@ const METHODS = {
     });
     send({
       jsonrpc: '2.0',
-      method: 'ghostai/channels/control',
+      method: 'darkwire/channels/control',
       params: {
         channelId: params.channelId,
         sessionKey: 'inbound',
@@ -37,14 +37,14 @@ const METHODS = {
     });
     return {};
   },
-  'ghostai/channels/send': (params) => {
+  'darkwire/channels/send': (params) => {
     // Echoed back on stderr so the host's drain has something to carry, and so
     // a human reading the log can see what was rendered.
     process.stderr.write(`rendered ${params.message.kind}\n`);
     return {};
   },
-  'ghostai/context/static': () => ({ sections: [{ title: 'Talkative', body: 'Present.' }] }),
-  'ghostai/context/runtime': () => ({ sections: [{ body: 'Live state.' }] }),
+  'darkwire/context/static': () => ({ sections: [{ title: 'Talkative', body: 'Present.' }] }),
+  'darkwire/context/runtime': () => ({ sections: [{ body: 'Live state.' }] }),
 };
 
 const lines = createInterface({ input: process.stdin });

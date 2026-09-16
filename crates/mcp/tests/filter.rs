@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_mcp::{McpToolDescriptor, select_tools};
+use darkwire_mcp::{McpToolDescriptor, select_tools};
 use serde_json::json;
 
 fn descriptor(name: &str) -> McpToolDescriptor {

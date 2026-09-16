@@ -30,7 +30,7 @@ import {
   type AutomationJob,
   type AutomationRun,
   type RunStatus,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { Pagination } from '@/components/crud/pagination.js';
 import { usePagination } from '@/components/crud/use-pagination.js';

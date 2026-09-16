@@ -1,4 +1,4 @@
-//! `ghostai init`, driven through its own streams.
+//! `darkwire init`, driven through its own streams.
 //!
 //! Two properties decide whether this landed, and neither is about the prompts:
 //!
@@ -23,17 +23,17 @@
 
 use std::path::Path;
 
-use ghostai::Streams;
-use ghostai::ask::ScriptedReader;
-use ghostai::i18n::Env;
-use ghostai::init::{
+use darkwire::Streams;
+use darkwire::ask::ScriptedReader;
+use darkwire::i18n::Env;
+use darkwire::init::{
     EndpointModels, InitOptions, ModelLister, RecordedCredentials, VaultCredentials, init,
 };
-use ghostai::program::Globals;
-use ghostai_core::paths::ResolveGhostPaths;
-use ghostai_core::{GhostPaths, parse_config};
-use ghostai_providers::testkit::{ScriptedResponse, ScriptedServer, models_body};
-use ghostai_providers::{BoxFuture, ProviderSpec, find_builtin};
+use darkwire::program::Globals;
+use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::{WirePaths, parse_config};
+use darkwire_providers::testkit::{ScriptedResponse, ScriptedServer, models_body};
+use darkwire_providers::{BoxFuture, ProviderSpec, find_builtin};
 
 /// A built-in spec, cloned so a case can bend one field of it.
 fn spec_of(id: &str) -> ProviderSpec {
@@ -395,7 +395,7 @@ async fn the_process_entry_point_refuses_a_run_with_no_terminal_behind_it() {
         ..Globals::default()
     };
 
-    let code = ghostai::init::run(&globals, &Env::empty(), &mut streams)
+    let code = darkwire::init::run(&globals, &Env::empty(), &mut streams)
         .await
         .expect("the wizard answers with an exit code rather than failing");
 
@@ -406,10 +406,10 @@ async fn the_process_entry_point_refuses_a_run_with_no_terminal_behind_it() {
 
 #[test]
 fn the_vault_sink_opens_nothing_until_something_is_written() {
-    // Constructing it must not mint a keychain entry: `ghostai init` builds one
+    // Constructing it must not mint a keychain entry: `darkwire init` builds one
     // before it knows whether the endpoint even needs a key.
     let home = tempfile::tempdir().unwrap();
-    let paths = GhostPaths::resolve(ResolveGhostPaths {
+    let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(home.path().to_string_lossy().into_owned()),
         workspace: None,
         env: Some(std::collections::HashMap::new()),

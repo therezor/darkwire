@@ -2,7 +2,7 @@
 //! semantics can be pinned without depending on the copy; the last tests use the
 //! embedded bundle and the generated keys.
 
-use ghostai_i18n::{Bundle, DEFAULT_LOCALE, Locale, MissingKey, Translator, Value, args, keys};
+use darkwire_i18n::{Bundle, DEFAULT_LOCALE, Locale, MissingKey, Translator, Value, args, keys};
 
 const EN: &str = r#"{
   "greeting": "Hello {{name}}",

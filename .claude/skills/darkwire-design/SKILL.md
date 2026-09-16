@@ -1,9 +1,9 @@
 ---
-name: ghostai-design
-description: The design system rules for the GhostAI web UI — the token layer, the four core principles (minimalist, fast, every asset local, accessible by construction), and the gates that enforce them. Use when touching anything under packages/web — stylesheets, tokens, components, colours, spacing, type, icons, the theme — or when adding a UI dependency, choosing a colour, or changing how something looks.
+name: darkwire-design
+description: The design system rules for the DarkWire web UI — the token layer, the four core principles (minimalist, fast, every asset local, accessible by construction), and the gates that enforce them. Use when touching anything under packages/web — stylesheets, tokens, components, colours, spacing, type, icons, the theme — or when adding a UI dependency, choosing a colour, or changing how something looks.
 ---
 
-# GhostAI design system
+# DarkWire design system
 
 The UI is a self-hosted agent's control surface: dense, dark-first, read by people
 watching a machine touch their filesystem. Every rule below exists because the
@@ -20,8 +20,8 @@ accent's lightness is chosen so it is _not_ mistakable for `--fg-1`.
 **Run the gates before you believe you are done:**
 
 ```
-pnpm --filter @ghostwire/web lint    # eslint + the three token gates
-pnpm --filter @ghostwire/web test    # includes contrast + stylesheet assertions
+pnpm --filter @darkwire/web lint    # eslint + the three token gates
+pnpm --filter @darkwire/web test    # includes contrast + stylesheet assertions
 pnpm check                          # typecheck, lint, full suite
 ```
 
@@ -137,16 +137,17 @@ Beyond the gates:
   negative letter-spacing does not tighten the word, it eats sidebearings drawn
   to be equal. A hair of positive tracking is what a mono wordmark wants.
 - **Icons come from `lucide-react`. All of them, including the brand mark.** The
-  mark is lucide's `Skull`, imported like any other icon.
+  mark is lucide's `Webhook`, imported like any other icon.
 
-  This is the most expensive lesson in the file. The mark was hand-drawn for four
-  revisions and redrawn three times — organic, then hard-edged geometric, then
-  rounded geometric — while it kept "not fitting". None of those were the
-  problem. It was a _filled silhouette_ in a UI where every other glyph is a
-  lucide stroke icon: `fill: none`, 2-unit stroke, round joins on a 24 grid. A
-  solid shape beside line icons is not a different style, it is a different
-  weight class, and no amount of adjusting cheekbones and corner radii was ever
-  going to close that gap.
+  This is the most expensive lesson in the file, and it was learned on the mark
+  this one replaced. That one was hand-drawn for four revisions and redrawn three
+  times, organic then hard-edged geometric then rounded geometric, while it kept
+  "not fitting". None of those were the problem. It was a _filled silhouette_ in
+  a UI where every other glyph is a lucide stroke icon: `fill: none`, 2-unit
+  stroke, round joins on a 24 grid. A solid shape beside line icons is not a
+  different style, it is a different weight class, and no amount of adjusting
+  corner radii was ever going to close that gap. Taking the mark from the same
+  set as everything else is what settled it.
 
   Two rules fall out of it. **Match the neighbour that matters** — an icon's
   neighbours are other icons, not the layout's corner radii, which is the wrong
@@ -159,7 +160,7 @@ Beyond the gates:
   near-black in the other, so the mark is pulled to mid-luminance to hold against
   both. It is the package's one duplicated drawing — a tab has no React to get
   lucide's stroke defaults from, so the shapes and attributes are written out —
-  and `favicon.test.ts` reads them back off a rendered `<Skull />` rather than
+  and `favicon.test.ts` reads them back off a rendered `<Webhook />` rather than
   pasting them into an assertion, so a lucide upgrade that redraws the icon fails
   there instead of leaving the tab on the old one forever.
 

@@ -81,7 +81,7 @@ pub enum PromptMode {
 /// Root-level rather than on an agent, because an agent *works in* a workspace
 /// and does not own one: several agents with separate identities opening the
 /// same one is the thing this is built around. Empty means `<root>/workspace`,
-/// where the root is `GHOSTAI_HOME` or `~/.ghostai`; a literal default would
+/// where the root is `DARKWIRE_HOME` or `~/.darkwire`; a literal default would
 /// restate the default root and strand an install that moved it. A relative
 /// path is resolved against the root, never against the working directory.
 /// Merged per field like every other root key, so an omitted key preserves it.
@@ -301,7 +301,7 @@ pub struct ServerConfig {
     #[serde(default = "default_host")]
     #[garde(length(utf16, min = 1))]
     pub host: String,
-    /// One port for the API, the WebSocket and the static UI. GhostAI is
+    /// One port for the API, the WebSocket and the static UI. DarkWire is
     /// single-process; nothing in it is heavy enough to justify the
     /// reconnect-and-HTTP-fallback client a split-process topology would need.
     #[serde(default = "default_port")]
@@ -667,7 +667,7 @@ pub enum NetworkMode {
 
 /// Where this agent's command operations run, and what they can reach.
 ///
-/// An empty name runs command operations on the machine running GhostAI,
+/// An empty name runs command operations on the machine running DarkWire,
 /// inside the workspace jail, where a network request means nothing and is
 /// refused rather than ignored. A named environment routes them through the
 /// sandbox service instead.
@@ -991,7 +991,7 @@ impl Default for ChannelsConfig {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ExtensionsConfig {
-    /// Extra directories to load from, beside `~/.ghostai/extensions`. A path,
+    /// Extra directories to load from, beside `~/.darkwire/extensions`. A path,
     /// never a package spec: nothing here fetches, which is what keeps an
     /// air-gapped install air-gapped.
     #[serde(default)]

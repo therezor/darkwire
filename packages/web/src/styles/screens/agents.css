@@ -180,7 +180,7 @@
      `--ring-offset` beyond it — and a scroll container clips at its padding
      edge. The dialog has `--space-6` of padding, which is room to spare; this
      had none, so a focused textarea lost the left and right thirds of its ring
-     and looked like it had a green underline. It also meant two scrollbars for
+     and looked like it had a cyan underline. It also meant two scrollbars for
      one dialog. */
   .agent-editor__wording-body {
     --gap: var(--space-4);

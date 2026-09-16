@@ -8,11 +8,11 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use garde::Validate;
-use ghostai_protocol::{
+use darkwire_protocol::{
     AgentEntry, Config, ConfigPatch, DEFAULT_AGENT_ID, DEFAULT_AGENT_TOOLS, ToolPermission,
     default_agent_tools, parse_config,
 };
+use garde::Validate;
 use serde_json::json;
 
 #[test]

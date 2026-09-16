@@ -24,9 +24,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghostai_core::ErrorKind;
-use ghostai_protocol::{ToolSource, ToolsConfig};
-use ghostai_security::{JailOptions, WorkspaceJail};
+use darkwire_core::ErrorKind;
+use darkwire_protocol::{ToolSource, ToolsConfig};
+use darkwire_security::{JailOptions, WorkspaceJail};
 use serde_json::{Map, Value};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -72,7 +72,7 @@ impl TestWorkspace {
     /// When the temp directory cannot be created — a failing test either way.
     pub fn with_config(config: ToolsConfig) -> TestWorkspace {
         let dir = tempfile::Builder::new()
-            .prefix("ghostai-tools-")
+            .prefix("darkwire-tools-")
             .tempdir()
             .unwrap_or_else(|error| panic!("temp dir: {error}"));
         let jail = Arc::new(
@@ -180,7 +180,7 @@ fn properties_of(tool: &dyn Tool) -> Vec<Property> {
 }
 
 /// A key no schema declares, used to prove unknown arguments are refused.
-const UNKNOWN_KEY: &str = "__ghostai_conformance_unknown__";
+const UNKNOWN_KEY: &str = "__darkwire_conformance_unknown__";
 
 /// The declaration checks: a provider-safe name, a strict object schema with a
 /// description on every property, and a definition consistent with `risk()`.

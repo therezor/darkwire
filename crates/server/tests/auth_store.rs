@@ -18,10 +18,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ghostai_core::testkit::ManualClock;
-use ghostai_core::{Clock, Database, ErrorKind, Result};
-use ghostai_security::random::RandomSource;
-use ghostai_server::auth_store::{
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, ErrorKind, Result};
+use darkwire_security::random::RandomSource;
+use darkwire_server::auth_store::{
     Argon2Hasher, AuthStore, AuthStoreOptions, PasswordHasher, SCHEMA,
 };
 use rusqlite::params;
@@ -191,7 +191,7 @@ fn the_stored_hash_is_replaced_rather_than_a_second_row_added() {
 
 #[test]
 fn the_username_is_the_default_until_one_is_set() {
-    assert_eq!(fake().store.username().unwrap(), "ghost");
+    assert_eq!(fake().store.username().unwrap(), "darkwire");
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn a_name_the_login_route_would_have_refused_is_refused_here_too() {
     // Nothing is written on a refusal — a password stored beside a rejected
     // name would be a credential half-applied.
     assert!(!built.store.has_password().unwrap());
-    assert_eq!(built.store.username().unwrap(), "ghost");
+    assert_eq!(built.store.username().unwrap(), "darkwire");
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn the_username_is_neither_handed_out_nor_generated_by_ensure_secret() {
     let built = fake();
     let error = built.store.ensure_secret("username").unwrap_err();
     assert!(error.message.contains("not a readable secret"));
-    assert_eq!(built.store.username().unwrap(), "ghost");
+    assert_eq!(built.store.username().unwrap(), "darkwire");
 }
 
 // verify_login
@@ -269,7 +269,7 @@ fn a_login_takes_both_halves_and_nothing_less() {
     assert!(
         !built
             .store
-            .verify_login("ghost", "a good password")
+            .verify_login("darkwire", "a good password")
             .unwrap()
     );
 }
@@ -346,7 +346,7 @@ fn the_hasher_runs_even_when_no_password_is_set_at_all() {
 
     // An unclaimed install must not answer faster than a claimed one, or the
     // difference tells an attacker which servers are worth coming back to.
-    assert!(!built.store.verify_login("ghost", "anything").unwrap());
+    assert!(!built.store.verify_login("darkwire", "anything").unwrap());
     assert_eq!(counting.verifications.load(Ordering::SeqCst), 1);
 }
 
@@ -359,7 +359,7 @@ fn the_decoy_is_hashed_once_however_many_logins_fail_against_an_unclaimed_instal
     let built = build(60_000, Arc::clone(&counting) as Arc<dyn PasswordHasher>);
 
     for _ in 0..5 {
-        assert!(!built.store.verify_login("ghost", "anything").unwrap());
+        assert!(!built.store.verify_login("darkwire", "anything").unwrap());
     }
     assert_eq!(counting.verifications.load(Ordering::SeqCst), 5);
     assert_eq!(counting.hashes.load(Ordering::SeqCst), 1);

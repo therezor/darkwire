@@ -731,6 +731,375 @@ dependencies = [
 ]
 
 [[package]]
+name = "darkwire"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "darkwire-agent",
+ "darkwire-channels",
+ "darkwire-core",
+ "darkwire-environment",
+ "darkwire-extension-host",
+ "darkwire-i18n",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-runtime",
+ "darkwire-security",
+ "darkwire-server",
+ "darkwire-tools",
+ "darkwire-tui",
+ "futures",
+ "garde",
+ "indexmap 2.14.2",
+ "owo-colors",
+ "parking_lot",
+ "reqwest",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "darkwire-agent"
+version = "0.5.0"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "chrono-tz",
+ "darkwire-agent",
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-security",
+ "darkwire-tools",
+ "futures",
+ "iana-time-zone",
+ "indexmap 2.14.2",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "darkwire-channels"
+version = "0.5.0"
+dependencies = [
+ "darkwire-channels",
+ "darkwire-core",
+ "darkwire-protocol",
+ "futures",
+ "indexmap 2.14.2",
+ "parking_lot",
+ "proptest",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
+name = "darkwire-core"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "darkwire-core",
+ "darkwire-i18n",
+ "darkwire-protocol",
+ "garde",
+ "gethostname",
+ "indexmap 2.14.2",
+ "parking_lot",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_yaml_ng",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "darkwire-environment"
+version = "0.5.0"
+dependencies = [
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-security",
+ "darkwire-tools",
+ "gethostname",
+ "indexmap 2.14.2",
+ "nix",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "darkwire-extension-host"
+version = "0.5.0"
+dependencies = [
+ "darkwire-agent",
+ "darkwire-channels",
+ "darkwire-core",
+ "darkwire-extension-host",
+ "darkwire-mcp",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-security",
+ "darkwire-tools",
+ "futures",
+ "nix",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "darkwire-i18n"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "icu_locale_core",
+ "icu_plurals",
+ "serde_json",
+]
+
+[[package]]
+name = "darkwire-mcp"
+version = "0.5.0"
+dependencies = [
+ "axum",
+ "base64 0.23.1",
+ "darkwire-core",
+ "darkwire-mcp",
+ "darkwire-protocol",
+ "darkwire-security",
+ "darkwire-tools",
+ "futures",
+ "indexmap 2.14.2",
+ "jsonschema",
+ "oauth2",
+ "parking_lot",
+ "proptest",
+ "reqwest",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
+name = "darkwire-protocol"
+version = "0.5.0"
+dependencies = [
+ "garde",
+ "indexmap 2.14.2",
+ "proptest",
+ "regex",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_with",
+]
+
+[[package]]
+name = "darkwire-providers"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-security",
+ "futures",
+ "indexmap 2.14.2",
+ "proptest",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "wiremock",
+]
+
+[[package]]
+name = "darkwire-runtime"
+version = "0.5.0"
+dependencies = [
+ "darkwire-agent",
+ "darkwire-channels",
+ "darkwire-core",
+ "darkwire-environment",
+ "darkwire-extension-host",
+ "darkwire-mcp",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-security",
+ "darkwire-tools",
+ "futures",
+ "gethostname",
+ "indexmap 2.14.2",
+ "nix",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.11.0",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "darkwire-security"
+version = "0.5.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-security",
+ "futures",
+ "garde",
+ "hickory-resolver",
+ "indexmap 2.14.2",
+ "jsonschema",
+ "proptest",
+ "rand 0.10.2",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_yaml_ng",
+ "sha2 0.11.0",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "walkdir",
+ "wiremock",
+]
+
+[[package]]
+name = "darkwire-server"
+version = "0.5.0"
+dependencies = [
+ "argon2",
+ "axum",
+ "axum-extra",
+ "base64 0.23.1",
+ "darkwire-agent",
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-providers",
+ "darkwire-security",
+ "darkwire-server",
+ "darkwire-tools",
+ "futures",
+ "garde",
+ "hmac",
+ "indexmap 2.14.2",
+ "lru",
+ "parking_lot",
+ "rusqlite",
+ "rust-embed",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.11.0",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "darkwire-tools"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "darkwire-core",
+ "darkwire-protocol",
+ "darkwire-security",
+ "darkwire-tools",
+ "futures",
+ "indexmap 2.14.2",
+ "jsonschema",
+ "nix",
+ "parking_lot",
+ "proptest",
+ "regex",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
+name = "darkwire-tui"
+version = "0.5.0"
+dependencies = [
+ "crossterm",
+ "proptest",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
 name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1210,375 +1579,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eecf2d5dc9b66b732b97707a0210906b1d30523eb773193ab777c0c84b3e8d5"
 dependencies = [
  "polyval",
-]
-
-[[package]]
-name = "ghostai"
-version = "0.9.0"
-dependencies = [
- "anyhow",
- "clap",
- "futures",
- "garde",
- "ghostai-agent",
- "ghostai-channels",
- "ghostai-core",
- "ghostai-environment",
- "ghostai-extension-host",
- "ghostai-i18n",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-runtime",
- "ghostai-security",
- "ghostai-server",
- "ghostai-tools",
- "ghostai-tui",
- "indexmap 2.14.2",
- "owo-colors",
- "parking_lot",
- "reqwest",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ghostai-agent"
-version = "0.9.0"
-dependencies = [
- "base64 0.23.1",
- "chrono",
- "chrono-tz",
- "futures",
- "ghostai-agent",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-security",
- "ghostai-tools",
- "iana-time-zone",
- "indexmap 2.14.2",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "ghostai-channels"
-version = "0.9.0"
-dependencies = [
- "futures",
- "ghostai-channels",
- "ghostai-core",
- "ghostai-protocol",
- "indexmap 2.14.2",
- "parking_lot",
- "proptest",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "wiremock",
-]
-
-[[package]]
-name = "ghostai-core"
-version = "0.9.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "garde",
- "gethostname",
- "ghostai-core",
- "ghostai-i18n",
- "ghostai-protocol",
- "indexmap 2.14.2",
- "parking_lot",
- "proptest",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_yaml_ng",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ghostai-environment"
-version = "0.9.0"
-dependencies = [
- "gethostname",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-security",
- "ghostai-tools",
- "indexmap 2.14.2",
- "nix",
- "parking_lot",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "ghostai-extension-host"
-version = "0.9.0"
-dependencies = [
- "futures",
- "ghostai-agent",
- "ghostai-channels",
- "ghostai-core",
- "ghostai-extension-host",
- "ghostai-mcp",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-security",
- "ghostai-tools",
- "nix",
- "parking_lot",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "ghostai-i18n"
-version = "0.9.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "icu_locale_core",
- "icu_plurals",
- "serde_json",
-]
-
-[[package]]
-name = "ghostai-mcp"
-version = "0.9.0"
-dependencies = [
- "axum",
- "base64 0.23.1",
- "futures",
- "ghostai-core",
- "ghostai-mcp",
- "ghostai-protocol",
- "ghostai-security",
- "ghostai-tools",
- "indexmap 2.14.2",
- "jsonschema",
- "oauth2",
- "parking_lot",
- "proptest",
- "reqwest",
- "rmcp",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "wiremock",
-]
-
-[[package]]
-name = "ghostai-protocol"
-version = "0.9.0"
-dependencies = [
- "garde",
- "indexmap 2.14.2",
- "proptest",
- "regex",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "serde_with",
-]
-
-[[package]]
-name = "ghostai-providers"
-version = "0.9.0"
-dependencies = [
- "chrono",
- "futures",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-security",
- "indexmap 2.14.2",
- "proptest",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "wiremock",
-]
-
-[[package]]
-name = "ghostai-runtime"
-version = "0.9.0"
-dependencies = [
- "futures",
- "gethostname",
- "ghostai-agent",
- "ghostai-channels",
- "ghostai-core",
- "ghostai-environment",
- "ghostai-extension-host",
- "ghostai-mcp",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-security",
- "ghostai-tools",
- "indexmap 2.14.2",
- "nix",
- "parking_lot",
- "reqwest",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "sha2 0.11.0",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "ghostai-security"
-version = "0.9.0"
-dependencies = [
- "aes-gcm",
- "base64 0.23.1",
- "futures",
- "garde",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-security",
- "hickory-resolver",
- "indexmap 2.14.2",
- "jsonschema",
- "proptest",
- "rand 0.10.2",
- "regex",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_yaml_ng",
- "sha2 0.11.0",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-util",
- "walkdir",
- "wiremock",
-]
-
-[[package]]
-name = "ghostai-server"
-version = "0.9.0"
-dependencies = [
- "argon2",
- "axum",
- "axum-extra",
- "base64 0.23.1",
- "futures",
- "garde",
- "ghostai-agent",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-providers",
- "ghostai-security",
- "ghostai-server",
- "ghostai-tools",
- "hmac",
- "indexmap 2.14.2",
- "lru",
- "parking_lot",
- "rusqlite",
- "rust-embed",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "sha2 0.11.0",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "ghostai-tools"
-version = "0.9.0"
-dependencies = [
- "chrono",
- "futures",
- "ghostai-core",
- "ghostai-protocol",
- "ghostai-security",
- "ghostai-tools",
- "indexmap 2.14.2",
- "jsonschema",
- "nix",
- "parking_lot",
- "proptest",
- "regex",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "walkdir",
-]
-
-[[package]]
-name = "ghostai-tui"
-version = "0.9.0"
-dependencies = [
- "crossterm",
- "proptest",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]

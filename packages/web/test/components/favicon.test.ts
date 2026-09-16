@@ -1,7 +1,7 @@
 /**
  * The favicon, and the lucide icon it is a copy of.
  *
- * The mark in the app is `Skull` from `lucide-react`, imported like every other
+ * The mark in the app is `Webhook` from `lucide-react`, imported like every other
  * icon. A browser tab cannot import anything — it has no cascade to inherit a
  * colour from and no React to get lucide's stroke defaults from — so the same
  * drawing has to exist a second time as a static file with everything written
@@ -9,13 +9,13 @@
  * drifts silently: nobody looks at a favicon twice, and a lucide upgrade that
  * redraws the icon would leave the tab showing the old one indefinitely.
  *
- * So the shapes are read back off a rendered `<Skull />` rather than pasted into
+ * So the shapes are read back off a rendered `<Webhook />` rather than pasted into
  * an assertion. A version bump that changes the drawing fails here, which is the
  * moment to copy the new one across.
  */
 
 import { render } from '@testing-library/react';
-import { Skull } from 'lucide-react';
+import { Webhook } from 'lucide-react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createElement } from 'react';
@@ -28,11 +28,11 @@ const favicon = readFileSync(
   'utf8',
 );
 
-/** Every shape lucide draws for `skull`, as `[tagName, attributes]`. */
+/** Every shape lucide draws for `webhook`, as `[tagName, attributes]`. */
 function shapesOf(): ReadonlyArray<readonly [string, Record<string, string>]> {
-  const { container } = render(createElement(Skull));
+  const { container } = render(createElement(Webhook));
   const svg = container.querySelector('svg');
-  if (svg === null) throw new Error('Skull rendered nothing');
+  if (svg === null) throw new Error('Webhook rendered nothing');
 
   return [...svg.children].map((node) => [
     node.tagName,
@@ -51,8 +51,9 @@ describe('the favicon', () => {
       if (tag === 'path') {
         expect(favicon).toContain(`d="${attributes.d ?? ''}"`);
       } else {
-        // A circle is three numbers rather than one string, and the file writes
-        // them on separate lines, so each is checked on its own.
+        // `webhook` is three paths, so nothing reaches here today. It stays
+        // because the branch is what makes a lucide upgrade that adds a circle
+        // fail here rather than ship a half-drawn tab.
         for (const name of ['cx', 'cy', 'r']) {
           expect(favicon, `${tag} ${name}`).toContain(
             `${name}="${attributes[name] ?? ''}"`,
@@ -77,11 +78,11 @@ describe('the favicon', () => {
 
   it('writes its colour out, because a tab has no cascade to inherit from', () => {
     expect(favicon).not.toContain('currentColor');
-    // The brand *hue* at mid-luminance — `oklch(0.6 0.13 132)`, not the accent
+    // The brand hue at mid-luminance, `oklch(0.6 0.1 195)`, not the accent
     // token's own lightness. A tab strip is white in one OS theme and near-black
-    // in the other, and the light green the app uses holds against only one of
+    // in the other, and the bright cyan the app uses holds against only one of
     // them. The favicon's own comment carries the measurements.
-    expect(favicon).toContain('#629036');
+    expect(favicon).toContain('#008C96');
   });
 
   it('is referenced by index.html, from this origin', () => {

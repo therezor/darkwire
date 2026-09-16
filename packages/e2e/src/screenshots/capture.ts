@@ -9,7 +9,7 @@
  *
  * It is a sibling of `../fidelity/capture.ts` rather than a mode of it. That
  * one exists to diff this product against the one it replaces and refuses to
- * run without `GHOSTAI_FIDELITY_ORIGINAL`; this one must work on any clone. The
+ * run without `DARKWIRE_FIDELITY_ORIGINAL`; this one must work on any clone. The
  * two share the harness, which is the part worth sharing, and nothing else.
  *
  * ## Why so much of this file is about holding the screen still
@@ -294,7 +294,7 @@ const SCREENS: readonly Screen[] = [
   },
 ];
 
-/** A `ghost_session` cookie, and nothing else. */
+/** A `darkwire_session` cookie, and nothing else. */
 type Cookies = Awaited<ReturnType<BrowserContext['cookies']>>;
 
 /**

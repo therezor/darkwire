@@ -27,7 +27,7 @@ import {
   type ApprovalScope,
   type Attachment,
   type ServerMessage,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { useTurnStore } from '@/state/turn.js';
 import { toast } from '@/components/ui/toast.js';

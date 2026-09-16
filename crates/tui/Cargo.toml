@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-tui"
+name = "darkwire-tui"
 description = "A domain-free terminal toolkit: key decoding, display-width text, a frame renderer"
 version.workspace = true
 edition.workspace = true

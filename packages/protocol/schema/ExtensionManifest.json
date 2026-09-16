@@ -4,8 +4,8 @@
     "schema": {
       "type": "string",
       "enum": [
-        "ghostai.extension/1",
-        "ghostai.extension/2"
+        "darkwire.extension/1",
+        "darkwire.extension/2"
       ]
     },
     "id": {
@@ -160,7 +160,7 @@
       "default": {},
       "type": "object",
       "properties": {
-        "ghostai": {
+        "darkwire": {
           "default": "",
           "type": "string"
         }

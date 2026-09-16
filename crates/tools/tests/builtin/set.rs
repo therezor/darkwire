@@ -7,11 +7,11 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-use ghostai_protocol::{
+use darkwire_protocol::{
     BUILTIN_TOOL_NAMES, DEFAULT_AGENT_TOOLS, ToolPermission, ToolRisk, ToolSource, ToolsConfig,
 };
-use ghostai_tools::builtin::all_builtin_tools;
-use ghostai_tools::{BuiltinOptions, ToolRegistry, builtin_tools, register_builtins};
+use darkwire_tools::builtin::all_builtin_tools;
+use darkwire_tools::{BuiltinOptions, ToolRegistry, builtin_tools, register_builtins};
 
 #[test]
 fn registers_every_built_in_under_the_builtin_source() {

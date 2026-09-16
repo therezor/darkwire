@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createWebI18n } from '@ghostwire/i18n/web';
+import { createWebI18n } from '@darkwire/i18n/web';
 
 /** English, resolved: the copy assertions below compare what a user reads. */
 const t = createWebI18n('en').getFixedT(null, 'web');

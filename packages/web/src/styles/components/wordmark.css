@@ -12,7 +12,7 @@
  *
  * **Two tones, not one.** The mark carries the accent and the name inherits its
  * colour from the caller. Both were the accent to begin with, and a mark and a
- * name in one colour at one weight is not a lockup — it is a green blob with a
+ * name in one colour at one weight is not a lockup — it is a cyan blob with a
  * shape at the front. Splitting them gives the pair a hierarchy (mark first,
  * name second) and gives the accent one job in the header instead of six
  * characters' worth of it.
@@ -51,14 +51,15 @@
     text-transform: uppercase;
   }
 
-  /* 1.3em, not 1em. The mark is a filled silhouette with knockouts cut out of
-   * it, so it carries less ink than a run of semibold letters of the same
-   * height and reads smaller than it measures. Matching the cap height exactly
-   * is what made it look undersized. */
+  /* 1.15em, not 1em. The mark is an open line drawing at the same stroke
+   * weight as every other icon, so it carries about as much ink as the letters
+   * beside it and needs far less help than a filled silhouette did. It still
+   * needs some: a glyph that has to read as three curves at the header's size
+   * wants a little more than the cap height. */
   .wordmark__mark {
     flex-shrink: 0;
-    width: 1.3em;
-    height: 1.3em;
+    width: 1.15em;
+    height: 1.15em;
     color: var(--accent-fg);
   }
 }

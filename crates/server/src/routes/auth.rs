@@ -27,9 +27,9 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse as _, Response};
-use ghostai_core::GhostError;
-use ghostai_protocol::json::True;
-use ghostai_protocol::rest::{
+use darkwire_core::WireError;
+use darkwire_protocol::json::True;
+use darkwire_protocol::rest::{
     AuthSessionResponse, LoginRequest, LoginResponse, SetupClaimRequest, SetupPasswordRequest,
     SetupStatusResponse,
 };
@@ -113,8 +113,8 @@ where
         .map_err(|_| {
             HttpError::new(
                 StatusCode::PAYLOAD_TOO_LARGE,
-                ghostai_protocol::ws::ErrorCode::BadRequest,
-                ghostai_core::ErrorKind::InvalidInput,
+                darkwire_protocol::ws::ErrorCode::BadRequest,
+                darkwire_core::ErrorKind::InvalidInput,
                 "The request body is too large.",
             )
         })?;
@@ -129,7 +129,7 @@ where
 /// awaited it inline would hold a worker for the whole of that expense.
 async fn blocking<T, F>(work: F) -> Result<T, HttpError>
 where
-    F: FnOnce() -> ghostai_core::Result<T> + Send + 'static,
+    F: FnOnce() -> darkwire_core::Result<T> + Send + 'static,
     T: Send + 'static,
 {
     match tokio::task::spawn_blocking(work).await {
@@ -137,8 +137,8 @@ where
         // The task panicked or was cancelled. Neither is something a caller
         // can act on, and neither is a credential failure, so it is the one
         // generic 500 rather than a 401 that would read as a wrong password.
-        Err(error) => Err(HttpError::from(GhostError::new(
-            ghostai_core::ErrorKind::Internal,
+        Err(error) => Err(HttpError::from(WireError::new(
+            darkwire_core::ErrorKind::Internal,
             format!("The credential check did not complete: {error}"),
         ))),
     }

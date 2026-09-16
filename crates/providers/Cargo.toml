@@ -1,5 +1,5 @@
 [package]
-name = "ghostai-providers"
+name = "darkwire-providers"
 description = "The provider registry, the openai-chat wire, SSE parsing, resilience, token accounting"
 version.workspace = true
 edition.workspace = true
@@ -18,9 +18,9 @@ workspace = true
 testkit = []
 
 [dependencies]
-ghostai-core.workspace = true
-ghostai-protocol.workspace = true
-ghostai-security.workspace = true
+darkwire-core.workspace = true
+darkwire-protocol.workspace = true
+darkwire-security.workspace = true
 chrono.workspace = true
 futures.workspace = true
 indexmap.workspace = true
@@ -34,9 +34,9 @@ tokio-util.workspace = true
 # The crate's own test doubles, and the clocks and random sources of the
 # crates below it, reach the tests through the feature the gate does not
 # otherwise turn on.
-ghostai-providers = { workspace = true, features = ["testkit"] }
-ghostai-core = { workspace = true, features = ["testkit"] }
-ghostai-security = { workspace = true, features = ["testkit"] }
+darkwire-providers = { workspace = true, features = ["testkit"] }
+darkwire-core = { workspace = true, features = ["testkit"] }
+darkwire-security = { workspace = true, features = ["testkit"] }
 proptest.workspace = true
 # `start_paused` for the backoff tests: nothing sleeps for real.
 tokio = { workspace = true, features = ["test-util"] }

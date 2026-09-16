@@ -25,7 +25,7 @@ import {
 const VALUES: PromptValues = {
   name: 'Reviewer',
   workspaceId: 'acme',
-  workspaceRoot: '/home/ghost/.ghostai/workspace/acme',
+  workspaceRoot: '/home/ghost/.darkwire/workspace/acme',
   runtime: 'Linux x64, Node 22.0.0',
 };
 
@@ -37,7 +37,7 @@ describe('renderPromptTemplate', () => {
     );
 
     expect(rendered).toBe(
-      'Reviewer in acme at /home/ghost/.ghostai/workspace/acme on Linux x64, Node 22.0.0',
+      'Reviewer in acme at /home/ghost/.darkwire/workspace/acme on Linux x64, Node 22.0.0',
     );
   });
 

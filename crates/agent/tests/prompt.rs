@@ -14,13 +14,13 @@
     reason = "a golden that cannot load is a failing test either way"
 )]
 
-use ghostai_agent::prompt::{
+use darkwire_agent::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, Platform,
     PromptAgent, PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt,
     build_runtime_block, build_static_prompt, contributor_sections, runtime_reminder, template_or,
 };
-use ghostai_protocol::PromptMode;
-use ghostai_providers::BoxFuture;
+use darkwire_protocol::PromptMode;
+use darkwire_providers::BoxFuture;
 
 /// The label every golden was generated with. Injected, never derived: a
 /// golden that read the host would pass on one machine and fail on the next.
@@ -36,7 +36,7 @@ fn host(platform: Platform) -> Host {
 
 fn context() -> StaticPromptContext {
     StaticPromptContext {
-        workspace_root: "/home/u/.ghostai/workspace".to_owned(),
+        workspace_root: "/home/u/.darkwire/workspace".to_owned(),
         workspace_id: "default".to_owned(),
         session_key: "web:1".to_owned(),
         agent_id: None,
@@ -343,7 +343,7 @@ async fn an_unrecognised_platform_is_named_as_the_target_reports_it() {
         tools: Some(&PromptTools::default()),
         host: Host {
             platform: Platform::named("freebsd"),
-            runtime_label: "FreeBSD amd64, GhostAI 0.0.0".to_owned(),
+            runtime_label: "FreeBSD amd64, DarkWire 0.0.0".to_owned(),
         },
         ..BuildStaticPrompt::new(&context)
     })
@@ -364,7 +364,7 @@ fn the_host_platform_maps_onto_the_names_a_person_uses() {
     assert_eq!(Platform::named("redox").as_str(), "redox");
     // The host's own, whichever machine this runs on.
     assert_eq!(Platform::host(), Platform::named(std::env::consts::OS));
-    assert!(Host::default().runtime_label.contains("GhostAI"));
+    assert!(Host::default().runtime_label.contains("DarkWire"));
 }
 
 #[tokio::test]
@@ -383,7 +383,7 @@ async fn an_agent_replaces_the_identity_wholesale() {
     .await;
 
     assert_eq!(prompt, "You review default and nothing else.");
-    assert!(!prompt.contains("GhostAI"));
+    assert!(!prompt.contains("DarkWire"));
 }
 
 #[tokio::test]
@@ -402,7 +402,7 @@ async fn a_whitespace_only_identity_falls_back_to_the_built_in() {
     })
     .await;
 
-    assert!(prompt.starts_with("# GhostAI"));
+    assert!(prompt.starts_with("# DarkWire"));
 }
 
 #[tokio::test]
@@ -801,7 +801,7 @@ fn a_raw_agent_with_no_template_still_gets_an_identity() {
         ..BuildRawPrompt::new(&runtime, NONCE)
     });
 
-    assert!(prompt.starts_with("# GhostAI"));
+    assert!(prompt.starts_with("# DarkWire"));
 }
 
 #[test]

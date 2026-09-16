@@ -11,22 +11,22 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
-use ghostai_core::ErrorKind;
-use ghostai_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
-use ghostai_core::testkit::ManualClock;
-use ghostai_protocol::ReasoningEffort;
-use ghostai_providers::testkit::{
+use darkwire_core::ErrorKind;
+use darkwire_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
+use darkwire_core::testkit::ManualClock;
+use darkwire_protocol::ReasoningEffort;
+use darkwire_providers::testkit::{
     CompletionOptions, Ending, ScriptedResponse, ScriptedServer, collect, completion, error_body,
     finish_chunk, provider_conformance, reasoning_chunk, sse_body, text_chunk, tool_call_chunk,
     usage_chunk,
 };
-use ghostai_providers::{
+use darkwire_providers::{
     ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, OpenAiChatProvider,
     ProviderError, ProviderErrorReason, ProviderSpec, ToolChoice, WireAdapterOptions, WireProtocol,
     assert_usable_api_base, create_openai_chat_provider, tool_call_id,
 };
-use ghostai_security::testkit::FixedRandom;
+use darkwire_security::testkit::FixedRandom;
+use futures::StreamExt;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
@@ -218,7 +218,7 @@ async fn sends_the_bearer_token_and_the_table_headers() {
         headers.get("authorization").map(String::as_str),
         Some("Bearer sk-or-secret")
     );
-    assert_eq!(headers.get("x-title").map(String::as_str), Some("GhostAI"));
+    assert_eq!(headers.get("x-title").map(String::as_str), Some("DarkWire"));
     assert_eq!(headers.get("x-custom").map(String::as_str), Some("yes"));
     assert_eq!(
         headers.get("content-type").map(String::as_str),

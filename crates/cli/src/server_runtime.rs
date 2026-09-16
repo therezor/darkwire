@@ -1,9 +1,9 @@
-//! `GhostRuntime` as the server's routes want it.
+//! `WireRuntime` as the server's routes want it.
 //!
-//! `ghostai-server` states a narrow [`ServerRuntime`] port rather than
+//! `darkwire-server` states a narrow [`ServerRuntime`] port rather than
 //! depending on the composition root, so that a route test needs neither a
 //! provider nor a vault nor a workspace. This is the adapter on the other side
-//! of that port, and it lives here because `ghostai serve` is where the two
+//! of that port, and it lives here because `darkwire serve` is where the two
 //! halves are wired together in the first place.
 //!
 //! It is not a pass-through. Five things the port promises are implemented
@@ -35,29 +35,29 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use ghostai_agent::{PromptPreview, PromptPreviewInput};
-use ghostai_core::{
-    Database, ErrorKind, GhostError, Result, SessionStore, SystemClock, WorkspaceStore, save_config,
+use darkwire_agent::{PromptPreview, PromptPreviewInput};
+use darkwire_core::{
+    Database, ErrorKind, Result, SessionStore, SystemClock, WireError, WorkspaceStore, save_config,
 };
-use ghostai_protocol::DEFAULT_AGENT_ID;
-use ghostai_protocol::config::{Config, ConfigPatch};
-use ghostai_protocol::environment::EnvironmentDefinition;
-use ghostai_protocol::rest::{
+use darkwire_protocol::DEFAULT_AGENT_ID;
+use darkwire_protocol::config::{Config, ConfigPatch};
+use darkwire_protocol::environment::EnvironmentDefinition;
+use darkwire_protocol::rest::{
     ChannelStatus, ConfigWarning, CredentialNamespace, ExtensionCommand, ExtensionStatus,
     McpServerStatus, ModelsResponse, ProviderTestRequest, ProviderTestResponse, RunCommandRequest,
     RunCommandResponse, SetCredentialRequest,
 };
-use ghostai_protocol::tools::ToolDefinition;
-use ghostai_providers::{ChatRequest, ChatResult, PROVIDERS, list_instances};
-use ghostai_runtime::{
-    GhostRuntime, PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, open_vault, resolve_agent,
+use darkwire_protocol::tools::ToolDefinition;
+use darkwire_providers::{ChatRequest, ChatResult, PROVIDERS, list_instances};
+use darkwire_runtime::{
+    PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, WireRuntime, open_vault, resolve_agent,
 };
-use ghostai_security::jail::WorkspaceJail;
-use ghostai_security::policy_store::{EnvironmentListing, PolicyStore};
-use ghostai_security::{CredentialVault, ExtensionStore};
-use ghostai_server::runtime::DirectChatInput;
-use ghostai_server::{AgentSummary, AgentView, ExtensionCounts, ServerRuntime};
+use darkwire_security::jail::WorkspaceJail;
+use darkwire_security::policy_store::{EnvironmentListing, PolicyStore};
+use darkwire_security::{CredentialVault, ExtensionStore};
+use darkwire_server::runtime::DirectChatInput;
+use darkwire_server::{AgentSummary, AgentView, ExtensionCounts, ServerRuntime};
+use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -117,7 +117,7 @@ impl ModelSource for CatalogueSource {
         request: &'a ProviderTestRequest,
     ) -> BoxFuture<'a, Result<ProviderTestResponse>> {
         Box::pin(async move {
-            let Some(spec) = ghostai_providers::find_provider(&request.kind, &PROVIDERS) else {
+            let Some(spec) = darkwire_providers::find_provider(&request.kind, &PROVIDERS) else {
                 return Ok(ProviderTestResponse {
                     ok: false,
                     models: Vec::new(),
@@ -129,7 +129,7 @@ impl ModelSource for CatalogueSource {
                 });
             };
 
-            let config = ghostai_protocol::ProviderConfig {
+            let config = darkwire_protocol::ProviderConfig {
                 kind: request.kind.clone(),
                 label: String::new(),
                 api_base: Some(request.api_base.clone()),
@@ -137,7 +137,7 @@ impl ModelSource for CatalogueSource {
                 models: Vec::new(),
                 enabled: true,
             };
-            let connection = ghostai_providers::resolve_connection(spec, Some(&config));
+            let connection = darkwire_providers::resolve_connection(spec, Some(&config));
             // An omitted key means "whatever is stored"; an *empty* one is the
             // different question "does this answer with no key at all", and
             // both are ones an operator asks.
@@ -190,7 +190,7 @@ impl ModelSource for CatalogueSource {
     }
 }
 
-/// Rebuilds what only `ghostai serve` owns, after an extension was loaded.
+/// Rebuilds what only `darkwire serve` owns, after an extension was loaded.
 ///
 /// The knot this unties: approving an extension can bring a channel factory
 /// with it, and the channel manager fixes its factories at construction. So the
@@ -203,7 +203,7 @@ pub type ExtensionsChanged = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Syn
 /// Two writes can, and only two: a settings save, which is where
 /// `config.channels` lives, and a channel's own credential, which is where a
 /// bot token lives. Both mean a *new* manager rather than a restart, because
-/// [`ChannelManager`](ghostai_channels::ChannelManager) fixes its factories at
+/// [`ChannelManager`](darkwire_channels::ChannelManager) fixes its factories at
 /// construction — and only the composition root knows a manager exists, which
 /// is why this arrives as a callback instead of being done here.
 pub type ChannelsChanged = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
@@ -240,7 +240,7 @@ pub struct ServerRuntimeOptions {
 /// and a catalogue that opened its own vault would mint a second keychain entry
 /// for the same install.
 pub struct Credentials {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     env: std::collections::HashMap<String, String>,
     /// Opened lazily, and only when there is one or one is being written.
     vault: Mutex<Option<Arc<Mutex<CredentialVault>>>>,
@@ -255,7 +255,7 @@ impl std::fmt::Debug for Credentials {
 impl Credentials {
     /// A reader over one install's vault and environment.
     pub fn new(
-        runtime: Arc<GhostRuntime>,
+        runtime: Arc<WireRuntime>,
         env: std::collections::HashMap<String, String>,
         vault: Option<Arc<Mutex<CredentialVault>>>,
     ) -> Arc<Credentials> {
@@ -322,7 +322,7 @@ impl Credentials {
 
 /// The adapter.
 pub struct CliServerRuntime {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     options: ServerRuntimeOptions,
     credentials: Arc<Credentials>,
     /// The catalogue the model routes and a provider test both go through.
@@ -341,7 +341,7 @@ impl CliServerRuntime {
     /// the same credential reader the presence flags do and a second one would
     /// open a second vault. A caller that wants a different catalogue — a test,
     /// which must not dial anything — supplies one in the options.
-    pub fn new(runtime: Arc<GhostRuntime>, options: ServerRuntimeOptions) -> Arc<CliServerRuntime> {
+    pub fn new(runtime: Arc<WireRuntime>, options: ServerRuntimeOptions) -> Arc<CliServerRuntime> {
         let credentials = Credentials::new(
             Arc::clone(&runtime),
             options.env.clone(),
@@ -376,7 +376,7 @@ impl CliServerRuntime {
     }
 
     /// The runtime underneath, for the composition root that built it.
-    pub fn runtime(&self) -> &Arc<GhostRuntime> {
+    pub fn runtime(&self) -> &Arc<WireRuntime> {
         &self.runtime
     }
 
@@ -496,7 +496,7 @@ impl ServerRuntime for CliServerRuntime {
 
     fn set_credential(&self, request: &SetCredentialRequest) -> Result<()> {
         let Some(vault) = self.credentials.open(true) else {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::Storage,
                 "The credential vault could not be opened",
             ));
@@ -537,7 +537,7 @@ impl ServerRuntime for CliServerRuntime {
         self.runtime
             .config_warnings()
             .iter()
-            .map(ghostai_runtime::AgentConfigWarning::to_dto)
+            .map(darkwire_runtime::AgentConfigWarning::to_dto)
             .collect()
     }
 
@@ -651,7 +651,7 @@ impl ServerRuntime for CliServerRuntime {
                 self.runtime
                     .mcp_servers()
                     .iter()
-                    .filter(|server| server.state == ghostai_protocol::McpServerState::Ready)
+                    .filter(|server| server.state == darkwire_protocol::McpServerState::Ready)
                     .count(),
             )
             .unwrap_or(u32::MAX),
@@ -745,7 +745,7 @@ impl ServerRuntime for CliServerRuntime {
                 .runtime
                 .provider_for(input.agent_id.as_deref(), input.model.as_deref())?
                 .ok_or_else(|| {
-                    GhostError::new(
+                    WireError::new(
                         ErrorKind::NotFound,
                         "No provider is configured to answer with.",
                     )
@@ -764,14 +764,14 @@ impl ServerRuntime for CliServerRuntime {
 
 /// One agent, as the status and context routes see it.
 struct CliAgentView {
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     id: String,
     label: String,
     is_default: bool,
     tools_enabled: bool,
     context_window_tokens: u32,
-    tools: ghostai_protocol::ToolPermissions,
-    agent_loop: Option<ghostai_agent::AgentLoop>,
+    tools: darkwire_protocol::ToolPermissions,
+    agent_loop: Option<darkwire_agent::AgentLoop>,
     /// The endpoint a turn would reach, resolved once at construction.
     ///
     /// The loop's when there is one, and the *resolved instance's* when there
@@ -804,7 +804,7 @@ impl AgentView for CliAgentView {
     fn model(&self) -> &str {
         self.agent_loop
             .as_ref()
-            .map_or("", ghostai_agent::AgentLoop::model)
+            .map_or("", darkwire_agent::AgentLoop::model)
     }
 
     fn configured(&self) -> bool {
@@ -858,7 +858,7 @@ impl AgentView for CliAgentView {
     fn system_prompt<'a>(
         &'a self,
         input: &'a PromptPreviewInput,
-    ) -> ghostai_providers::BoxFuture<'a, Result<PromptPreview>> {
+    ) -> darkwire_providers::BoxFuture<'a, Result<PromptPreview>> {
         Box::pin(async move {
             let Some(one) = self.agent_loop.as_ref() else {
                 // The context route asks for this to show what a turn would

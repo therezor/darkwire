@@ -10,7 +10,7 @@
 //!    want a shell, and interpolating a command into one would re-create
 //!    exactly the injection surface the argv contract exists to remove.
 //!    Instead the script is a **fixed literal** and the command arrives as
-//!    positional parameters: `sh -c '<constant>' ghost-exec <dir> <file>
+//!    positional parameters: `sh -c '<constant>' darkwire-exec <dir> <file>
 //!    <args…>` leaves `"$@"` holding the argv, unquoted and uninterpreted.
 //!    Nothing the model wrote is ever parsed by a shell.
 //!
@@ -45,10 +45,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use ghostai_core::{Clock, ErrorKind, GhostError, Result};
-use ghostai_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
-use ghostai_protocol::{EnvironmentNetwork, NetworkMode};
-use ghostai_security::{ExecPlan, egress::PROXY_PORT};
+use darkwire_core::{Clock, ErrorKind, Result, WireError};
+use darkwire_protocol::environment::{ContainerRuntime, EnvironmentDefinition, SeccompProfile};
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
+use darkwire_security::{ExecPlan, egress::PROXY_PORT};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use regex::Regex;
@@ -60,18 +60,18 @@ use crate::tool::BoxFuture;
 /// Where a container sees its own transcripts, read-only.
 ///
 /// The files are written by the host, from a directory *outside* the workspace
-/// — the install's runs directory. Under `<workspace>/.ghost/runs` they would be
+/// — the install's runs directory. Under `<workspace>/.darkwire/runs` they would be
 /// a host process writing into a directory the agent can write too: planting
 /// `ln -s ~/.ssh/authorized_keys …/stdout.log` makes the host overwrite an
-/// arbitrary host file as the GhostAI user. Mounting them back read-only keeps
+/// arbitrary host file as the DarkWire user. Mounting them back read-only keeps
 /// the recovery path — `grep` your own truncated output — with no way to plant
 /// anything.
 ///
 /// Its own top-level path, never nested inside another read-only mount.
-/// `/run/ghost/runs` under a read-only `/run/ghost` would ask runc to create a
+/// `/run/darkwire/runs` under a read-only `/run/darkwire` would ask runc to create a
 /// mountpoint inside a mount it is in the middle of establishing, which fails
 /// outright: "make mountpoint … read-only file system".
-pub const RUNS_MOUNT_DIR: &str = "/run/ghost-runs";
+pub const RUNS_MOUNT_DIR: &str = "/run/darkwire-runs";
 
 struct TranscriptAndProgress {
     transcript: Arc<Transcript>,
@@ -106,7 +106,7 @@ const KILL_SCRIPT: &str = r#"p=$(cat "$1" 2>/dev/null); case "$p" in "" | *[!0-9
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMount {
     /// The workspace as **the daemon** resolves it, which is not always as
-    /// GhostAI sees it: a containerised GhostAI asking for its own
+    /// DarkWire sees it: a containerised DarkWire asking for its own
     /// `/data/workspace` gets the host's.
     pub host_path: String,
     /// `container.workdir`.
@@ -218,7 +218,7 @@ fn network_flags(options: &ContainerCreateOptions) -> Result<Vec<String>> {
         // Refused rather than silently run wide open. An allow-list with no
         // gateway to enforce it is indistinguishable from no allow-list at all,
         // and this is the failure that would look like it worked.
-        return Err(GhostError::new(
+        return Err(WireError::new(
             ErrorKind::Internal,
             "A scoped-egress sandbox needs a gateway container; refusing to start it with open egress.",
         )
@@ -413,7 +413,7 @@ pub fn container_run_dir(container_name: &str, run_id: &str) -> String {
 /// user's uid, which the profile is explicitly encouraged to set to something
 /// else.
 fn container_pid_file(run_id: &str) -> String {
-    format!("/tmp/.ghost-{run_id}.pid")
+    format!("/tmp/.darkwire-{run_id}.pid")
 }
 
 /// The `docker exec` argv for one command.
@@ -442,7 +442,7 @@ pub fn container_exec_argv(options: &ContainerExecOptions<'_>) -> Vec<String> {
     argv.push("/bin/sh".to_owned());
     argv.push("-c".to_owned());
     argv.push(EXEC_SCRIPT.to_owned());
-    argv.push("ghost-exec".to_owned());
+    argv.push("darkwire-exec".to_owned());
     argv.push(container_pid_file(options.run_id));
     argv.push(options.plan.file.clone());
     argv.extend(options.plan.args.iter().cloned());
@@ -476,7 +476,7 @@ pub fn container_kill_argv(container_name: &str, run_id: &str, signal: KillSigna
         "/bin/sh".to_owned(),
         "-c".to_owned(),
         KILL_SCRIPT.to_owned(),
-        "ghost-kill".to_owned(),
+        "darkwire-kill".to_owned(),
         container_pid_file(run_id),
         signal.as_str().to_owned(),
     ]
@@ -513,7 +513,7 @@ impl Transcript {
     pub fn open(runs_root: &Path, container_name: &str, run_id: &str) -> Result<Transcript> {
         let host_dir = runs_root.join(container_name).join(run_id);
         std::fs::create_dir_all(&host_dir).map_err(|error| {
-            GhostError::new(
+            WireError::new(
                 ErrorKind::Storage,
                 format!(
                     "Could not create the transcript directory {}",

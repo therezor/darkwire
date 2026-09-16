@@ -1,4 +1,4 @@
-//! `ghostai serve` — the same agent, behind a port.
+//! `darkwire serve` — the same agent, behind a port.
 //!
 //! This is the second composition root, and the only place where every piece
 //! meets: one SQLite connection shared by the session store, the auth tables
@@ -34,42 +34,42 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_channels::{
+use darkwire_channels::{
     ChannelFactory, ChannelHub, ChannelHubConnectOptions, ChannelHubConnection, ChannelManager,
     ChannelManagerOptions,
 };
-use ghostai_core::Clock;
-use ghostai_core::paths::GhostPaths;
-use ghostai_core::{
-    Database, ErrorKind, GhostError, LoadConfigOptions, LoadedConfig, Result, SystemClock,
+use darkwire_core::Clock;
+use darkwire_core::paths::WirePaths;
+use darkwire_core::{
+    Database, ErrorKind, LoadConfigOptions, LoadedConfig, Result, SystemClock, WireError,
     ensure_dir, load_config,
 };
-use ghostai_protocol::automation::AutomationRun;
-use ghostai_protocol::rest::ChannelStatus;
-use ghostai_protocol::ws::{
+use darkwire_protocol::automation::AutomationRun;
+use darkwire_protocol::rest::ChannelStatus;
+use darkwire_protocol::ws::{
     ClientMessage, NotificationBody, NotificationLevel, NotificationTag, ToolsChanged,
     ToolsChangedTag,
 };
-use ghostai_protocol::{ServerMessage, new_uuid};
-use ghostai_runtime::{
-    GhostRuntime, RuntimeOptions, VaultChoice, create_runtime, resolve_agent_or_default,
+use darkwire_protocol::{ServerMessage, new_uuid};
+use darkwire_runtime::{
+    RuntimeOptions, VaultChoice, WireRuntime, create_runtime, resolve_agent_or_default,
 };
-use ghostai_security::CredentialVault;
-use ghostai_security::jail::JailCheck;
-use ghostai_security::random::{OsRandom, RandomSource};
-use ghostai_server::hub::{ConnectOptions, Frame, HubClient, HubEvent, OutboundStream};
-use ghostai_server::runtime::DirectChatInput;
-use ghostai_server::scheduler::SchedulerPort;
-use ghostai_server::scheduler::{
+use darkwire_security::CredentialVault;
+use darkwire_security::jail::JailCheck;
+use darkwire_security::random::{OsRandom, RandomSource};
+use darkwire_server::hub::{ConnectOptions, Frame, HubClient, HubEvent, OutboundStream};
+use darkwire_server::runtime::DirectChatInput;
+use darkwire_server::scheduler::SchedulerPort;
+use darkwire_server::scheduler::{
     DirectChat, ReadTaskFile, SchedulerConnectOptions, SchedulerConnection, SchedulerOptions,
 };
-use ghostai_server::{
-    CreateNotificationInput, GhostServer, HubApprovalGate, HubApprovalGateOptions,
-    NotificationStore, Scheduler, ServerAutomationResolver, ServerOptions, ServerRuntime,
-    SessionHub, SessionHubOptions, UiRoot, UnattendedApproval, create_server,
+use darkwire_server::{
+    CreateNotificationInput, HubApprovalGate, HubApprovalGateOptions, NotificationStore, Scheduler,
+    ServerAutomationResolver, ServerOptions, ServerRuntime, SessionHub, SessionHubOptions, UiRoot,
+    UnattendedApproval, WireServer, create_server,
 };
-use ghostai_tools::{ListenerId, ToolRegistry};
-use ghostai_tui::palette_for;
+use darkwire_tools::{ListenerId, ToolRegistry};
+use darkwire_tui::palette_for;
 use tokio_util::sync::CancellationToken;
 
 use crate::Streams;
@@ -115,20 +115,20 @@ pub struct ReadyRecord {
 /// between them.
 pub fn write_ready_file(path: &Path, record: &ReadyRecord) -> Result<()> {
     let body = serde_json::to_string(record).map_err(|error| {
-        GhostError::new(ErrorKind::Internal, "Could not encode the ready record").with_source(error)
+        WireError::new(ErrorKind::Internal, "Could not encode the ready record").with_source(error)
     })?;
     if let Some(parent) = path.parent() {
         ensure_dir(parent)?;
     }
     let temporary = path.with_extension(format!("tmp{}", std::process::id()));
     std::fs::write(&temporary, body.as_bytes()).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Storage,
             format!("Could not write {}: {error}", temporary.display()),
         )
     })?;
     std::fs::rename(&temporary, path).map_err(|error| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Storage,
             format!(
                 "Could not move the ready file into {}: {error}",
@@ -147,13 +147,13 @@ pub fn write_ready_file(path: &Path, record: &ReadyRecord) -> Result<()> {
 
 /// The vault the browser suite runs on, shared by the runtime and the adapter.
 #[cfg(feature = "test-hooks")]
-fn test_vault(paths: &GhostPaths) -> Option<Arc<parking_lot::Mutex<CredentialVault>>> {
+fn test_vault(paths: &WirePaths) -> Option<Arc<parking_lot::Mutex<CredentialVault>>> {
     crate::test_hooks::vault(paths)
 }
 
 /// Never, in a shipping build.
 #[cfg(not(feature = "test-hooks"))]
-fn test_vault(paths: &GhostPaths) -> Option<Arc<parking_lot::Mutex<CredentialVault>>> {
+fn test_vault(paths: &WirePaths) -> Option<Arc<parking_lot::Mutex<CredentialVault>>> {
     let _ = paths;
     None
 }
@@ -166,13 +166,13 @@ fn vault_choice(vault: Option<Arc<parking_lot::Mutex<CredentialVault>>>) -> Vaul
 
 /// The comparison that stands in for argon2id while the suite is running.
 #[cfg(feature = "test-hooks")]
-fn test_hasher() -> Option<Arc<dyn ghostai_server::PasswordHasher>> {
+fn test_hasher() -> Option<Arc<dyn darkwire_server::PasswordHasher>> {
     crate::test_hooks::hasher()
 }
 
 /// Never, in a shipping build: argon2id is the only hasher there is.
 #[cfg(not(feature = "test-hooks"))]
-fn test_hasher() -> Option<Arc<dyn ghostai_server::PasswordHasher>> {
+fn test_hasher() -> Option<Arc<dyn darkwire_server::PasswordHasher>> {
     None
 }
 
@@ -183,19 +183,19 @@ fn test_hasher() -> Option<Arc<dyn ghostai_server::PasswordHasher>> {
 /// built-ins again, so a settings save in the middle of a spec would take the
 /// waiting tool out from under the turn that was using it.
 #[cfg(feature = "test-hooks")]
-fn register_test_tools(runtime: &GhostRuntime) {
+fn register_test_tools(runtime: &WireRuntime) {
     if let Some(tool) = crate::test_hooks::wait_tool() {
         // A name collision is the only failure, and there cannot be one: no
         // built-in is called `e2e_wait`.
         let _ = runtime
             .tools()
-            .register(tool, ghostai_protocol::tools::ToolSource::Extension);
+            .register(tool, darkwire_protocol::tools::ToolSource::Extension);
     }
 }
 
 /// Nothing to register, in a shipping build.
 #[cfg(not(feature = "test-hooks"))]
-fn register_test_tools(runtime: &GhostRuntime) {
+fn register_test_tools(runtime: &WireRuntime) {
     let _ = runtime;
 }
 
@@ -207,7 +207,7 @@ fn register_test_tools(runtime: &GhostRuntime) {
 /// none is honest rather than broken: the API works and `GET /` is a JSON 404.
 pub fn resolve_ui_root(explicit: Option<&str>) -> Result<UiRoot> {
     let Some(explicit) = explicit else {
-        return Ok(if ghostai_server::ui::has_embedded_bundle() {
+        return Ok(if darkwire_server::ui::has_embedded_bundle() {
             UiRoot::Embedded
         } else {
             UiRoot::None
@@ -215,12 +215,12 @@ pub fn resolve_ui_root(explicit: Option<&str>) -> Result<UiRoot> {
     };
 
     let root = std::path::absolute(explicit).unwrap_or_else(|_| PathBuf::from(explicit));
-    if !root.join(ghostai_server::ui::INDEX_FILE).exists() {
-        return Err(GhostError::new(
+    if !root.join(darkwire_server::ui::INDEX_FILE).exists() {
+        return Err(WireError::new(
             ErrorKind::Config,
             format!(
                 "No {} in {}. Is that the built UI directory?",
-                ghostai_server::ui::INDEX_FILE,
+                darkwire_server::ui::INDEX_FILE,
                 root.display()
             ),
         ));
@@ -238,7 +238,7 @@ pub fn resolve_ui_root(explicit: Option<&str>) -> Result<UiRoot> {
 fn pump(mut stream: OutboundStream, send: impl Fn(ServerMessage) + Send + 'static) {
     tokio::spawn(async move {
         while let Some(outbound) = stream.next().await {
-            let ghostai_server::hub::Outbound::Text(text) = outbound else {
+            let darkwire_server::hub::Outbound::Text(text) = outbound else {
                 // A close instruction: there is nothing for a non-socket
                 // consumer to do with a status code, and the stream ending is
                 // the signal it actually acts on.
@@ -261,15 +261,15 @@ fn pump(mut stream: OutboundStream, send: impl Fn(ServerMessage) + Send + 'stati
 /// and it lives here because the composition root is the only place that holds
 /// both.
 struct LoopRunner {
-    agent_loop: ghostai_agent::AgentLoop,
+    agent_loop: darkwire_agent::AgentLoop,
 }
 
-impl ghostai_server::hub::TurnRunner for LoopRunner {
+impl darkwire_server::hub::TurnRunner for LoopRunner {
     fn run(
         &self,
-        input: ghostai_agent::TurnInput,
+        input: darkwire_agent::TurnInput,
         parent: &CancellationToken,
-    ) -> Box<dyn ghostai_server::hub::TurnHandle> {
+    ) -> Box<dyn darkwire_server::hub::TurnHandle> {
         Box::new(self.agent_loop.run(input, parent))
     }
 
@@ -290,20 +290,20 @@ impl ghostai_server::hub::TurnRunner for LoopRunner {
 /// which is the honest answer during a boot that has not reached the scheduler.
 #[derive(Default)]
 struct LateAutomation {
-    inner: parking_lot::RwLock<Option<Arc<dyn ghostai_tools::AutomationResolver>>>,
+    inner: parking_lot::RwLock<Option<Arc<dyn darkwire_tools::AutomationResolver>>>,
 }
 
 impl LateAutomation {
-    fn fill(&self, resolver: Arc<dyn ghostai_tools::AutomationResolver>) {
+    fn fill(&self, resolver: Arc<dyn darkwire_tools::AutomationResolver>) {
         *self.inner.write() = Some(resolver);
     }
 }
 
-impl ghostai_tools::AutomationResolver for LateAutomation {
+impl darkwire_tools::AutomationResolver for LateAutomation {
     fn for_turn(
         &self,
-        request: &ghostai_tools::PlacementRequest,
-    ) -> Option<Arc<dyn ghostai_tools::AutomationPort>> {
+        request: &darkwire_tools::PlacementRequest,
+    ) -> Option<Arc<dyn darkwire_tools::AutomationPort>> {
         self.inner.read().as_ref()?.for_turn(request)
     }
 }
@@ -332,7 +332,7 @@ impl LateScheduler {
 impl SchedulerPort for LateScheduler {
     fn run_now(&self, job_id: &str) -> Result<AutomationRun> {
         let Some(scheduler) = self.inner.read().clone() else {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::NotFound,
                 "This build has no scheduler, so a job cannot be run on demand.",
             ));
@@ -483,7 +483,7 @@ pub fn coalesce(act: Arc<dyn Fn() + Send + Sync>) -> impl Fn() + Send + Sync + '
 ///
 /// Capped rather than read whole, because this runs every interval forever and
 /// a large file would be paid for on each one.
-pub async fn read_workspace_file(runtime: &GhostRuntime, input: &ReadTaskFile) -> Result<String> {
+pub async fn read_workspace_file(runtime: &WireRuntime, input: &ReadTaskFile) -> Result<String> {
     let verdict = runtime
         .jails()
         .for_workspace(&input.workspace_id)
@@ -491,7 +491,7 @@ pub async fn read_workspace_file(runtime: &GhostRuntime, input: &ReadTaskFile) -
     let accepted = match verdict {
         JailCheck::Accept(accepted) => accepted,
         JailCheck::Reject { message, .. } => {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::JailEscape,
                 format!("Cannot read {}: {message}", input.path),
             )
@@ -502,20 +502,20 @@ pub async fn read_workspace_file(runtime: &GhostRuntime, input: &ReadTaskFile) -
     let file = match tokio::fs::File::open(&accepted.path).await {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::NotFound,
                 format!("No {} in the workspace.", input.path),
             )
             .with_detail("path", input.path.clone()));
         }
-        Err(error) => return Err(GhostError::from(error)),
+        Err(error) => return Err(WireError::from(error)),
     };
 
     let cap = u64::try_from(input.max_bytes).unwrap_or(u64::MAX);
     let mut body = Vec::new();
     tokio::io::AsyncReadExt::read_to_end(&mut tokio::io::AsyncReadExt::take(file, cap), &mut body)
         .await
-        .map_err(GhostError::from)?;
+        .map_err(WireError::from)?;
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
@@ -529,12 +529,12 @@ pub async fn read_workspace_file(runtime: &GhostRuntime, input: &ReadTaskFile) -
 /// each mean building one from scratch, and this holds the ingredients.
 struct ChannelSet {
     hub: Arc<dyn ChannelHub>,
-    runtime: Arc<GhostRuntime>,
+    runtime: Arc<WireRuntime>,
     /// Filled in once the adapter exists: the Telegram console answers through
     /// the same port the REST routes do, and that port is built over a runtime
     /// that is built over this set's own rebuild callback.
     server: parking_lot::RwLock<Option<Arc<dyn ServerRuntime>>>,
-    paths: GhostPaths,
+    paths: WirePaths,
     env: Env,
     /// Registered before the pumps start, ahead of the built-ins.
     injected: Vec<ChannelFactory>,
@@ -610,7 +610,7 @@ impl ChannelSet {
                 bus_options: None,
                 clock: Arc::clone(&self.clock) as Arc<dyn Clock>,
                 new_id: Arc::new(new_id(Arc::clone(&self.clock))),
-                max_sessions: ghostai_channels::DEFAULT_MAX_CHANNEL_SESSIONS,
+                max_sessions: darkwire_channels::DEFAULT_MAX_CHANNEL_SESSIONS,
                 workspace_id: None,
             })
         });
@@ -712,7 +712,7 @@ impl SchedulerConnection for Bridged {
     }
 }
 
-/// The session hub, as `ghostai-channels` states it.
+/// The session hub, as `darkwire-channels` states it.
 ///
 /// The channels crate depends on neither the server nor the runtime, so the
 /// hub reaches it as a trait and this is the only place the two are joined.
@@ -749,7 +749,7 @@ pub struct RunningServer {
     /// Where the UI is served from.
     pub ui: UiRoot,
     /// The composition root underneath.
-    pub runtime: Arc<GhostRuntime>,
+    pub runtime: Arc<WireRuntime>,
     hub: Arc<SessionHub>,
     scheduler: Arc<Scheduler>,
     channels: Arc<ChannelSet>,
@@ -772,7 +772,7 @@ pub struct RunningServer {
     /// same install would otherwise be refused by a service that outlived the
     /// first. Its own containers are reaped by the sweep the next one runs.
     sandbox_service:
-        parking_lot::Mutex<Option<Arc<tokio::task::JoinHandle<ghostai_core::Result<()>>>>>,
+        parking_lot::Mutex<Option<Arc<tokio::task::JoinHandle<darkwire_core::Result<()>>>>>,
     closed: parking_lot::Mutex<bool>,
 }
 
@@ -839,7 +839,7 @@ pub struct ServeOptions {
     /// The environment to read.
     pub env: Env,
     /// Registered before the pumps start, ahead of the built-ins.
-    pub channels: Vec<ghostai_channels::ChannelFactory>,
+    pub channels: Vec<darkwire_channels::ChannelFactory>,
 }
 
 /// The install's paths and its open database, before anything else exists.
@@ -911,7 +911,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
         home: globals.home.clone(),
         workspace: args.workspace.clone(),
         approvals: Some(approvals.clone()),
-        automation: Some(Arc::clone(&automation) as Arc<dyn ghostai_tools::AutomationResolver>),
+        automation: Some(Arc::clone(&automation) as Arc<dyn darkwire_tools::AutomationResolver>),
         env: Some(env_map(&env)),
         database: Some(database.clone()),
         clock: Some(clock.clone()),
@@ -964,9 +964,9 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     channels.fill_server(Arc::clone(&server_runtime) as Arc<dyn ServerRuntime>);
     let ui = resolve_ui_root(args.ui.as_deref())?;
 
-    let built: GhostServer = create_server(ServerOptions {
+    let built: WireServer = create_server(ServerOptions {
         config: config.clone(),
-        runtime: Arc::clone(&server_runtime) as Arc<dyn ghostai_server::ServerRuntime>,
+        runtime: Arc::clone(&server_runtime) as Arc<dyn darkwire_server::ServerRuntime>,
         hub: Arc::clone(&hub),
         ui: ui.clone(),
         database: database.clone(),
@@ -1070,10 +1070,10 @@ fn build_gate(watch: &Arc<LateWatch>, clock: &Arc<SystemClock>) -> Arc<HubApprov
 /// construction, so every write that can move a channel means building a new
 /// one — and only the composition root knows a manager exists at all.
 fn build_adapter(
-    runtime: &Arc<GhostRuntime>,
+    runtime: &Arc<WireRuntime>,
     channels: &Arc<ChannelSet>,
     env: &Env,
-    vault: Option<Arc<parking_lot::Mutex<ghostai_security::CredentialVault>>>,
+    vault: Option<Arc<parking_lot::Mutex<darkwire_security::CredentialVault>>>,
 ) -> Arc<CliServerRuntime> {
     let for_rebuild = Arc::clone(channels);
     let for_extensions = Arc::clone(channels);
@@ -1116,7 +1116,7 @@ fn build_adapter(
 /// panel already mutated the registry, and nothing told the browser until the
 /// next reload.
 fn publish_tool_changes(
-    runtime: &Arc<GhostRuntime>,
+    runtime: &Arc<WireRuntime>,
     server_runtime: &Arc<CliServerRuntime>,
     hub: &Arc<SessionHub>,
 ) -> (Arc<ToolRegistry>, ListenerId) {
@@ -1142,8 +1142,8 @@ fn publish_tool_changes(
 /// stops resolving rather than living on because the hub was constructed before
 /// the delete.
 fn build_hub(
-    runtime: &Arc<GhostRuntime>,
-    config: &ghostai_protocol::Config,
+    runtime: &Arc<WireRuntime>,
+    config: &darkwire_protocol::Config,
     approvals: &Arc<HubApprovalGate>,
     clock: &Arc<SystemClock>,
 ) -> Arc<SessionHub> {
@@ -1153,17 +1153,18 @@ fn build_hub(
         config: config.clone(),
         loop_for: Arc::new(move |agent_id| {
             Ok(for_loop.loop_for(agent_id)?.map(|one| {
-                Arc::new(LoopRunner { agent_loop: one }) as Arc<dyn ghostai_server::hub::TurnRunner>
+                Arc::new(LoopRunner { agent_loop: one })
+                    as Arc<dyn darkwire_server::hub::TurnRunner>
             }))
         }),
         resolve_agent_id: Arc::new(move |agent_id| {
             let config = resolver.config();
             resolve_agent_or_default(&config, agent_id).map_or_else(
-                |_| ghostai_server::hub::AgentResolution {
-                    agent_id: ghostai_protocol::DEFAULT_AGENT_ID.to_owned(),
+                |_| darkwire_server::hub::AgentResolution {
+                    agent_id: darkwire_protocol::DEFAULT_AGENT_ID.to_owned(),
                     miss: None,
                 },
-                |resolution| ghostai_server::hub::AgentResolution {
+                |resolution| darkwire_server::hub::AgentResolution {
                     agent_id: resolution.agent.id,
                     miss: resolution.miss.map(miss_reason),
                 },
@@ -1180,14 +1181,16 @@ fn build_hub(
 
 /// The same distinction, in the two crates that each state it for themselves.
 ///
-/// `ghostai-runtime` and `ghostai-server` both name the two ways an agent id
+/// `darkwire-runtime` and `darkwire-server` both name the two ways an agent id
 /// can miss, and neither depends on the other — so the mapping is written once
 /// here rather than either crate reaching for the other's spelling.
-fn miss_reason(miss: ghostai_runtime::AgentMissReason) -> ghostai_server::hub::AgentMissReason {
+fn miss_reason(miss: darkwire_runtime::AgentMissReason) -> darkwire_server::hub::AgentMissReason {
     match miss {
-        ghostai_runtime::AgentMissReason::Unknown => ghostai_server::hub::AgentMissReason::Unknown,
-        ghostai_runtime::AgentMissReason::Disabled => {
-            ghostai_server::hub::AgentMissReason::Disabled
+        darkwire_runtime::AgentMissReason::Unknown => {
+            darkwire_server::hub::AgentMissReason::Unknown
+        }
+        darkwire_runtime::AgentMissReason::Disabled => {
+            darkwire_server::hub::AgentMissReason::Disabled
         }
     }
 }
@@ -1198,9 +1201,9 @@ fn miss_reason(miss: ghostai_runtime::AgentMissReason) -> ghostai_server::hub::A
 /// the stores it drives are created while the server is built, and the server
 /// needs the runtime. Building it here, after both, is what unties that.
 fn build_scheduler(
-    runtime: &Arc<GhostRuntime>,
+    runtime: &Arc<WireRuntime>,
     server_runtime: &Arc<CliServerRuntime>,
-    built: &GhostServer,
+    built: &WireServer,
     hub: &Arc<SessionHub>,
     clock: &Arc<SystemClock>,
 ) -> Arc<Scheduler> {
@@ -1232,7 +1235,7 @@ fn build_scheduler(
             Arc::new(Bridged { client }) as Arc<dyn SchedulerConnection>
         }),
         broadcast: Arc::new(move |event| {
-            for_broadcast.broadcast(&ghostai_server::hub::HubEvent::Notification(
+            for_broadcast.broadcast(&darkwire_server::hub::HubEvent::Notification(
                 NotificationBody {
                     tag: NotificationTag,
                     id: event.id,
@@ -1267,7 +1270,7 @@ fn build_scheduler(
                 };
                 match adapter.chat(request) {
                     Some(answer) => answer.await,
-                    None => Err(GhostError::new(
+                    None => Err(WireError::new(
                         ErrorKind::NotFound,
                         "No provider is configured to answer with.",
                     )),
@@ -1293,8 +1296,8 @@ fn build_scheduler(
 /// nothing can be scheduled on an install where something can.
 fn fill_automation(
     automation: &LateAutomation,
-    runtime: &Arc<GhostRuntime>,
-    built: &GhostServer,
+    runtime: &Arc<WireRuntime>,
+    built: &WireServer,
     scheduler: &Arc<Scheduler>,
     clock: &Arc<SystemClock>,
 ) {
@@ -1329,7 +1332,9 @@ fn new_id(clock: Arc<SystemClock>) -> impl Fn() -> String + Send + Sync + 'stati
 /// The config models the two known flags as fields and everything else as a
 /// loose map; the manager takes one JSON object holding all three, because a
 /// channel looks its own block up by id and has never heard of the two flags.
-fn channel_blocks(config: &ghostai_protocol::Config) -> serde_json::Map<String, serde_json::Value> {
+fn channel_blocks(
+    config: &darkwire_protocol::Config,
+) -> serde_json::Map<String, serde_json::Value> {
     serde_json::to_value(&config.channels)
         .ok()
         .and_then(|value| match value {
@@ -1342,7 +1347,7 @@ fn channel_blocks(config: &ghostai_protocol::Config) -> serde_json::Map<String, 
 /// The address to bind, refused before a listener exists.
 fn bind_address(host: &str, port: u16) -> Result<SocketAddr> {
     let ip: IpAddr = host.parse().map_err(|_| {
-        GhostError::new(
+        WireError::new(
             ErrorKind::Config,
             format!("\"{host}\" is not an address this server can bind."),
         )
@@ -1353,7 +1358,7 @@ fn bind_address(host: &str, port: u16) -> Result<SocketAddr> {
 
 /// What an operator needs to know in the second after it starts.
 pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -> String {
-    use ghostai_i18n::{args, keys};
+    use darkwire_i18n::{args, keys};
 
     let c = palette_for(colors);
     let config = running.runtime.config();
@@ -1382,7 +1387,7 @@ pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -
             match instance {
                 Some(instance) if running.runtime.configured() => format!(
                     "{} · {}",
-                    ghostai_providers::instance_label(&instance),
+                    darkwire_providers::instance_label(&instance),
                     running.runtime.model()
                 ),
                 _ => c.yellow.apply(&t.t(keys::serve::AGENT_UNCONFIGURED)),
@@ -1447,7 +1452,7 @@ pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -
     )
 }
 
-/// Runs `ghostai serve` and stays up until it is asked to stop.
+/// Runs `darkwire serve` and stays up until it is asked to stop.
 ///
 /// Answers with an exit code rather than ending the process, like every other
 /// subcommand — the listener has to close before the process ends, or the last
@@ -1487,26 +1492,26 @@ pub async fn run(
 
     if json {
         let line = serde_json::to_string(&record).map_err(|error| {
-            GhostError::new(ErrorKind::Internal, "Could not encode the ready record")
+            WireError::new(ErrorKind::Internal, "Could not encode the ready record")
                 .with_source(error)
         })?;
-        writeln!(streams.out, "{line}").map_err(GhostError::from)?;
+        writeln!(streams.out, "{line}").map_err(WireError::from)?;
     } else {
-        write!(streams.out, "{}", banner(&running, colors, &t)).map_err(GhostError::from)?;
+        write!(streams.out, "{}", banner(&running, colors, &t)).map_err(WireError::from)?;
     }
-    streams.out.flush().map_err(GhostError::from)?;
+    streams.out.flush().map_err(WireError::from)?;
 
     wait_for_stop().await;
     // A newline first: Ctrl-C echoes `^C` at the cursor, and the shutdown line
     // would otherwise be appended to it.
     if !json {
-        writeln!(streams.out).map_err(GhostError::from)?;
+        writeln!(streams.out).map_err(WireError::from)?;
     }
 
     running.close().await;
     if !json {
-        writeln!(streams.out, "{}", t.t(ghostai_i18n::keys::serve::STOPPED))
-            .map_err(GhostError::from)?;
+        writeln!(streams.out, "{}", t.t(darkwire_i18n::keys::serve::STOPPED))
+            .map_err(WireError::from)?;
     }
     Ok(0)
 }

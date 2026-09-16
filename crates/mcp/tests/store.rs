@@ -9,11 +9,11 @@
 
 use std::sync::Arc;
 
-use ghostai_mcp::{
+use darkwire_mcp::{
     MCP_CREDENTIAL_NAMESPACE, McpSecretSlot, McpSecretStore, MemorySecretStore, VaultSecretStore,
 };
-use ghostai_security::CredentialVault;
-use ghostai_security::testkit::FixedRandom;
+use darkwire_security::CredentialVault;
+use darkwire_security::testkit::FixedRandom;
 use parking_lot::Mutex;
 
 #[test]

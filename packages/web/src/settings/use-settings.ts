@@ -27,7 +27,7 @@ import type {
   SetCredentialRequest,
   SettingsPatchRequest,
   SettingsResponse,
-} from '@ghostwire/protocol';
+} from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';

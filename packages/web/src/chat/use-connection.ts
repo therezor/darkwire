@@ -22,7 +22,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
-import type { ContextResponse } from '@ghostwire/protocol';
+import type { ContextResponse } from '@darkwire/protocol';
 
 import { queryKeys } from '@/lib/query.js';
 import { useTurnStore } from '@/state/turn.js';

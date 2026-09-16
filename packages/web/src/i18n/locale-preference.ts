@@ -29,7 +29,7 @@ import {
   isRtl,
   resolveFirstLocale,
   type Locale,
-} from '@ghostwire/i18n';
+} from '@darkwire/i18n';
 
 /**
  * What the user chose: a BCP-47 tag, or `SYSTEM` meaning "ask the browser".
@@ -45,7 +45,7 @@ export type LocalePreference = string;
 export const SYSTEM: LocalePreference = 'system';
 
 /** Shared with `index.html`'s pre-paint script, which cannot import it. */
-export const LOCALE_STORAGE_KEY = 'ghostai.locale';
+export const LOCALE_STORAGE_KEY = 'darkwire.locale';
 
 export function isLocalePreference(value: unknown): value is LocalePreference {
   // Deliberately not checked against `SUPPORTED_LOCALES`: a stored tag for a

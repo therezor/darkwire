@@ -18,8 +18,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ghostai_core::{Clock, Database, ErrorKind, GhostError, Result, RowReader};
-use ghostai_protocol::{ExtensionManifest, is_extension_id};
+use darkwire_core::{Clock, Database, ErrorKind, Result, RowReader, WireError};
+use darkwire_protocol::{ExtensionManifest, is_extension_id};
 use rusqlite::params;
 
 use crate::extension::{assert_extension_policy, extension_digest, read_extension_manifest};
@@ -73,7 +73,7 @@ fn failed(
     id: &str,
     dir: &Path,
     manifest: Option<ExtensionManifest>,
-    error: &GhostError,
+    error: &WireError,
 ) -> ExtensionResolution {
     ExtensionResolution {
         id: id.to_owned(),
@@ -120,7 +120,7 @@ impl ExtensionStore {
     /// The install directory for `id`, once the id is known to be a slug.
     pub fn dir_for(&self, id: &str) -> Result<PathBuf> {
         if !is_extension_id(id) {
-            return Err(GhostError::new(
+            return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 format!("Not an extension id: {id}"),
             )
@@ -176,7 +176,7 @@ impl ExtensionStore {
                 digest,
                 approved_at_ms: None,
                 problem: Some(format!(
-                    "Extension \"{id}\" is installed but has never been approved.\n  Review what it contributes with `ghostai extension list`, then\n  `ghostai extension approve {id}`."
+                    "Extension \"{id}\" is installed but has never been approved.\n  Review what it contributes with `darkwire extension list`, then\n  `darkwire extension approve {id}`."
                 )),
             });
         };
@@ -189,7 +189,7 @@ impl ExtensionStore {
                 digest,
                 approved_at_ms: Some(approved_at_ms),
                 problem: Some(format!(
-                    "Extension \"{id}\" has changed since it was approved.\n  The files on disk no longer match the ones that were reviewed, so it\n  will not be loaded. Review the change, then `ghostai extension approve {id}`."
+                    "Extension \"{id}\" has changed since it was approved.\n  The files on disk no longer match the ones that were reviewed, so it\n  will not be loaded. Review the change, then `darkwire extension approve {id}`."
                 )),
             });
         }

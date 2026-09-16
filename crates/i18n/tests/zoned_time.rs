@@ -1,11 +1,11 @@
 //! Wall clock ⇄ instant, and the two days a year it is hard.
 //!
-//! The DST cases mirror the ones for the cron module in `ghostai-core` on
+//! The DST cases mirror the ones for the cron module in `darkwire-core` on
 //! purpose. The two implementations do not share code, so what keeps them honest
 //! is that they are held to the same answers.
 
 use chrono::DateTime;
-use ghostai_i18n::{instant_from_zoned_input, is_valid_time_zone, zoned_input_value};
+use darkwire_i18n::{instant_from_zoned_input, is_valid_time_zone, zoned_input_value};
 
 const KYIV: &str = "Europe/Kyiv";
 

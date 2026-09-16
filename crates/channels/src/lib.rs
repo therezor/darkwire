@@ -20,7 +20,7 @@
 //! factory option, not a context member, because a channel never sees a session
 //! store.
 //!
-//! It depends on `ghostai-protocol` and `ghostai-core` alone. The hub is stated
+//! It depends on `darkwire-protocol` and `darkwire-core` alone. The hub is stated
 //! as a structural port ([`ChannelHub`]), so nothing here imports the HTTP
 //! server, and a channel therefore has no path to the agent loop, the session
 //! store or a router — only the `publish` and `control` functions it was handed.

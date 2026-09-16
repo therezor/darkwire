@@ -27,7 +27,7 @@
 
 use std::collections::HashSet;
 
-use ghostai_core::{ErrorKind, GhostError, Result};
+use darkwire_core::{ErrorKind, Result, WireError};
 use parking_lot::Mutex;
 
 /// The most refused ids that earn a log line before the channel goes quiet.
@@ -79,8 +79,8 @@ pub fn parse_allowlist(entries: &[String]) -> Result<Vec<AllowedParty>> {
         .collect()
 }
 
-fn malformed(entry: &str) -> GhostError {
-    GhostError::new(
+fn malformed(entry: &str) -> WireError {
+    WireError::new(
         ErrorKind::Config,
         format!(
             "channels.telegram.allowlist entry \"{entry}\" is not a Telegram id. \
