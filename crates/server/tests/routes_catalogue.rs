@@ -376,14 +376,13 @@ fn with_containers(definitions: Vec<EnvironmentDefinition>) -> TestServer {
 
 #[tokio::test]
 async fn container_definitions_are_listed() {
-    let test = with_containers(vec![definition(&json!({"shared": true}))]);
+    let test = with_containers(vec![definition(&json!({}))]);
     let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let entry = &body["environments"][0];
     assert_eq!(entry["name"], "dev");
     // The definition whole, not a projection of it: the editor writes these
     // back, and a field the list drops is a field a save would erase.
     let definition = &entry["definition"];
-    assert_eq!(definition["shared"], true);
     assert_eq!(definition["runtime"], "runc");
     assert_eq!(definition["workdir"], "/workspace");
     assert_eq!(definition["user"], "1000:1000");
@@ -396,6 +395,30 @@ async fn container_definitions_are_listed() {
     assert_eq!(entry["weakened"], json!([]));
     assert_eq!(definition["caps"]["add"], json!([]));
     assert!(entry.get("gatewayProblem").is_none());
+}
+
+/// A field that still parses and is read by nothing.
+///
+/// Reported beside the hardening rather than refused: an operator is told what
+/// their file says that no longer does anything and fixes it in their own time.
+/// Silence would be the file quietly meaning less than it says.
+#[tokio::test]
+async fn a_definition_setting_a_retired_field_says_so() {
+    let test = with_containers(vec![definition(
+        &json!({"shared": true, "prompt": "Node 22."}),
+    )]);
+
+    let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
+    let weakened = body["environments"][0]["weakened"]
+        .as_array()
+        .expect("a weakened list");
+    let joined = weakened
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<String>();
+
+    assert!(joined.contains("no longer read"), "{weakened:?}");
+    assert!(joined.contains("no longer placed"), "{weakened:?}");
 }
 
 #[tokio::test]

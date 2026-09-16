@@ -119,24 +119,23 @@ editor, editing this file by hand, and `ghostai agent install`, which merges a p
 a shipped agent definition — into this map ([CLI](cli.md#ghost-agent)). However an entry
 got here, it is edited the same way afterwards.
 
-| Key                 | Type                                 | Default           | Notes                                                                                                        |
-| ------------------- | ------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `label`             | string                               | `''`              | Falls back to the id.                                                                                        |
-| `systemPrompt`      | string                               | `''`              | The agent's **whole** identity prompt as a template. Empty inherits the built-in. See [Prompts](prompts.md). |
-| `livePrompt`        | string                               | `''`              | The per-iteration live-state block. Empty inherits; a single space deletes the section.                      |
-| `wrapUpPrompt`      | string                               | `''`              | Appended in the last few iterations. Empty inherits; a single space silences it.                             |
-| `platformPrompt`    | string                               | `''`              | Fills `{{platformPolicy}}`, the `## Running commands` section. Two built-ins, host and confined.             |
-| `environmentPrompt` | string                               | `''`              | Fills `{{environment}}`: what the environment says about itself. Empty inherits the definition's `prompt`.   |
-| `toolPolicyPrompt`  | string                               | `''`              | The tool-output policy. A template naming neither `{{tag}}` nor `{{nonce}}` saves with a warning.            |
-| `memoryPrompt`      | string                               | `''`              | The memory section. Only rendered while the `memory` tool is granted. See [Memory](memory.md).               |
-| `skillsPrompt`      | string                               | `''`              | The skills section. Only rendered while the `skill` tool is granted. See [Skills](skills.md).                |
-| `promptMode`        | `template\|raw`                      | `'template'`      | `raw` makes `systemPrompt` the entire system message — nothing is placed around it.                          |
-| `toolPrompts`       | `Record<string, ToolPromptOverride>` | `{}`              | Per-tool replacements for the description and the argument descriptions. See [Tools](tools.md).              |
-| `enabled`           | boolean                              | `true`            |                                                                                                              |
-| `tools`             | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
-| `exec`              | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `environment`       | `{ name, alwaysUseOwn, network }`    | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
-| `subagents`         | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
+| Key                | Type                                 | Default           | Notes                                                                                                        |
+| ------------------ | ------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `label`            | string                               | `''`              | Falls back to the id.                                                                                        |
+| `systemPrompt`     | string                               | `''`              | The agent's **whole** identity prompt as a template. Empty inherits the built-in. See [Prompts](prompts.md). |
+| `livePrompt`       | string                               | `''`              | The per-iteration live-state block. Empty inherits; a single space deletes the section.                      |
+| `wrapUpPrompt`     | string                               | `''`              | Appended in the last few iterations. Empty inherits; a single space silences it.                             |
+| `platformPrompt`   | string                               | `''`              | Fills `{{platformPolicy}}`, the `## Running commands` section. Two built-ins, host and confined.             |
+| `toolPolicyPrompt` | string                               | `''`              | The tool-output policy. A template naming neither `{{tag}}` nor `{{nonce}}` saves with a warning.            |
+| `memoryPrompt`     | string                               | `''`              | The memory section. Only rendered while the `memory` tool is granted. See [Memory](memory.md).               |
+| `skillsPrompt`     | string                               | `''`              | The skills section. Only rendered while the `skill` tool is granted. See [Skills](skills.md).                |
+| `promptMode`       | `template\|raw`                      | `'template'`      | `raw` makes `systemPrompt` the entire system message — nothing is placed around it.                          |
+| `toolPrompts`      | `Record<string, ToolPromptOverride>` | `{}`              | Per-tool replacements for the description and the argument descriptions. See [Tools](tools.md).              |
+| `enabled`          | boolean                              | `true`            |                                                                                                              |
+| `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
+| `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
+| `environment`      | `{ name, alwaysUseOwn, network }`    | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
+| `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
 The nine prompt templates share one rule: **`''` inherits the built-in, and a single space
 deletes the section.** Empty has to keep meaning "I have not chosen" or an install would

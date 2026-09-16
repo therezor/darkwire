@@ -711,15 +711,14 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    */
   platformPrompt: z.string().default(''),
   /**
-   * The `## Environment` section, as a template. Fills `{{environment}}`.
+   * @deprecated Read by nothing. `## Running commands` is the one placement
+   * section now, and `platformPrompt` above says both where commands run and
+   * what is installed there.
    *
-   * Empty inherits the environment definition's own `prompt`; a single space
-   * removes it. Unlike every other template here there is no built-in below the
-   * inheritance, so "inherit" can still resolve to nothing. An agent on the
-   * host, or in an environment whose definition says nothing about itself,
-   * places no section at all.
+   * Still parsed so an agent that set it can be told its wording is no longer
+   * placed, rather than losing it in silence. It goes one release after that.
    */
-  environmentPrompt: z.string().default(''),
+  environmentPrompt: z.string().optional(),
   /**
    * The `## Tool output policy` section, as a template.
    *

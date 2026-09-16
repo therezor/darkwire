@@ -61,7 +61,17 @@ fn parses_a_minimal_definition_with_every_default() {
     assert!(container.caps.add.is_empty());
     assert!(container.security.no_new_privileges);
     assert!(container.security.read_only_root);
-    assert!(!container.shared);
+
+    // A writable `/tmp` under that read-only root, because `exec` records its
+    // pid there and a container without one loses cancellation silently.
+    assert_eq!(container.security.tmpfs, ["/tmp:rw,nosuid,size=64m"]);
+
+    // Sized for a small board: this runs on a Raspberry Pi, and one place is
+    // one container rather than one per agent and session.
+    assert_eq!(container.limits.memory_mb, 512);
+    assert!((container.limits.cpus - 1.0).abs() < f64::EPSILON);
+    assert_eq!(container.limits.pids_max, 256);
+    assert_eq!(container.limits.shm_size_mb, 64);
 }
 
 #[test]

@@ -20,7 +20,7 @@ pub use agents::{
     AgentConfigWarning, AgentMissReason, AgentResolution, AgentWarningCode, EffectiveAgent,
     PrunedSubagent, assert_writable_agent_ids, granted, has_agent, list_agents,
     prune_dangling_subagents, resolve_agent, resolve_agent_or_default, resolve_agents,
-    tool_prompt_warnings,
+    retired_prompt_warnings, tool_prompt_warnings,
 };
 pub use credentials::{PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, find_credential, open_vault};
 pub use jail_cache::{JailCache, JailFactory, MAX_CACHED_JAILS};

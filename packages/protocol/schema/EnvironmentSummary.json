@@ -23,7 +23,6 @@
           "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
         },
         "prompt": {
-          "default": "",
           "type": "string"
         },
         "image": {
@@ -31,7 +30,6 @@
           "minLength": 1
         },
         "shared": {
-          "default": false,
           "type": "boolean"
         },
         "runtime": {
@@ -94,7 +92,9 @@
               "type": "boolean"
             },
             "tmpfs": {
-              "default": [],
+              "default": [
+                "/tmp:rw,nosuid,size=64m"
+              ],
               "type": "array",
               "items": {
                 "type": "string"
@@ -114,24 +114,24 @@
           "type": "object",
           "properties": {
             "memoryMb": {
-              "default": 2048,
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "cpus": {
-              "default": 2,
-              "type": "number",
-              "minimum": 0
-            },
-            "pidsMax": {
               "default": 512,
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
             },
-            "shmSizeMb": {
+            "cpus": {
+              "default": 1,
+              "type": "number",
+              "minimum": 0
+            },
+            "pidsMax": {
               "default": 256,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "shmSizeMb": {
+              "default": 64,
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991

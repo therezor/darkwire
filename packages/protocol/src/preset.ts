@@ -70,7 +70,6 @@ export const AgentPresetSchema = z.object({
   livePrompt: z.string().default(''),
   wrapUpPrompt: z.string().default(''),
   platformPrompt: z.string().default(''),
-  environmentPrompt: z.string().default(''),
   toolPolicyPrompt: z.string().default(''),
   memoryPrompt: z.string().default(''),
   skillsPrompt: z.string().default(''),

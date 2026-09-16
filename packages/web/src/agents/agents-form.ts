@@ -105,7 +105,6 @@ export interface AgentEntryForm {
   readonly livePrompt: string;
   readonly wrapUpPrompt: string;
   readonly platformPrompt: string;
-  readonly environmentPrompt: string;
   readonly toolPolicyPrompt: string;
   readonly memoryPrompt: string;
   readonly skillsPrompt: string;
@@ -220,7 +219,6 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     livePrompt: entry.livePrompt,
     wrapUpPrompt: entry.wrapUpPrompt,
     platformPrompt: entry.platformPrompt,
-    environmentPrompt: entry.environmentPrompt,
     toolPolicyPrompt: entry.toolPolicyPrompt,
     memoryPrompt: entry.memoryPrompt,
     skillsPrompt: entry.skillsPrompt,
@@ -366,7 +364,6 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     livePrompt: form.livePrompt,
     wrapUpPrompt: form.wrapUpPrompt,
     platformPrompt: form.platformPrompt,
-    environmentPrompt: form.environmentPrompt,
     toolPolicyPrompt: form.toolPolicyPrompt,
     memoryPrompt: form.memoryPrompt,
     skillsPrompt: form.skillsPrompt,
@@ -588,7 +585,6 @@ export function toNewAgentPatch(
           livePrompt: template.livePrompt,
           wrapUpPrompt: template.wrapUpPrompt,
           platformPrompt: template.platformPrompt,
-          environmentPrompt: template.environmentPrompt,
           toolPolicyPrompt: template.toolPolicyPrompt,
           memoryPrompt: template.memoryPrompt,
           skillsPrompt: template.skillsPrompt,

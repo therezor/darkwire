@@ -229,11 +229,6 @@ pub struct PromptTools {
     /// which decides which built-in command policy an empty `platform_prompt`
     /// inherits.
     pub confined: bool,
-    /// What the environment says about itself, already resolved: the agent's
-    /// override when it has one, the definition's text otherwise. Empty places
-    /// no section, and there is no built-in to fall back on. See
-    /// [`environment_section`].
-    pub environment_prompt: Option<String>,
 }
 
 /// Which operating system a command would land on.
@@ -547,33 +542,6 @@ fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) 
     js_trim(&rendered).to_owned()
 }
 
-/// What this environment says about itself.
-///
-/// **There is no built-in wording, and that is the design.** Every other
-/// section has one because the repo has something true to say; nobody but the
-/// operator knows what is installed in an image, and a guess about the
-/// toolchain is worse than silence. A model told `cargo` is present when it is
-/// not spends a turn finding out. So an environment with no `prompt` places no
-/// section, and the three-state contract collapses to two: text, or nothing.
-///
-/// Distinct from the command policy above, which says *where* commands run and
-/// is generated. This says what is *there*, and is written by hand.
-fn environment_section(workspace_id: &str, tools: Option<&PromptTools>) -> String {
-    // No tools, no commands, so nothing here would be actionable.
-    let Some(tools) = tools else {
-        return String::new();
-    };
-    let Some(stored) = tools.environment_prompt.as_deref() else {
-        return String::new();
-    };
-    if js_trim(stored).is_empty() {
-        return String::new();
-    }
-    let rendered =
-        render_prompt_template(stored, &values([("workspaceId", workspace_id.to_owned())]));
-    js_trim(&rendered).to_owned()
-}
-
 /// Every contributor's static section, joined and trimmed.
 ///
 /// Separate from [`build_static_prompt`] because raw mode needs the same value
@@ -672,14 +640,6 @@ pub async fn build_static_prompt(options: BuildStaticPrompt<'_>) -> String {
     let commands = command_policy(&options.host, &options.context.workspace_id, options.tools);
     if !commands.is_empty() {
         sections.push(commands);
-    }
-
-    // After the command policy, which says where commands run: this says what
-    // is there, and reads as an elaboration of it rather than a topic of its
-    // own.
-    let environment = environment_section(&options.context.workspace_id, options.tools);
-    if !environment.is_empty() {
-        sections.push(environment);
     }
 
     // The tool-output policy, when it names no delimiter — which the default
@@ -1050,10 +1010,6 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
                 &context.static_context.workspace_id,
                 options.tools,
             ),
-        ),
-        (
-            "environment",
-            environment_section(&context.static_context.workspace_id, options.tools),
         ),
         // Self-contained, and with the nonce: raw mode is one blob placed by
         // the operator, so there is no cached half to keep a delimiter out of.

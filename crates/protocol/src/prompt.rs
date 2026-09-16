@@ -255,14 +255,6 @@ plain relative form — `notes/todo.md`.
 pub const PLATFORM_PROMPT_PLACEHOLDERS: &[&str] =
     &["runtime", "platform", "workspaceId", "shellPolicy"];
 
-/// What an *environment* template may ask for.
-///
-/// Short on purpose. The image, the workdir and the user are facts about the
-/// definition the operator is already looking at while writing this, so
-/// offering them would be offering to retype what is on the screen. The
-/// workspace id is the one thing the definition cannot know.
-pub const ENVIRONMENT_PROMPT_PLACEHOLDERS: &[&str] = &["workspaceId"];
-
 /// What a *tool-output policy* template may ask for.
 ///
 /// `tag` is what the envelopes actually carry; `nonce` is the random half of
@@ -294,7 +286,10 @@ pub const DEFAULT_PLATFORM_CONTAINER_TEMPLATE: &str = "## Running commands
 Commands you run with `exec` run inside a container, not on the host. What they
 can reach is fixed by the container definition and the agent's network policy.
 File tools act on the workspace on this machine; the same workspace is mounted
-inside the container.";
+inside the container.
+
+Assume nothing about what is installed beyond a base image. Check for a tool
+before relying on it.";
 
 /// The section that makes the tool-output delimiters mean something.
 ///
@@ -395,7 +390,6 @@ pub const RAW_PROMPT_PLACEHOLDERS: &[&str] = &[
     "sessionKey",
     "tag",
     "platformPolicy",
-    "environment",
     "toolPolicy",
     "nonce",
     "contributors",

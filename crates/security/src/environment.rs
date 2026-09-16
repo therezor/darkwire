@@ -382,5 +382,25 @@ pub fn weakened_in(container: &EnvironmentDefinition) -> Vec<String> {
         ContainerRuntime::Runsc => weakened.push("runtime    runsc".to_owned()),
         ContainerRuntime::Kata => weakened.push("runtime    kata".to_owned()),
     }
+
+    // Two fields that still parse and are read by nothing. Reported beside the
+    // hardening rather than refused, for the same reason: an operator is told
+    // what their file says that no longer does anything, and gets to fix it in
+    // their own time. Silence would be the file quietly meaning less than it
+    // says.
+    if container
+        .prompt
+        .as_deref()
+        .is_some_and(|text| !text.is_empty())
+    {
+        weakened.push(
+            "prompt     set, and no longer placed (say it in the agent's platformPrompt)"
+                .to_owned(),
+        );
+    }
+    if container.shared.is_some() {
+        weakened
+            .push("shared     set, and no longer read (every environment is shared)".to_owned());
+    }
     weakened
 }

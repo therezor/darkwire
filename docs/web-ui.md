@@ -305,11 +305,17 @@ ask, because it takes access away and leaves the files where they are.
 
 **Environments is the one panel that writes outside `config.yaml`.** A definition is a
 file in the policy directory, which sits beside the workspace rather than inside it, so
-nothing a tool can write reaches one. The editor covers the whole definition, hardening
-included: a form that edited the memory limit and left the capability set to a text
-editor would be two doors into one room, and the one people found would be the one that
-could not express what they needed. It cannot widen what the file already refuses, since
-a save clears exactly the checks a hand-written file clears.
+nothing a tool can write reaches one. The editor shows four fields (name, image, memory
+and CPUs) because those are what an operator actually sets. The runtime, the uid, the
+hardening and the device list are what a catalogue definition ships correctly and nobody
+hand-edits; they are shown read-only under Advanced, beside the path of the file that
+changes them.
+
+**The form still carries them and sends them back untouched.** The route takes a whole
+definition, so a form that dropped the fields it does not render would replace a
+hand-written tmpfs or capability with a schema default on the first save, and nothing
+would say so. A save cannot widen what the file already refuses either way, since it
+clears exactly the checks a hand-written file clears.
 
 The warnings on a row — what hardening a definition weakens, whether a restricted
 allow-list could be enforced in it — are resolved on the server, so the terminal and the

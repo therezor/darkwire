@@ -125,70 +125,53 @@ async fn windows_gets_its_own_shell_advice_byte_for_byte() {
     assert!(prompt.contains("Do not assume GNU tools"));
 }
 
-/// The environment section, which is the one with no built-in below it.
-mod the_environment_section {
+/// There is one placement section, not two.
+///
+/// `## Environment` said what was installed and `## Running commands` said where
+/// commands ran, which is one topic split by who happened to author each half:
+/// the repo owned one and an environment definition owned the other, heading
+/// included. The definition's `prompt` is read by nothing now and the agent's
+/// `platformPrompt` says both.
+mod one_placement_section {
     use super::*;
 
-    async fn rendered(tools: &PromptTools) -> String {
-        let context = context();
-        build_static_prompt(BuildStaticPrompt {
-            tools: Some(tools),
-            host: host(Platform::Linux),
-            ..BuildStaticPrompt::new(&context)
-        })
-        .await
-    }
-
     #[tokio::test]
-    async fn is_not_placed_when_the_environment_says_nothing() {
-        // The host, and a container whose definition carries no `prompt`, are
-        // the same case here: there is no wording to place and nothing to fall
-        // back on, so the section does not exist rather than rendering empty.
-        let prompt = rendered(&PromptTools::default()).await;
-        assert!(!prompt.contains("## Environment"), "{prompt}");
-    }
-
-    #[tokio::test]
-    async fn carries_the_definitions_wording_when_the_agent_overrode_nothing() {
-        let prompt = rendered(&PromptTools {
-            environment_prompt: Some("## Environment\n\nNode 22 is installed.".to_owned()),
-            ..PromptTools::default()
-        })
-        .await;
-        assert!(prompt.contains("Node 22 is installed."), "{prompt}");
-    }
-
-    #[tokio::test]
-    async fn a_single_space_removes_it() {
-        // The same contract every other section keeps, even though "inherit"
-        // here resolves to the definition rather than to a built-in.
-        let prompt = rendered(&PromptTools {
-            environment_prompt: Some(" ".to_owned()),
-            ..PromptTools::default()
-        })
-        .await;
-        assert!(!prompt.contains("## Environment"), "{prompt}");
-    }
-
-    #[tokio::test]
-    async fn fills_the_workspace_id_the_definition_cannot_know() {
-        let prompt = rendered(&PromptTools {
-            environment_prompt: Some("Workspace {{workspaceId}} is mounted.".to_owned()),
-            ..PromptTools::default()
-        })
-        .await;
-        assert!(prompt.contains("Workspace default is mounted."), "{prompt}");
-    }
-
-    #[tokio::test]
-    async fn is_withheld_with_every_other_tool_shaped_section_when_there_are_no_tools() {
+    async fn the_environment_section_is_gone() {
         let context = context();
         let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                confined: true,
+                ..PromptTools::default()
+            }),
             host: host(Platform::Linux),
             ..BuildStaticPrompt::new(&context)
         })
         .await;
+
         assert!(!prompt.contains("## Environment"), "{prompt}");
+        assert!(prompt.contains("## Running commands"), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn the_container_wording_tells_the_model_to_check_before_relying() {
+        // The line that replaced the section: nobody but the operator knows
+        // what is in an image, and a model that assumes spends a turn finding
+        // out. Said once in the built-in rather than guessed per definition.
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                confined: true,
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+
+        assert!(
+            prompt.contains("Assume nothing about what is installed"),
+            "{prompt}"
+        );
     }
 }
 

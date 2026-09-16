@@ -61,9 +61,6 @@ pub struct AgentPreset {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default)]
     pub platform_prompt: String,
-    /// See [`AgentEntry::environment_prompt`].
-    #[serde(default)]
-    pub environment_prompt: String,
     /// See [`AgentEntry::tool_policy_prompt`].
     #[serde(default)]
     pub tool_policy_prompt: String,
@@ -117,7 +114,6 @@ pub fn preset_to_agent_entry(preset: &AgentPreset) -> AgentEntry {
         live_prompt: preset.live_prompt.clone(),
         wrap_up_prompt: preset.wrap_up_prompt.clone(),
         platform_prompt: preset.platform_prompt.clone(),
-        environment_prompt: preset.environment_prompt.clone(),
         tool_policy_prompt: preset.tool_policy_prompt.clone(),
         memory_prompt: preset.memory_prompt.clone(),
         skills_prompt: preset.skills_prompt.clone(),

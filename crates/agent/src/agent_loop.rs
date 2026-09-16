@@ -185,12 +185,6 @@ pub struct LoopAgent {
     /// identity and does not always have tools: the prompt layer receives these
     /// as [`PromptTools`], which it is handed or is not.
     pub platform_prompt: Option<String>,
-    /// This agent's override for what its environment says about itself.
-    ///
-    /// Empty or absent inherits the definition's own `prompt`; a single space
-    /// removes the section, as everywhere else. There is no built-in below the
-    /// definition, so "inherit" can still resolve to nothing.
-    pub environment_prompt: Option<String>,
     /// The operator's wording for the tool-output policy.
     pub tool_policy_prompt: Option<String>,
 }
@@ -938,19 +932,10 @@ impl AgentLoop {
             return None;
         }
         let agent = inner.agent.as_ref();
-        // The agent's own wording wins; otherwise the definition's. Both go
-        // through `Option`, so "this agent said nothing" and "this environment
-        // said nothing" collapse to the same absence and the section is simply
-        // not placed.
-        let environment_prompt = agent
-            .and_then(|a| a.environment_prompt.clone())
-            .filter(|text| !text.is_empty())
-            .or_else(|| Some(placed.prompt.clone()));
         Some(PromptTools {
             policy_prompt: agent.and_then(|a| a.tool_policy_prompt.clone()),
             platform_prompt: agent.and_then(|a| a.platform_prompt.clone()),
             confined: placed.environment.confined(),
-            environment_prompt,
         })
     }
 

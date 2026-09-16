@@ -880,23 +880,22 @@ describe('the default agent', () => {
 
     await user.click(screen.getByRole('switch', { name: 'Tool calling' }));
 
-    // Every tool-shaped section on screen, which is five here: Running
-    // commands, Environment, Tool output policy, Memory and Skills.
+    // Every tool-shaped section on screen, which is four here: Running
+    // commands, Tool output policy, Memory and Skills. It was five while
+    // `Environment` was a section of its own; Running commands says both where
+    // commands land and what is there now.
     //
     // `Running commands` is the one worth pinning, because it is not obviously
     // about tools until you notice every line of it describes `exec` landing
-    // somewhere. `Environment` is tool-shaped for the same reason one step
-    // further on: it describes the place that `exec` lands in, so with no
-    // commands to run there is nothing for it to be about. Memory and Skills
-    // joined the count when they started being gated on `toolsEnabled` too:
-    // with no tool list there is nothing to open a memory or a skill with, so
-    // an index of paths is cost nothing can act on.
+    // somewhere. Memory and Skills joined the count when they started being
+    // gated on `toolsEnabled` too: with no tool list there is nothing to open a
+    // memory or a skill with, so an index of paths is cost nothing can act on.
     //
     // The count is the assertion: a bare plural query would pass while silently
     // leaving a section unmarked.
     expect(
       await screen.findAllByText(/This section isn’t sent to the model/),
-    ).toHaveLength(5);
+    ).toHaveLength(4);
     // Still editable, and the stored wording still on screen.
     expect(screen.getByLabelText(/^Tool output policy for/)).toBeEnabled();
     expect(screen.getByLabelText(/^Running commands for/)).toBeEnabled();

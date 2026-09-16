@@ -386,16 +386,6 @@ export const PLATFORM_PROMPT_PLACEHOLDERS = [
 ] as const;
 
 /**
- * What an *environment* template may ask for.
- *
- * Short on purpose. The image, the workdir and the user are facts about the
- * definition the operator is already looking at while writing this, so offering
- * them would be offering to retype what is on the screen. The workspace id is
- * the one thing the definition cannot know.
- */
-export const ENVIRONMENT_PROMPT_PLACEHOLDERS = ['workspaceId'] as const;
-
-/**
  * What a *tool-output policy* template may ask for.
  *
  * `tag` is what the envelopes actually carry and is what the text should name;
@@ -448,7 +438,10 @@ export const DEFAULT_PLATFORM_CONTAINER_TEMPLATE = `## Running commands
 Commands you run with \`exec\` run inside a container, not on the host. What they
 can reach is fixed by the container definition and the agent's network policy.
 File tools act on the workspace on this machine; the same workspace is mounted
-inside the container.`;
+inside the container.
+
+Assume nothing about what is installed beyond a base image. Check for a tool
+before relying on it.`;
 
 /**
  * The section that makes the tool-output delimiters mean something.
@@ -590,8 +583,6 @@ export const RAW_PROMPT_PLACEHOLDERS = [
    * out, raw mode places nothing and so has to be able to ask for it.
    */
   'platformPolicy',
-  /** What the environment says about itself. Empty when it says nothing. */
-  'environment',
   /** The rendered tool-output policy. No leading blank line — it is usually placed alone. */
   'toolPolicy',
   'nonce',

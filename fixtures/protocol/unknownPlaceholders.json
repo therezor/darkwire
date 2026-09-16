@@ -77,7 +77,7 @@
     {
       "name": "vocabulary: PLATFORM_PROMPT_PLACEHOLDERS",
       "input": {
-        "template": "## Running commands\n\n`exec` runs on this machine — {{runtime}} — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.{{shellPolicy}}\n## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.",
+        "template": "## Running commands\n\n`exec` runs on this machine — {{runtime}} — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.{{shellPolicy}}\n## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.\n\nAssume nothing about what is installed beyond a base image. Check for a tool\nbefore relying on it.",
         "known": [
           "runtime",
           "platform",
@@ -141,7 +141,6 @@
           "sessionKey",
           "tag",
           "platformPolicy",
-          "environment",
           "toolPolicy",
           "nonce",
           "contributors",

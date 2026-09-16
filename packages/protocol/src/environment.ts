@@ -50,19 +50,41 @@ export const ContainerSecuritySchema = z.object({
   /** `default` is the engine's own profile. `unconfined` is surfaced in the review. */
   seccomp: z.enum(['default', 'unconfined']).default('default'),
   readOnlyRoot: z.boolean().default(true),
-  /** Mount specs, e.g. `/tmp:rw,nosuid,size=512m`. */
-  tmpfs: z.array(z.string()).default([]),
+  /**
+   * Mount specs, e.g. `/tmp:rw,nosuid,size=512m`.
+   *
+   * **Defaults to a writable `/tmp`, and that is load-bearing.** `exec` records
+   * its pid under `/tmp` so a timeout or a cancel has something to signal;
+   * under a read-only root with no tmpfs the redirect fails, the script carries
+   * on, and the kill script then reads an empty file and exits 0. Cancellation
+   * silently stops working while the command keeps running. Every catalogue
+   * definition set one and the default did not, so the hole was real and
+   * invisible.
+   *
+   * 64m rather than the catalogue's 256m because a tmpfs is RAM and counts
+   * against the memory limit. An image that wants more says so.
+   */
+  tmpfs: z.array(z.string()).default(['/tmp:rw,nosuid,size=64m']),
   /** Rootless build needs `/dev/fuse`; nothing else should ask for a device. */
   devices: z.array(z.string()).default([]),
 });
 export type ContainerSecurity = z.infer<typeof ContainerSecuritySchema>;
 
+/**
+ * What one container may spend. Zero means no limit, not zero.
+ *
+ * **Sized for a small board.** This runs on a Raspberry Pi 5, four cores and
+ * 8 GB shared with the server and the model, and one place is now one container
+ * rather than one per agent and session. Two gigabytes and two cores each was a
+ * quarter of such a machine per container. Anyone on bigger hardware raises
+ * them in the editor, which is what it is for.
+ */
 export const ContainerLimitsSchema = z.object({
-  memoryMb: z.coerce.number().int().min(0).default(2048),
-  cpus: z.coerce.number().min(0).default(2),
-  pidsMax: z.coerce.number().int().min(0).default(512),
+  memoryMb: z.coerce.number().int().min(0).default(512),
+  cpus: z.coerce.number().min(0).default(1),
+  pidsMax: z.coerce.number().int().min(0).default(256),
   /** The engine's 64m default produces short writes in build and scan workloads. */
-  shmSizeMb: z.coerce.number().int().min(0).default(256),
+  shmSizeMb: z.coerce.number().int().min(0).default(64),
 });
 export type ContainerLimits = z.infer<typeof ContainerLimitsSchema>;
 
@@ -87,23 +109,30 @@ export const EnvironmentDefinitionSchema = z
     kind: EnvironmentKindSchema.default('container'),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     /**
-     * What the model is told about this place, as its own prompt section.
+     * @deprecated Read by nothing. What the model is told about where its
+     * commands run is one section now, `agents.list.<id>.platformPrompt`, which
+     * says both where they run and what is installed there.
      *
-     * Empty places no section. There is no built-in wording to fall back on,
-     * because nobody but the operator knows what is installed in an image. A
-     * default here would be the repo guessing, and a wrong guess about the
-     * toolchain is worse than silence. An agent may override it; see
-     * `agents.list.<id>.environmentPrompt`.
+     * Still parsed because every installed definition predates the change and
+     * the preset catalogue ships on its own release cycle. A definition setting
+     * it is reported on its row. It goes one release after that.
      */
-    prompt: z.string().default(''),
+    prompt: z.string().optional(),
     /**
      * Must be digest-pinned: an immutable image ID or a registry digest. A tag
      * is a mutable pointer, and a container installed once and then silently
      * repointed would run code nobody chose.
      */
     image: z.string().min(1),
-    /** Share one instance across agents asking for the same egress. */
-    shared: z.boolean().default(false),
+    /**
+     * @deprecated Read by nothing. An environment is a place, and everything
+     * asking for the same place gets the same container: an instance is keyed
+     * on the workspace, the definition and the network, with neither the agent
+     * nor the session in it.
+     *
+     * Parsed and reported for the same reason `prompt` above is.
+     */
+    shared: z.boolean().optional(),
     runtime: ContainerRuntimeSchema.default('runc'),
     /** Where the workspace is mounted inside the container. */
     workdir: z.string().default('/workspace'),

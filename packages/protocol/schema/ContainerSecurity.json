@@ -18,7 +18,9 @@
       "type": "boolean"
     },
     "tmpfs": {
-      "default": [],
+      "default": [
+        "/tmp:rw,nosuid,size=64m"
+      ],
       "type": "array",
       "items": {
         "type": "string"

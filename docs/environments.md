@@ -38,19 +38,22 @@ schema: ghostai.environment/1
 kind: container
 name: dev
 image: sha256:…
-prompt: |
-  ## Environment
-
-  Node 22, pnpm 9 and cargo 1.83 are installed. The workspace is mounted at /workspace.
+limits:
+  memoryMb: 512
+  cpus: 1
 ```
+
+Three fields are required: the tag, a name, and a digest-pinned image. Everything else has
+a default, and the defaults are sized for a small board because that is what this runs on.
 
 `kind` has one arm today. It is there so a remote environment is a variant rather than a
 second migration, and every other field below it still describes a container.
 
-`prompt` is what the model is told about this place. See [Prompts](prompts.md). It is
-optional and has no built-in: an environment that says nothing about itself places no
-section, because nobody but the operator knows what is in an image and a wrong guess about
-the toolchain costs the model a turn finding out.
+**A read-only root gets a writable `/tmp` by default.** `exec` records its pid there so a
+timeout or a cancel has something to signal; a definition with neither would keep running
+commands that nothing could stop, and would fail any build. Anything else the image needs
+to write wants its own `security.tmpfs` entry, `$HOME` most often, because only the image
+knows where that is.
 
 ## Agent configuration
 
@@ -74,9 +77,10 @@ gateway on the host to enforce anything, so a request there would mean nothing. 
 named environment, `open`, `none` and `allowlist` are available. An allow-list needs
 CIDRs, exact host names, and DNS resolver addresses.
 
-An agent may override the definition's `prompt` with `environmentPrompt`, on the same
-three-state contract as every other template: empty inherits, a single space removes the
-section, anything else replaces it.
+**A definition carries no prose.** What the model is told about where its commands run,
+and about what is installed there, is one section on the agent: `platformPrompt`. See
+[Prompts](prompts.md). A definition still setting `prompt` is reported on its row and read
+by nothing.
 
 ## A delegated turn runs where its caller does
 

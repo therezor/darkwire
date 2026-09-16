@@ -53,8 +53,6 @@ pub trait Environment: CommandRunner {
 pub struct Placed {
     /// Where commands run.
     pub environment: Arc<dyn Environment>,
-    /// The definition's prompt section, empty when there is none to place.
-    pub prompt: String,
 }
 
 impl Placed {
@@ -63,7 +61,6 @@ impl Placed {
     pub fn host() -> Placed {
         Placed {
             environment: Arc::new(HostEnvironment::new()),
-            prompt: String::new(),
         }
     }
 }

@@ -33,22 +33,22 @@ const DEFINITION = {
   schema: 'ghostai.environment/1',
   kind: 'container',
   name: 'dev',
-  prompt: '',
   image: IMAGE,
-  shared: true,
   runtime: 'runc',
   workdir: '/work',
-  user: '1000:1000',
-  caps: { drop: ['ALL'], add: [] },
+  // Hand-written, and not editable on this screen. The round-trip test below
+  // is the one that says a save does not replace them with defaults.
+  user: '1001:1001',
+  caps: { drop: ['ALL'], add: ['CHOWN'] },
   security: {
     noNewPrivileges: true,
     seccomp: 'default',
     readOnlyRoot: true,
-    tmpfs: [],
+    tmpfs: ['/tmp:rw,nosuid,size=512m', '/home/ghost:rw,size=64m'],
     devices: [],
   },
   limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
-  env: [],
+  env: ['CARGO_HOME'],
 };
 
 const ENVIRONMENT = { name: 'dev', definition: DEFINITION, weakened: [] };
@@ -124,27 +124,52 @@ describe('the environment editor', () => {
     expect(await screen.findByLabelText('Name')).toBeDisabled();
   });
 
-  it('splits the list fields on newlines, so a tmpfs spec survives', async () => {
-    // The trap this exists for: a tmpfs spec has commas inside one entry, so
-    // the comma split the agent editor uses for CIDRs would cut a single mount
-    // into three broken ones.
+  it('carries the fields it does not edit back untouched', async () => {
+    // The data-loss trap. The screen shows four fields, but the PUT is a whole
+    // definition and the server writes what it is given: a form that dropped
+    // the hardening would replace a hand-written tmpfs, uid and capability with
+    // schema defaults on the first save from here, and nothing would say so.
+    //
+    // The tmpfs entries are the sharpest case, because each one has commas
+    // inside it: anything that split them the way the agent editor splits CIDRs
+    // would cut one mount into three broken ones.
     const { user, calls } = mount('/settings/environments/dev', {
       'PUT /api/environments/dev': [200, { environments: [ENVIRONMENT] }],
     });
 
-    await user.type(
-      await screen.findByLabelText('Writable temporary mounts'),
-      '/tmp:rw,nosuid,size=512m\n/run:rw,size=64m',
-    );
+    const memory = await screen.findByLabelText('Memory (MB)');
+    await user.clear(memory);
+    await user.type(memory, '256');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
       expect(putBody(calls)).toMatchObject({
+        user: '1001:1001',
+        caps: { drop: ['ALL'], add: ['CHOWN'] },
         security: {
-          tmpfs: ['/tmp:rw,nosuid,size=512m', '/run:rw,size=64m'],
+          tmpfs: ['/tmp:rw,nosuid,size=512m', '/home/ghost:rw,size=64m'],
         },
+        env: ['CARGO_HOME'],
       });
     });
+  });
+
+  it('shows what it does not edit, rather than hiding it', async () => {
+    // "What is this container actually doing" is a question this screen should
+    // answer even for the fields it leaves to the file.
+    const { user } = mount('/settings/environments/dev');
+
+    await user.click(await screen.findByText('Advanced'));
+
+    expect(screen.getByText('1001:1001')).toBeInTheDocument();
+    // Both mounts, on one readout. Matched loosely because the DOM normalises
+    // the newline between them into a space.
+    expect(
+      screen.getByText(/\/tmp:rw,nosuid,size=512m\s+\/home\/ghost:rw,size=64m/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/policy\/environments\/dev\.yaml/),
+    ).toBeInTheDocument();
   });
 
   it('refuses a name that is not a slug, before anything is sent', async () => {

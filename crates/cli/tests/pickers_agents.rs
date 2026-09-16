@@ -35,7 +35,6 @@ fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
         live_prompt: String::new(),
         wrap_up_prompt: String::new(),
         platform_prompt: String::new(),
-        environment_prompt: String::new(),
         tool_policy_prompt: String::new(),
         memory_prompt: String::new(),
         skills_prompt: String::new(),

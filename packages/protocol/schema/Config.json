@@ -118,7 +118,6 @@
                 "type": "string"
               },
               "environmentPrompt": {
-                "default": "",
                 "type": "string"
               },
               "toolPolicyPrompt": {

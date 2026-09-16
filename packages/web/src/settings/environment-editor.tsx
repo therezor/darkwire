@@ -27,7 +27,6 @@ import { useTranslation } from 'react-i18next';
 
 import type { EnvironmentSummary } from '@ghostwire/protocol';
 
-import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
 import { RowActions } from '@/components/crud/row-actions.js';
@@ -35,14 +34,9 @@ import {
   FieldGrid,
   SaveBar,
   Section,
-  SelectField,
-  SwitchRow,
   TextField,
-  TextareaField,
 } from '@/components/form/controls.js';
 import {
-  CONTAINER_RUNTIMES,
-  SECCOMP_PROFILES,
   emptyEnvironmentForm,
   toEnvironmentDefinition,
   toEnvironmentForm,
@@ -172,6 +166,9 @@ function Editor({
   };
 
   const collision = creating && taken.includes(form.name);
+  // Named rather than linked: the browser cannot open it, and the point is to
+  // say where the rest of the definition is edited.
+  const filePath = `policy/environments/${form.name || 'name'}.yaml`;
 
   const onSave = (): void => {
     const result = toEnvironmentDefinition(form, t);
@@ -207,11 +204,6 @@ function Editor({
               ? t('settings.environments.newEnvironment')
               : form.name}
           </h1>
-          <Badge tone="neutral">
-            {form.shared
-              ? t('settings.environments.shared')
-              : t('settings.environments.private')}
-          </Badge>
           <span className="spacer" />
           {/* Not a button at the bottom of the form: a destructive action does
               not belong in the reading order of the settings it would destroy.
@@ -281,58 +273,6 @@ function Editor({
             }}
           />
         </FieldGrid>
-        <TextareaField
-          label={t('settings.environments.prompt')}
-          value={form.prompt}
-          rows={3}
-          hint={t('settings.environments.promptHint')}
-          onValueChange={(value) => {
-            update('prompt', value);
-          }}
-        />
-      </Section>
-
-      <Section
-        title={t('settings.environments.placement')}
-        description={t('settings.environments.placementDesc')}
-      >
-        <FieldGrid>
-          <SelectField
-            label={t('settings.environments.runtime')}
-            value={form.runtime}
-            options={CONTAINER_RUNTIMES.map((runtime) => ({
-              value: runtime,
-              label: runtime,
-            }))}
-            onValueChange={(value) => {
-              update('runtime', value as EnvironmentForm['runtime']);
-            }}
-          />
-          <TextField
-            label={t('settings.environments.user')}
-            value={form.user}
-            hint={t('settings.environments.userHint')}
-            onValueChange={(value) => {
-              update('user', value);
-            }}
-          />
-          <TextField
-            label={t('settings.environments.workdir')}
-            value={form.workdir}
-            hint={t('settings.environments.workdirHint')}
-            onValueChange={(value) => {
-              update('workdir', value);
-            }}
-          />
-        </FieldGrid>
-        <SwitchRow
-          label={t('settings.environments.sharedLabel')}
-          hint={t('settings.environments.sharedHint')}
-          checked={form.shared}
-          onCheckedChange={(value) => {
-            update('shared', value);
-          }}
-        />
       </Section>
 
       <Section
@@ -358,116 +298,60 @@ function Editor({
               update('cpus', value);
             }}
           />
-          <TextField
-            label={t('settings.environments.pidsMax')}
-            value={form.pidsMax}
-            inputMode="numeric"
-            error={errors.pidsMax}
-            onValueChange={(value) => {
-              update('pidsMax', value);
-            }}
-          />
-          <TextField
-            label={t('settings.environments.shmSizeMb')}
-            value={form.shmSizeMb}
-            inputMode="numeric"
-            error={errors.shmSizeMb}
-            hint={t('settings.environments.shmHint')}
-            onValueChange={(value) => {
-              update('shmSizeMb', value);
-            }}
-          />
         </FieldGrid>
       </Section>
 
-      <Section
-        title={t('settings.environments.hardening')}
-        description={t('settings.environments.hardeningDesc')}
-      >
-        <SwitchRow
-          label={t('settings.environments.noNewPrivileges')}
-          hint={t('settings.environments.noNewPrivilegesHint')}
-          checked={form.noNewPrivileges}
-          onCheckedChange={(value) => {
-            update('noNewPrivileges', value);
-          }}
-        />
-        <SwitchRow
-          label={t('settings.environments.readOnlyRoot')}
-          hint={t('settings.environments.readOnlyRootHint')}
-          checked={form.readOnlyRoot}
-          onCheckedChange={(value) => {
-            update('readOnlyRoot', value);
-          }}
-        />
-        <FieldGrid>
-          <SelectField
-            label={t('settings.environments.seccomp')}
-            value={form.seccomp}
-            options={SECCOMP_PROFILES.map((profile) => ({
-              value: profile,
-              label: profile,
-            }))}
-            onValueChange={(value) => {
-              update('seccomp', value as EnvironmentForm['seccomp']);
-            }}
-          />
-        </FieldGrid>
-        {/* Newline-separated, not comma-separated: a tmpfs spec has commas
-            inside one entry, so a comma split would cut a single mount into
-            three broken ones. The other four follow it for consistency. */}
-        <TextareaField
-          label={t('settings.environments.capsDrop')}
-          value={form.capsDrop}
-          rows={2}
-          hint={t('settings.environments.capsDropHint')}
-          onValueChange={(value) => {
-            update('capsDrop', value);
-          }}
-        />
-        <TextareaField
-          label={t('settings.environments.capsAdd')}
-          value={form.capsAdd}
-          rows={2}
-          hint={t('settings.environments.capsAddHint')}
-          onValueChange={(value) => {
-            update('capsAdd', value);
-          }}
-        />
-        <TextareaField
-          label={t('settings.environments.tmpfs')}
-          value={form.tmpfs}
-          rows={2}
-          hint={t('settings.environments.tmpfsHint')}
-          onValueChange={(value) => {
-            update('tmpfs', value);
-          }}
-        />
-        <TextareaField
-          label={t('settings.environments.devices')}
-          value={form.devices}
-          rows={2}
-          hint={t('settings.environments.devicesHint')}
-          onValueChange={(value) => {
-            update('devices', value);
-          }}
-        />
-      </Section>
-
-      <Section
-        title={t('settings.environments.passthrough')}
-        description={t('settings.environments.passthroughDesc')}
-      >
-        <TextareaField
-          label={t('settings.environments.env')}
-          value={form.env}
-          rows={3}
-          hint={t('settings.environments.envHint')}
-          onValueChange={(value) => {
-            update('env', value);
-          }}
-        />
-      </Section>
+      {/* Read-only, and behind a disclosure.
+          
+          These are the fields a catalogue definition ships correctly and nobody
+          hand-edits: the runtime, the uid, the hardening, the device list. They
+          are shown rather than hidden because "what is this container actually
+          doing" is a question this screen should answer, and named with their
+          file because that is where they are changed.
+          
+          The form still carries them and sends them back untouched, so editing
+          the memory on a hand-written definition does not quietly replace its
+          tmpfs with a default. */}
+      <details className="stack">
+        <summary>{t('settings.environments.advanced')}</summary>
+        <p className="page__note">
+          {t('settings.environments.advancedHint', { path: filePath })}
+        </p>
+        <dl className="settings-readout">
+          <dt>{t('settings.environments.runtime')}</dt>
+          <dd>{form.runtime}</dd>
+          <dt>{t('settings.environments.user')}</dt>
+          <dd>{form.user}</dd>
+          <dt>{t('settings.environments.workdir')}</dt>
+          <dd>{form.workdir}</dd>
+          <dt>{t('settings.environments.pidsMax')}</dt>
+          <dd>{form.pidsMax}</dd>
+          <dt>{t('settings.environments.shmSizeMb')}</dt>
+          <dd>{form.shmSizeMb}</dd>
+          <dt>{t('settings.environments.hardening')}</dt>
+          <dd>
+            {t('settings.environments.hardeningLine', {
+              privileges: form.noNewPrivileges
+                ? t('settings.environments.noNewPrivileges')
+                : t('settings.environments.privilegesAllowed'),
+              root: form.readOnlyRoot
+                ? t('settings.environments.readOnlyRoot')
+                : t('settings.environments.writableRoot'),
+              seccomp: form.seccomp,
+            })}
+          </dd>
+          <dt>{t('settings.environments.capsDrop')}</dt>
+          <dd>{form.capsDrop || t('settings.environments.none')}</dd>
+          <dt>{t('settings.environments.capsAdd')}</dt>
+          <dd>{form.capsAdd || t('settings.environments.none')}</dd>
+          <dt>{t('settings.environments.tmpfs')}</dt>
+          <dd>{form.tmpfs || t('settings.environments.none')}</dd>
+          <dt>{t('settings.environments.devices')}</dt>
+          <dd>{form.devices || t('settings.environments.none')}</dd>
+          <dt>{t('settings.environments.env')}</dt>
+          <dd>{form.env || t('settings.environments.none')}</dd>
+        </dl>
+      </details>
 
       {/* Beside the button that produced it, as well as in the toast. A
           refusal here is a sentence about the definition on screen — an image

@@ -86,7 +86,17 @@ pub struct ContainerSecurity {
     #[serde(default = "crate::json::yes")]
     pub read_only_root: bool,
     /// Mount specs, e.g. `/tmp:rw,nosuid,size=512m`.
-    #[serde(default)]
+    ///
+    /// **Defaults to a writable `/tmp`, and that is load-bearing.** `exec`
+    /// records its pid under `/tmp` so a timeout or a cancel has something to
+    /// signal; under a read-only root with no tmpfs the redirect fails, the
+    /// script carries on, and the kill script then reads an empty file and
+    /// exits 0. Cancellation silently stops working while the command keeps
+    /// running.
+    ///
+    /// 64m rather than the catalogue's 256m because a tmpfs is RAM and counts
+    /// against the memory limit.
+    #[serde(default = "default_tmpfs")]
     pub tmpfs: Vec<String>,
     /// Rootless build needs `/dev/fuse`; nothing else should ask for a device.
     #[serde(default)]
@@ -99,7 +109,7 @@ impl Default for ContainerSecurity {
             no_new_privileges: true,
             seccomp: SeccompProfile::Default,
             read_only_root: true,
-            tmpfs: Vec::new(),
+            tmpfs: default_tmpfs(),
             devices: Vec::new(),
         }
     }
@@ -130,20 +140,25 @@ pub struct ContainerLimits {
     pub shm_size_mb: u64,
 }
 
+/// A writable `/tmp`, without which cancellation silently stops working.
+fn default_tmpfs() -> Vec<String> {
+    vec!["/tmp:rw,nosuid,size=64m".to_owned()]
+}
+
 fn default_memory_mb() -> u64 {
-    2048
-}
-
-fn default_cpus() -> f64 {
-    2.0
-}
-
-fn default_pids_max() -> u64 {
     512
 }
 
-fn default_shm_size_mb() -> u64 {
+fn default_cpus() -> f64 {
+    1.0
+}
+
+fn default_pids_max() -> u64 {
     256
+}
+
+fn default_shm_size_mb() -> u64 {
+    64
 }
 
 impl Default for ContainerLimits {
@@ -204,24 +219,32 @@ pub struct EnvironmentDefinition {
     /// The name agents select, which is also its filename.
     #[schemars(regex(pattern = "^[a-z0-9][a-z0-9-]{0,63}$"))]
     pub name: String,
-    /// What the model is told about this place, as its own prompt section.
+    /// Read by nothing. What the model is told about where its commands run is
+    /// one section now, `agents.list.<id>.platform_prompt`, which says both
+    /// where they run and what is installed there.
     ///
-    /// Empty places no section. There is no built-in wording to fall back on,
-    /// because nobody but the operator knows what is installed in an image.
-    /// a default here would be the repo guessing, and a wrong guess about the
-    /// toolchain is worse than silence. An agent may override it; see
-    /// `agents.list.<id>.environmentPrompt`.
-    #[serde(default)]
-    pub prompt: String,
+    /// Still parsed because every installed definition predates the change and
+    /// the preset catalogue ships on its own release cycle. A definition
+    /// setting it is reported on its row. It goes one release after that.
+    ///
+    /// `skip_serializing_if` is load-bearing: `save_environment` re-emits the
+    /// whole definition, so without it every save from the editor would write
+    /// the field back and the row would report itself forever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
     /// Must be digest-pinned: an immutable image ID or a registry digest. A
     /// tag is a mutable pointer, and a container installed once and then
     /// silently repointed would run code nobody chose.
     #[garde(length(utf16, min = 1))]
     pub image: String,
-    /// Share one instance across agents and conversations in a workspace that
-    /// ask for the same egress.
-    #[serde(default)]
-    pub shared: bool,
+    /// Read by nothing. An environment is a place, and everything asking for
+    /// the same place gets the same container: an instance is keyed on the
+    /// workspace, the definition and the network, with neither the agent nor
+    /// the session in it.
+    ///
+    /// Parsed and reported for the same reason `prompt` above is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<bool>,
     /// The OCI runtime.
     #[serde(default)]
     pub runtime: ContainerRuntime,

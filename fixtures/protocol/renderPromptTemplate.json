@@ -169,7 +169,7 @@
     {
       "name": "default: DEFAULT_PLATFORM_CONTAINER_TEMPLATE",
       "input": {
-        "template": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.",
+        "template": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.\n\nAssume nothing about what is installed beyond a base image. Check for a tool\nbefore relying on it.",
         "values": {
           "runtime": "macOS arm64, Node 22.0.0",
           "platform": "darwin",
@@ -177,7 +177,7 @@
           "shellPolicy": ""
         }
       },
-      "output": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container."
+      "output": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.\n\nAssume nothing about what is installed beyond a base image. Check for a tool\nbefore relying on it."
     },
     {
       "name": "default: DEFAULT_TOOL_POLICY_TEMPLATE",

@@ -60,8 +60,6 @@ export const SECCOMP_PROFILES: readonly SeccompProfile[] = [
 export interface EnvironmentForm {
   readonly name: string;
   readonly image: string;
-  readonly prompt: string;
-  readonly shared: boolean;
   readonly runtime: ContainerRuntime;
   readonly workdir: string;
   readonly user: string;
@@ -114,8 +112,6 @@ export function toEnvironmentForm(
   return {
     name: definition.name,
     image: definition.image,
-    prompt: definition.prompt,
-    shared: definition.shared,
     runtime: definition.runtime,
     workdir: definition.workdir,
     user: definition.user,
@@ -199,9 +195,7 @@ export function toEnvironmentDefinition(
       schema: 'ghostai.environment/1',
       kind: 'container',
       name: form.name,
-      prompt: form.prompt,
       image: form.image.trim(),
-      shared: form.shared,
       runtime: form.runtime,
       workdir: form.workdir.trim(),
       user: form.user.trim(),

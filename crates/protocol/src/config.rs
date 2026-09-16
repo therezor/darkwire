@@ -787,15 +787,14 @@ pub struct AgentEntry {
     /// neither of which reads the prompt.
     #[serde(default)]
     pub platform_prompt: String,
-    /// The `## Environment` section. Empty inherits the environment
-    /// definition's own `prompt`; a single space removes it.
+    /// Read by nothing. `## Running commands` is the one placement section now,
+    /// and `platform_prompt` above says both where commands run and what is
+    /// installed there.
     ///
-    /// Unlike every other template here there is no built-in below the
-    /// inheritance, so "inherit" can still resolve to nothing. An agent on the
-    /// host, or in an environment whose definition says nothing about itself,
-    /// places no section at all.
-    #[serde(default)]
-    pub environment_prompt: String,
+    /// Still parsed so an agent that set it can be told its wording is no
+    /// longer placed, rather than losing it in silence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_prompt: Option<String>,
     /// The `## Tool output policy` section. The envelopes are emitted and the
     /// nonce regenerated whatever this says — this is the *explanation* of a
     /// defence, not the defence.
@@ -851,7 +850,7 @@ impl Default for AgentEntry {
             wrap_up_prompt: String::new(),
             prompt_mode: PromptMode::Template,
             platform_prompt: String::new(),
-            environment_prompt: String::new(),
+            environment_prompt: None,
             tool_policy_prompt: String::new(),
             memory_prompt: String::new(),
             skills_prompt: String::new(),
@@ -1285,7 +1284,8 @@ pub struct AgentEntryPatch {
     /// See [`AgentEntry::platform_prompt`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_prompt: Option<String>,
-    /// See [`AgentEntry::environment_prompt`].
+    /// See [`AgentEntry::environment_prompt`]. Read by nothing; carried so a
+    /// patch round-trips an entry that still sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment_prompt: Option<String>,
     /// See [`AgentEntry::tool_policy_prompt`].
@@ -1330,7 +1330,7 @@ impl From<AgentEntry> for AgentEntryPatch {
             wrap_up_prompt: Some(entry.wrap_up_prompt),
             prompt_mode: Some(entry.prompt_mode),
             platform_prompt: Some(entry.platform_prompt),
-            environment_prompt: Some(entry.environment_prompt),
+            environment_prompt: entry.environment_prompt,
             tool_policy_prompt: Some(entry.tool_policy_prompt),
             memory_prompt: Some(entry.memory_prompt),
             skills_prompt: Some(entry.skills_prompt),

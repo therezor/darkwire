@@ -85,7 +85,8 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::agents::{
     AgentConfigWarning, EffectiveAgent, assert_writable_agent_ids, granted,
-    prune_dangling_subagents, resolve_agent, resolve_agents, tool_prompt_warnings,
+    prune_dangling_subagents, resolve_agent, resolve_agents, retired_prompt_warnings,
+    tool_prompt_warnings,
 };
 use crate::credentials::{PROVIDER_CREDENTIAL_NAMESPACE, VaultChoice, find_credential, open_vault};
 use crate::jail_cache::JailCache;
@@ -927,6 +928,12 @@ impl GhostRuntime {
             );
             warnings.extend(tool_prompt_warnings(agent, &advertised));
         }
+        // Read off the stored entries rather than the resolved agents: these
+        // are fields the resolve step deliberately drops, and being told they
+        // stopped being placed is the only thing left to do with them.
+        for (id, entry) in &config.agents.list {
+            warnings.extend(retired_prompt_warnings(id, entry));
+        }
 
         // Past here nothing fails, so the mutations below cannot leave the
         // registry describing a runtime that failed to build.
@@ -1243,13 +1250,11 @@ impl CacheResolver {
 /// tool is written against one. A turn naming no environment runs here, which
 /// is what an install with no container engine does for every agent.
 ///
-/// It also reads the definition's prompt, which is why it holds a store. That
-/// read belongs here rather than in the loop for the same reason the backend
-/// choice does: opening a policy file is composition-root work, and a loop that
-/// could do it would be a loop that knows where the policy directory is.
+/// It holds only the socket now. It used to read the definition's prompt as
+/// well, back when `## Environment` was a section of its own; the one placement
+/// section is the agent's, and nothing here needs to open a policy file.
 struct ServiceEnvironments {
     socket: std::path::PathBuf,
-    policies: PolicyStore,
 }
 
 impl ghostai_tools::EnvironmentResolver for ServiceEnvironments {
@@ -1257,22 +1262,11 @@ impl ghostai_tools::EnvironmentResolver for ServiceEnvironments {
         if request.environment.is_empty() {
             return Placed::host();
         }
-        // A definition that has gone missing or stopped parsing since boot is
-        // not this function's to refuse. The command itself is still guarded,
-        // and the service re-reads the definition before it runs anything. What
-        // is lost is the prompt section, which is the right thing to lose: an
-        // unreadable definition should not cost the turn its tools.
-        let prompt = self
-            .policies
-            .require_environment(&request.environment)
-            .map(|installed| installed.definition.prompt)
-            .unwrap_or_default();
         Placed {
             environment: Arc::new(ghostai_environment::service::ContainerEnvironment::new(
                 ghostai_environment::service::SandboxClient::new(self.socket.clone()),
                 request.clone(),
             )),
-            prompt,
         }
     }
 }
@@ -1381,7 +1375,6 @@ impl GhostRuntime {
         options.automation.clone_from(&self.options.automation);
         options.environments = Some(Arc::new(ServiceEnvironments {
             socket: self.sandbox_socket(),
-            policies: PolicyStore::new(paths.policy_dir.clone()),
         }));
         // Read per turn, so the clock the model is given is the same one the
         // scheduler reads cron expressions against and the UI renders timestamps
@@ -1410,7 +1403,6 @@ impl GhostRuntime {
             // a subagent runs where its caller's reference says it does and
             // this value is resolved once per agent.
             platform_prompt: Some(agent.platform_prompt.clone()),
-            environment_prompt: Some(agent.environment_prompt.clone()),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
         });
 

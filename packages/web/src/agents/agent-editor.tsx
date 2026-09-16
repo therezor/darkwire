@@ -42,7 +42,6 @@ import {
   DEFAULT_MEMORY_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
   DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
-  ENVIRONMENT_PROMPT_PLACEHOLDERS,
   DEFAULT_PLATFORM_HOST_TEMPLATE,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
@@ -1527,7 +1526,17 @@ function Editor({
                     }
                     value={form.platformPrompt}
                     placeholders={PLATFORM_PROMPT_PLACEHOLDERS}
-                    hint="agents.promptPlatformHint"
+                    hint={
+                      // The built-in shown is the one for the environment this
+                      // agent names. A delegated turn runs where its caller
+                      // does unless this agent pins itself, and the runtime
+                      // picks the wording per turn, so the box can be showing
+                      // the host built-in for an agent that ends up in a
+                      // container. Said rather than hidden.
+                      form.environmentAlwaysUseOwn
+                        ? 'agents.promptPlatformHint'
+                        : 'agents.promptPlatformInheritHint'
+                    }
                     // Tool-shaped like the two below it: every line it renders
                     // describes running a command, and the file tools it names
                     // are tools too. With none of them there is nothing left for
@@ -1542,32 +1551,6 @@ function Editor({
                       : {})}
                     onChange={(next) => {
                       update('platformPrompt', next);
-                    }}
-                  />
-                  {/* After the command policy, which says *where* commands
-                      run: this says what is *there*. Its built-in is the chosen
-                      environment's own `prompt` rather than anything this repo
-                      ships. Nobody but the operator knows what is installed in
-                      an image, so an agent on the host has nothing to inherit
-                      and the section is simply not placed. */}
-                  <TemplateEditor
-                    key={`${String(formEpoch)}-environment`}
-                    name={name}
-                    label="agents.promptEnvironment"
-                    builtIn={chosenEnvironment?.definition?.prompt ?? ''}
-                    value={form.environmentPrompt}
-                    placeholders={ENVIRONMENT_PROMPT_PLACEHOLDERS}
-                    hint="agents.promptEnvironmentHint"
-                    {...(toolsOff
-                      ? {
-                          warning: {
-                            title: t('agents.toolsOffTitle'),
-                            message: t('agents.promptNotPlacedNoTools'),
-                          },
-                        }
-                      : {})}
-                    onChange={(next) => {
-                      update('environmentPrompt', next);
                     }}
                   />
                   <TemplateEditor
