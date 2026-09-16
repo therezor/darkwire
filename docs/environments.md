@@ -14,11 +14,24 @@ only decides whether a restricted allow-list can be enforced around it at all.
 
 ## Definitions
 
-Install definitions under `policy/environments/<name>.yaml`. Each uses
+Definitions live under `policy/environments/<name>.yaml`. Each uses
 `ghostai.environment/1` and pins an image digest. `ghostai environment list` reports the
-installed definitions and their hardening, and the **Environments** tab in Settings shows
-the same list. The environment service re-resolves a definition before use and stops work
-if it has drifted.
+installed definitions and their hardening; the **Environments** tab in Settings shows the
+same list and is where one is authored, edited or removed. The environment service
+re-resolves a definition before use and stops work if it has drifted.
+
+The policy directory sits beside the workspace, never inside it, so nothing a tool can
+write reaches a definition. Settings is a door for the operator, not for the agent, and a
+save there clears exactly the checks a hand-written file clears: an image that is not
+digest-pinned and a capability that is never grantable are refused either way.
+
+Two writes are refused because the next start would refuse them: removing an environment
+an enabled agent names, and saving one that stops being able to enforce an allow-list an
+agent already asked for. Both name the agents in the refusal.
+
+A save re-emits the file from the definition, so comments and key order in a hand-written
+one are lost the first time it is saved from Settings. That also moves the digest, which
+is correct: the digest is identity, and an edited definition is a different one.
 
 ```yaml
 schema: ghostai.environment/1

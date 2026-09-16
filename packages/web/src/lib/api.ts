@@ -95,6 +95,7 @@ import {
   type WorkspaceSummary,
   type StatusResponse,
   type AgentListResponse,
+  type EnvironmentDefinition,
   type EnvironmentListResponse,
   type ToolListResponse,
   type UploadResponse,
@@ -537,6 +538,30 @@ export const api = {
     request('/api/environments', EnvironmentListResponseSchema, {
       ...(signal ? { signal } : {}),
     }),
+
+  /**
+   * Installs or replaces one definition, and answers with the whole list.
+   *
+   * The list rather than the one row, so a save never leaves the panel deciding
+   * whether to refetch: the derived facts beside a definition — what hardening
+   * it weakens, whether a restricted allow-list could be enforced — are resolved
+   * on the server and move when the definition does.
+   */
+  saveEnvironment: (
+    definition: EnvironmentDefinition,
+  ): Promise<EnvironmentListResponse> =>
+    request(
+      `/api/environments/${encodeURIComponent(definition.name)}`,
+      EnvironmentListResponseSchema,
+      { method: 'PUT', body: definition },
+    ),
+
+  removeEnvironment: (name: string): Promise<EnvironmentListResponse> =>
+    request(
+      `/api/environments/${encodeURIComponent(name)}`,
+      EnvironmentListResponseSchema,
+      { method: 'DELETE' },
+    ),
 
   /**
    * Where each configured MCP server actually is.

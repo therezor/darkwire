@@ -28,6 +28,10 @@ import {
   ProviderCreateRoute,
   ProviderEditorRoute,
 } from '@/settings/provider-editor.js';
+import {
+  EnvironmentCreateRoute,
+  EnvironmentEditorRoute,
+} from '@/settings/environment-editor.js';
 import { McpCreateRoute, McpEditorRoute } from '@/settings/mcp-editor.js';
 import { AutomationRoute } from '@/automation/automation-page.js';
 import { JobCreateRoute, JobEditorRoute } from '@/automation/job-editor.js';
@@ -202,6 +206,19 @@ const mcpEditorRoute = createRoute({
   component: McpEditorRoute,
 });
 
+/** Authoring an environment, on the same form that edits one. */
+const environmentCreateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/environments/new',
+  component: EnvironmentCreateRoute,
+});
+
+const environmentEditorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/environments/$name',
+  component: EnvironmentEditorRoute,
+});
+
 const automationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/automation',
@@ -251,6 +268,8 @@ const routeTree = rootRoute.addChildren([
   providerEditorRoute,
   mcpCreateRoute,
   mcpEditorRoute,
+  environmentCreateRoute,
+  environmentEditorRoute,
   automationRoute,
   jobCreateRoute,
   jobEditorRoute,

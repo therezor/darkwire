@@ -282,16 +282,17 @@ to fill in first.
 
 ## Settings
 
-| Panel       | State                                                                                                                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Providers   | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it.          |
-| Tools       | Built. Approval timeout, `exec` settings, output caps, and start/stop/restart controls for shared containers. **No permission matrix here** — permission is per tool per agent. |
-| Account     | Built. Username and password together, requires the current password, revokes every other session.                                                                              |
-| Appearance  | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                                      |
-| Automation  | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                               |
-| MCP servers | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                                   |
-| Channels    | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.yaml`.                                                                      |
-| Extensions  | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.               |
+| Panel        | State                                                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers    | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it. |
+| Tools        | Built. Approval timeout, `exec` settings and output caps. **No permission matrix here** — permission is per tool per agent.                                            |
+| Environments | Built. A list and an editor for the definitions on disk, plus the containers held open for them.                                                                       |
+| Account      | Built. Username and password together, requires the current password, revokes every other session.                                                                     |
+| Appearance   | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                             |
+| Automation   | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                      |
+| MCP servers  | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                          |
+| Channels     | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.yaml`.                                                             |
+| Extensions   | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.      |
 
 Every panel on that list is built, and a panel arrives on it once it has something to
 configure. There are deliberately no placeholders naming a future phase: a settings
@@ -301,6 +302,23 @@ Approving is the only reversible action in Settings that asks first. It grants t
 the server's own access, so it goes through the confirm dialog with the sentence that
 says so; a one-click toggle would make the digest gate decorative. Withdrawing does not
 ask, because it takes access away and leaves the files where they are.
+
+**Environments is the one panel that writes outside `config.yaml`.** A definition is a
+file in the policy directory, which sits beside the workspace rather than inside it, so
+nothing a tool can write reaches one. The editor covers the whole definition, hardening
+included: a form that edited the memory limit and left the capability set to a text
+editor would be two doors into one room, and the one people found would be the one that
+could not express what they needed. It cannot widen what the file already refuses, since
+a save clears exactly the checks a hand-written file clears.
+
+The warnings on a row — what hardening a definition weakens, whether a restricted
+allow-list could be enforced in it — are resolved on the server, so the terminal and the
+browser cannot describe one definition differently. They are the last saved state and
+refresh on save. A file that did not parse still gets a row, named rather than opened:
+deleting it is the way out, and there is nothing to load into a form.
+
+Below it, the containers currently running. Stopping one is safe and is never gated: the
+next command starts a fresh one from the same definition.
 
 Each MCP row joins two requests — `GET /api/settings` for what was
 configured, `GET /api/mcp` for what came of it — and settles on its own, because the

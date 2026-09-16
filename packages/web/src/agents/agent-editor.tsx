@@ -427,7 +427,9 @@ function Editor({
     { value: HOST_ENVIRONMENT, label: t('agents.environmentHost') },
     ...(environments.data?.environments ?? []).map((environment) => ({
       value: environment.name,
-      label: environment.shared
+      // A definition that did not parse still gets an option: it is installed,
+      // an agent may already name it, and the notes below say what is wrong.
+      label: environment.definition?.shared
         ? t('agents.environmentOptionShared', { name: environment.name })
         : t('agents.environmentOptionPrivate', { name: environment.name }),
     })),
@@ -1307,7 +1309,7 @@ function Editor({
             needs no line of its own. */}
         {chosenEnvironment !== undefined && (
           <p className="page__note">
-            {chosenEnvironment.shared
+            {chosenEnvironment.definition?.shared
               ? t('agents.environmentShared', { name: chosenEnvironment.name })
               : t('agents.environmentPrivate', {
                   name: chosenEnvironment.name,
@@ -1572,7 +1574,7 @@ function Editor({
                     key={`${String(formEpoch)}-environment`}
                     name={name}
                     label="agents.promptEnvironment"
-                    builtIn={chosenEnvironment?.prompt ?? ''}
+                    builtIn={chosenEnvironment?.definition?.prompt ?? ''}
                     value={form.environmentPrompt}
                     placeholders={ENVIRONMENT_PROMPT_PLACEHOLDERS}
                     hint="agents.promptEnvironmentHint"

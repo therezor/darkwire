@@ -28,26 +28,38 @@ import {
 } from '@testkit/render.js';
 import { STATUS } from '@testkit/fixtures.js';
 
+const IMAGE = `sha256:${'a'.repeat(64)}`;
+
 /**
  * One shared environment definition, as the wire carries it.
  *
- * Stated in full rather than trimmed to the fields under test: `api.environments`
- * parses the response, so a summary missing `runtime`, `workdir`, `user` or
- * `limits` is not a smaller fixture but a failed query.
+ * Stated in full rather than trimmed to the fields under test:
+ * `api.environments` parses the response, so a definition missing a field is
+ * not a smaller fixture but a failed query.
  */
-const ENVIRONMENT = {
-  name: 'dev',
+const DEFINITION = {
+  schema: 'ghostai.environment/1',
   kind: 'container',
+  name: 'dev',
   prompt: '',
-  image: `sha256:${'a'.repeat(64)}`,
+  image: IMAGE,
   shared: true,
   runtime: 'runc',
   workdir: '/work',
   user: '1000:1000',
+  caps: { drop: ['ALL'], add: [] },
+  security: {
+    noNewPrivileges: true,
+    seccomp: 'default',
+    readOnlyRoot: true,
+    tmpfs: [],
+    devices: [],
+  },
   limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
-  capsAdded: [],
-  weakened: [],
+  env: [],
 };
+
+const ENVIRONMENT = { name: 'dev', definition: DEFINITION, weakened: [] };
 
 const SHELL_ROUTES: Record<string, StubRoute> = {
   '/api/auth/me': [200, { authenticated: true, authEnabled: false }],
@@ -96,17 +108,13 @@ describe('the environments panel', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows what an operator weighs before binding an agent to one', async () => {
+  it('shows what an operator weighs before opening one', async () => {
     mount({
       '/api/environments': [
         200,
         {
           environments: [
-            {
-              ...ENVIRONMENT,
-              capsAdded: ['SYS_PTRACE'],
-              weakened: ['seccomp is unconfined'],
-            },
+            { ...ENVIRONMENT, weakened: ['seccomp is unconfined'] },
           ],
         },
       ],
@@ -114,13 +122,62 @@ describe('the environments panel', () => {
 
     // By its image rather than its name: the name is also an option in the
     // warm-it form below, so a bare text match would find two.
-    expect(await screen.findByText(ENVIRONMENT.image)).toBeInTheDocument();
-    expect(screen.getByText(/runs as 1000:1000/)).toBeInTheDocument();
+    expect(await screen.findByText(IMAGE)).toBeInTheDocument();
     expect(screen.getByText(/2048 MB/)).toBeInTheDocument();
-    expect(screen.getByText(/SYS_PTRACE/)).toBeInTheDocument();
-    // The one a picker that showed names alone would hide.
+    // The one a list that showed names alone would hide.
     expect(
       screen.getByText(/Hardening weakened: seccomp is unconfined/),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the editor from the row, and offers a create', async () => {
+    // The panel was read-only until the policy directory got a door: the only
+    // way to author one was hand-written YAML or `ghostai preset install`.
+    mount({ '/api/environments': [200, { environments: [ENVIRONMENT] }] });
+
+    expect(
+      await screen.findByRole('link', { name: 'Edit dev' }),
+    ).toHaveAttribute('href', '/settings/environments/dev');
+    expect(
+      screen.getByRole('link', { name: /New environment/ }),
+    ).toHaveAttribute('href', '/settings/environments/new');
+  });
+
+  it('lists a definition that did not parse, with no way to edit it', async () => {
+    // A file on disk with a name and a problem. It belongs on the list because
+    // deleting it is the operator's way out, and there is nothing to load into
+    // a form.
+    mount({
+      '/api/environments': [
+        200,
+        {
+          environments: [
+            { name: 'broken', weakened: [], problem: 'image must be pinned' },
+          ],
+        },
+      ],
+    });
+
+    expect(await screen.findByText('image must be pinned')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Edit broken' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('asks before removing one, and says what it costs', async () => {
+    const { user } = mount({
+      '/api/environments': [200, { environments: [ENVIRONMENT] }],
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for dev' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: /Delete/ }));
+
+    expect(
+      await screen.findByText(
+        /Agents naming .dev. will refuse their next turn/,
+      ),
     ).toBeInTheDocument();
   });
 

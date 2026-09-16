@@ -1863,15 +1863,30 @@ describe('choosing an environment', () => {
 
   const ENVIRONMENT = {
     name: 'development',
-    kind: 'container',
-    prompt: '',
-    image: `sha256:${'b'.repeat(64)}`,
-    shared: true,
-    runtime: 'runc',
-    workdir: '/work',
-    user: '1000:1000',
-    limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
-    capsAdded: [],
+    // The definition whole, as the route reports it. Stated in full because
+    // `api.environments` parses the response: a definition missing a field is a
+    // failed query rather than a smaller fixture.
+    definition: {
+      schema: 'ghostai.environment/1',
+      kind: 'container',
+      name: 'development',
+      prompt: '',
+      image: `sha256:${'b'.repeat(64)}`,
+      shared: true,
+      runtime: 'runc',
+      workdir: '/work',
+      user: '1000:1000',
+      caps: { drop: ['ALL'], add: [] },
+      security: {
+        noNewPrivileges: true,
+        seccomp: 'default',
+        readOnlyRoot: true,
+        tmpfs: [],
+        devices: [],
+      },
+      limits: { memoryMb: 2048, cpus: 2, pidsMax: 512, shmSizeMb: 256 },
+      env: [],
+    },
     weakened: [],
   };
 

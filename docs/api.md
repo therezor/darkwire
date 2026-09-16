@@ -97,7 +97,9 @@ the schema, and changing either revokes every other session.
 | ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------- |
 | GET    | `/api/agents`                 | `required` | **Read-only.** Agents are created and edited through `PATCH /api/settings`. |
 | GET    | `/api/tools`                  | `required` | What is registered, with source and risk band.                              |
-| GET    | `/api/environments`           | `required` | Installed environment definitions and their digests.                        |
+| GET    | `/api/environments`           | `required` | Installed environment definitions, with what each one weakens.              |
+| PUT    | `/api/environments/:name`     | `required` | Installs or replaces one. Answers with the whole list.                      |
+| DELETE | `/api/environments/:name`     | `required` | Uninstalls one. Refused while an enabled agent names it.                    |
 | GET    | `/api/sandboxes`              | `required` | Live container instances, sharing and busy state.                           |
 | POST   | `/api/sandboxes`              | `required` | Start, stop, restart, or health-check an instance.                          |
 | GET    | `/api/mcp`                    | `required` | Each configured MCP server's live state. See below.                         |
@@ -112,8 +114,13 @@ approval records the digest of the bytes on disk at that moment; putting it in
 `config.yaml` would make it survive an edit to the very files it was about. Nothing about
 either is safe to replay across such an edit, which is what rules out `PUT`.
 
-`GET /api/mcp` is read-only, like `/api/environments`: a server is created, edited and
-deleted through `PATCH /api/settings`, because it is configuration. What this route
+**The environment writes are not a settings patch.** A definition is a file in the policy
+directory rather than a branch of `config.yaml`, and that directory sits outside the
+workspace jail so nothing a tool can write reaches it. These two routes are the only door
+the browser has into it, and every save clears the same checks a hand-written file clears.
+
+`GET /api/mcp` is read-only: a server is created, edited and deleted through
+`PATCH /api/settings`, because it is configuration. What this route
 carries is what the settings tree cannot — the state a server is actually in, the reason
 it is not connected, and the URL an operator must visit when it wants authorizing. A
 build with no MCP client answers `{"servers": []}` rather than a 501: it has no MCP

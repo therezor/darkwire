@@ -345,7 +345,9 @@ A preset deliberately cannot name a model or provider. See [Environments](enviro
 
 ## `ghostai environment` and `ghostai extension`
 
-Environment definitions are read-only from the CLI because the file on disk **is** the policy:
+Environment definitions are read-only from the CLI. Authoring one is a form with a dozen
+fields and five of them decide what a container may do, which is a screen rather than a
+flag list; the **Environments** tab in Settings is where that lives.
 
 ```bash
 ghostai environment list        # every installed environment definition and its hardening
