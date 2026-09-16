@@ -165,6 +165,39 @@ fn every_id_has_a_distinct_dotted_name() {
     assert_eq!(names.len(), count);
 }
 
+#[test]
+fn every_dotted_name_names_the_resource_its_path_serves() {
+    // The gap this closes: a rename that moves the id and the handler but
+    // leaves the path behind compiles, serves, and passes every other test in
+    // this file. `EnvironmentsList` pointed at `/api/containers` for exactly
+    // that reason, and the browser got a 404 from a route the server thought it
+    // was serving.
+    //
+    // The rule is deliberately weak: the first segment of the dotted name has
+    // to appear *somewhere* in the path. It cannot catch a wrong path that
+    // still mentions the right word, and it is not meant to. It catches the one
+    // failure that has actually happened, which is a path left pointing at the
+    // old name of a renamed resource.
+    //
+    // `system` is the one prefix that names no path segment. It groups three
+    // routes that are about the server rather than about a resource, and
+    // renaming them to `health.get` would be worse than the exception.
+    const NAMES_NO_SEGMENT: &[&str] = &["system.health", "system.status", "system.openapi"];
+
+    for route in ROUTE_MANIFEST {
+        let name = route.id.as_str();
+        if NAMES_NO_SEGMENT.contains(&name) {
+            continue;
+        }
+        let resource = name.split('.').next().unwrap_or(name);
+        assert!(
+            route.path.contains(resource),
+            "{name} is served at {}, which does not mention \"{resource}\"",
+            route.path
+        );
+    }
+}
+
 #[cfg(feature = "test-hooks")]
 #[test]
 fn the_test_hook_routes_are_in_the_manifest_and_are_authenticated() {

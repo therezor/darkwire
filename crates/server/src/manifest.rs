@@ -165,7 +165,7 @@ pub enum RouteId {
     AgentsList,
     /// `GET /api/tools`
     ToolsList,
-    /// `GET /api/containers`
+    /// `GET /api/environments`
     EnvironmentsList,
     /// `GET /api/sandboxes`.
     SandboxesList,
@@ -293,7 +293,7 @@ impl RouteId {
             RouteId::SessionsTurns => "sessions.turns",
             RouteId::AgentsList => "agents.list",
             RouteId::ToolsList => "tools.list",
-            RouteId::EnvironmentsList => "containers.list",
+            RouteId::EnvironmentsList => "environments.list",
             RouteId::SandboxesList => "sandboxes.list",
             RouteId::SandboxesManage => "sandboxes.manage",
             RouteId::McpList => "mcp.list",
@@ -557,7 +557,7 @@ const BASE: [Route; 65] = [
     Route {
         id: RouteId::EnvironmentsList,
         method: RouteMethod::GET,
-        path: "/api/containers",
+        path: "/api/environments",
         auth: RouteAuth::Required,
     },
     Route {

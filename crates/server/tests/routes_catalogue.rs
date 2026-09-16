@@ -377,7 +377,7 @@ fn with_containers(definitions: Vec<EnvironmentDefinition>) -> TestServer {
 #[tokio::test]
 async fn container_definitions_are_listed() {
     let test = with_containers(vec![definition(&json!({"shared": true}))]);
-    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let entry = &body["environments"][0];
     assert_eq!(entry["name"], "dev");
     assert_eq!(entry["shared"], true);
@@ -394,7 +394,7 @@ async fn container_definitions_are_listed() {
 }
 
 #[tokio::test]
-async fn a_definition_that_weakens_the_container_says_which_defences_it_drops() {
+async fn a_definition_that_weakens_the_environment_says_which_defences_it_drops() {
     let test = with_containers(vec![definition(&json!({
         "security": {
             "noNewPrivileges": false,
@@ -404,7 +404,7 @@ async fn a_definition_that_weakens_the_container_says_which_defences_it_drops() 
         "caps": {"add": ["SYS_PTRACE"]},
     }))]);
 
-    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let entry = &body["environments"][0];
     let weakened = entry["weakened"].as_array().expect("a weakened list");
     // The same list the terminal's review prints, so a browser and a terminal
@@ -420,7 +420,7 @@ async fn a_definition_that_names_no_user_is_itself_a_weakening() {
     // asked for nothing: an operator approving it is approving that too.
     let test = with_containers(vec![definition(&json!({"user": ""}))]);
 
-    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let weakened = body["environments"][0]["weakened"]
         .as_array()
         .expect("a weakened list");
@@ -432,12 +432,12 @@ async fn a_definition_that_names_no_user_is_itself_a_weakening() {
 }
 
 #[tokio::test]
-async fn a_container_that_could_not_host_a_restricted_allow_list_says_so_in_advance() {
+async fn an_environment_that_could_not_host_a_restricted_allow_list_says_so_in_advance() {
     // Shown before a save fails: an operator picking a container for an agent
     // that scopes its egress needs to know which ones cannot carry it.
     let test = with_containers(vec![definition(&json!({"user": "0:0"}))]);
 
-    let (_, body) = send(&test, Method::GET, "/api/containers", None).await;
+    let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let problem = body["environments"][0]["gatewayProblem"]
         .as_str()
         .expect("a gateway problem");
