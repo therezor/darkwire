@@ -16,6 +16,19 @@ container in it will run; nothing is started when `GHOSTAI_SANDBOX_SOCKET` names
 or a socket is already listening, because two services over one state directory would each
 try to reap the other's containers.
 
+## Upgrading a deployed service
+
+**The app and the service must be the same version.** The socket protocol is a private
+wire between two artefacts that are built separately, so a deployed service left on an
+older image fails the first `exec` with a parse error rather than a sentence. Rebuild the
+`ghostai-environment` image whenever you upgrade the app.
+
+0.10 renames two fields on that wire: the `exec` and `start` operations now carry
+`environment` rather than `container`, and a workspace registration lists `environments`
+rather than `containers`. `GHOSTAI_SANDBOX_CONTAINERS` is `GHOSTAI_ENVIRONMENTS`. A
+single-binary install is unaffected, because `ghostai serve` builds both halves from the
+same binary.
+
 ## Container deployment
 
 Copy `deploy/sandbox/examples` into an absolute data directory as `policies`, replace the

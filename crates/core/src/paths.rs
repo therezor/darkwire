@@ -97,8 +97,8 @@ pub struct GhostPaths {
     pub workspace: PathBuf,
     /// The layer agents working in one folder share, keyed by workspace.
     pub shared_dir: PathBuf,
-    /// Operator-installed policy: `containers/`, `containers/` and
-    /// `container-definitions/`, each holding one `<name>.yaml` per definition.
+    /// Operator-installed policy: `environments/`, holding one `<name>.yaml`
+    /// per definition.
     ///
     /// Beside the workspace and never inside it: the jail root *is* the
     /// workspace, so policy kept in there would be writable by `write_file` and
