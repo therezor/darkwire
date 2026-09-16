@@ -146,3 +146,181 @@ fn an_install_with_no_policy_directory_lists_nothing() {
     assert!(store.list_environments().is_empty());
     assert!(store.require_environment("dev").is_err());
 }
+
+/// Writing a definition from the settings route.
+///
+/// The policy directory sits beside the workspace rather than inside it, so no
+/// tool can reach these files; an authenticated operator is a different actor
+/// from a prompt-injected `write_file`, and this is their door. What must not
+/// change is the validation: a definition saved here clears exactly the checks
+/// a hand-written one does.
+mod saving {
+    use super::*;
+
+    /// Every optional field set to something that is not its default, so the
+    /// round trip covers the nested objects and the lists rather than the four
+    /// fields a minimal definition carries.
+    fn full() -> Value {
+        json!({
+            "schema": "ghostai.environment/1",
+            "kind": "container",
+            "name": "dev",
+            "prompt": "Rust and Node are installed.",
+            "image": DIGEST,
+            "shared": true,
+            "runtime": "runsc",
+            "workdir": "/srv/work",
+            "user": "1001:1001",
+            "caps": {"drop": ["ALL"], "add": ["CHOWN"]},
+            "security": {
+                "noNewPrivileges": false,
+                "seccomp": "unconfined",
+                "readOnlyRoot": false,
+                "tmpfs": ["/tmp:rw,nosuid,size=512m"],
+                "devices": ["/dev/fuse"],
+            },
+            "limits": {"memoryMb": 4096, "cpus": 1.5, "pidsMax": 1024, "shmSizeMb": 512},
+            "env": ["CARGO_HOME", "RUSTUP_HOME"],
+        })
+    }
+
+    fn empty() -> (tempfile::TempDir, PolicyStore) {
+        let root = tempfile::tempdir().unwrap();
+        let store = PolicyStore::new(root.path().to_path_buf());
+        (root, store)
+    }
+
+    #[test]
+    fn a_saved_definition_loads_back_field_for_field() {
+        let (_root, store) = empty();
+        let written: ghostai_protocol::environment::EnvironmentDefinition =
+            serde_json::from_value(full()).unwrap();
+
+        let digest = store.save_environment(&written).unwrap();
+        let read = store.require_environment("dev").unwrap();
+
+        assert_eq!(read.definition, written);
+        // The digest the save reports is the digest of the bytes it left
+        // behind, not of a re-serialisation somebody hopes matches.
+        assert_eq!(read.digest, digest);
+    }
+
+    #[test]
+    fn it_creates_the_environments_directory_on_the_first_save() {
+        // An install that has never had a definition has no directory at all,
+        // which is the state the Settings panel most often writes from.
+        let (root, store) = empty();
+        assert!(!root.path().join("environments").exists());
+
+        let definition = serde_json::from_value(definition()).unwrap();
+        store.save_environment(&definition).unwrap();
+
+        assert!(root.path().join("environments/dev.yaml").is_file());
+    }
+
+    #[test]
+    fn a_second_save_replaces_the_first_and_moves_the_digest() {
+        let (_root, store) = empty();
+        let mut definition: ghostai_protocol::environment::EnvironmentDefinition =
+            serde_json::from_value(definition()).unwrap();
+        let first = store.save_environment(&definition).unwrap();
+
+        definition.limits.memory_mb = 8192;
+        let second = store.save_environment(&definition).unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(store.require_environment("dev").unwrap().digest, second);
+        assert_eq!(store.list_environments().len(), 1);
+    }
+
+    #[test]
+    fn an_image_that_is_not_pinned_is_refused_and_nothing_is_written() {
+        // The refusal that matters most: a tag is a mutable pointer, so a
+        // definition installed once and then repointed runs code nobody chose.
+        let (root, store) = empty();
+        let mut definition = full();
+        definition["image"] = json!("node:20");
+        let definition = serde_json::from_value(definition).unwrap();
+
+        let refusal = store.save_environment(&definition);
+        let error = refusal.as_ref().unwrap_err();
+
+        assert_eq!(error.kind, ErrorKind::Config);
+        assert!(message_of(&refusal).contains("digest"));
+        assert!(!root.path().join("environments/dev.yaml").exists());
+    }
+
+    #[test]
+    fn a_forbidden_capability_is_refused_and_nothing_is_written() {
+        // `NET_ADMIN` can flush the egress gateway's rules, which live in a
+        // namespace the container shares.
+        let (root, store) = empty();
+        let mut definition = full();
+        definition["caps"]["add"] = json!(["NET_ADMIN"]);
+        let definition = serde_json::from_value(definition).unwrap();
+
+        let refusal = store.save_environment(&definition);
+
+        assert!(message_of(&refusal).contains("NET_ADMIN"));
+        assert!(!root.path().join("environments/dev.yaml").exists());
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_slug_never_reaches_the_filesystem() {
+        let (root, store) = empty();
+        let mut definition = full();
+        definition["name"] = json!("../escape");
+        let definition = serde_json::from_value(definition).unwrap();
+
+        let refusal = store.save_environment(&definition).unwrap_err();
+
+        assert_eq!(refusal.kind, ErrorKind::InvalidInput);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_partial_write_leaves_no_file_behind() {
+        // The temporary the rename works from is cleaned up on the way out of a
+        // refusal, so a failed save does not leave a `.yaml.tmp` the directory
+        // scan has to learn to ignore.
+        let (root, store) = empty();
+        let mut definition = full();
+        definition["image"] = json!("node:20");
+        let definition = serde_json::from_value(definition).unwrap();
+
+        let _ = store.save_environment(&definition);
+
+        assert!(!root.path().join("environments").exists());
+    }
+}
+
+mod removing {
+    use super::*;
+
+    #[test]
+    fn a_removed_definition_stops_being_installed() {
+        let (root, store) = fixture();
+        assert_eq!(store.list_environments().len(), 1);
+
+        store.remove_environment("dev").unwrap();
+
+        assert!(store.list_environments().is_empty());
+        assert!(!root.path().join("environments/dev.yaml").exists());
+    }
+
+    #[test]
+    fn removing_one_that_is_not_installed_says_so() {
+        // Silent success would let a typo read as a deletion.
+        let (_root, store) = fixture();
+        let refusal = store.remove_environment("nope");
+        assert!(message_of(&refusal).contains("No environment is installed"));
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_slug_never_reaches_the_filesystem() {
+        let (_root, store) = fixture();
+        let refusal = store.remove_environment("../dev").unwrap_err();
+        assert_eq!(refusal.kind, ErrorKind::InvalidInput);
+        assert_eq!(store.list_environments().len(), 1);
+    }
+}

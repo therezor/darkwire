@@ -24,7 +24,7 @@ use crate::config::{
     SchedulerConfigPatch, ServerConfigPatch, ToolsConfigPatch, UiConfigPatch,
 };
 use crate::config::{Config, ConfigPatch, McpTransport, ReasoningEffort};
-use crate::environment::{ContainerLimits, ContainerRuntime, EnvironmentKind};
+use crate::environment::EnvironmentDefinition;
 use crate::extension::ExtensionContribution;
 use crate::json::{MAX_SAFE_INTEGER, Nullable, True, positive, yes};
 use crate::messages::{StopReason, StoredMessage, Usage};
@@ -915,41 +915,35 @@ pub struct EnvironmentListResponse {
     pub environments: Vec<EnvironmentSummary>,
 }
 
-/// One installed environment definition.
+/// One installed environment definition, as the API reports it.
 ///
-/// Carries everything an operator weighs before selecting one for an agent:
-/// the image, who it runs as, what it is allowed to spend, and whether any
-/// hardening was switched off. `gatewayProblem` is the sentence a restricted
-/// egress request would fail with, resolved once here so the editor can warn
-/// while the network is still being chosen rather than on save.
+/// **The definition itself, not a projection of it.** This used to restate
+/// eight of its fields by hand and drop the rest, which was survivable while
+/// the panel only read them and is not now that it writes them too: an editor
+/// cannot round-trip a definition it was handed two thirds of, and
+/// reassembling one in the browser is how the two descriptions come apart.
+///
+/// The three fields beside it are the ones that are *not* in the file. They are
+/// derived, resolved server-side so the CLI's review and the browser cannot
+/// describe one definition differently:
+///
+///  - `weakened` names the hardening this definition switched off.
+///  - `gatewayProblem` is the sentence a restricted egress request would fail
+///    with, resolved in advance so the editor can warn while a network is still
+///    being chosen rather than on save.
+///  - `problem` is why it cannot be used at all, which is also the case where
+///    `definition` is absent: a file that did not parse still has a name and
+///    still belongs on the list, because deleting it is the operator's way out.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct EnvironmentSummary {
-    /// Operator-installed identifier.
+    /// Operator-installed identifier, which is also its filename.
     pub name: String,
-    /// What kind of place this is.
-    #[serde(default)]
-    pub kind: EnvironmentKind,
-    /// The definition's prompt section, so the agent editor can show what an
-    /// agent inherits before it decides whether to override it.
-    #[serde(default)]
-    pub prompt: String,
-    /// Immutable image reference.
-    pub image: String,
-    /// Reused across agents and conversations in one workspace.
-    pub shared: bool,
-    /// The OCI runtime.
-    pub runtime: ContainerRuntime,
-    /// Where the workspace is mounted.
-    pub workdir: String,
-    /// `uid:gid` inside.
-    pub user: String,
-    /// The resource budget.
+    /// The definition as it stands, absent when the file could not be parsed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
-    pub limits: ContainerLimits,
-    /// Capabilities added to the otherwise dropped set.
-    pub caps_added: Vec<String>,
+    pub definition: Option<EnvironmentDefinition>,
     /// Non-default hardening choices, named so they can be shown as warnings.
     pub weakened: Vec<String>,
     /// Why a restricted egress request could not be honoured here, when it

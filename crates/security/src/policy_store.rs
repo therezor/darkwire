@@ -132,6 +132,73 @@ impl PolicyStore {
         .with_detail("name", name)
     }
 
+    /// Writes a definition, and reports the digest the bytes on disk now have.
+    ///
+    /// **Validated by reading back what it is about to write.** The bytes are
+    /// serialised, then run through the same `resolve_environment` the load
+    /// path uses, and only a definition that survives that is put on disk.
+    /// Checking the in-memory struct instead would skip the schema validation
+    /// `parse_environment` performs, which is how a file gets written that
+    /// `list_environments` then reports as broken. Anything that saves here is
+    /// something that loads.
+    ///
+    /// Written to a temporary file and renamed, so a reader never sees half a
+    /// definition. A rename within one directory is atomic on every filesystem
+    /// this runs on, and the pool reads these under no lock at all.
+    ///
+    /// The bytes are re-emitted from the parsed definition rather than patched
+    /// in place, so comments and key order in a hand-written file are lost on
+    /// the first save from here. That also moves the digest, which is correct:
+    /// the digest is identity, and a definition an operator edited is a
+    /// different definition.
+    pub fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
+        let path = self.path_for(&definition.name)?;
+        let bytes = serde_yaml_ng::to_string(definition)
+            .map_err(|error| {
+                GhostError::new(
+                    ErrorKind::Internal,
+                    format!("Environment \"{}\" could not be written", definition.name),
+                )
+                .with_source(error)
+            })?
+            .into_bytes();
+        let (_, digest) = Self::resolve_environment(&definition.name, &bytes)?;
+
+        let dir = path.parent().unwrap_or(&path);
+        std::fs::create_dir_all(dir).map_err(|error| Self::unwritable(&definition.name, error))?;
+        // In the same directory as the target, because a rename across
+        // filesystems is not one.
+        let temporary = path.with_extension("yaml.tmp");
+        std::fs::write(&temporary, &bytes)
+            .and_then(|()| std::fs::rename(&temporary, &path))
+            .map_err(|error| {
+                let _ = std::fs::remove_file(&temporary);
+                Self::unwritable(&definition.name, error)
+            })?;
+        Ok(digest)
+    }
+
+    /// Removes an installed definition. A name that is not installed is a
+    /// refusal rather than a silent success: an operator deleting something
+    /// that is already gone has usually named the wrong thing.
+    pub fn remove_environment(&self, name: &str) -> Result<()> {
+        let path = self.path_for(name)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(Self::missing(name)),
+            Err(error) => Err(Self::unwritable(name, error)),
+        }
+    }
+
+    fn unwritable(name: &str, error: std::io::Error) -> GhostError {
+        GhostError::new(
+            ErrorKind::Storage,
+            format!("Environment \"{name}\" could not be written"),
+        )
+        .with_detail("name", name)
+        .with_source(error)
+    }
+
     fn resolve_environment(name: &str, bytes: &[u8]) -> Result<(EnvironmentDefinition, String)> {
         let definition = parse_environment(bytes)?;
         if definition.name != name {

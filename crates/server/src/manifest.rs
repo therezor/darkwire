@@ -167,6 +167,10 @@ pub enum RouteId {
     ToolsList,
     /// `GET /api/environments`
     EnvironmentsList,
+    /// `PUT /api/environments/:name`
+    EnvironmentsSave,
+    /// `DELETE /api/environments/:name`
+    EnvironmentsRemove,
     /// `GET /api/sandboxes`.
     SandboxesList,
     /// `POST /api/sandboxes`.
@@ -294,6 +298,8 @@ impl RouteId {
             RouteId::AgentsList => "agents.list",
             RouteId::ToolsList => "tools.list",
             RouteId::EnvironmentsList => "environments.list",
+            RouteId::EnvironmentsSave => "environments.save",
+            RouteId::EnvironmentsRemove => "environments.remove",
             RouteId::SandboxesList => "sandboxes.list",
             RouteId::SandboxesManage => "sandboxes.manage",
             RouteId::McpList => "mcp.list",
@@ -343,7 +349,7 @@ impl RouteId {
 }
 
 /// The routes every build serves.
-const BASE: [Route; 65] = [
+const BASE: [Route; 67] = [
     // Status and health
     Route {
         id: RouteId::SystemHealth,
@@ -558,6 +564,22 @@ const BASE: [Route; 65] = [
         id: RouteId::EnvironmentsList,
         method: RouteMethod::GET,
         path: "/api/environments",
+        auth: RouteAuth::Required,
+    },
+    // Writable, unlike the two lists beside it. The policy directory is what
+    // keeps that honest: it sits outside the workspace jail, so this route is
+    // the only way into it and an authenticated operator is the only one who
+    // has it. See `routes/environments.rs`.
+    Route {
+        id: RouteId::EnvironmentsSave,
+        method: RouteMethod::PUT,
+        path: "/api/environments/:name",
+        auth: RouteAuth::Required,
+    },
+    Route {
+        id: RouteId::EnvironmentsRemove,
+        method: RouteMethod::DELETE,
+        path: "/api/environments/:name",
         auth: RouteAuth::Required,
     },
     Route {
@@ -828,8 +850,8 @@ const HOOKS: [Route; 5] = [
 
 /// `BASE` followed by `HOOKS`, in const so the manifest stays a `&[Route]`.
 #[cfg(feature = "test-hooks")]
-const fn with_hooks(base: &[Route; 65], hooks: &[Route; 5]) -> [Route; 70] {
-    let mut all = [base[0]; 70];
+const fn with_hooks(base: &[Route; 67], hooks: &[Route; 5]) -> [Route; 72] {
+    let mut all = [base[0]; 72];
     let mut i = 0;
     while i < base.len() {
         all[i] = base[i];
@@ -844,7 +866,7 @@ const fn with_hooks(base: &[Route; 65], hooks: &[Route; 5]) -> [Route; 70] {
 }
 
 #[cfg(feature = "test-hooks")]
-const ALL: [Route; 70] = with_hooks(&BASE, &HOOKS);
+const ALL: [Route; 72] = with_hooks(&BASE, &HOOKS);
 
 /// Every route this build serves, and the only path to one.
 #[cfg(not(feature = "test-hooks"))]

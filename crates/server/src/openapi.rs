@@ -56,6 +56,8 @@ pub enum PathShape {
     SessionParams,
     /// Addressed by id.
     IdParams,
+    /// Addressed by an operator-chosen name.
+    NameParams,
     /// Addressed by signed token.
     TokenParams,
 }
@@ -528,6 +530,22 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         responses: &[(200, "EnvironmentListResponse")],
     },
     RouteDoc {
+        id: RouteId::EnvironmentsSave,
+        summary: "Install or replace one environment definition",
+        body: Some("EnvironmentDefinition"),
+        query: None,
+        params: Some(PathShape::NameParams),
+        responses: &[(200, "EnvironmentListResponse")],
+    },
+    RouteDoc {
+        id: RouteId::EnvironmentsRemove,
+        summary: "Uninstall one environment definition",
+        body: None,
+        query: None,
+        params: Some(PathShape::NameParams),
+        responses: &[(200, "EnvironmentListResponse")],
+    },
+    RouteDoc {
         id: RouteId::SandboxesList,
         summary: "Live sandbox instances",
         body: None,
@@ -789,6 +807,7 @@ fn path_schema(shape: PathShape) -> Value {
     match shape {
         PathShape::SessionParams => schema_of::<crate::queries::SessionParams>(&mut generator),
         PathShape::IdParams => schema_of::<crate::queries::IdParams>(&mut generator),
+        PathShape::NameParams => schema_of::<crate::queries::NameParams>(&mut generator),
         PathShape::TokenParams => schema_of::<crate::queries::TokenParams>(&mut generator),
     }
 }

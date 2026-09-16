@@ -223,6 +223,8 @@ fn mount(
         RouteId::AgentsList => handler!(agents::list),
         RouteId::ToolsList => handler!(tools::list),
         RouteId::EnvironmentsList => handler!(environments::list_environments),
+        RouteId::EnvironmentsSave => handler!(environments::save_environment),
+        RouteId::EnvironmentsRemove => handler!(environments::remove_environment),
         RouteId::SandboxesList => handler!(sandboxes::list_sandboxes),
         RouteId::SandboxesManage => handler!(sandboxes::manage),
         RouteId::McpList => handler!(mcp::list),

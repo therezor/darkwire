@@ -42,6 +42,7 @@ use ghostai_core::{
 };
 use ghostai_protocol::DEFAULT_AGENT_ID;
 use ghostai_protocol::config::{Config, ConfigPatch};
+use ghostai_protocol::environment::EnvironmentDefinition;
 use ghostai_protocol::rest::{
     ChannelStatus, ConfigWarning, CredentialNamespace, ExtensionCommand, ExtensionStatus,
     McpServerStatus, ModelsResponse, ProviderTestRequest, ProviderTestResponse, RunCommandRequest,
@@ -556,6 +557,14 @@ impl ServerRuntime for CliServerRuntime {
     /// read.
     fn environments(&self) -> Vec<EnvironmentListing> {
         PolicyStore::new(self.runtime.paths().policy_dir).list_environments()
+    }
+
+    fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
+        PolicyStore::new(self.runtime.paths().policy_dir).save_environment(definition)
+    }
+
+    fn remove_environment(&self, name: &str) -> Result<()> {
+        PolicyStore::new(self.runtime.paths().policy_dir).remove_environment(name)
     }
 
     fn sandbox_request(

@@ -22,11 +22,7 @@ import {
   McpTransportSchema,
   ReasoningEffortSchema,
 } from './config.js';
-import {
-  ContainerLimitsSchema,
-  ContainerRuntimeSchema,
-  EnvironmentKindSchema,
-} from './environment.js';
+import { EnvironmentDefinitionSchema } from './environment.js';
 import {
   StopReasonSchema,
   StoredMessageSchema,
@@ -659,34 +655,30 @@ export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
  * mean a second request per environment to render one list.
  */
 /**
- * One installed environment definition.
+ * One installed environment definition, as the API reports it.
  *
- * Carries everything an operator weighs before selecting one for an agent: the
- * image, who it runs as, what it is allowed to spend, and whether any hardening
- * was switched off. A picker that shows names alone makes selection a rubber
- * stamp, and choosing where an agent's commands run is not a rubber-stamp
- * decision.
+ * **The definition itself, not a projection of it.** This used to restate eight
+ * of its fields by hand and drop the rest, which was survivable while the panel
+ * only read them and is not now that it writes them too: an editor cannot
+ * round-trip a definition it was handed two thirds of, and reassembling one in
+ * the browser is how the two descriptions come apart.
  *
- * `gatewayProblem` is the sentence a restricted egress request would fail with,
- * resolved once here so the editor can warn while the network is still being
- * chosen rather than on save.
+ * The three fields beside it are the ones that are *not* in the file. They are
+ * derived, resolved server-side so the CLI's review and the browser cannot
+ * describe one definition differently:
+ *
+ *  - `weakened` names the hardening this definition switched off.
+ *  - `gatewayProblem` is the sentence a restricted egress request would fail
+ *    with, resolved in advance so the editor can warn while a network is still
+ *    being chosen rather than on save.
+ *  - `problem` is why it cannot be used at all, which is also the case where
+ *    `definition` is absent: a file that did not parse still has a name and
+ *    still belongs on the list, because deleting it is the operator's way out.
  */
 export const EnvironmentSummarySchema = z.object({
+  /** Also its filename. */
   name: z.string(),
-  kind: EnvironmentKindSchema.default('container'),
-  /**
-   * The definition's prompt section, so the agent editor can show what an
-   * agent inherits before it decides whether to override it.
-   */
-  prompt: z.string().default(''),
-  image: z.string(),
-  shared: z.boolean(),
-  runtime: ContainerRuntimeSchema,
-  workdir: z.string(),
-  user: z.string(),
-  limits: ContainerLimitsSchema,
-  capsAdded: z.array(z.string()),
-  /** Non-default hardening, named so it can be shown as a warning. */
+  definition: EnvironmentDefinitionSchema.optional(),
   weakened: z.array(z.string()),
   gatewayProblem: z.string().optional(),
   problem: z.string().optional(),

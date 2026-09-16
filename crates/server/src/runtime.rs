@@ -23,8 +23,9 @@
 use std::sync::Arc;
 
 use ghostai_agent::{PromptPreview, PromptPreviewInput};
-use ghostai_core::{Result, SessionStore, WorkspaceStore};
+use ghostai_core::{GhostError, Result, SessionStore, WorkspaceStore};
 use ghostai_protocol::config::{Config, ConfigPatch, ReasoningEffort};
+use ghostai_protocol::environment::EnvironmentDefinition;
 use ghostai_protocol::messages::ChatMessage;
 use ghostai_protocol::rest::{
     ChannelStatus, ConfigWarning, ExtensionCommand, ExtensionStatus, McpServerStatus,
@@ -138,6 +139,17 @@ pub struct DirectChatInput {
     pub token: CancellationToken,
 }
 
+/// The refusal a runtime with nowhere to write policy hands back.
+///
+/// A build with no paths is a test double rather than an install, so this names
+/// a bug rather than a state to recover from.
+fn no_policy_root() -> GhostError {
+    GhostError::new(
+        ghostai_core::ErrorKind::Config,
+        "This build has no policy directory to write environments to",
+    )
+}
+
 /// Everything a route reaches for below the transport.
 ///
 /// Implemented by the adapter `ghostai serve` builds over `GhostRuntime`, and
@@ -201,6 +213,16 @@ pub trait ServerRuntime: Send + Sync {
     /// Independently installed container definitions, read fresh.
     fn environments(&self) -> Vec<EnvironmentListing> {
         Vec::new()
+    }
+
+    /// Installs or replaces one definition, reporting its new digest.
+    fn save_environment(&self, _definition: &EnvironmentDefinition) -> Result<String> {
+        Err(no_policy_root())
+    }
+
+    /// Uninstalls one definition.
+    fn remove_environment(&self, _name: &str) -> Result<()> {
+        Err(no_policy_root())
     }
 
     /// Operator lifecycle controls, never arbitrary tool execution.

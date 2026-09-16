@@ -279,6 +279,18 @@ pub struct IdParams {
     pub id: String,
 }
 
+/// A route addressed by an operator-chosen name rather than a generated id.
+///
+/// Separate from [`IdParams`] because the parameter is spelled `name` in the
+/// path, and an OpenAPI document that called it `id` would describe a request
+/// nothing sends.
+#[derive(Debug, Clone, Deserialize, JsonSchema, Validate)]
+pub struct NameParams {
+    /// The thing, by the name its operator gave it.
+    #[garde(length(min = 1))]
+    pub name: String,
+}
+
 /// The signed-media route's token.
 #[derive(Debug, Clone, Deserialize, JsonSchema, Validate)]
 pub struct TokenParams {

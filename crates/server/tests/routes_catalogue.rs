@@ -380,16 +380,21 @@ async fn container_definitions_are_listed() {
     let (_, body) = send(&test, Method::GET, "/api/environments", None).await;
     let entry = &body["environments"][0];
     assert_eq!(entry["name"], "dev");
-    assert_eq!(entry["shared"], true);
-    // A container reports where and how commands run.
-    assert_eq!(entry["runtime"], "runc");
-    assert_eq!(entry["workdir"], "/workspace");
-    assert_eq!(entry["user"], "1000:1000");
-    assert!(entry["limits"]["memoryMb"].is_number());
+    // The definition whole, not a projection of it: the editor writes these
+    // back, and a field the list drops is a field a save would erase.
+    let definition = &entry["definition"];
+    assert_eq!(definition["shared"], true);
+    assert_eq!(definition["runtime"], "runc");
+    assert_eq!(definition["workdir"], "/workspace");
+    assert_eq!(definition["user"], "1000:1000");
+    assert!(definition["limits"]["memoryMb"].is_number());
+    // The hardening block, which the old flat shape dropped entirely.
+    assert_eq!(definition["security"]["noNewPrivileges"], true);
+    assert_eq!(definition["caps"]["drop"], json!(["ALL"]));
     // Nothing is loosened by default, and no egress request could be refused
     // by a container that weakens nothing.
     assert_eq!(entry["weakened"], json!([]));
-    assert_eq!(entry["capsAdded"], json!([]));
+    assert_eq!(definition["caps"]["add"], json!([]));
     assert!(entry.get("gatewayProblem").is_none());
 }
 
@@ -410,7 +415,7 @@ async fn a_definition_that_weakens_the_environment_says_which_defences_it_drops(
     // The same list the terminal's review prints, so a browser and a terminal
     // cannot disagree about what a container is asking for.
     assert!(!weakened.is_empty(), "{weakened:?}");
-    assert_eq!(entry["capsAdded"], json!(["SYS_PTRACE"]));
+    assert_eq!(entry["definition"]["caps"]["add"], json!(["SYS_PTRACE"]));
 }
 
 #[tokio::test]
@@ -429,6 +434,159 @@ async fn a_definition_that_names_no_user_is_itself_a_weakening() {
         weakened[0].as_str().expect("a sentence").contains("root"),
         "{weakened:?}"
     );
+}
+
+/// Writing a definition from Settings.
+///
+/// The route is the only door into the policy directory, which sits outside the
+/// workspace jail so nothing a tool can write reaches it. What the handler owns
+/// on top of the store's own refusals is the pair below: a definition has to be
+/// saved under the name it gives itself, and no write may leave a config that
+/// the next start would refuse.
+mod writing_a_definition {
+    use super::*;
+
+    /// A server holding `definitions`, with `agents` in its config.
+    fn server_with(definitions: Vec<EnvironmentDefinition>, agents: &Value) -> TestServer {
+        server(TestServerOptions {
+            runtime: FakeRuntimeOptions {
+                config: Some(config_with(json!({ "agents": { "list": agents } }))),
+                environments: definitions
+                    .into_iter()
+                    .map(|definition| EnvironmentListing {
+                        name: definition.name.clone(),
+                        path: PathBuf::from(format!("/policy/{}.yaml", definition.name)),
+                        value: Some(definition),
+                        problem: None,
+                    })
+                    .collect(),
+                ..FakeRuntimeOptions::default()
+            },
+            ..TestServerOptions::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn a_saved_definition_comes_back_in_the_same_response() {
+        // The response is the list, so the panel never has to guess whether a
+        // save landed or refetch to find out.
+        let test = server_with(Vec::new(), &json!({}));
+        let body = serde_json::to_value(definition(&json!({"shared": true})))
+            .expect("a serialisable definition");
+
+        let (status, listed) = send(&test, Method::PUT, "/api/environments/dev", Some(body)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed["environments"][0]["name"], "dev");
+        assert_eq!(listed["environments"][0]["definition"]["shared"], true);
+    }
+
+    #[tokio::test]
+    async fn a_definition_saved_under_the_wrong_name_is_refused() {
+        // The name is the filename, so the two cannot disagree. The load path
+        // enforces the same rule, and a file written past it would be listed
+        // with a problem rather than used.
+        let test = server_with(Vec::new(), &json!({}));
+        let body = serde_json::to_value(definition(&json!({}))).expect("a definition");
+
+        let (status, error) = send(&test, Method::PUT, "/api/environments/other", Some(body)).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .expect("a sentence")
+                .contains("names itself"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_one_an_enabled_agent_uses_is_refused_and_names_it() {
+        // `resolve_policies` runs on every build and propagates, so this delete
+        // would be a rollback on reconfigure and a server that will not start
+        // on the next cold boot. Refused here because the operator is on the
+        // screen and the agent can be named.
+        let test = server_with(
+            vec![definition(&json!({}))],
+            &json!({ "reviewer": { "label": "Reviewer", "environment": { "name": "dev" } } }),
+        );
+
+        let (status, error) = send(&test, Method::DELETE, "/api/environments/dev", None).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let message = error["error"]["message"].as_str().expect("a sentence");
+        assert!(message.contains("Reviewer (reviewer)"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn removing_one_only_a_disabled_agent_uses_is_allowed() {
+        // A switched-off agent is not resolved at boot, so it cannot break one.
+        let test = server_with(
+            vec![definition(&json!({}))],
+            &json!({
+                "reviewer": {
+                    "enabled": false,
+                    "environment": { "name": "dev" },
+                },
+            }),
+        );
+
+        let (status, listed) = send(&test, Method::DELETE, "/api/environments/dev", None).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed["environments"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn saving_one_that_breaks_an_agents_allow_list_is_refused() {
+        // A root uid defeats the egress gateway's packet filter, which matches
+        // on the socket's owner. An agent already asking for an allow-list
+        // would stop resolving, so the save is refused rather than the boot.
+        let test = server_with(
+            vec![definition(&json!({}))],
+            &json!({
+                "reviewer": {
+                    "environment": {
+                        "name": "dev",
+                        "network": { "mode": "allowlist", "allow": ["10.0.0.0/8"] },
+                    },
+                },
+            }),
+        );
+        let body = serde_json::to_value(definition(&json!({"user": "0:0"}))).expect("a definition");
+
+        let (status, error) = send(&test, Method::PUT, "/api/environments/dev", Some(body)).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .expect("a sentence")
+                .contains("allow-list"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_same_weakening_saves_when_no_agent_asked_for_an_allow_list() {
+        // Weakened hardening is surfaced, not refused: an operator who chose it
+        // is reminded rather than blocked. Only an agent that had already asked
+        // for something this definition can no longer carry turns it into one.
+        let test = server_with(
+            vec![definition(&json!({}))],
+            &json!({ "reviewer": { "environment": { "name": "dev" } } }),
+        );
+        let body = serde_json::to_value(definition(&json!({"user": "0:0"}))).expect("a definition");
+
+        let (status, listed) = send(&test, Method::PUT, "/api/environments/dev", Some(body)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            listed["environments"][0]["gatewayProblem"].is_string(),
+            "the warning is still reported: {listed}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -4,70 +4,154 @@
     "name": {
       "type": "string"
     },
-    "kind": {
-      "default": "container",
-      "type": "string",
-      "enum": [
-        "container"
-      ]
-    },
-    "prompt": {
-      "default": "",
-      "type": "string"
-    },
-    "image": {
-      "type": "string"
-    },
-    "shared": {
-      "type": "boolean"
-    },
-    "runtime": {
-      "type": "string",
-      "enum": [
-        "runc",
-        "runsc",
-        "kata"
-      ]
-    },
-    "workdir": {
-      "type": "string"
-    },
-    "user": {
-      "type": "string"
-    },
-    "limits": {
+    "definition": {
       "type": "object",
       "properties": {
-        "memoryMb": {
-          "default": 2048,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+        "schema": {
+          "type": "string",
+          "const": "ghostai.environment/1"
         },
-        "cpus": {
-          "default": 2,
-          "type": "number",
-          "minimum": 0
+        "kind": {
+          "default": "container",
+          "type": "string",
+          "enum": [
+            "container"
+          ]
         },
-        "pidsMax": {
-          "default": 512,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
         },
-        "shmSizeMb": {
-          "default": 256,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+        "prompt": {
+          "default": "",
+          "type": "string"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shared": {
+          "default": false,
+          "type": "boolean"
+        },
+        "runtime": {
+          "default": "runc",
+          "type": "string",
+          "enum": [
+            "runc",
+            "runsc",
+            "kata"
+          ]
+        },
+        "workdir": {
+          "default": "/workspace",
+          "type": "string"
+        },
+        "user": {
+          "default": "1000:1000",
+          "type": "string"
+        },
+        "caps": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "drop": {
+              "default": [
+                "ALL"
+              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "add": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "security": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "noNewPrivileges": {
+              "default": true,
+              "type": "boolean"
+            },
+            "seccomp": {
+              "default": "default",
+              "type": "string",
+              "enum": [
+                "default",
+                "unconfined"
+              ]
+            },
+            "readOnlyRoot": {
+              "default": true,
+              "type": "boolean"
+            },
+            "tmpfs": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "devices": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "limits": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "memoryMb": {
+              "default": 2048,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "cpus": {
+              "default": 2,
+              "type": "number",
+              "minimum": 0
+            },
+            "pidsMax": {
+              "default": 512,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "shmSizeMb": {
+              "default": 256,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "env": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
-      }
-    },
-    "capsAdded": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+      },
+      "required": [
+        "schema",
+        "name",
+        "image"
+      ],
+      "additionalProperties": false
     },
     "weakened": {
       "type": "array",
@@ -84,13 +168,6 @@
   },
   "required": [
     "name",
-    "image",
-    "shared",
-    "runtime",
-    "workdir",
-    "user",
-    "limits",
-    "capsAdded",
     "weakened"
   ]
 }

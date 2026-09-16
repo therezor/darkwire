@@ -33,6 +33,7 @@ use ghostai_core::paths::{GhostPaths, ResolveGhostPaths, workspace_dir_for};
 use ghostai_core::testkit::ManualClock;
 use ghostai_core::{Clock, Database, ErrorKind, GhostError, Result, SessionStore, WorkspaceStore};
 use ghostai_protocol::config::{Config, ConfigPatch};
+use ghostai_protocol::environment::EnvironmentDefinition;
 use ghostai_protocol::rest::SetCredentialRequest;
 use ghostai_protocol::tools::ToolDefinition;
 use ghostai_providers::BoxFuture;
@@ -330,7 +331,10 @@ pub struct FakeRuntime {
     workspaces: Arc<WorkspaceStore>,
     agent: Arc<FakeAgentView>,
     registered_tools: Vec<ToolDefinition>,
-    environments: Vec<EnvironmentListing>,
+    /// Behind a lock because the environment routes write it: a save has to
+    /// show up in the list the same response returns, or a round-trip test
+    /// asserts against a snapshot taken before the write.
+    environments: Mutex<Vec<EnvironmentListing>>,
     credentials: Mutex<IndexMap<String, bool>>,
     /// Every patch this runtime was asked to apply, in order.
     patches: Mutex<Vec<ConfigPatch>>,
@@ -420,7 +424,7 @@ impl FakeRuntime {
                 .registered_tools
                 .clone()
                 .unwrap_or_else(|| options.tools.clone()),
-            environments: options.environments.clone(),
+            environments: Mutex::new(options.environments.clone()),
             agent,
             credentials: Mutex::new(options.credentials_present.clone()),
             patches: Mutex::new(Vec::new()),
@@ -551,7 +555,38 @@ impl ServerRuntime for FakeRuntime {
     }
 
     fn environments(&self) -> Vec<EnvironmentListing> {
-        self.environments.clone()
+        self.environments.lock().clone()
+    }
+
+    /// Records the write without re-validating it.
+    ///
+    /// The policy checks belong to `PolicyStore` and are tested there. What a
+    /// route test needs from this seam is that a definition which got past the
+    /// handler's own refusals arrives intact and is listed afterwards.
+    fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
+        let mut environments = self.environments.lock();
+        environments.retain(|listing| listing.name != definition.name);
+        environments.push(EnvironmentListing {
+            name: definition.name.clone(),
+            path: std::path::PathBuf::from(format!("/policy/{}.yaml", definition.name)),
+            value: Some(definition.clone()),
+            problem: None,
+        });
+        environments.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(format!("sha256:{}", "f".repeat(64)))
+    }
+
+    fn remove_environment(&self, name: &str) -> Result<()> {
+        let mut environments = self.environments.lock();
+        let before = environments.len();
+        environments.retain(|listing| listing.name != name);
+        if environments.len() == before {
+            return Err(GhostError::new(
+                ErrorKind::Config,
+                format!("No environment is installed under \"{name}\"."),
+            ));
+        }
+        Ok(())
     }
 
     fn extensions(&self) -> ExtensionCounts {
