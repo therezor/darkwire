@@ -288,6 +288,7 @@ describe('AgentEntrySchema', () => {
     expect(agent.tools).toEqual(DEFAULT_AGENT_TOOLS);
     expect(agent.environment).toEqual({
       name: '',
+      alwaysUseOwn: false,
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
   });

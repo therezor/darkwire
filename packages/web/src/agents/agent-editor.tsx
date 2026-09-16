@@ -488,6 +488,7 @@ function Editor({
   const switches = {
     visionEnabled: bindToggle('visionEnabled'),
     toolsEnabled: bindToggle('toolsEnabled'),
+    environmentAlwaysUseOwn: bindToggle('environmentAlwaysUseOwn'),
   } satisfies Record<string, Toggle>;
 
   // ── The prompt ───────────────────────────────────────────────────────────
@@ -704,31 +705,6 @@ function Editor({
   const chosenSubagents = useMemo(
     () => new Set(form.subagents.map((ref) => ref.id)),
     [form.subagents],
-  );
-
-  /**
-   * The agents that delegate to this one with inheritance on.
-   *
-   * Their choice beats the picker below, so the section has to say so. Without
-   * it the confusion the switch was added to end would just move one page over:
-   * an operator picks an environment here, saves, and watches the agent run
-   * somewhere else with nothing on screen explaining why.
-   *
-   * Read off the stored list rather than the form, because these are other
-   * agents' settings and nothing on this page can edit them.
-   */
-  const inheritingCallers = useMemo(
-    () =>
-      Object.entries(list)
-        .filter(
-          ([id, other]) =>
-            id !== agentId &&
-            other.subagents.some(
-              (ref) => ref.id === agentId && ref.inheritEnvironment,
-            ),
-        )
-        .map(([id, other]) => (other.label === '' ? id : other.label)),
-    [list, agentId],
   );
 
   const providerOptions = useMemo(() => {
@@ -1220,7 +1196,6 @@ function Editor({
                   )}
                   // The form's value, not the saved one, so the hint follows
                   // the environment picker further down the page as it moves.
-                  callerEnvironment={form.environmentName}
                   onChange={(next) => {
                     setSubagent(index, next);
                   }}
@@ -1239,12 +1214,7 @@ function Editor({
               onClick={() => {
                 setSubagents([
                   ...form.subagents,
-                  {
-                    id: '',
-                    prompt: '',
-                    permission: 'allow',
-                    inheritEnvironment: true,
-                  },
+                  { id: '', prompt: '', permission: 'allow' },
                 ]);
               }}
             >
@@ -1266,14 +1236,6 @@ function Editor({
         {environments.data?.environments.length === 0 && (
           <p className="page__note">{t('agents.environmentNoProfiles')}</p>
         )}
-        {inheritingCallers.length > 0 && (
-          <p className="page__note">
-            {t('agents.environmentInherited', {
-              agents: inheritingCallers.join(', '),
-            })}
-          </p>
-        )}
-
         <FieldGrid>
           <SelectField
             label={t('agents.environmentProfile')}
@@ -1304,6 +1266,24 @@ function Editor({
             />
           )}
         </FieldGrid>
+
+        {/* Under the picker it qualifies, because "where does this agent run"
+            and "does that hold when something delegates to it" are one
+            question asked twice. */}
+        <SwitchRow
+          label={t('agents.environmentAlwaysUseOwn')}
+          hint={
+            form.environmentAlwaysUseOwn
+              ? form.environmentName === ''
+                ? t('agents.environmentAlwaysUseOwnHostHint')
+                : t('agents.environmentAlwaysUseOwnHint', {
+                    environment: form.environmentName,
+                  })
+              : t('agents.environmentAlwaysUseOwnOffHint')
+          }
+          checked={switches.environmentAlwaysUseOwn.checked}
+          onCheckedChange={switches.environmentAlwaysUseOwn.set}
+        />
 
         {/* Only the states an operator has to act on. A manifest that parses
             needs no line of its own. */}

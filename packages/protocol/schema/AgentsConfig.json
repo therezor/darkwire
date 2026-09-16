@@ -261,6 +261,10 @@
                     }
                   }
                 }
+              },
+              "alwaysUseOwn": {
+                "default": false,
+                "type": "boolean"
               }
             }
           },
@@ -285,10 +289,6 @@
                     "ask",
                     "deny"
                   ]
-                },
-                "inheritEnvironment": {
-                  "default": true,
-                  "type": "boolean"
                 }
               },
               "required": [

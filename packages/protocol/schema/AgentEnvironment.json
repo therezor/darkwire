@@ -40,6 +40,10 @@
           }
         }
       }
+    },
+    "alwaysUseOwn": {
+      "default": false,
+      "type": "boolean"
     }
   }
 }

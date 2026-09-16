@@ -135,7 +135,7 @@ got here, it is edited the same way afterwards.
 | `enabled`           | boolean                              | `true`            |                                                                                                              |
 | `tools`             | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
 | `exec`              | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
-| `environment`       | `{ name, network }`                  | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
+| `environment`       | `{ name, alwaysUseOwn, network }`    | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
 | `subagents`         | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
 The nine prompt templates share one rule: **`''` inherits the built-in, and a single space
@@ -186,6 +186,7 @@ at call time.
 | Key             | Type                    | Default  | Notes                                                                 |
 | --------------- | ----------------------- | -------- | --------------------------------------------------------------------- |
 | `name`          | string                  | `''`     | An installed environment name, or empty to run on the host.           |
+| `alwaysUseOwn`  | boolean                 | `false`  | Pins the agent here whoever delegates to it. Off follows the caller.  |
 | `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless one is named: egress is enforced by its gateway.       |
 | `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry. |
 | `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.    |

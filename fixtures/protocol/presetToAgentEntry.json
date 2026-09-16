@@ -48,7 +48,8 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": []
       }
@@ -102,7 +103,8 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": []
       }
@@ -155,7 +157,8 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": []
       }
@@ -210,7 +213,8 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": []
       }
@@ -270,14 +274,14 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": [
           {
             "id": "writer",
             "prompt": "",
-            "permission": "allow",
-            "inheritEnvironment": true
+            "permission": "allow"
           }
         ]
       }
@@ -335,7 +339,8 @@
             "allow": [],
             "hosts": [],
             "dns": []
-          }
+          },
+          "alwaysUseOwn": false
         },
         "subagents": []
       }

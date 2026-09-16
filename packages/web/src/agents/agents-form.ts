@@ -175,6 +175,7 @@ export interface AgentEntryForm {
   readonly subagents: readonly SubagentRef[];
   /** An installed environment name, or empty to run on the host. */
   readonly environmentName: string;
+  readonly environmentAlwaysUseOwn: boolean;
   readonly environmentNetworkMode: string;
   /** Comma-separated CIDR blocks. Only read when the mode is `allowlist`. */
   readonly environmentAllow: string;
@@ -242,6 +243,7 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     tools: { ...entry.tools },
     subagents: entry.subagents.map((ref) => ({ ...ref })),
     environmentName: entry.environment.name,
+    environmentAlwaysUseOwn: entry.environment.alwaysUseOwn,
     environmentNetworkMode: entry.environment.network.mode,
     environmentAllow: entry.environment.network.allow.join(', '),
     environmentHosts: entry.environment.network.hosts.join(', '),
@@ -413,6 +415,9 @@ function toEnvironment(form: AgentEntryForm): AgentEntry['environment'] {
   const scoped = mode === 'allowlist';
   return {
     name,
+    // Kept whatever the name is. An agent pinned to the host is a real answer,
+    // and the one that had no spelling before this field existed.
+    alwaysUseOwn: form.environmentAlwaysUseOwn,
     network: {
       mode,
       allow: scoped ? parseList(form.environmentAllow) : [],

@@ -78,16 +78,21 @@ An agent may override the definition's `prompt` with `environmentPrompt`, on the
 three-state contract as every other template: empty inherits, a single space removes the
 section, anything else replaces it.
 
-## Subagents inherit when their caller says so
+## A delegated turn runs where its caller does
 
-Each entry in an agent's `subagents` list carries **`inheritEnvironment`**, on by default.
-On, the delegation runs where its caller does, and the subagent's own `environment` is not
-consulted. Off, it runs in the environment its own entry names, which is the host when it
-names none. The switch is in the agent editor, on the subagent's row.
+**Work handed down stays inside the boundary the operator chose**, rather than falling
+back to the host halfway down a chain. At the top of a chain there is no caller, so the
+agent runs in the environment it names.
 
-It lives on the reference rather than on the target because being somebody's subagent is a
-relationship: the same researcher can inherit from one caller and run on the host for
-another.
+An agent overrides that with **`environment.alwaysUseOwn`**, off by default, which pins it
+to its own environment whoever called. A web-search agent with a browser in its image is
+the case: it is useless anywhere else, and the caller cannot be expected to know that.
+Pinning the host is expressible too, which it was not before this field.
+
+The switch is in the agent editor, under the environment picker it qualifies. It is a
+property of the agent rather than of one delegation because an agent that needs its own
+toolchain needs it from every caller; asking once per roster lets two rosters disagree
+about one agent.
 
 What is inherited is the _name and network policy_, and in practice it is also the
 container: an instance is keyed on the workspace, the definition and the network, with

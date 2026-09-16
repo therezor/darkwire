@@ -250,6 +250,7 @@ describe('toAgentEntryPatch', () => {
       (entry as { environment: Record<string, unknown> }).environment,
     ).toEqual({
       name: 'dev',
+      alwaysUseOwn: false,
       network: { mode: 'open', allow: [], hosts: [], dns: [] },
     });
   });
@@ -365,6 +366,7 @@ describe('toAgentEntryPatch', () => {
       (entry as { environment: Record<string, unknown> }).environment,
     ).toEqual({
       name: '',
+      alwaysUseOwn: false,
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
   });
@@ -761,7 +763,6 @@ describe('subagents', () => {
     id: 'researcher',
     prompt: 'Ask for facts.',
     permission: 'ask',
-    inheritEnvironment: true,
   } as const;
 
   it('round-trips a stored ref through the form', () => {
@@ -778,15 +779,7 @@ describe('subagents', () => {
     const entry = AgentEntrySchema.parse({ subagents: [{ id: 'researcher' }] });
 
     expect(toAgentEntryForm(entry).subagents).toEqual([
-      // Inheritance defaults on: a delegation with nothing said about placement
-      // runs where its caller does, which is what the chain used to do
-      // implicitly when the target named no environment.
-      {
-        id: 'researcher',
-        prompt: '',
-        permission: 'allow',
-        inheritEnvironment: true,
-      },
+      { id: 'researcher', prompt: '', permission: 'allow' },
     ]);
   });
 
@@ -794,12 +787,7 @@ describe('subagents', () => {
     const entry = AgentEntrySchema.parse({
       subagents: [
         RESEARCHER,
-        {
-          id: 'reviewer',
-          prompt: '',
-          permission: 'allow',
-          inheritEnvironment: true,
-        },
+        { id: 'reviewer', prompt: '', permission: 'allow' },
       ],
     });
     const result = toAgentEntryPatch(
@@ -819,15 +807,7 @@ describe('subagents', () => {
     const result = toAgentEntryPatch(
       'main',
       form({
-        subagents: [
-          RESEARCHER,
-          {
-            id: '',
-            prompt: '',
-            permission: 'allow',
-            inheritEnvironment: true,
-          },
-        ],
+        subagents: [RESEARCHER, { id: '', prompt: '', permission: 'allow' }],
       }),
       EMPTY,
       t,

@@ -61,11 +61,6 @@ pub struct SubagentBinding {
     pub prompt: String,
     /// What the gate reads before the delegation runs.
     pub permission: ToolPermission,
-    /// Whether the delegated turn runs where this one does.
-    ///
-    /// Carried on the binding rather than read off the target's entry because
-    /// it is the *caller* that decides: see `SubagentRef::inherit_environment`.
-    pub inherit_environment: bool,
 }
 
 /// The one argument a delegation takes, as JSON Schema. Built once.

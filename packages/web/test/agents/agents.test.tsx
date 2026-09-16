@@ -1952,82 +1952,50 @@ describe('choosing an environment', () => {
     ).toBeInTheDocument();
   });
 
-  it('says when a delegation overrides the environment chosen here', async () => {
-    // The other half of the subagent switch. Without this sentence an operator
-    // picks an environment, saves, and watches the agent run somewhere else
-    // with nothing on screen explaining why.
-    const delegating = ConfigSchema.parse({
-      agents: {
-        list: {
-          default: {
-            model: 'llama3',
-            provider: 'ollama',
-            maxTokens: 4096,
-            label: 'Coordinator',
-            subagents: [{ id: 'researcher', inheritEnvironment: true }],
-          },
-          researcher: {
-            label: 'Researcher',
-            provider: 'ollama',
-            model: 'llama3',
-            environment: { name: 'development', network: { mode: 'open' } },
-          },
-        },
-      },
-      providers: { ollama: { type: 'ollama' } },
-    });
+  it('says a delegated turn runs where its caller does, and can pin it', async () => {
+    // The switch states the rule where the reader is already looking. The note
+    // this replaced named the callers that overrode the picker, which was the
+    // same fact read backwards and only visible on the agent being overridden.
+    const { user, calls } = mount('/agents/researcher', ROUTES);
 
-    mount('/agents/researcher', {
-      ...ROUTES,
-      '/api/settings': [
-        200,
-        { config: delegating, credentialsPresent: { ollama: false } },
-      ],
+    const pin = await screen.findByRole('switch', {
+      name: 'Always use this environment',
     });
-
+    expect(pin).not.toBeChecked();
     expect(
-      await screen.findByText(
-        /Ignored while Coordinator delegates to this agent/,
-      ),
+      screen.getByText(/the work runs where that agent runs/),
     ).toBeInTheDocument();
+
+    await user.click(pin);
+    expect(
+      screen.getByText(/Stays in development whatever delegates to it/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(patchesOf(calls)).toHaveLength(1);
+    });
+    expect(
+      patchesOf(calls)[0]?.agents?.list?.researcher?.environment?.alwaysUseOwn,
+    ).toBe(true);
   });
 
-  it('stays quiet when every delegation to it runs on its own', async () => {
-    const own = ConfigSchema.parse({
-      agents: {
-        list: {
-          default: {
-            model: 'llama3',
-            provider: 'ollama',
-            maxTokens: 4096,
-            label: 'Coordinator',
-            subagents: [{ id: 'researcher', inheritEnvironment: false }],
-          },
-          researcher: {
-            label: 'Researcher',
-            provider: 'ollama',
-            model: 'llama3',
-            environment: { name: 'development', network: { mode: 'open' } },
-          },
-        },
-      },
-      providers: { ollama: { type: 'ollama' } },
-    });
+  it('offers pinning to the host, which had no spelling before', async () => {
+    // An agent that must not follow a containerised caller. The hint says the
+    // host rather than naming an environment, because there is none to name.
+    const { user } = mount('/agents/researcher', ROUTES);
 
-    mount('/agents/researcher', {
-      ...ROUTES,
-      '/api/settings': [
-        200,
-        { config: own, credentialsPresent: { ollama: false } },
-      ],
-    });
+    await user.click(
+      await screen.findByRole('switch', {
+        name: 'Always use this environment',
+      }),
+    );
+    await choose(user, 'Environment', /Host \(commands run on this machine\)/);
 
-    // Waits for the section itself, so the absence below is a rendered page
-    // rather than one that had not arrived yet.
     expect(
-      await screen.findByRole('combobox', { name: 'Environment' }),
+      screen.getByText(/Stays on the host whatever delegates to it/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Ignored while/)).not.toBeInTheDocument();
   });
 
   it('takes an agent back out of its environment', async () => {
@@ -2218,50 +2186,8 @@ describe('subagents', () => {
         id: 'default',
         prompt: 'Use for anything outside review.',
         permission: 'ask',
-        inheritEnvironment: true,
       },
     ]);
-  });
-
-  it('says where a delegation runs, and saves the answer', async () => {
-    // The switch is the only thing that decides a subagent's placement, so it
-    // has to be readable from the row rather than inferred from the target's
-    // own environment further down somebody else's page.
-    const { user, calls } = mount('/agents/reviewer');
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Add subagent' }),
-    );
-    await user.click(
-      screen.getByRole('combobox', { name: 'Agent for subagent 1' }),
-    );
-    await user.click(await screen.findByRole('option', { name: 'default' }));
-
-    const inherit = screen.getByRole('switch', {
-      name: 'Environment for subagent 1',
-    });
-    expect(inherit).toBeChecked();
-    // The reviewer runs on the host, so that is what inheriting means here.
-    expect(
-      screen.getByText('Runs on the host, the same place this agent runs.'),
-    ).toBeInTheDocument();
-
-    await user.click(inherit);
-    expect(
-      screen.getByText(
-        'Runs in the environment its own configuration names, or on the host if it names none.',
-      ),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
-
-    await waitFor(() => {
-      expect(patchesOf(calls)).toHaveLength(1);
-    });
-    expect(
-      patchesOf(calls)[0]?.agents?.list?.reviewer?.subagents?.[0]
-        ?.inheritEnvironment,
-    ).toBe(false);
   });
 
   it('removes a row, and the save says so', async () => {

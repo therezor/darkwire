@@ -689,6 +689,23 @@ pub struct AgentEnvironment {
     #[schemars(transform = prefault)]
     #[garde(dive)]
     pub network: EnvironmentNetwork,
+    /// Whether this agent brings its own environment when something delegates
+    /// to it.
+    ///
+    /// Off, the default, means a delegated turn runs where its caller does:
+    /// work handed down stays inside the boundary the operator chose rather
+    /// than falling back to the host halfway down a chain. At the top of a
+    /// chain there is no caller, so the agent runs in the environment named
+    /// above either way.
+    ///
+    /// On pins it to that environment whoever called. A web-search agent with a
+    /// browser in its image is the case: it is useless anywhere else, and the
+    /// caller cannot be expected to know that.
+    ///
+    /// It is a property of the agent rather than of one delegation because an
+    /// agent that needs its own toolchain needs it from every caller.
+    #[serde(default)]
+    pub always_use_own: bool,
 }
 
 /// Another agent this one may hand a task to.
@@ -713,31 +730,10 @@ pub struct SubagentRef {
     /// Whether delegation runs unattended.
     #[serde(default = "allow")]
     pub permission: ToolPermission,
-    /// Whether this delegation runs where its caller does.
-    ///
-    /// The one thing that decides a subagent's placement, and the reason it
-    /// sits on the *reference* rather than on the target's own entry: being
-    /// somebody's subagent is a relationship, and where a delegated turn runs
-    /// is a property of that relationship rather than of the agent. The same
-    /// researcher can inherit from one caller and run on the host for another.
-    ///
-    /// On, it takes the caller's environment and egress whole, and the target's
-    /// own `environment` is not consulted. Off, the target runs in the
-    /// environment its own entry names, which is the host when it names none.
-    ///
-    /// Defaults on, because delegation staying inside the boundary the operator
-    /// chose is the answer people expect and the one the chain used to give
-    /// implicitly.
-    #[serde(default = "inherit")]
-    pub inherit_environment: bool,
 }
 
 fn allow() -> ToolPermission {
     ToolPermission::Allow
-}
-
-fn inherit() -> bool {
-    true
 }
 
 /// One named agent, complete.
@@ -1253,6 +1249,9 @@ pub struct AgentEnvironmentPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub network: Option<EnvironmentNetworkPatch>,
+    /// See [`AgentEnvironment::always_use_own`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always_use_own: Option<bool>,
 }
 
 /// A patch over [`AgentEntry`].
@@ -1347,6 +1346,7 @@ impl From<AgentEntry> for AgentEntryPatch {
                     hosts: Some(entry.environment.network.hosts),
                     dns: Some(entry.environment.network.dns),
                 }),
+                always_use_own: Some(entry.environment.always_use_own),
             }),
             subagents: Some(entry.subagents),
         }

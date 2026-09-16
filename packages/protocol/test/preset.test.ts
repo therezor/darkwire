@@ -18,6 +18,7 @@ describe('AgentPresetSchema', () => {
     expect(preset.tools).toEqual(DEFAULT_AGENT_TOOLS);
     expect(preset.environment).toEqual({
       name: '',
+      alwaysUseOwn: false,
       network: { mode: 'none', allow: [], hosts: [], dns: [] },
     });
     expect(preset.subagents).toEqual([]);
@@ -59,6 +60,7 @@ describe('AgentPresetSchema', () => {
     });
     expect(preset.environment).toEqual({
       name: 'dev',
+      alwaysUseOwn: false,
       network: { mode: 'open', allow: [], hosts: [], dns: [] },
     });
     expect('image' in preset.environment).toBe(false);

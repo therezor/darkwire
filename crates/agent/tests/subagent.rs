@@ -38,7 +38,6 @@ fn binding(agent_id: &str) -> SubagentBinding {
         label: "Researcher".to_owned(),
         prompt: String::new(),
         permission: ToolPermission::Allow,
-        inherit_environment: true,
     }
 }
 
@@ -353,13 +352,14 @@ async fn a_subagent_never_reports_context_for_the_conversation_on_screen() {
     assert_eq!(root[0]["sessionKey"], json!("web:1"));
 }
 
-/// Where a delegated turn runs, which is the caller's decision and nothing
-/// else's.
+/// Where a delegated turn runs, which is the delegated agent's own decision.
 ///
-/// The three cases below are the whole rule. It used to be implied by the
-/// target naming no environment of its own, which meant "the host" at the top
-/// of a chain and "inherit" below it: one spelling for two answers, and no way
-/// to ask for the host under a containerised caller at all.
+/// The four cases below are the whole rule. It used to be implied by the target
+/// naming no environment of its own, which meant "the host" at the top of a
+/// chain and "inherit" below it: one spelling for two answers, and no way to ask
+/// for the host under a containerised caller at all. Then it briefly sat on the
+/// caller's roster, which asked the same question once per parent and let two of
+/// them disagree about one agent.
 mod where_a_delegation_runs {
     use super::*;
 
@@ -370,14 +370,18 @@ mod where_a_delegation_runs {
                 mode: NetworkMode::Open,
                 ..EnvironmentNetwork::default()
             },
+            always_use_own: false,
         }
     }
 
-    /// Parent in `caller-env`, child configured as `child` says, delegated to
-    /// with `inherit`. Returns the environment each turn resolved with, parent
-    /// first.
+    /// The same environment, pinned so a caller cannot move it.
+    fn pinned(mut environment: AgentEnvironment) -> AgentEnvironment {
+        environment.always_use_own = true;
+        environment
+    }
+
+    /// Returns the environment each turn resolved with, parent first.
     async fn placements(
-        inherit: bool,
         parent_environment: AgentEnvironment,
         child_environment: AgentEnvironment,
     ) -> (Vec<String>, Vec<String>) {
@@ -393,10 +397,7 @@ mod where_a_delegation_runs {
                 )]),
                 ScriptedTurn::text("done"),
             ],
-            subagents: vec![SubagentBinding {
-                inherit_environment: inherit,
-                ..binding("researcher")
-            }],
+            subagents: vec![binding("researcher")],
             resolve_loop: Some(resolver.clone()),
             environment: parent_environment,
             environments: Some(seen.clone()),
@@ -417,43 +418,40 @@ mod where_a_delegation_runs {
     }
 
     #[tokio::test]
-    async fn on_takes_the_callers_place_over_the_targets_own() {
-        // The one behaviour change: a subagent that names its own environment
-        // used to win outright. The switch decides now, so a roster an operator
-        // set to inherit inherits whatever the target happens to name.
-        let (names, _) = placements(
-            true,
-            in_environment("caller-env"),
-            in_environment("its-own"),
-        )
-        .await;
+    async fn a_delegated_turn_runs_where_its_caller_does() {
+        // The default, and the whole point of it: work handed down stays inside
+        // the boundary the operator chose rather than falling back to the host
+        // halfway down a chain. The target's own environment is not consulted.
+        let (names, agents) =
+            placements(in_environment("caller-env"), in_environment("its-own")).await;
 
         assert_eq!(names, vec!["caller-env", "caller-env"]);
-    }
-
-    #[tokio::test]
-    async fn off_leaves_the_target_in_the_environment_it_names() {
-        let (names, agents) = placements(
-            false,
-            in_environment("caller-env"),
-            in_environment("its-own"),
-        )
-        .await;
-
-        assert_eq!(names, vec!["caller-env", "its-own"]);
-        // The child resolves under its own agent id, so a private definition
-        // gives it its own container rather than the caller's.
+        // Two turns, and the child resolves under its own agent id. It is the
+        // environment that is inherited, not the identity.
         assert_eq!(agents.len(), 2);
     }
 
     #[tokio::test]
-    async fn off_means_the_host_when_the_target_names_nothing() {
+    async fn an_agent_that_pins_its_environment_keeps_it_under_any_caller() {
+        // The web-search-container case: an agent whose image holds the one tool
+        // it exists for is useless anywhere else, and the caller cannot be
+        // expected to know that.
+        let (names, _) = placements(
+            in_environment("caller-env"),
+            pinned(in_environment("its-own")),
+        )
+        .await;
+
+        assert_eq!(names, vec!["caller-env", "its-own"]);
+    }
+
+    #[tokio::test]
+    async fn pinning_the_host_is_expressible() {
         // The case that had no spelling at all: run on this machine even though
         // the caller is in a container.
         let (names, _) = placements(
-            false,
             in_environment("caller-env"),
-            AgentEnvironment::default(),
+            pinned(AgentEnvironment::default()),
         )
         .await;
 
@@ -461,12 +459,11 @@ mod where_a_delegation_runs {
     }
 
     #[tokio::test]
-    async fn on_hands_down_the_host_when_that_is_where_the_caller_is() {
-        // Inheriting from a host caller must reach the child as *the host*, not
-        // as "nobody decided" — which would let it fall back to its own
-        // environment and quietly contradict the switch.
-        let (names, _) =
-            placements(true, AgentEnvironment::default(), in_environment("its-own")).await;
+    async fn a_caller_on_the_host_hands_down_the_host() {
+        // Inheriting from a host caller must reach the child as *the host*,
+        // not as "nobody decided", which would let it fall back to its own
+        // environment and quietly contradict the default.
+        let (names, _) = placements(AgentEnvironment::default(), in_environment("its-own")).await;
 
         assert_eq!(names, vec!["", ""]);
     }

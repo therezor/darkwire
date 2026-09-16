@@ -571,6 +571,26 @@ export const AgentEnvironmentSchema = z.object({
   name: z.string().default(''),
   /** What this agent's environment may reach. */
   network: EnvironmentNetworkSchema.prefault({}),
+  /**
+   * Whether this agent brings its own environment when something delegates to
+   * it.
+   *
+   * Off, the default, means a delegated turn runs where its caller does. That
+   * is what people expect of a subagent: work handed down stays inside the
+   * boundary the operator chose rather than falling back to the host halfway
+   * down a chain. At the top of a chain there is no caller, so the agent runs
+   * in the environment named above either way.
+   *
+   * On pins it to that environment whoever called. A web-search agent with a
+   * browser in its image is the case: it is useless anywhere else, and the
+   * caller cannot be expected to know that.
+   *
+   * It is a property of the agent rather than of one delegation because an
+   * agent that needs its own toolchain needs it from every caller. Asking per
+   * relationship asks the same question once per parent and lets two of them
+   * disagree.
+   */
+  alwaysUseOwn: z.boolean().default(false),
 });
 export type AgentEnvironment = z.infer<typeof AgentEnvironmentSchema>;
 
@@ -607,27 +627,6 @@ export const SubagentRefSchema = z.object({
   /** The operator's guidance. Empty means the built-in sentence. */
   prompt: z.string().default(''),
   permission: ToolPermissionSchema.default('allow'),
-  /**
-   * Whether this delegation runs where its caller does.
-   *
-   * The one thing that decides a subagent's placement, and the reason it sits
-   * on the *reference* rather than on the target's own entry: being somebody's
-   * subagent is a relationship, and where a delegated turn runs is a property
-   * of that relationship rather than of the agent. The same researcher can
-   * inherit from one caller and run on the host for another.
-   *
-   * On, it takes the caller's environment and egress whole, and the target's
-   * own `environment` is not consulted. Off, the target runs in the environment
-   * its own entry names, which is the host when it names none.
-   *
-   * Defaults on, because delegation staying inside the boundary the operator
-   * chose is the answer people expect and the one the chain used to give
-   * implicitly. It used to be implied by the target naming no environment,
-   * which meant "the host" at the top of a chain and "inherit" below it: one
-   * spelling for two answers, and no way to ask for the host under a
-   * containerised caller at all.
-   */
-  inheritEnvironment: z.boolean().default(true),
 });
 export type SubagentRef = z.infer<typeof SubagentRefSchema>;
 
