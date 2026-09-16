@@ -78,11 +78,11 @@ describe('the favicon', () => {
 
   it('writes its colour out, because a tab has no cascade to inherit from', () => {
     expect(favicon).not.toContain('currentColor');
-    // The brand hue at mid-luminance, `oklch(0.6 0.1 195)`, not the accent
-    // token's own lightness. A tab strip is white in one OS theme and near-black
-    // in the other, and the bright cyan the app uses holds against only one of
-    // them. The favicon's own comment carries the measurements.
-    expect(favicon).toContain('#008C96');
+    // The brand hue a step under the accent's own lightness. A tab strip is
+    // white in one OS theme and near-black in the other, and the terminal green
+    // the app uses holds against only one of them. The favicon's own comment
+    // carries the measurements.
+    expect(favicon).toContain('#009100');
   });
 
   it('is referenced by index.html, from this origin', () => {

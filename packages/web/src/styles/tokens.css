@@ -25,7 +25,7 @@
  *    fill that composites over whatever is underneath, which is what makes one
  *    token work on a card, a popover and a sidebar row.
  *  - **Fill uses `--accent`; text, icons and strokes use `--accent-fg`.** They
- *    are identical in dark and diverge in light, where the brand cyan on a
+ *    are identical in dark and diverge in light, where the brand green on a
  *    white card is a 2:1 pairing as text and fine as a fill. The rule is
  *    therefore invisible in the theme most people develop in — which is exactly
  *    the kind of thing that rots without a lint gate.
@@ -51,32 +51,37 @@
 :root {
   color-scheme: dark;
 
-  /* The brand cyan, taken from the terminal palette this UI is dressed in:
-   * `#00E5E5` converted to OKLCH, which lands at L 0.835 / C 0.142 / H 195.
+  /* The brand green: a terminal's green, `#00A600`, converted to OKLCH.
    *
-   * A terminal's bright cyan is the one colour in that sixteen that is loud
-   * without being a status. Red, yellow and green all mean something on a
-   * console, so any of them as the accent would collide with the badge sitting
-   * next to it. Cyan means nothing there, which is what makes it free to mean
-   * "this app" here.
+   * The chroma is 0.213 rather than the 0.214 the conversion gives, because
+   * `#00A600` sits exactly on the sRGB boundary and the round trip back through
+   * the matrices lands a hair outside it. A seed the display cannot show is a
+   * seed whose measured contrast is fiction, so `contrast.test.ts` refuses one,
+   * and a thousandth of chroma is the whole difference.
    *
-   * It is far from every semantic hue below, so the roles are told apart by hue
-   * alone rather than by the softness rule the old green needed: a fill, a
-   * focus ring and the wordmark on one side, a badge on a finished tool call on
-   * the other. */
-  --seed-accent-l: 0.835;
-  --seed-accent-c: 0.14;
-  --seed-accent-h: 195;
+   * It is the same hue as `--success` below, and the two are told apart by
+   * lightness and by where they appear rather than by hue: the accent is the
+   * darker, fuller green that fills a button, draws a focus ring and carries
+   * the wordmark, and the semantic one is lighter and quieter on a badge. An
+   * accent has always shared a neighbourhood with a semantic role here. */
+  --seed-accent-l: 0.628;
+  --seed-accent-c: 0.213;
+  --seed-accent-h: 142.5;
 
-  /* Accent as *text*. Identical to the fill in dark, and much darker in light,
-   * where a cyan at L 0.835 on a white card is a 1.5:1 pairing — legible as a
-   * fill and not at all as type. Chroma comes down with it, because sRGB holds
-   * far less cyan at L 0.48 than at L 0.835: 0.08 is the most that is in gamut
-   * there, and `contrast.test.ts` fails on a seed that is not. */
-  --seed-accent-fg-l: 0.835;
-  --seed-accent-fg-c: 0.14;
+  /* Accent as *text*, and the one place the two diverge in dark as well as in
+   * light. The terminal palette has two greens, and this is the bright one,
+   * `#00D900`. The normal green fills a button, where it sits under near-black
+   * label text; as type on an elevated surface it is too close to the surface
+   * to read, and `--accent-fg` on `--accent-soft` over `--surface-3` measures
+   * 4.3:1 against a 4.5 floor. The bright green clears it.
+   *
+   * In light it goes the other way and darkens to L 0.48, because the brand
+   * green on a white card is 3.3:1: fine as a fill and under the bar as type.
+   * Chroma comes down with it, because sRGB holds far less green at L 0.48. */
+  --seed-accent-fg-l: 0.767;
+  --seed-accent-fg-c: 0.26;
 
-  --seed-surface-0: 0.11; /* page     */
+  --seed-surface-0: 0.115; /* page     */
   --seed-surface-1: 0.145; /* sunken   */
   --seed-surface-2: 0.17; /* card     */
   --seed-surface-3: 0.22; /* elevated */
@@ -84,7 +89,7 @@
   --seed-overlay-rgb: 255 255 255; /* borders, hover, every alpha fill */
   --seed-hover-a: 0.05;
 
-  --seed-text-1: 0.925;
+  --seed-text-1: 0.965;
   --seed-text-2: 0.78;
   /* Well clear of the floor, deliberately. `--fg-3` on `--surface-3` is the
    * tightest pairing in the sheet and AA there now resolves to L 0.61, so this
@@ -106,16 +111,17 @@
   --seed-semantic-fg-c: 0.095;
 
   /* Text *on* an accent or semantic fill. Both fills are light in dark and in
-   * light. A cyan button does not invert, so this one is near-black in both
-   * themes rather than following the surface ramp. */
+   * light. A green button does not invert, so this one is near-black in both
+   * themes rather than following the surface ramp. It measures 5.6:1 against
+   * the accent fill. */
   --seed-on-fill-l: 0.19;
 
   /* The neutral axis is not grey: surfaces and text carry a trace of the accent
-   * hue, which is what keeps a cyan accent from looking pasted onto a slate
+   * hue, which is what keeps a green accent from looking pasted onto a slate
    * UI. It goes to zero in light, where the top surface is pure white and any
    * chroma at L 1.0 is by definition outside the gamut. */
   --seed-neutral-c: 0.005;
-  --seed-neutral-h: 195;
+  --seed-neutral-h: 142.5;
 
   --seed-line-a: 0.14;
   --seed-line-strong-a: 0.26;
@@ -157,7 +163,7 @@
     color-scheme: light;
 
     --seed-accent-fg-l: 0.48;
-    --seed-accent-fg-c: 0.08;
+    --seed-accent-fg-c: 0.13;
 
     --seed-surface-0: 1;
     --seed-surface-1: 0.955;
@@ -188,7 +194,7 @@
   color-scheme: light;
 
   --seed-accent-fg-l: 0.48;
-  --seed-accent-fg-c: 0.08;
+  --seed-accent-fg-c: 0.13;
 
   --seed-surface-0: 1;
   --seed-surface-1: 0.955;

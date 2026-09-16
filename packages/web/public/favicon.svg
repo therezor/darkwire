@@ -4,7 +4,7 @@
   width="24"
   height="24"
   fill="none"
-  stroke="#008C96"
+  stroke="#009100"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -17,14 +17,14 @@
     and `src/**`; this is neither, and `favicon.test.ts` holds the three paths
     below to the ones lucide actually renders.)
 
-    #008C96 is the brand hue at a lightness the accent itself does not use:
-    `oklch(0.6 0.1 195)` rather than the token's `oklch(0.835 0.14 195)`. That
-    divergence is deliberate and it is the whole point of this comment. The
-    accent is a bright terminal cyan chosen to sit on surfaces this app
-    controls, and it measures 1.6:1 against white. A tab strip is the one
-    surface we do not control. It is near-black in one OS theme and white in the
-    other, so the mark is pulled down to mid-luminance, where it holds both ways
-    (4.0:1 on white, 5.0:1 on near-black).
+    #009100 is the brand hue at a lightness the accent itself does not use, a
+    little under the token's `oklch(0.628 0.213 142.5)`. That divergence is
+    deliberate and it is the whole point of this comment. The accent is the
+    terminal green `#00A600`, chosen to sit on surfaces this app controls, and
+    it measures 3.3:1 against white. A tab strip is the one surface we do not
+    control. It is near-black in one OS theme and white in the other, so the
+    mark is pulled down a step, where it holds both ways (4.2:1 on white, 4.9:1
+    on near-black).
 
     One colour rather than a `prefers-color-scheme` swap: a favicon that changes
     colour with the OS theme is one users stop recognising.

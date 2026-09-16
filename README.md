@@ -1,5 +1,3 @@
-<div align="center">
-
 ```
 ██████╗  █████╗ ██████╗ ██╗  ██╗██╗    ██╗██╗██████╗ ███████╗
 ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝██║    ██║██║██╔══██╗██╔════╝
@@ -9,6 +7,8 @@
 ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝╚═╝  ╚═╝╚══════╝
 ```
 
+<div align="center">
+
 # DarkWire
 
 ### Your models. Your machine. Your wire.
@@ -17,12 +17,12 @@ An agent with a real shell and real file tools, running local models on your own
 hardware — Ollama, LM Studio, llama.cpp, vLLM.<br>
 Cloud providers are opt-in, not assumed.
 
-[![licence](https://img.shields.io/github/license/therezor/darkwire?style=flat-square&color=00a6b2&labelColor=0d1117)](LICENSE)
-[![install](https://img.shields.io/badge/install-one%20binary-00a6b2?style=flat-square&labelColor=0d1117)](docs/getting-started.md)
-[![build](https://img.shields.io/github/actions/workflow/status/therezor/darkwire/ci.yml?style=flat-square&color=00a6b2&labelColor=0d1117)](.github/workflows/ci.yml)
-[![telemetry](https://img.shields.io/badge/telemetry-zero-00a6b2?style=flat-square&labelColor=0d1117)](packages/web/test/self-contained.test.ts)
-[![runs](https://img.shields.io/badge/runs-offline-00a6b2?style=flat-square&labelColor=0d1117)](packages/e2e/test/offline.spec.ts)
-[![release](https://img.shields.io/github/v/release/therezor/darkwire?style=flat-square&color=00a6b2&labelColor=0d1117)](https://github.com/therezor/darkwire/releases/latest)
+[![licence](https://img.shields.io/github/license/therezor/darkwire?style=flat-square&color=00a600&labelColor=0d1117)](LICENSE)
+[![install](https://img.shields.io/badge/install-one%20binary-00a600?style=flat-square&labelColor=0d1117)](docs/getting-started.md)
+[![build](https://img.shields.io/github/actions/workflow/status/therezor/darkwire/ci.yml?style=flat-square&color=00a600&labelColor=0d1117)](.github/workflows/ci.yml)
+[![telemetry](https://img.shields.io/badge/telemetry-zero-00a600?style=flat-square&labelColor=0d1117)](packages/web/test/self-contained.test.ts)
+[![runs](https://img.shields.io/badge/runs-offline-00a600?style=flat-square&labelColor=0d1117)](packages/e2e/test/offline.spec.ts)
+[![release](https://img.shields.io/github/v/release/therezor/darkwire?style=flat-square&color=00a600&labelColor=0d1117)](https://github.com/therezor/darkwire/releases/latest)
 
 </div>
 

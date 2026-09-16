@@ -12,7 +12,7 @@
  *
  * **Two tones, not one.** The mark carries the accent and the name inherits its
  * colour from the caller. Both were the accent to begin with, and a mark and a
- * name in one colour at one weight is not a lockup — it is a cyan blob with a
+ * name in one colour at one weight is not a lockup — it is a green blob with a
  * shape at the front. Splitting them gives the pair a hierarchy (mark first,
  * name second) and gives the accent one job in the header instead of six
  * characters' worth of it.
