@@ -2125,8 +2125,50 @@ describe('subagents', () => {
         id: 'default',
         prompt: 'Use for anything outside review.',
         permission: 'ask',
+        inheritEnvironment: true,
       },
     ]);
+  });
+
+  it('says where a delegation runs, and saves the answer', async () => {
+    // The switch is the only thing that decides a subagent's placement, so it
+    // has to be readable from the row rather than inferred from the target's
+    // own environment further down somebody else's page.
+    const { user, calls } = mount('/agents/reviewer');
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Add subagent' }),
+    );
+    await user.click(
+      screen.getByRole('combobox', { name: 'Agent for subagent 1' }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'default' }));
+
+    const inherit = screen.getByRole('switch', {
+      name: 'Environment for subagent 1',
+    });
+    expect(inherit).toBeChecked();
+    // The reviewer runs on the host, so that is what inheriting means here.
+    expect(
+      screen.getByText('Runs on the host, the same place this agent runs.'),
+    ).toBeInTheDocument();
+
+    await user.click(inherit);
+    expect(
+      screen.getByText(
+        'Runs in the environment its own configuration names, or on the host if it names none.',
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(patchesOf(calls)).toHaveLength(1);
+    });
+    expect(
+      patchesOf(calls)[0]?.agents?.list?.reviewer?.subagents?.[0]
+        ?.inheritEnvironment,
+    ).toBe(false);
   });
 
   it('removes a row, and the save says so', async () => {

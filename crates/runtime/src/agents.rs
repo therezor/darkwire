@@ -308,6 +308,7 @@ fn resolve_subagents(
             label: label_of(config, &reference.id),
             prompt: reference.prompt.clone(),
             permission: reference.permission,
+            inherit_environment: reference.inherit_environment,
         });
     }
 

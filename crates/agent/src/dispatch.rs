@@ -58,8 +58,8 @@ use ghostai_core::history::truncate_head_tail;
 use ghostai_core::messages::{ToolOptions, tool_message};
 use ghostai_core::{Clock, ErrorKind, Result};
 use ghostai_protocol::{
-    ChatMessage, Notice, NoticeKind, ToolApprovalRequest, ToolCall, ToolCallStarted,
-    ToolPermission, ToolResult, ToolRisk, ToolsConfig,
+    AgentEnvironment, ChatMessage, Notice, NoticeKind, ToolApprovalRequest, ToolCall,
+    ToolCallStarted, ToolPermission, ToolResult, ToolRisk, ToolsConfig,
 };
 use ghostai_providers::{BoxFuture, ChatResult};
 use ghostai_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
@@ -185,6 +185,14 @@ pub struct TurnScope {
     pub workspace_id: String,
     /// Ancestor agent ids, oldest first. See `refuse_delegation`.
     pub chain: Vec<String>,
+    /// The environment and egress this turn settled on.
+    ///
+    /// Here rather than derived from `tool_context.placement` because a
+    /// delegation that inherits hands this down whole, and a caller on the host
+    /// must hand down the host. Reading it back out of an `Option` would make
+    /// "nobody decided" and "the host" the same value again, which is the
+    /// overload this field exists to end.
+    pub environment: AgentEnvironment,
     /// The conversation a person is watching. See [`ApprovalRequest`].
     pub root_session_key: String,
 }

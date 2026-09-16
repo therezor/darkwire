@@ -11,7 +11,7 @@ stable part lets providers cache the larger prefix.
 `platformPrompt` fills `{{platformPolicy}}` and says _where_ commands run. The built-in
 host template describes host `exec`; the container template is used whenever the turn's
 environment is confined. Which one applies is decided per turn rather than per agent,
-because a subagent that names no environment inherits its caller's.
+because a subagent runs where its caller's delegation says it does.
 
 `environmentPrompt` fills `{{environment}}` and says what is _there_: what is installed,
 and what the mounts mean. It is the one section with no built-in: empty inherits the

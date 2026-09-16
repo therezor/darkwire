@@ -391,6 +391,7 @@ async fn a_subagent_delegation_is_gated_on_the_conversation_not_the_delegation()
             label: "Researcher".to_owned(),
             prompt: String::new(),
             permission: ToolPermission::Ask,
+            inherit_environment: true,
         }],
         approvals: Some(gate.clone()),
         ..Setup::default()

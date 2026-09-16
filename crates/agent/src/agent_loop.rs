@@ -376,15 +376,18 @@ pub struct TurnInput {
     /// Absent means this turn *is* that session. It reaches the approval
     /// request, and nothing else reads it.
     pub root_session_key: Option<String>,
-    /// Where the calling agent's commands run, when this turn is a subagent's.
+    /// Where this turn's commands run, when its caller decided that.
     ///
     /// Carried on the input for the same reason `chain` is: loops are one per
     /// agent and shared through a cache, so anything that depends on *who
     /// called* would be wrong the moment the same agent appeared under two
-    /// callers. An agent that names its own container runs there; one that
-    /// names none runs where its caller does, which is what makes delegation
-    /// stay inside the boundary the operator chose rather than falling back to
-    /// the host halfway down a chain.
+    /// callers.
+    ///
+    /// Present means the caller's delegation asked for inheritance, and this is
+    /// the place it resolved, host included. Absent means nobody decided for
+    /// this turn, so the agent's own environment stands. Nothing else feeds it:
+    /// an agent naming no environment is on the host, in a delegated turn as
+    /// much as at the top of a chain.
     pub inherited_environment: Option<AgentEnvironment>,
 }
 
@@ -1186,16 +1189,13 @@ impl AgentLoop {
         // over this jail, so a workspace switch mid-turn cannot move it.
         let jail = inner.jails.for_workspace(&session.workspace_id);
 
-        // An agent that names no environment of its own runs where its caller
-        // does. At the top of a chain there is no caller, so that is the host.
-        let selection = if inner.environment.name.is_empty() {
-            input
-                .inherited_environment
-                .clone()
-                .unwrap_or_else(|| inner.environment.clone())
-        } else {
-            inner.environment.clone()
-        };
+        // The caller's choice when it made one, this agent's own otherwise.
+        // Only the parent's `inheritEnvironment` puts a value in here, so an
+        // empty name means the host wherever it appears.
+        let selection = input
+            .inherited_environment
+            .clone()
+            .unwrap_or_else(|| inner.environment.clone());
 
         // Resolved once per turn, beside the jail and for the same reason: a
         // placement is a property of (agent, workspace, session), and
@@ -1258,6 +1258,7 @@ impl AgentLoop {
             tool_context,
             workspace_id: session.workspace_id.clone(),
             chain: input.chain.clone(),
+            environment: selection.clone(),
             root_session_key: input
                 .root_session_key
                 .clone()
@@ -2072,12 +2073,13 @@ impl AgentLoop {
                     chain
                 },
                 root_session_key: Some(turn.root_session_key.clone()),
-                inherited_environment: turn.tool_context.placement.as_ref().map(|placement| {
-                    AgentEnvironment {
-                        name: placement.environment.clone(),
-                        network: placement.network.clone(),
-                    }
-                }),
+                // Built from the place this turn resolved, so a caller on the
+                // host hands down the host rather than nothing. Handing down
+                // `None` would let the child fall back to its own environment,
+                // which is the opposite of what the switch says.
+                inherited_environment: binding
+                    .inherit_environment
+                    .then(|| turn.environment.clone()),
                 ..TurnInput::new(session_key.clone(), task)
             },
             &cap,

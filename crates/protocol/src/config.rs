@@ -713,10 +713,31 @@ pub struct SubagentRef {
     /// Whether delegation runs unattended.
     #[serde(default = "allow")]
     pub permission: ToolPermission,
+    /// Whether this delegation runs where its caller does.
+    ///
+    /// The one thing that decides a subagent's placement, and the reason it
+    /// sits on the *reference* rather than on the target's own entry: being
+    /// somebody's subagent is a relationship, and where a delegated turn runs
+    /// is a property of that relationship rather than of the agent. The same
+    /// researcher can inherit from one caller and run on the host for another.
+    ///
+    /// On, it takes the caller's environment and egress whole, and the target's
+    /// own `environment` is not consulted. Off, the target runs in the
+    /// environment its own entry names, which is the host when it names none.
+    ///
+    /// Defaults on, because delegation staying inside the boundary the operator
+    /// chose is the answer people expect and the one the chain used to give
+    /// implicitly.
+    #[serde(default = "inherit")]
+    pub inherit_environment: bool,
 }
 
 fn allow() -> ToolPermission {
     ToolPermission::Allow
+}
+
+fn inherit() -> bool {
+    true
 }
 
 /// One named agent, complete.
@@ -764,7 +785,8 @@ pub struct AgentEntry {
     pub prompt_mode: PromptMode,
     /// The `## Running commands` section. Empty means the built-in for this
     /// agent's placement, host or environment, decided per turn because a
-    /// subagent inherits its caller's. Editing it does not widen anything:
+    /// subagent runs where its caller's reference says. Editing it does not
+    /// widen anything:
     /// where a command may reach is decided by the exec guard and the jail,
     /// neither of which reads the prompt.
     #[serde(default)]

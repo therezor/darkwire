@@ -17,7 +17,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::harness::{FakeTool, Harness, MapResolver, Setup, events_of};
+use common::harness::{FakeTool, Harness, MapResolver, RecordingEnvironments, Setup, events_of};
 use ghostai_agent::SubagentBinding;
 use ghostai_agent::subagent::{
     DelegationRefusal, MAX_SUBAGENT_DEPTH, parse_task, refuse_delegation, refused_execution,
@@ -26,8 +26,8 @@ use ghostai_agent::subagent::{
 use ghostai_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
 use ghostai_core::ErrorKind;
 use ghostai_protocol::{
-    AgentSettings, SUBAGENT_METADATA_KEY, SUBAGENT_ORIGIN, StopReason, ToolPermission,
-    default_subagent_prompt, subagent_tool_name,
+    AgentEnvironment, AgentSettings, EnvironmentNetwork, NetworkMode, SUBAGENT_METADATA_KEY,
+    SUBAGENT_ORIGIN, StopReason, ToolPermission, default_subagent_prompt, subagent_tool_name,
 };
 use serde_json::json;
 
@@ -38,6 +38,7 @@ fn binding(agent_id: &str) -> SubagentBinding {
         label: "Researcher".to_owned(),
         prompt: String::new(),
         permission: ToolPermission::Allow,
+        inherit_environment: true,
     }
 }
 
@@ -350,6 +351,125 @@ async fn a_subagent_never_reports_context_for_the_conversation_on_screen() {
     let root = events_of(&events, "context.usage");
     assert_eq!(root.len(), 1);
     assert_eq!(root[0]["sessionKey"], json!("web:1"));
+}
+
+/// Where a delegated turn runs, which is the caller's decision and nothing
+/// else's.
+///
+/// The three cases below are the whole rule. It used to be implied by the
+/// target naming no environment of its own, which meant "the host" at the top
+/// of a chain and "inherit" below it: one spelling for two answers, and no way
+/// to ask for the host under a containerised caller at all.
+mod where_a_delegation_runs {
+    use super::*;
+
+    fn in_environment(name: &str) -> AgentEnvironment {
+        AgentEnvironment {
+            name: name.to_owned(),
+            network: EnvironmentNetwork {
+                mode: NetworkMode::Open,
+                ..EnvironmentNetwork::default()
+            },
+        }
+    }
+
+    /// Parent in `caller-env`, child configured as `child` says, delegated to
+    /// with `inherit`. Returns the environment each turn resolved with, parent
+    /// first.
+    async fn placements(
+        inherit: bool,
+        parent_environment: AgentEnvironment,
+        child_environment: AgentEnvironment,
+    ) -> (Vec<String>, Vec<String>) {
+        let resolver = MapResolver::new();
+        let seen = RecordingEnvironments::new();
+
+        let parent = Harness::build(Setup {
+            turns: vec![
+                ScriptedTurn::calls(vec![tool_call(
+                    "c1",
+                    "ask_researcher",
+                    &json!({"task": "look"}),
+                )]),
+                ScriptedTurn::text("done"),
+            ],
+            subagents: vec![SubagentBinding {
+                inherit_environment: inherit,
+                ..binding("researcher")
+            }],
+            resolve_loop: Some(resolver.clone()),
+            environment: parent_environment,
+            environments: Some(seen.clone()),
+            ..Setup::default()
+        });
+
+        let child = Harness::build(Setup {
+            turns: vec![ScriptedTurn::text("Found it.")],
+            environment: child_environment,
+            environments: Some(seen.clone()),
+            ..Setup::default()
+        });
+        resolver.insert("researcher", child.agent_loop.clone());
+
+        let (_, result) = parent.say("web:1", "delegate").await;
+        result.expect("the delegating turn runs");
+        (seen.names(), seen.agents())
+    }
+
+    #[tokio::test]
+    async fn on_takes_the_callers_place_over_the_targets_own() {
+        // The one behaviour change: a subagent that names its own environment
+        // used to win outright. The switch decides now, so a roster an operator
+        // set to inherit inherits whatever the target happens to name.
+        let (names, _) = placements(
+            true,
+            in_environment("caller-env"),
+            in_environment("its-own"),
+        )
+        .await;
+
+        assert_eq!(names, vec!["caller-env", "caller-env"]);
+    }
+
+    #[tokio::test]
+    async fn off_leaves_the_target_in_the_environment_it_names() {
+        let (names, agents) = placements(
+            false,
+            in_environment("caller-env"),
+            in_environment("its-own"),
+        )
+        .await;
+
+        assert_eq!(names, vec!["caller-env", "its-own"]);
+        // The child resolves under its own agent id, so a private definition
+        // gives it its own container rather than the caller's.
+        assert_eq!(agents.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn off_means_the_host_when_the_target_names_nothing() {
+        // The case that had no spelling at all: run on this machine even though
+        // the caller is in a container.
+        let (names, _) = placements(
+            false,
+            in_environment("caller-env"),
+            AgentEnvironment::default(),
+        )
+        .await;
+
+        assert_eq!(names, vec!["caller-env", ""]);
+    }
+
+    #[tokio::test]
+    async fn on_hands_down_the_host_when_that_is_where_the_caller_is() {
+        // Inheriting from a host caller must reach the child as *the host*, not
+        // as "nobody decided" — which would let it fall back to its own
+        // environment and quietly contradict the switch.
+        let (names, _) =
+            placements(true, AgentEnvironment::default(), in_environment("its-own")).await;
+
+        assert_eq!(names, vec!["", ""]);
+    }
 }
 
 #[tokio::test]

@@ -213,9 +213,10 @@ pub struct PromptAgent {
 ///
 /// `confined` is the exception and the one boolean here. It is not wording: it
 /// says which built-in the command policy inherits *from*, and it has to be a
-/// per-turn input because a subagent inherits its caller's environment. Deciding
-/// it when the loop was built, once per agent, told an inheriting subagent its
-/// commands run on this machine while they ran in a container.
+/// per-turn input because a subagent runs where its caller's reference says it
+/// does. Deciding it when the loop was built, once per agent, told an
+/// inheriting subagent its commands run on this machine while they ran in a
+/// container.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PromptTools {
     /// Wording for the tool-output policy — what the delimiters around a result

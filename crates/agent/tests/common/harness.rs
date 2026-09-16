@@ -22,17 +22,61 @@ use ghostai_agent::{
 use ghostai_core::{Database, Result, SessionStore};
 use ghostai_protocol::json::Object;
 use ghostai_protocol::{
-    AgentSettings, ToolDefinition, ToolPermission, ToolPermissions, ToolRisk, ToolsConfig,
+    AgentEnvironment, AgentSettings, ToolDefinition, ToolPermission, ToolPermissions, ToolRisk,
+    ToolsConfig,
 };
 use ghostai_providers::BoxFuture;
 use ghostai_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
 use ghostai_tools::{
-    AnyTool, BoxFuture as ToolFuture, Tool, ToolContext, ToolExecution, ToolInvocation,
-    ToolRegistry, ToolScope,
+    AnyTool, BoxFuture as ToolFuture, EnvironmentResolver, Placed, PlacementRequest, Tool,
+    ToolContext, ToolExecution, ToolInvocation, ToolRegistry, ToolScope,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
+
+/// An environment resolver that records what it was asked and answers the host.
+///
+/// Every turn resolves a placement, so this is how a test sees the environment
+/// a turn settled on without a container runtime anywhere near it. What it
+/// answers is beside the point; what it was *asked* is the assertion.
+#[derive(Debug, Default)]
+pub struct RecordingEnvironments {
+    asked: Mutex<Vec<PlacementRequest>>,
+}
+
+impl RecordingEnvironments {
+    pub fn new() -> Arc<RecordingEnvironments> {
+        Arc::new(RecordingEnvironments::default())
+    }
+
+    /// The environment name each turn resolved with, in order.
+    pub fn names(&self) -> Vec<String> {
+        self.asked
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| request.environment.clone())
+            .collect()
+    }
+
+    /// The agent id each turn resolved under, in order.
+    pub fn agents(&self) -> Vec<String> {
+        self.asked
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| request.agent_id.clone())
+            .collect()
+    }
+}
+
+impl EnvironmentResolver for RecordingEnvironments {
+    fn for_turn(&self, request: &PlacementRequest) -> Placed {
+        self.asked.lock().unwrap().push(request.clone());
+        Placed::host()
+    }
+}
 
 /// A tool whose behaviour is a closure, so a test states what a call does.
 pub struct FakeTool {
@@ -264,6 +308,10 @@ pub struct Setup {
     pub heartbeat_ms: u64,
     /// Head+tail budget for a tool result entering history.
     pub max_tool_result_chars: usize,
+    /// Where this agent's own configuration says its commands run.
+    pub environment: AgentEnvironment,
+    /// Answers the placement of every turn, and records what it was asked.
+    pub environments: Option<Arc<dyn EnvironmentResolver>>,
 }
 
 impl Default for Setup {
@@ -279,6 +327,8 @@ impl Default for Setup {
             tools_config: ToolsConfig::default(),
             approvals: None,
             subagents: Vec::new(),
+            environment: AgentEnvironment::default(),
+            environments: None,
             resolve_loop: None,
             agent: None,
             contributors: Vec::new(),
@@ -345,6 +395,8 @@ impl Harness {
 
         let agent_loop = AgentLoop::new(AgentLoopOptions {
             config: setup.config,
+            environment: setup.environment,
+            environments: setup.environments,
             tools_config: Arc::new(setup.tools_config),
             approvals: setup.approvals,
             subagents,

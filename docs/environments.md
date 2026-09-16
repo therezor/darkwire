@@ -65,16 +65,25 @@ An agent may override the definition's `prompt` with `environmentPrompt`, on the
 three-state contract as every other template: empty inherits, a single space removes the
 section, anything else replaces it.
 
-## Subagents inherit
+## Subagents inherit when their caller says so
 
-**A subagent runs where its caller does** unless it names an environment itself.
-Delegation stays inside the boundary the operator chose, rather than falling back to the
-host halfway down a chain.
+Each entry in an agent's `subagents` list carries **`inheritEnvironment`**, on by default.
+On, the delegation runs where its caller does, and the subagent's own `environment` is not
+consulted. Off, it runs in the environment its own entry names, which is the host when it
+names none. The switch is in the agent editor, on the subagent's row.
+
+It lives on the reference rather than on the target because being somebody's subagent is a
+relationship: the same researcher can inherit from one caller and run on the host for
+another.
 
 What is inherited is the _name and network policy_, not a running instance. The subagent
 resolves its own placement from its own agent id and a fresh session key, so under a
 private definition it gets its own container; only a definition with `shared: true` puts
 caller and subagent inside the same one.
+
+This used to be implied by the target naming no environment, which meant "the host" at the
+top of a chain and "inherit" below it. One spelling for two answers, and no way to ask for
+the host under a containerised caller at all.
 
 ## Lifecycle
 

@@ -1191,6 +1191,9 @@ function Editor({
                     (agent) =>
                       agent.id === ref.id || !chosenSubagents.has(agent.id),
                   )}
+                  // The form's value, not the saved one, so the hint follows
+                  // the environment picker further down the page as it moves.
+                  callerEnvironment={form.environmentName}
                   onChange={(next) => {
                     setSubagent(index, next);
                   }}
@@ -1209,7 +1212,12 @@ function Editor({
               onClick={() => {
                 setSubagents([
                   ...form.subagents,
-                  { id: '', prompt: '', permission: 'allow' },
+                  {
+                    id: '',
+                    prompt: '',
+                    permission: 'allow',
+                    inheritEnvironment: true,
+                  },
                 ]);
               }}
             >

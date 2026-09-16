@@ -276,7 +276,8 @@
           {
             "id": "writer",
             "prompt": "",
-            "permission": "allow"
+            "permission": "allow",
+            "inheritEnvironment": true
           }
         ]
       }

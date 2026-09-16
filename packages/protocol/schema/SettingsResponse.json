@@ -296,6 +296,10 @@
                             "ask",
                             "deny"
                           ]
+                        },
+                        "inheritEnvironment": {
+                          "default": true,
+                          "type": "boolean"
                         }
                       },
                       "required": [

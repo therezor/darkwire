@@ -15,7 +15,11 @@ import {
 } from '@ghostwire/protocol';
 
 import { Button } from '@/components/ui/button.js';
-import { SelectField, TextareaField } from '@/components/form/controls.js';
+import {
+  SelectField,
+  SwitchRow,
+  TextareaField,
+} from '@/components/form/controls.js';
 
 import { TOOL_PERMISSIONS, isToolPermission } from './agents-form.js';
 import { PERMISSION_LABELS } from './tool-permissions.js';
@@ -23,20 +27,28 @@ import { PERMISSION_LABELS } from './tool-permissions.js';
 /**
  * One agent this one may hand a task to.
  *
- * Three controls, in the order the decision is made: *who*, *when to use them*,
- * and *whether to ask first*. The middle one is the largest because it is the
- * one that matters — it becomes the tool description the model reads, and it is
- * the only part of this feature that decides when a delegation actually fires.
+ * Four controls, in the order the decision is made: *who*, *when to use them*,
+ * *whether to ask first*, and *where it runs*. The guidance box is the largest
+ * because it is the one that matters most: it becomes the tool description the
+ * model reads, and it is the only part of this feature that decides when a
+ * delegation actually fires.
  *
  * The tool name is shown rather than asked for. It is derived from the agent id
  * so two subagents can never collide and none can shadow a built-in; showing it
  * is what makes an operator's prompt ("use `ask_researcher` when…") match what
  * the model is really offered.
+ *
+ * The placement switch is last because it is the only control here that is
+ * about the delegation rather than about the agent, and it names the caller's
+ * environment rather than describing a mechanism. Where it runs used to be
+ * implied by the target naming no environment of its own, which an operator
+ * reading this row had no way to see at all.
  */
 export function SubagentRow({
   subagentRef,
   index,
   options,
+  callerEnvironment,
   onChange,
   onRemove,
 }: {
@@ -46,6 +58,8 @@ export function SubagentRow({
     readonly id: string;
     readonly label: string;
   }>;
+  /** The environment the editing agent runs in. Empty is the host. */
+  readonly callerEnvironment: string;
   readonly onChange: (next: SubagentRef) => void;
   readonly onRemove: () => void;
 }): JSX.Element {
@@ -150,6 +164,26 @@ export function SubagentRow({
         rows={2}
         onValueChange={(next) => {
           onChange({ ...subagentRef, prompt: next });
+        }}
+      />
+
+      {/* Names the place rather than the rule. "Runs where this agent runs" is
+          a mechanism an operator has to hold in their head; "Runs in node-20"
+          is the answer they were looking for. */}
+      <SwitchRow
+        label={t('agents.subagentInheritFor', { position })}
+        hint={
+          subagentRef.inheritEnvironment
+            ? callerEnvironment === ''
+              ? t('agents.subagentInheritHostHint')
+              : t('agents.subagentInheritHint', {
+                  environment: callerEnvironment,
+                })
+            : t('agents.subagentInheritOffHint')
+        }
+        checked={subagentRef.inheritEnvironment}
+        onCheckedChange={(next) => {
+          onChange({ ...subagentRef, inheritEnvironment: next });
         }}
       />
     </li>

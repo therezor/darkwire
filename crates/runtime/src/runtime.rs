@@ -1407,8 +1407,8 @@ impl GhostRuntime {
             tool_prompts: Some(agent.tool_prompts.clone()),
             // Passed through as the operator wrote it. Which built-in an
             // empty override inherits is decided per turn, in the loop, because
-            // a subagent inherits its caller's environment and this value is
-            // resolved once per agent.
+            // a subagent runs where its caller's reference says it does and
+            // this value is resolved once per agent.
             platform_prompt: Some(agent.platform_prompt.clone()),
             environment_prompt: Some(agent.environment_prompt.clone()),
             tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
