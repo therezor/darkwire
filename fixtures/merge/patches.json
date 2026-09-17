@@ -492,10 +492,7 @@
               "enable": true,
               "timeoutMs": 0,
               "pathAppend": "",
-              "allowedBinaries": [
-                "git",
-                "rg"
-              ],
+              "allowedBinaries": [],
               "deniedBinaries": [],
               "envAllowlist": [
                 "PATH",
@@ -531,13 +528,11 @@
           }
         },
         "patch": {
-          "tools": {
-            "exec": {
-              "allowedBinaries": [
-                "git",
-                "rg"
-              ]
-            }
+          "extensions": {
+            "load": [
+              "git",
+              "rg"
+            ]
           }
         }
       },
@@ -607,10 +602,7 @@
             "enable": true,
             "timeoutMs": 0,
             "pathAppend": "",
-            "allowedBinaries": [
-              "git",
-              "rg"
-            ],
+            "allowedBinaries": [],
             "deniedBinaries": [],
             "envAllowlist": [
               "PATH",
@@ -635,7 +627,10 @@
           "runRetention": 200
         },
         "extensions": {
-          "load": [],
+          "load": [
+            "git",
+            "rg"
+          ],
           "disabled": [],
           "allowOverride": false,
           "settings": {}
@@ -715,9 +710,7 @@
               "enable": true,
               "timeoutMs": 0,
               "pathAppend": "",
-              "allowedBinaries": [
-                "git"
-              ],
+              "allowedBinaries": [],
               "deniedBinaries": [],
               "envAllowlist": [
                 "PATH",
@@ -753,12 +746,10 @@
           }
         },
         "patch": {
-          "tools": {
-            "exec": {
-              "allowedBinaries": [
-                "git"
-              ]
-            }
+          "extensions": {
+            "load": [
+              "git"
+            ]
           }
         }
       },
@@ -828,9 +819,7 @@
             "enable": true,
             "timeoutMs": 0,
             "pathAppend": "",
-            "allowedBinaries": [
-              "git"
-            ],
+            "allowedBinaries": [],
             "deniedBinaries": [],
             "envAllowlist": [
               "PATH",
@@ -855,7 +844,9 @@
           "runRetention": 200
         },
         "extensions": {
-          "load": [],
+          "load": [
+            "git"
+          ],
           "disabled": [],
           "allowOverride": false,
           "settings": {}

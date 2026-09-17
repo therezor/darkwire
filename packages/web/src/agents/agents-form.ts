@@ -146,6 +146,23 @@ export interface AgentEntryForm {
   readonly maxToolIterations: string;
   readonly loopWallTimeoutSeconds: string;
   /**
+   * The tool layer's numbers, this agent's own. They were install-wide once
+   * and sat in Settings; an agent on a small model wants a different result
+   * budget from one on a large model, so they moved here beside the other caps.
+   */
+  readonly approvalTimeoutSeconds: string;
+  readonly maxOutputChars: string;
+  readonly execTimeoutSeconds: string;
+  readonly execMaxOutputBytes: string;
+  /**
+   * The short tool list: `tool_search` plus the pins, with the rest found by
+   * name. Per agent, because the agent on a small local model wants it and the
+   * agent on a large hosted one may not.
+   */
+  readonly lazyDiscovery: boolean;
+  /** Sent whole on every save, so unpinning is expressible. */
+  readonly pinnedTools: readonly string[];
+  /**
    * What this agent's memory index may cost in the prompt.
    *
    * Per agent for the reason the budget above is: an agent on a small window
@@ -238,6 +255,12 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     toolTimeoutSeconds: msToSeconds(toolTimeoutMs),
     maxToolIterations: String(entry.maxToolIterations),
     loopWallTimeoutSeconds: msToSeconds(entry.loopWallTimeoutMs),
+    approvalTimeoutSeconds: msToSeconds(entry.approvalTimeoutMs),
+    maxOutputChars: String(entry.maxOutputChars),
+    execTimeoutSeconds: msToSeconds(entry.exec.timeoutMs),
+    execMaxOutputBytes: String(entry.exec.maxOutputBytes),
+    lazyDiscovery: entry.lazyDiscovery,
+    pinnedTools: [...entry.pinnedTools],
     tools: { ...entry.tools },
     subagents: entry.subagents.map((ref) => ({ ...ref })),
     environmentName: entry.environment.name,
@@ -336,6 +359,9 @@ type AgentOwnFields = Omit<
   | 'toolTimeoutMs'
   | 'maxToolIterations'
   | 'loopWallTimeoutMs'
+  | 'approvalTimeoutMs'
+  | 'maxOutputChars'
+  | 'exec'
 >;
 
 function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
@@ -350,6 +376,9 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     toolTimeoutMs,
     maxToolIterations,
     loopWallTimeoutMs,
+    approvalTimeoutMs,
+    maxOutputChars,
+    exec,
     subagents,
     ...carried
   } = entry;
@@ -381,10 +410,13 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     // a later change to the default it had already been shown disagreeing with.
     visionEnabled: form.visionEnabled,
     toolsEnabled: form.toolsEnabled,
+    lazyDiscovery: form.lazyDiscovery,
     // Sent whole, every time. The merge replaces `agents.list.*` wholesale, so
     // this is also the only way a tool can be removed from an agent — a patch
     // that mentioned only what changed could never express a deletion.
     tools: { ...form.tools },
+    // Same rule: the whole list, so a pin can be taken off.
+    pinnedTools: [...form.pinnedTools],
     // Same rule, and the same reason a removed row has to be expressible.
     // A row with no agent chosen is dropped: the editor adds an empty one when
     // the operator presses Add, and saving before they pick would otherwise be
@@ -511,6 +543,28 @@ export function toAgentEntryPatch(
     form.loopWallTimeoutSeconds,
     { min: 0 },
   );
+  // `min: 1`, unlike every other duration here: an approval that never expires
+  // holds the turn, its tool call and its provider connection open for a tab
+  // that was closed an hour ago.
+  const approvalTimeout = required(
+    'approvalTimeoutSeconds',
+    form.approvalTimeoutSeconds,
+    { min: 1 },
+  );
+  // Also `min: 1`, and not because it is a duration: `read_file` sizes its
+  // buffer from this, so 0 would read one byte of every file.
+  const maxOutputChars = required('maxOutputChars', form.maxOutputChars, {
+    integer: true,
+    min: 1,
+  });
+  const execTimeout = required('execTimeoutSeconds', form.execTimeoutSeconds, {
+    min: 0,
+  });
+  const execMaxOutputBytes = required(
+    'execMaxOutputBytes',
+    form.execMaxOutputBytes,
+    { integer: true, min: 1 },
+  );
   const temperature = optional('temperature', form.temperature, {
     min: 0,
     max: 2,
@@ -522,6 +576,10 @@ export function toAgentEntryPatch(
     toolTimeout === undefined ||
     maxToolIterations === undefined ||
     loopWallTimeout === undefined ||
+    approvalTimeout === undefined ||
+    maxOutputChars === undefined ||
+    execTimeout === undefined ||
+    execMaxOutputBytes === undefined ||
     Object.keys(errors).length > 0
   ) {
     return { ok: false, errors };
@@ -541,6 +599,16 @@ export function toAgentEntryPatch(
             toolTimeoutMs: secondsToMs(toolTimeout),
             maxToolIterations,
             loopWallTimeoutMs: secondsToMs(loopWallTimeout),
+            approvalTimeoutMs: secondsToMs(approvalTimeout),
+            maxOutputChars,
+            // The two boxes over the stored block, so the allow-list and the
+            // environment allow-list this screen does not render survive a
+            // save exactly as `ownFields` carries the rest.
+            exec: {
+              ...entry.exec,
+              timeoutMs: secondsToMs(execTimeout),
+              maxOutputBytes: execMaxOutputBytes,
+            },
             ...(temperature === undefined ? {} : { temperature }),
             ...(isReasoningEffort(form.reasoningEffort)
               ? { reasoningEffort: form.reasoningEffort }
@@ -597,6 +665,11 @@ export function toNewAgentPatch(
           // vision switched on.
           visionEnabled: template.visionEnabled,
           toolsEnabled: template.toolsEnabled,
+          lazyDiscovery: template.lazyDiscovery,
+          pinnedTools: [...template.pinnedTools],
+          approvalTimeoutMs: template.approvalTimeoutMs,
+          maxOutputChars: template.maxOutputChars,
+          exec: { ...template.exec },
           // The one thing deliberately *not* copied. Everything else here is a
           // setting — how the agent thinks, what it may touch, what it costs —
           // and inheriting those is what "a copy of the default agent" means.
@@ -620,9 +693,6 @@ export function toNewAgentPatch(
           subagentTimeoutMs: template.subagentTimeoutMs,
           ...(temperature === undefined ? {} : { temperature }),
           ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-          ...(template.exec === undefined
-            ? {}
-            : { exec: { ...template.exec } }),
           // `satisfies`, so leaving out a stated field is a compile error here
           // as well as in `ownFields`. The two builders write the same entry
           // from different sources — a form and a stored template — which is

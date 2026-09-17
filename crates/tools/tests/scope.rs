@@ -97,6 +97,22 @@ fn permission_for_reads_back_what_the_map_says() {
 }
 
 #[test]
+fn permission_for_always_allows_the_door_to_lazy_discovery() {
+    // Absent, and even written as deny: the door is not the map's to decide.
+    assert_eq!(
+        permission_for(Some(&perms(&[])), "tool_search"),
+        ToolPermission::Allow
+    );
+    let mut denied = perms(&[]);
+    denied.insert("tool_search".to_owned(), ToolPermission::Deny);
+    assert_eq!(
+        permission_for(Some(&denied), "tool_search"),
+        ToolPermission::Allow
+    );
+    assert!(is_enabled(Some(&perms(&[])), "tool_search"));
+}
+
+#[test]
 fn permission_for_denies_a_tool_the_map_does_not_mention() {
     // The whole model: enabling is explicit, so silence is not consent.
     assert_eq!(

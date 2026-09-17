@@ -82,9 +82,9 @@ use chrono::{DateTime, TimeZone as _, Utc};
 use chrono_tz::Tz;
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{
-    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE,
-    PromptMode, SECTION_SEPARATOR, platform_template, render_prompt_template, render_wrap_up,
-    tool_policy_uses_nonce,
+    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_TOOL_SEARCH_PROMPT,
+    DEFAULT_WRAP_UP_TEMPLATE, PromptMode, SECTION_SEPARATOR, platform_template,
+    render_prompt_template, render_wrap_up, tool_policy_uses_nonce,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_security::{tool_output_policy, tool_output_tag};
@@ -230,6 +230,14 @@ pub struct PromptTools {
     /// Empty on the host, which has no definition, and empty for a definition
     /// that says nothing; both then inherit the default template.
     pub environment_notes: String,
+    /// Whether this agent's list is the short one, with the rest behind
+    /// `tool_search`. Places the section that says so.
+    ///
+    /// A fact about the agent, not the session: what is hidden depends on the
+    /// permitted list and the pins, and an activation adds to the list without
+    /// changing whether anything is hidden. That is what lets this sit in the
+    /// cached half.
+    pub lazy_discovery: bool,
 }
 
 /// Which operating system a command would land on.
@@ -653,9 +661,26 @@ pub async fn build_static_prompt(options: BuildStaticPrompt<'_>) -> String {
         sections.push(policy);
     }
 
+    // Fixed text, and fixed by design: see the constant. Before the
+    // contributors so that a skills or memory index that names `read_file`
+    // is read after the model has been told how to reach it.
+    let discovery = tool_discovery_section(options.tools);
+    if !discovery.is_empty() {
+        sections.push(discovery);
+    }
+
     sections.extend(contributor_sections(options.contributors, options.context).await);
 
     sections.join(SECTION_SEPARATOR)
+}
+
+/// The lazy-discovery section, or nothing when every permitted tool is listed.
+fn tool_discovery_section(tools: Option<&PromptTools>) -> String {
+    if tools.is_some_and(|tools| tools.lazy_discovery) {
+        DEFAULT_TOOL_SEARCH_PROMPT.to_owned()
+    } else {
+        String::new()
+    }
 }
 
 /// How few iterations must remain before the model is told about it.
@@ -1023,6 +1048,7 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
                 raw_tool_policy(tools.policy_prompt.as_deref(), options.nonce)
             }),
         ),
+        ("toolDiscovery", tool_discovery_section(options.tools)),
         ("nonce", options.nonce.to_owned()),
         (
             "contributors",

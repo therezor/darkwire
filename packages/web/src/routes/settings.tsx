@@ -35,7 +35,6 @@ import { AccountPanel } from '@/settings/account-panel.js';
 import { ExtensionsPanel } from '@/settings/extensions-panel.js';
 import { McpPanel } from '@/settings/mcp-panel.js';
 import { ProvidersPanel } from '@/settings/providers-panel.js';
-import { ToolsPanel } from '@/settings/tools-panel.js';
 import { AutomationPanel } from '@/settings/automation-panel.js';
 import { ChannelsPanel } from '@/settings/channels-panel.js';
 import { panelById, SETTINGS_PANELS } from '@/settings/panels.js';
@@ -150,7 +149,6 @@ function PanelBody({ panelId }: { readonly panelId: string }): JSX.Element {
   }
 
   const { config } = settings.data;
-  if (panel.id === 'tools') return <ToolsPanel config={config} />;
   if (panel.id === 'automation') return <AutomationPanel config={config} />;
   if (panel.id === 'mcp') return <McpPanel config={config} />;
   if (panel.id === 'extensions') return <ExtensionsPanel config={config} />;

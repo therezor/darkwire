@@ -20,8 +20,13 @@ describe('ConfigSchema', () => {
     expect(config.agents.list.default?.maxToolIterations).toBe(40);
     expect(config.server.port).toBe(3000);
     expect(config.server.auth.enabled).toBe(true);
-    expect(config.tools.exec.enable).toBe(true);
-    expect(config.tools.approvalTimeoutMs).toBe(5 * 60 * 1000);
+    // The tool layer is the agent's: `tools` holds the MCP servers alone.
+    expect(config.tools).toEqual({ mcpServers: {} });
+    expect(config.agents.list.default?.approvalTimeoutMs).toBe(5 * 60 * 1000);
+    expect(config.agents.list.default?.maxOutputChars).toBe(8192);
+    expect(config.agents.list.default?.exec.maxOutputBytes).toBe(1024 * 1024);
+    expect(config.agents.list.default?.lazyDiscovery).toBe(false);
+    expect(config.agents.list.default?.pinnedTools).toEqual([]);
     expect(config.scheduler.concurrency).toBe(2);
     expect(config.scheduler.runRetention).toBe(200);
     // UTC, not the host zone: a server's own zone moves when the server does.
@@ -59,7 +64,9 @@ describe('ConfigSchema', () => {
   it('does not share mutable defaults between parses', () => {
     const a = ConfigSchema.parse({});
     const b = ConfigSchema.parse({});
-    expect(a.tools.exec.allowedBinaries).not.toBe(b.tools.exec.allowedBinaries);
+    expect(a.agents.list.default?.exec.allowedBinaries).not.toBe(
+      b.agents.list.default?.exec.allowedBinaries,
+    );
   });
 
   it('preserves a partial override without dropping siblings', () => {

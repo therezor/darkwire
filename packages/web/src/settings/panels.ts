@@ -35,11 +35,6 @@ const PROVIDERS_PANEL: SettingsPanel = {
 export const SETTINGS_PANELS: readonly SettingsPanel[] = [
   PROVIDERS_PANEL,
   {
-    id: 'tools',
-    label: 'settings.panels.tools.label',
-    summary: 'settings.panels.tools.summary',
-  },
-  {
     id: 'environments',
     label: 'settings.panels.environments.label',
     summary: 'settings.panels.environments.summary',

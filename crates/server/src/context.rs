@@ -45,7 +45,9 @@ pub async fn build_context_response(
     };
 
     let agent = runtime.agent(effective)?;
-    let tools = agent.tools();
+    // This session's list, not the agent's: under lazy discovery the two
+    // differ, and the inspector's promise is "what the provider was sent".
+    let tools = agent.session_tools(session_key);
     let prompt = agent
         .system_prompt(&PromptPreviewInput {
             session_key: session_key.to_owned(),

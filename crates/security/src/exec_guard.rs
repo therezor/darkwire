@@ -389,13 +389,6 @@ pub fn guard_exec(argv: &[String], options: &ExecGuardOptions<'_>) -> Result<Exe
     let config = options.config.unwrap_or(&default_config);
     let jail = options.jail;
 
-    if !config.enable {
-        return Err(denied(
-            "The exec tool is disabled by configuration",
-            Map::new(),
-        ));
-    }
-
     let argv0 = match argv.first() {
         Some(program) if !program.is_empty() => program.as_str(),
         _ => {

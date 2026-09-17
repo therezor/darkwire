@@ -1239,26 +1239,23 @@ describe('a named agent', () => {
     // `read_file` row before the registry answers, so awaiting that one proves
     // nothing about whether the mocked tools have arrived.
     await screen.findByRole('combobox', { name: 'Permission for memory' });
-    const lists = within(
-      screen.getByRole('region', { name: 'Tools' }),
-    ).getAllByRole('list');
-
-    // Two lists, and the feature tools are the whole of the second one. A row's
-    // text opens with the tool's own name, so the grouping is readable off the
-    // prefixes — the same handle the ordering test above uses.
-    const named = lists.map((list) =>
-      within(list)
+    const rows = (region: string): Array<string | null> =>
+      within(screen.getByRole('region', { name: region }))
         .getAllByRole('listitem')
-        .map((row) => row.textContent),
-    );
+        .map((row) => row.textContent);
 
-    expect(named[0]?.some((row) => row.startsWith('memory'))).toBe(false);
-    expect(named[0]?.some((row) => row.startsWith('skill'))).toBe(false);
-    expect(named[0]?.some((row) => row.startsWith('exec'))).toBe(true);
+    // Two sections, and the feature tools are the whole of the second one. A
+    // row's text opens with the tool's own name, so the grouping is readable
+    // off the prefixes, the same handle the ordering test above uses.
+    const actions = rows('Tools');
+    expect(actions.some((row) => row?.startsWith('memory'))).toBe(false);
+    expect(actions.some((row) => row?.startsWith('skill'))).toBe(false);
+    expect(actions.some((row) => row?.startsWith('exec'))).toBe(true);
 
-    expect(named[1]).toHaveLength(2);
-    expect(named[1]?.[0]?.startsWith('memory')).toBe(true);
-    expect(named[1]?.[1]?.startsWith('skill')).toBe(true);
+    const features = rows('Memory and skills');
+    expect(features).toHaveLength(2);
+    expect(features[0]?.startsWith('memory')).toBe(true);
+    expect(features[1]?.startsWith('skill')).toBe(true);
   });
 
   it('groups the MCP servers’ tools away from the built-in ones', async () => {
@@ -2505,5 +2502,218 @@ describe('renaming an agent', () => {
 
     await screen.findByLabelText('Name');
     expect(screen.queryByLabelText('Identifier')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The tool layer's settings, which are this agent's own: they sat in
+ * Settings > Tools as one answer for the whole install, and an agent on a
+ * small model wants a different result budget from one on a large model.
+ */
+describe('the tool settings on an agent', () => {
+  const TOOLS_WITH_DOOR = {
+    tools: [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        risk: 'safe',
+        parameters: {},
+      },
+      {
+        name: 'exec',
+        description: 'Run a command',
+        risk: 'exec',
+        parameters: {},
+      },
+      {
+        name: 'tool_search',
+        description: 'Find tools',
+        risk: 'safe',
+        parameters: {},
+      },
+    ],
+  };
+
+  it('shows the four numbers beside the other caps, holding the stored values', async () => {
+    mount('/agents/default');
+
+    expect(
+      await screen.findByLabelText('Approval timeout (seconds)'),
+    ).toHaveValue('300');
+    expect(screen.getByLabelText('Max characters per tool result')).toHaveValue(
+      '8192',
+    );
+    expect(screen.getByLabelText('Command timeout (seconds)')).toHaveValue('0');
+    expect(screen.getByLabelText('Max command output (bytes)')).toHaveValue(
+      '1048576',
+    );
+  });
+
+  it('refuses an approval timeout of zero, unlike the other durations', async () => {
+    const { user, calls } = mount('/agents/default');
+
+    const timeout = await screen.findByLabelText('Approval timeout (seconds)');
+    await user.clear(timeout);
+    await user.type(timeout, '0');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Must be at least 1')).toBeInTheDocument();
+    expect(patchesOf(calls)).toHaveLength(0);
+  });
+
+  it('saves them on the agent, carrying the exec lists the screen does not show', async () => {
+    const stored = ConfigSchema.parse({
+      agents: {
+        list: {
+          default: {
+            model: 'llama3',
+            provider: 'ollama',
+            exec: { allowedBinaries: ['git'], timeoutMs: 5000 },
+          },
+        },
+      },
+      providers: { ollama: { type: 'ollama' } },
+    });
+    const { user, calls } = mount('/agents/default', {
+      '/api/settings': [200, { ...SETTINGS, config: stored }],
+    });
+
+    const chars = await screen.findByLabelText(
+      'Max characters per tool result',
+    );
+    await user.clear(chars);
+    await user.type(chars, '4096');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(patchesOf(calls)).toHaveLength(1);
+    });
+    const agent = patchesOf(calls)[0]?.agents?.list?.default;
+    expect(agent?.maxOutputChars).toBe(4096);
+    expect(agent?.approvalTimeoutMs).toBe(300_000);
+    // The allow-list has no box here and must survive the save anyway.
+    expect(agent?.exec).toMatchObject({
+      timeoutMs: 5000,
+      allowedBinaries: ['git'],
+    });
+    expect(patchesOf(calls)[0]).not.toHaveProperty('tools');
+  });
+
+  it('shows a pin on every tool row but the door while finding tools on demand', async () => {
+    const { user } = mount('/agents/reviewer', {
+      '/api/tools': [200, TOOLS_WITH_DOOR],
+    });
+
+    const toggle = await screen.findByRole('switch', {
+      name: 'Find tools on demand',
+    });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(
+      screen.queryByRole('button', { name: 'Pin read_file' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(
+      screen.getByRole('button', { name: 'Pin read_file' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      screen.getByRole('button', { name: 'Pin exec' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Pin tool_search' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the door in its own group with no permission, only while the switch is on', async () => {
+    const { user } = mount('/agents/reviewer', {
+      '/api/tools': [200, TOOLS_WITH_DOOR],
+    });
+
+    const toggle = await screen.findByRole('switch', {
+      name: 'Find tools on demand',
+    });
+    // Off: no row at all, and never a permission row among the actions.
+    expect(
+      screen.queryByRole('button', { name: 'Wording for tool_search' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Permission for tool_search' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    // On: the row exists, its wording is editable, and it takes no permission.
+    expect(
+      screen.getByRole('button', { name: 'Wording for tool_search' }),
+    ).toBeInTheDocument();
+    const permission = screen.getByRole('combobox', {
+      name: 'Permission for tool_search',
+    });
+    expect(permission).toHaveTextContent('Allowed');
+    expect(permission).toBeDisabled();
+  });
+
+  it('keeps the memory and skills switches with their rows in the Tools section', async () => {
+    mount('/agents/default', {
+      '/api/tools': [
+        200,
+        {
+          tools: [
+            {
+              name: 'memory',
+              description: 'Remember',
+              risk: 'write',
+              parameters: {},
+            },
+            {
+              name: 'skill',
+              description: 'Open a skill',
+              risk: 'safe',
+              parameters: {},
+            },
+          ],
+        },
+      ],
+    });
+
+    const heading = await screen.findByRole('heading', {
+      name: 'Memory and skills',
+    });
+    const section = heading.closest('section');
+    expect(section).not.toBeNull();
+    // The switches and the two permission rows sit under one heading, so a
+    // reader sees them as one decision.
+    expect(
+      within(section!).getByLabelText('Remember across sessions'),
+    ).toBeInTheDocument();
+    expect(
+      within(section!).getByRole('combobox', {
+        name: 'Permission for memory',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('saves the switch and the whole pin list', async () => {
+    const { user, calls } = mount('/agents/reviewer', {
+      '/api/tools': [200, TOOLS_WITH_DOOR],
+    });
+
+    await user.click(
+      await screen.findByRole('switch', { name: 'Find tools on demand' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Pin read_file' }));
+    expect(
+      screen.getByRole('button', { name: 'Pin read_file' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(patchesOf(calls)).toHaveLength(1);
+    });
+    expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
+      lazyDiscovery: true,
+      pinnedTools: ['read_file'],
+    });
   });
 });

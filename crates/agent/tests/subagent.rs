@@ -243,7 +243,7 @@ async fn it_advertises_one_tool_per_subagent_after_the_registrys_own() {
 
     let names: Vec<String> = harness
         .agent_loop
-        .tool_definitions()
+        .permitted_definitions()
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
@@ -260,7 +260,7 @@ async fn a_registered_tool_of_the_same_name_hides_the_subagent_entirely() {
 
     // Not advertised *and* not reachable, rather than invisible to the model
     // and callable by a lucky guess.
-    assert_eq!(harness.agent_loop.tool_definitions().len(), 1);
+    assert_eq!(harness.agent_loop.permitted_definitions().len(), 1);
 }
 
 #[tokio::test]

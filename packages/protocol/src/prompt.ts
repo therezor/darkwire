@@ -589,6 +589,24 @@ standing beside its correction.
 
 {{index}}`;
 
+/**
+ * The section that explains lazy tool discovery, placed only while it hides
+ * something.
+ *
+ * Fixed text on purpose: no count of hidden tools and no names. Either would
+ * change the cached half of the prompt every time the model activated one,
+ * which is the cost the feature exists to avoid. The server renders it; this
+ * copy is what the settings UI can show beside the toggle.
+ */
+export const DEFAULT_TOOL_SEARCH_PROMPT = `## Finding tools
+
+Your tool list is deliberately short. More tools exist than are listed, \
+including the ones that read and write files, record memories and open \
+skills when they are not in your list. Call \`tool_search\` with \`query\` to \
+find them by name, purpose or argument, and with \`activate\` to add one or \
+several to your list. An activated tool stays for the rest of the \
+session, so activate what you need once and then call it directly.`;
+
 // Raw mode
 
 /**
@@ -619,6 +637,8 @@ export const RAW_PROMPT_PLACEHOLDERS = [
   'platformPolicy',
   /** The rendered tool-output policy. No leading blank line — it is usually placed alone. */
   'toolPolicy',
+  /** The lazy-discovery section, or empty when every permitted tool is listed. */
+  'toolDiscovery',
   'nonce',
   /** Every `ContextContributor.staticSection`, joined, with a leading blank line. */
   'contributors',

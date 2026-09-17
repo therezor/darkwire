@@ -298,6 +298,10 @@ impl AgentView for FakeAgentView {
         self.tools.clone()
     }
 
+    fn session_tools(&self, _session_key: &str) -> Vec<ToolDefinition> {
+        self.tools.clone()
+    }
+
     fn context_window_tokens(&self) -> u32 {
         self.context_window_tokens
     }

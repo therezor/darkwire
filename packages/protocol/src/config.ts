@@ -148,6 +148,33 @@ function patchOf<S extends z.ZodRawShape>(
  */
 export const WorkspacesPathSchema = z.string().default('');
 
+// The exec tool's own settings. Above `AgentSettingsSchema` because an agent
+// carries them: two agents on one install can want different answers.
+
+export const ExecToolConfigSchema = z.object({
+  timeoutMs: OptionalDurationMs.default(0),
+  pathAppend: z.string().default(''),
+  /**
+   * `argv[0]` allow-list. Empty means "anything not denied": the deny list and
+   * the workspace jail still apply.
+   *
+   * Note what is *not* here: patterns for `$(...)`, backticks or `| sh`. The
+   * exec tool takes `argv: string[]` and runs `execFile` with `shell: false`,
+   * so there is no string for a shell metacharacter to live in. Scanning for
+   * them would reject legitimate commands while blocking nothing.
+   */
+  allowedBinaries: z.array(z.string()).default([]),
+  deniedBinaries: z.array(z.string()).default([]),
+  /** Environment variables passed through to the child. */
+  envAllowlist: z.array(z.string()).default(['PATH', 'HOME', 'LANG', 'TZ']),
+  maxOutputBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(1024 * 1024),
+});
+export type ExecToolConfig = z.infer<typeof ExecToolConfigSchema>;
+
 /**
  * What one agent sends, and what it costs.
  *
@@ -227,6 +254,50 @@ export const AgentSettingsSchema = z.object({
    * be used at all.
    */
   toolsEnabled: z.boolean().default(true),
+  /**
+   * What the `exec` tool may run for this agent, and for how long.
+   *
+   * Whether the agent has `exec` at all is the permission map's answer, like
+   * every other tool; there is no second switch here to disagree.
+   */
+  exec: ExecToolConfigSchema.prefault({}),
+  /**
+   * How long to wait for a decision before treating an `ask` call as denied.
+   *
+   * `.positive()`, unlike every other duration in this tree: an approval that
+   * never expires holds the turn open for a browser tab that was closed an
+   * hour ago.
+   */
+  approvalTimeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  /**
+   * Head+tail truncation budget for a single tool result.
+   *
+   * **`.positive()`, and 0 does not mean "no limit" here.** This is also an
+   * *allocation* bound: `read_file` sizes its read from it, so 0 would make it
+   * read one byte of every file. An operator who wants effectively no cap sets
+   * a large number, which is bounded and says what it means.
+   */
+  maxOutputChars: z.number().int().positive().default(8192),
+  /**
+   * Send the model `tool_search` plus the pinned tools, and nothing else.
+   *
+   * Off sends every tool the agent permits. On, the rest are reachable by name
+   * through `tool_search` and stay in the list for the rest of the session
+   * once the model activates one.
+   */
+  lazyDiscovery: z.boolean().default(false),
+  /**
+   * Tools that stay in the list while `lazyDiscovery` is on.
+   *
+   * Names, not permissions: a pin widens nothing, and a tool this agent denies
+   * is still not sent. Replaced whole on a patch, so a pin can be removed.
+   * `tool_search` itself is never pinned or hidden.
+   */
+  pinnedTools: z.array(z.string()).default([]),
 });
 export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
 
@@ -370,31 +441,6 @@ export function isLoopbackHost(host: string): boolean {
 
 // Tools
 
-export const ExecToolConfigSchema = z.object({
-  enable: z.boolean().default(true),
-  timeoutMs: OptionalDurationMs.default(0),
-  pathAppend: z.string().default(''),
-  /**
-   * `argv[0]` allow-list. Empty means "anything not denied" — the deny list and
-   * the workspace jail still apply.
-   *
-   * Note what is *not* here: patterns for `$(...)`, backticks or `| sh`. The
-   * exec tool takes `argv: string[]` and runs `execFile` with `shell: false`,
-   * so there is no string for a shell metacharacter to live in. Scanning for
-   * them would reject legitimate commands while blocking nothing.
-   */
-  allowedBinaries: z.array(z.string()).default([]),
-  deniedBinaries: z.array(z.string()).default([]),
-  /** Environment variables passed through to the child. */
-  envAllowlist: z.array(z.string()).default(['PATH', 'HOME', 'LANG', 'TZ']),
-  maxOutputBytes: z
-    .number()
-    .int()
-    .positive()
-    .default(1024 * 1024),
-});
-export type ExecToolConfig = z.infer<typeof ExecToolConfigSchema>;
-
 export const McpOAuthConfigSchema = z.object({
   authUrl: z.string().min(1),
   tokenUrl: z.string().min(1),
@@ -423,37 +469,14 @@ export const McpServerConfigSchema = z.object({
 });
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
+/**
+ * The tool layer's install-wide half: the MCP servers and nothing else.
+ *
+ * Everything about how a tool runs for an agent, from `exec` to the result
+ * budget, is on the agent (`AgentSettingsSchema`), because two agents on one
+ * install can reasonably want different answers to all of it.
+ */
 export const ToolsConfigSchema = z.object({
-  exec: ExecToolConfigSchema.prefault({}),
-  /**
-   * How long to wait for a decision before treating an `ask` call as denied.
-   *
-   * A timeout rather than a policy: whether a tool asks at all is a property of
-   * the agent (`agents.list.<id>.tools`), but how long the prompt stays open is
-   * a property of the deployment and has nowhere else to be.
-   */
-  approvalTimeoutMs: z
-    .number()
-    .int()
-    .positive()
-    .default(5 * 60 * 1000),
-  /**
-   * Head+tail truncation budget for a single tool result.
-   *
-   * **`.positive()`, and 0 does not mean "no limit" here** — which is worth
-   * stating because it does on every duration in this tree, and because
-   * `truncateHeadTail` and `historyForLLM`'s `maxToolResultChars` both read 0
-   * as "do not truncate". Those two are display caps with nothing behind them.
-   * This one is also an *allocation* bound: `read_file` sizes its read from it
-   * (`maxOutputChars * 4` bytes, UTF-8's worst case) and allocates that buffer.
-   * So 0 would make `read_file` read one byte of every file, and teaching it to
-   * read the whole file instead would remove the only thing stopping one call
-   * from allocating a multi-gigabyte buffer.
-   *
-   * An operator who wants effectively no cap sets a large number, which is
-   * bounded and says what it means.
-   */
-  maxOutputChars: z.number().int().positive().default(8192),
   mcpServers: z.record(z.string(), McpServerConfigSchema).default({}),
 });
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
@@ -783,8 +806,6 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * or switching a tool off would be impossible to express.
    */
   tools: ToolPermissionsSchema.default({ ...DEFAULT_AGENT_TOOLS }),
-  /** Merged over `tools.exec`, so one agent can hold a tighter allow-list. */
-  exec: patchOf(ExecToolConfigSchema).optional(),
   /** Command placement for the built-in `exec` tool. */
   environment: AgentEnvironmentSchema.prefault({}),
   /**
@@ -1011,6 +1032,10 @@ export const ConfigPatchSchema = z.strictObject({
               // `REPLACE_WHOLESALE` list, so this is what already happens — it
               // is restated here so the type says it.
               tools: ToolPermissionsSchema.optional(),
+              // Restated as a patch for the reason `environment` is below: an
+              // editor that changes the exec switch should not have to resend
+              // the allow-list beside it.
+              exec: patchOf(ExecToolConfigSchema).optional(),
               // `network` is restated because `patchOf` is not recursive, and
               // without it a save that only changes the mode would have to
               // resend `allow` — which is how a settings panel silently clears
@@ -1051,7 +1076,6 @@ export const ConfigPatchSchema = z.strictObject({
     .optional(),
   tools: patchOf(ToolsConfigSchema)
     .extend({
-      exec: patchOf(ExecToolConfigSchema).optional(),
       /**
        * `null` deletes the server, exactly as it does for a provider instance.
        *

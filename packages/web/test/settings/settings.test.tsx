@@ -372,52 +372,6 @@ describe('the providers panel', () => {
   });
 });
 
-describe('the tools panel', () => {
-  it('is install-wide settings only — no tool list, no permissions', async () => {
-    // Both were here when this screen decided what happened to a tool. The
-    // matrix could not say which agent it bound, and the inventory below it was
-    // a list you could read but not act on. Both live on the agent now.
-    mount('/settings?panel=tools');
-
-    await screen.findByLabelText('Approval timeout (seconds)');
-
-    expect(
-      screen.queryByRole('region', { name: 'Registered tools' }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('combobox', { name: /policy/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('option', { name: 'Ask first' }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('says how the install-wide exec switch differs from a per-agent one', async () => {
-    mount('/settings?panel=tools');
-
-    expect(
-      await screen.findByLabelText('Let agents run commands'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/removes exec from every agent/),
-    ).toBeInTheDocument();
-  });
-
-  it('refuses an approval timeout of zero', async () => {
-    const { user, calls } = mount('/settings?panel=tools');
-
-    const timeout = await screen.findByLabelText('Approval timeout (seconds)');
-    await user.clear(timeout);
-    await user.type(timeout, '0');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Must be at least 1',
-    );
-    expect(patchesOf(calls)).toHaveLength(0);
-  });
-});
-
 describe('the tab strip', () => {
   it('puts the panel it opens in the URL', async () => {
     // Appearance rather than a panel behind the settings request: the point

@@ -165,6 +165,46 @@ pub struct AgentSettings {
     /// rather than a failed request.
     #[serde(default = "yes")]
     pub tools_enabled: bool,
+    /// What the `exec` tool may run for this agent, and for how long.
+    ///
+    /// Whether the agent has `exec` at all is the permission map's answer,
+    /// like every other tool; there is no second switch here to disagree.
+    #[serde(default)]
+    #[schemars(transform = prefault)]
+    #[garde(dive)]
+    pub exec: ExecToolConfig,
+    /// How long to wait for a decision before treating an `ask` call as
+    /// denied.
+    #[serde(default = "default_approval_timeout_ms")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub approval_timeout_ms: u64,
+    /// Head+tail truncation budget for a single tool result.
+    ///
+    /// **Positive, and 0 does not mean "no limit" here**, unlike every
+    /// duration in this tree. This is also an *allocation* bound: `read_file`
+    /// sizes its read from it, so 0 would make it read one byte of every file,
+    /// and lifting that would remove the only thing stopping one call from
+    /// allocating a multi-gigabyte buffer. An operator who wants effectively no
+    /// cap sets a large number, which is bounded and says what it means.
+    #[serde(default = "default_max_output_chars")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub max_output_chars: u64,
+    /// Send the model `tool_search` plus the pinned tools, and nothing else.
+    ///
+    /// Off sends every tool the agent permits. On, the rest are reachable by
+    /// name through `tool_search` and stay in the list for the rest of the
+    /// session once activated.
+    #[serde(default)]
+    pub lazy_discovery: bool,
+    /// Tools that stay in the list while `lazy_discovery` is on.
+    ///
+    /// Names, not permissions: a pin widens nothing, and a tool this agent
+    /// denies is still not sent. Replaced whole on a patch, so a pin can be
+    /// removed. `tool_search` itself is never pinned or hidden.
+    #[serde(default)]
+    pub pinned_tools: Vec<String>,
 }
 
 fn default_provider() -> String {
@@ -183,6 +223,14 @@ fn default_max_tool_iterations() -> u64 {
     40
 }
 
+fn default_approval_timeout_ms() -> u64 {
+    5 * 60 * 1000
+}
+
+fn default_max_output_chars() -> u64 {
+    8192
+}
+
 impl Default for AgentSettings {
     fn default() -> Self {
         Self {
@@ -198,6 +246,11 @@ impl Default for AgentSettings {
             reasoning_effort: None,
             vision_enabled: true,
             tools_enabled: true,
+            exec: ExecToolConfig::default(),
+            approval_timeout_ms: default_approval_timeout_ms(),
+            max_output_chars: default_max_output_chars(),
+            lazy_discovery: false,
+            pinned_tools: Vec::new(),
         }
     }
 }
@@ -400,9 +453,6 @@ pub fn is_loopback_host(host: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ExecToolConfig {
-    /// Whether the tool exists at all.
-    #[serde(default = "yes")]
-    pub enable: bool,
     /// Per-command cap. `0` disables it.
     #[serde(default)]
     #[garde(range(max = MAX_SAFE_INTEGER))]
@@ -446,7 +496,6 @@ fn default_max_output_bytes() -> u64 {
 impl Default for ExecToolConfig {
     fn default() -> Self {
         Self {
-            enable: true,
             timeout_ms: 0,
             path_append: String::new(),
             allowed_binaries: Vec::new(),
@@ -535,58 +584,18 @@ fn default_enabled_tools() -> Vec<String> {
     vec!["*".to_owned()]
 }
 
-/// The tool layer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+/// The tool layer's install-wide half, which is the MCP servers and nothing
+/// else. Everything about how a tool runs for an agent, from `exec` to the
+/// result budget, is on the agent (`AgentSettings`), because two agents on one
+/// install can reasonably want different answers to all of it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ToolsConfig {
-    /// The `exec` tool.
-    #[serde(default)]
-    #[schemars(transform = prefault)]
-    #[garde(dive)]
-    pub exec: ExecToolConfig,
-    /// How long to wait for a decision before treating an `ask` call as
-    /// denied. Whether a tool asks at all is a property of the agent; how long
-    /// the prompt stays open is a property of the deployment.
-    #[serde(default = "default_approval_timeout_ms")]
-    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
-    #[schemars(transform = positive)]
-    pub approval_timeout_ms: u64,
-    /// Head+tail truncation budget for a single tool result.
-    ///
-    /// **Positive, and 0 does not mean "no limit" here**, unlike every
-    /// duration in this tree. This is also an *allocation* bound: `read_file`
-    /// sizes its read from it, so 0 would make it read one byte of every file,
-    /// and lifting that would remove the only thing stopping one call from
-    /// allocating a multi-gigabyte buffer. An operator who wants effectively no
-    /// cap sets a large number, which is bounded and says what it means.
-    #[serde(default = "default_max_output_chars")]
-    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
-    #[schemars(transform = positive)]
-    pub max_output_chars: u64,
     /// MCP servers, by id.
     #[serde(default)]
     #[garde(custom(crate::json::validate_map_values))]
     pub mcp_servers: IndexMap<String, McpServerConfig>,
-}
-
-fn default_approval_timeout_ms() -> u64 {
-    5 * 60 * 1000
-}
-
-fn default_max_output_chars() -> u64 {
-    8192
-}
-
-impl Default for ToolsConfig {
-    fn default() -> Self {
-        Self {
-            exec: ExecToolConfig::default(),
-            approval_timeout_ms: default_approval_timeout_ms(),
-            max_output_chars: default_max_output_chars(),
-            mcp_servers: IndexMap::new(),
-        }
-    }
 }
 
 // Agents
@@ -837,10 +846,6 @@ pub struct AgentEntry {
     /// on, or switching a tool off would be impossible to express.
     #[serde(default = "default_agent_tools")]
     pub tools: ToolPermissions,
-    /// Merged over `tools.exec`, so one agent can hold a tighter allow-list.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(dive)]
-    pub exec: Option<ExecToolConfigPatch>,
     /// Where built-in command execution runs.
     #[serde(default)]
     #[schemars(transform = prefault)]
@@ -870,7 +875,6 @@ impl Default for AgentEntry {
             tool_prompts: IndexMap::new(),
             enabled: true,
             tools: default_agent_tools(),
-            exec: None,
             environment: AgentEnvironment::default(),
             subagents: Vec::new(),
         }
@@ -1176,6 +1180,26 @@ pub struct AgentSettingsPatch {
     /// See [`AgentSettings::tools_enabled`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools_enabled: Option<bool>,
+    /// See [`AgentSettings::exec`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub exec: Option<ExecToolConfigPatch>,
+    /// See [`AgentSettings::approval_timeout_ms`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub approval_timeout_ms: Option<u64>,
+    /// See [`AgentSettings::max_output_chars`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub max_output_chars: Option<u64>,
+    /// See [`AgentSettings::lazy_discovery`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lazy_discovery: Option<bool>,
+    /// See [`AgentSettings::pinned_tools`]. Replaces the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_tools: Option<Vec<String>>,
 }
 
 impl From<AgentSettings> for AgentSettingsPatch {
@@ -1193,6 +1217,11 @@ impl From<AgentSettings> for AgentSettingsPatch {
             reasoning_effort: settings.reasoning_effort,
             vision_enabled: Some(settings.vision_enabled),
             tools_enabled: Some(settings.tools_enabled),
+            exec: Some(settings.exec.into()),
+            approval_timeout_ms: Some(settings.approval_timeout_ms),
+            max_output_chars: Some(settings.max_output_chars),
+            lazy_discovery: Some(settings.lazy_discovery),
+            pinned_tools: Some(settings.pinned_tools),
         }
     }
 }
@@ -1202,9 +1231,6 @@ impl From<AgentSettings> for AgentSettingsPatch {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ExecToolConfigPatch {
-    /// See [`ExecToolConfig::enable`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enable: Option<bool>,
     /// See [`ExecToolConfig::timeout_ms`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(max = MAX_SAFE_INTEGER))]
@@ -1226,6 +1252,19 @@ pub struct ExecToolConfigPatch {
     #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
     #[schemars(transform = positive)]
     pub max_output_bytes: Option<u64>,
+}
+
+impl From<ExecToolConfig> for ExecToolConfigPatch {
+    fn from(exec: ExecToolConfig) -> Self {
+        Self {
+            timeout_ms: Some(exec.timeout_ms),
+            path_append: Some(exec.path_append),
+            allowed_binaries: Some(exec.allowed_binaries),
+            denied_binaries: Some(exec.denied_binaries),
+            env_allowlist: Some(exec.env_allowlist),
+            max_output_bytes: Some(exec.max_output_bytes),
+        }
+    }
 }
 
 /// A patch over [`EnvironmentNetwork`].
@@ -1319,10 +1358,6 @@ pub struct AgentEntryPatch {
     /// See [`AgentEntry::tools`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolPermissions>,
-    /// See [`AgentEntry::exec`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(dive)]
-    pub exec: Option<ExecToolConfigPatch>,
     /// See [`AgentEntry::environment`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
@@ -1350,7 +1385,6 @@ impl From<AgentEntry> for AgentEntryPatch {
             tool_prompts: Some(entry.tool_prompts),
             enabled: Some(entry.enabled),
             tools: Some(entry.tools),
-            exec: entry.exec,
             environment: Some(AgentEnvironmentPatch {
                 name: Some(entry.environment.name),
                 network: Some(EnvironmentNetworkPatch {
@@ -1511,20 +1545,6 @@ pub struct McpServerConfigPatch {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct ToolsConfigPatch {
-    /// See [`ToolsConfig::exec`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(dive)]
-    pub exec: Option<ExecToolConfigPatch>,
-    /// See [`ToolsConfig::approval_timeout_ms`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
-    #[schemars(transform = positive)]
-    pub approval_timeout_ms: Option<u64>,
-    /// See [`ToolsConfig::max_output_chars`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
-    #[schemars(transform = positive)]
-    pub max_output_chars: Option<u64>,
     /// `null` deletes the server, exactly as it does for a provider instance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "IndexMap<String, Nullable<McpServerConfigPatch>>")]

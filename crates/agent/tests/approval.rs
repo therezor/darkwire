@@ -21,7 +21,9 @@ use common::harness::{Answer, FakeTool, Harness, ScriptedGate, Setup, events_of}
 use darkwire_agent::TurnInput;
 use darkwire_agent::approval::{ApprovalDecision, DenialReason, denied_notice, denied_tool_result};
 use darkwire_agent::testkit::{ScriptedTurn, tool_call};
-use darkwire_protocol::{ApprovalScope, StopReason, ToolPermission, ToolPermissions, ToolsConfig};
+use darkwire_protocol::{
+    AgentSettings, ApprovalScope, StopReason, ToolPermission, ToolPermissions,
+};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -221,9 +223,9 @@ async fn nobody_answering_denies_at_the_deadline() {
         )],
         permissions: Some(asking("exec")),
         approvals: Some(ScriptedGate::new(vec![Answer::Silent])),
-        tools_config: ToolsConfig {
+        config: AgentSettings {
             approval_timeout_ms: 60_000,
-            ..ToolsConfig::default()
+            ..Setup::default().config
         },
         ..Setup::default()
     });
@@ -253,9 +255,9 @@ async fn a_turn_stopped_under_an_open_prompt_is_a_stop_not_a_denial() {
         )],
         permissions: Some(asking("exec")),
         approvals: Some(ScriptedGate::new(vec![Answer::Silent])),
-        tools_config: ToolsConfig {
+        config: AgentSettings {
             approval_timeout_ms: 600_000,
-            ..ToolsConfig::default()
+            ..Setup::default().config
         },
         ..Setup::default()
     });

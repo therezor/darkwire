@@ -40,7 +40,7 @@ use std::sync::{Arc, LazyLock};
 use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::json::Object;
 use darkwire_protocol::{
-    ToolAnnotations, ToolDefinition, ToolRisk, ToolSource, ToolsConfig, protocol_generator,
+    AgentSettings, ToolAnnotations, ToolDefinition, ToolRisk, ToolSource, protocol_generator,
 };
 use darkwire_security::{WorkspaceJail, WrappedToolOutput};
 use regex::Regex;
@@ -50,6 +50,7 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::automation::AutomationPort;
+use crate::discovery::ToolDiscovery;
 use crate::runner::{CommandRunner, LocalRunner};
 
 /// A boxed, sendable future borrowing its inputs for `'a`.
@@ -74,8 +75,8 @@ pub fn is_tool_name(name: &str) -> bool {
 }
 
 /// Config as the schema defines it, for tests and for a caller with no file.
-pub fn default_tools_config() -> ToolsConfig {
-    ToolsConfig::default()
+pub fn default_tools_config() -> AgentSettings {
+    AgentSettings::default()
 }
 
 /// Everything a tool may reach, supplied per call rather than captured at
@@ -93,8 +94,9 @@ pub struct ToolContext {
     /// the registry. Every tool must observe it before doing work and while
     /// doing it.
     pub token: CancellationToken,
-    /// The tool layer's configuration.
-    pub config: Arc<ToolsConfig>,
+    /// The calling agent's settings: the `exec` rules, the result budget and
+    /// the approval timeout all live there, per agent.
+    pub config: Arc<AgentSettings>,
     /// Wall-clock and monotonic time.
     pub clock: Arc<dyn Clock>,
     /// Source for the exec env allow-list. Defaults to this process's
@@ -120,6 +122,10 @@ pub struct ToolContext {
     /// and session. `None` is a build with no scheduler — the tool then refuses
     /// rather than pretending.
     pub automation: Option<Arc<dyn AutomationPort>>,
+    /// What `tool_search` may find and reveal, already scoped to this turn's
+    /// agent and session. `None` is an install with lazy discovery off, where
+    /// the tool is not registered and would refuse if it were.
+    pub discovery: Option<Arc<dyn ToolDiscovery>>,
     /// This turn's tool-output nonce. When present the registry fences every
     /// result in it; `None` is the bare registry — the CLI's one-shot paths and
     /// tests — where nothing is sent to a model.
@@ -130,7 +136,7 @@ impl ToolContext {
     /// A context for `jail` under `config`, with every other seam at its
     /// default: a fresh token, the host clock, this process's environment, the
     /// local runner, no sandbox, no scheduler and no nonce.
-    pub fn new(jail: Arc<WorkspaceJail>, config: Arc<ToolsConfig>) -> ToolContext {
+    pub fn new(jail: Arc<WorkspaceJail>, config: Arc<AgentSettings>) -> ToolContext {
         ToolContext {
             jail,
             token: CancellationToken::new(),
@@ -141,6 +147,7 @@ impl ToolContext {
             sandboxed: false,
             placement: None,
             automation: None,
+            discovery: None,
             nonce: None,
         }
     }
@@ -154,7 +161,7 @@ impl ToolContext {
 
     /// The same context with a different configuration.
     #[must_use]
-    pub fn with_config(mut self, config: ToolsConfig) -> ToolContext {
+    pub fn with_config(mut self, config: AgentSettings) -> ToolContext {
         self.config = Arc::new(config);
         self
     }
@@ -167,6 +174,7 @@ impl std::fmt::Debug for ToolContext {
             .field("cancelled", &self.token.is_cancelled())
             .field("sandboxed", &self.sandboxed)
             .field("automation", &self.automation.is_some())
+            .field("discovery", &self.discovery.is_some())
             .field("nonce", &self.nonce.is_some())
             .finish_non_exhaustive()
     }

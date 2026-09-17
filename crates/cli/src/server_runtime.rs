@@ -841,7 +841,7 @@ impl AgentView for CliAgentView {
     /// turn on this agent would ever send.
     fn tools(&self) -> Vec<ToolDefinition> {
         match self.agent_loop.as_ref() {
-            Some(one) => one.tool_definitions(),
+            Some(one) => one.permitted_definitions(),
             None if self.tools_enabled => self
                 .runtime
                 .tools()
@@ -849,6 +849,13 @@ impl AgentView for CliAgentView {
                 .definitions()
                 .to_vec(),
             None => Vec::new(),
+        }
+    }
+
+    fn session_tools(&self, session_key: &str) -> Vec<ToolDefinition> {
+        match self.agent_loop.as_ref() {
+            Some(one) => one.tool_definitions(session_key),
+            None => self.tools(),
         }
     }
 

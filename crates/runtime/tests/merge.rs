@@ -51,15 +51,14 @@ fn does_not_mutate_the_config_it_was_given() {
 
 #[test]
 fn replaces_an_array_rather_than_appending_to_it() {
+    // A top-level array on a struct that merges per key, so what is asserted
+    // is the array rule alone and not a wholesale replacement of its parent.
     let base = merged(
         &Config::default(),
-        &json!({"tools": {"exec": {"allowedBinaries": ["git", "rg"]}}}),
+        &json!({"extensions": {"load": ["git", "rg"]}}),
     );
-    let next = merged(
-        &base,
-        &json!({"tools": {"exec": {"allowedBinaries": ["git"]}}}),
-    );
-    assert_eq!(next.tools.exec.allowed_binaries, vec!["git".to_owned()]);
+    let next = merged(&base, &json!({"extensions": {"load": ["git"]}}));
+    assert_eq!(next.extensions.load, vec!["git".to_owned()]);
 }
 
 #[test]

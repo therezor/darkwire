@@ -58,7 +58,7 @@ export function useApproveExtension(): {
       if (row?.state === 'ready') {
         toast.success(
           'Extension approved',
-          'It is loaded. Grant its tools per agent in Settings → Tools.',
+          'It is loaded. Grant its tools to an agent in that agent’s editor.',
         );
       } else {
         toast.warning(

@@ -8,7 +8,7 @@
 )]
 
 use darkwire_protocol::{
-    BUILTIN_TOOL_NAMES, DEFAULT_AGENT_TOOLS, ToolPermission, ToolRisk, ToolSource, ToolsConfig,
+    BUILTIN_TOOL_NAMES, DEFAULT_AGENT_TOOLS, ToolPermission, ToolRisk, ToolSource,
 };
 use darkwire_tools::builtin::all_builtin_tools;
 use darkwire_tools::{BuiltinOptions, ToolRegistry, builtin_tools, register_builtins};
@@ -16,7 +16,7 @@ use darkwire_tools::{BuiltinOptions, ToolRegistry, builtin_tools, register_built
 #[test]
 fn registers_every_built_in_under_the_builtin_source() {
     let registry = ToolRegistry::new();
-    register_builtins(&registry, None, BuiltinOptions::default()).unwrap();
+    register_builtins(&registry, BuiltinOptions::default()).unwrap();
     assert_eq!(
         registry.names(),
         vec![
@@ -27,45 +27,33 @@ fn registers_every_built_in_under_the_builtin_source() {
             "memory",
             "read_file",
             "skill",
+            "tool_search",
             "write_file"
         ]
     );
     assert_eq!(registry.source_of("exec"), Some(ToolSource::Builtin));
-}
-
-#[test]
-fn does_not_advertise_exec_when_config_disables_it() {
-    let registry = ToolRegistry::new();
-    let mut config = ToolsConfig::default();
-    config.exec.enable = false;
-    register_builtins(&registry, Some(&config), BuiltinOptions::default()).unwrap();
-    assert!(!registry.has("exec"));
-    assert_eq!(registry.size(), all_builtin_tools().len() - 1);
+    assert_eq!(registry.size(), all_builtin_tools().len());
 }
 
 #[test]
 fn does_not_advertise_automation_when_the_scheduler_is_switched_off() {
     let registry = ToolRegistry::new();
-    register_builtins(
-        &registry,
-        Some(&ToolsConfig::default()),
-        BuiltinOptions { scheduler: false },
-    )
-    .unwrap();
+    register_builtins(&registry, BuiltinOptions { scheduler: false }).unwrap();
     assert!(!registry.has("automation"));
     assert!(registry.has("exec"));
+    assert_eq!(registry.size(), all_builtin_tools().len() - 1);
 }
 
 #[test]
-fn includes_both_by_default_and_with_no_config_at_all() {
-    assert_eq!(
-        builtin_tools(None, BuiltinOptions::default()).len(),
-        all_builtin_tools().len()
-    );
-    assert_eq!(
-        builtin_tools(Some(&ToolsConfig::default()), BuiltinOptions::default()).len(),
-        all_builtin_tools().len()
-    );
+fn registers_everything_else_whatever_an_agent_decides() {
+    // `exec` and `tool_search` are narrowed per agent by the loop, not here:
+    // the registry is shared, so a per-agent decision cannot be made in it.
+    let names: Vec<String> = builtin_tools(BuiltinOptions::default())
+        .iter()
+        .map(|tool| tool.definition().name.clone())
+        .collect();
+    assert!(names.contains(&"exec".to_owned()));
+    assert!(names.contains(&"tool_search".to_owned()));
 }
 
 fn names() -> Vec<String> {
@@ -85,16 +73,22 @@ fn matches_the_name_list_protocol_publishes() {
 }
 
 #[test]
-fn is_what_a_new_agent_is_seeded_with_save_for_the_one_deliberate_omission() {
+fn is_what_a_new_agent_is_seeded_with_save_for_the_two_deliberate_omissions() {
     let mut seeded: Vec<String> = DEFAULT_AGENT_TOOLS
         .iter()
         .map(|(n, _)| (*n).to_owned())
         .collect();
     seeded.sort();
-    let expected: Vec<String> = names().into_iter().filter(|n| n != "automation").collect();
+    // `automation` is granted by an operator; `tool_search` takes no permission
+    // at all, so a seed entry for it would be a row that decides nothing.
+    let expected: Vec<String> = names()
+        .into_iter()
+        .filter(|n| n != "automation" && n != "tool_search")
+        .collect();
     assert_eq!(seeded, expected);
     assert!(!DEFAULT_AGENT_TOOLS.iter().any(|(n, _)| *n == "automation"));
     assert!(BUILTIN_TOOL_NAMES.contains(&"automation"));
+    assert!(BUILTIN_TOOL_NAMES.contains(&"tool_search"));
 }
 
 #[test]

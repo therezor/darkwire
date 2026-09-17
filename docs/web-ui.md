@@ -289,7 +289,6 @@ to fill in first.
 | Panel        | State                                                                                                                                                                  |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Providers    | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it. |
-| Tools        | Built. Approval timeout, `exec` settings and output caps. **No permission matrix here** — permission is per tool per agent.                                            |
 | Environments | Built. A list and an editor for the definitions on disk, plus the containers held open for them.                                                                       |
 | Account      | Built. Username and password together, requires the current password, revokes every other session.                                                                     |
 | Appearance   | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                             |

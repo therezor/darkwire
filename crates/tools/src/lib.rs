@@ -27,6 +27,7 @@ pub mod argv;
 pub mod automation;
 pub mod builtin;
 pub mod container_runner;
+pub mod discovery;
 pub mod environment;
 pub mod names;
 pub mod registry;
@@ -41,14 +42,17 @@ pub mod testkit;
 pub use argv::coerce_argv;
 pub use automation::{AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver};
 pub use builtin::{
-    BuiltinOptions, automation_tool, builtin_tools, edit_file_tool, exec_tool, format_bytes,
-    list_dir_tool, memory_tool, read_file_tool, register_builtins, skill_tool, write_file_tool,
+    BuiltinOptions, Hit, MAX_SEARCH_RESULTS, SearchResults, TOOL_SEARCH_NAME, automation_tool,
+    builtin_tools, edit_file_tool, exec_tool, format_bytes, list_dir_tool, memory_tool,
+    read_file_tool, register_builtins, render_activation, render_search, search, skill_tool,
+    tool_search_tool, write_file_tool,
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,
     KillSignal, RUNS_MOUNT_DIR, Transcript, WorkspaceMount, container_create_argv,
     container_exec_argv, container_is_gone, container_kill_argv, container_run_dir,
 };
+pub use discovery::{Activation, ToolDiscovery};
 pub use environment::{Environment, EnvironmentResolver, HostEnvironment, Placed};
 pub use names::{is_advertisable_name, namespaced_tool_name, namespaced_tool_names};
 pub use registry::{ListenerId, ToolInvocation, ToolRegistry, ToolRegistryOptions, ToolScope};

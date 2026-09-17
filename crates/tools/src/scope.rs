@@ -28,6 +28,8 @@
 
 use darkwire_protocol::{ToolPermission, ToolPermissions};
 
+use crate::builtin::TOOL_SEARCH_NAME;
+
 /// What `perms` says about `name`.
 ///
 /// `None` for the whole map means `allow`, which is the bare registry rather
@@ -36,6 +38,14 @@ use darkwire_protocol::{ToolPermission, ToolPermissions};
 /// resolves an *agent* builds one, so this fallback is not reachable from a
 /// turn.
 pub fn permission_for(perms: Option<&ToolPermissions>, name: &str) -> ToolPermission {
+    // The one name the map does not decide. `tool_search` reveals nothing the
+    // agent could not already call and runs nothing itself, so there is no
+    // decision for a permission to record; and an agent whose short list had
+    // no door would be sent tools it could never reach. Whether the door is
+    // advertised at all is the agent's `lazy_discovery` switch, in the loop.
+    if name == TOOL_SEARCH_NAME {
+        return ToolPermission::Allow;
+    }
     match perms {
         None => ToolPermission::Allow,
         Some(perms) => perms.get(name).copied().unwrap_or(ToolPermission::Deny),

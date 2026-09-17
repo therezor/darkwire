@@ -78,6 +78,7 @@ pub const BUILTIN_TOOL_NAMES: &[&str] = &[
     "automation",
     "memory",
     "skill",
+    "tool_search",
 ];
 
 /// Where a registered tool came from, so unregistering by source can be exact.

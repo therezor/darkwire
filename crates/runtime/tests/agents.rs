@@ -111,26 +111,21 @@ mod resolve_agent {
     }
 
     #[test]
-    fn merges_the_exec_guard_so_one_agent_can_hold_a_tighter_allow_list() {
+    fn each_agent_holds_its_own_exec_guard() {
+        // No shared block to inherit from: an agent that names an allow-list
+        // has that allow-list, and one that names nothing has the default.
         let tree = json!({
-            "tools": {"exec": {"allowedBinaries": ["git", "rg"], "timeoutMs": 5000}},
-            "agents": {"list": {"tight": {"exec": {"allowedBinaries": ["git"]}}}},
+            "agents": {"list": {
+                "tight": {"exec": {"allowedBinaries": ["git"], "timeoutMs": 5000}},
+                "loose": {},
+            }},
         });
         let tight = resolved(&tree, Some("tight"));
-        assert_eq!(
-            tight.tools_config.exec.allowed_binaries,
-            vec!["git".to_owned()]
-        );
-        // Everything the override did not name comes from the shared block.
-        assert_eq!(tight.tools_config.exec.timeout_ms, 5000);
-        assert_eq!(
-            resolved(&tree, None)
-                .tools_config
-                .exec
-                .allowed_binaries
-                .len(),
-            2
-        );
+        assert_eq!(tight.settings.exec.allowed_binaries, vec!["git".to_owned()]);
+        assert_eq!(tight.settings.exec.timeout_ms, 5000);
+        let loose = resolved(&tree, Some("loose"));
+        assert!(loose.settings.exec.allowed_binaries.is_empty());
+        assert_eq!(loose.settings.exec.timeout_ms, 0);
     }
 
     #[test]

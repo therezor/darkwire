@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use darkwire::i18n::Translations;
 use darkwire::pickers::agents::{agent_items, agent_listing, pick_agent};
 use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
-use darkwire_protocol::config::{AgentEnvironment, AgentSettings, PromptMode, ToolsConfig};
+use darkwire_protocol::config::{AgentEnvironment, AgentSettings, PromptMode};
 use darkwire_runtime::EffectiveAgent;
 use indexmap::IndexMap;
 
@@ -45,7 +45,6 @@ fn agent(id: &str, label: &str, model: &str) -> EffectiveAgent {
             ..Default::default()
         },
         tools: IndexMap::default(),
-        tools_config: ToolsConfig::default(),
         environment: AgentEnvironment::default(),
         subagents: Vec::new(),
     }

@@ -202,6 +202,50 @@ async fn a_deep_patch_leaves_untouched_fields_alone() {
 }
 
 #[tokio::test]
+async fn an_agents_tool_settings_round_trip_and_its_pin_list_is_replaced_whole() {
+    let test = server(TestServerOptions {
+        config: Some(with_provider()),
+        ..TestServerOptions::default()
+    });
+
+    send(
+        &test,
+        Method::PATCH,
+        "/api/settings",
+        Some(json!({"agents": {"list": {"default": {
+            "lazyDiscovery": true,
+            "pinnedTools": ["read_file", "memory"],
+            "approvalTimeoutMs": 60000,
+            "maxOutputChars": 4096,
+            "exec": {"timeoutMs": 5000},
+        }}}})),
+    )
+    .await;
+    let agent = get(&test).await["config"]["agents"]["list"]["default"].clone();
+    assert_eq!(agent["lazyDiscovery"], true);
+    assert_eq!(agent["pinnedTools"], json!(["read_file", "memory"]));
+    assert_eq!(agent["approvalTimeoutMs"], 60000);
+    assert_eq!(agent["maxOutputChars"], 4096);
+    assert_eq!(agent["exec"]["timeoutMs"], 5000);
+    // The rest of the exec block is filled in, not left as a hole.
+    assert_eq!(agent["exec"]["maxOutputBytes"], 1_048_576);
+
+    // A shorter list is a removal: the list is replaced, not merged.
+    send(
+        &test,
+        Method::PATCH,
+        "/api/settings",
+        Some(json!({"agents": {"list": {"default": {
+            "lazyDiscovery": true,
+            "pinnedTools": ["memory"],
+        }}}})),
+    )
+    .await;
+    let agent = get(&test).await["config"]["agents"]["list"]["default"].clone();
+    assert_eq!(agent["pinnedTools"], json!(["memory"]));
+}
+
+#[tokio::test]
 async fn the_patched_settings_are_what_the_next_read_serves() {
     let test = server(TestServerOptions {
         config: Some(with_provider()),

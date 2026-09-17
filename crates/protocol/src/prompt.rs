@@ -387,6 +387,23 @@ standing beside its correction.
 
 {{index}}";
 
+/// The section that explains lazy tool discovery, placed only while it hides
+/// something.
+///
+/// Fixed text on purpose: no count of hidden tools and no names. Either would
+/// change the cached half of the prompt every time the model activated one,
+/// which is the cost the feature exists to avoid. It names the two things a
+/// model cannot infer from the tool description alone: that the file, memory
+/// and skill tools are among what is hidden, and that an activation lasts.
+pub const DEFAULT_TOOL_SEARCH_PROMPT: &str = "## Finding tools
+
+Your tool list is deliberately short. More tools exist than are listed, \
+including the ones that read and write files, record memories and open \
+skills when they are not in your list. Call `tool_search` with `query` to \
+find them by name, purpose or argument, and with `activate` to add one or \
+several to your list. An activated tool stays for the rest of the \
+session, so activate what you need once and then call it directly.";
+
 // Raw mode
 
 /// What a `raw` template may ask for: everything, plus the sections the loop
@@ -420,6 +437,7 @@ pub const RAW_PROMPT_PLACEHOLDERS: &[&str] = &[
     "tag",
     "platformPolicy",
     "toolPolicy",
+    "toolDiscovery",
     "nonce",
     "contributors",
     "runtimeSections",

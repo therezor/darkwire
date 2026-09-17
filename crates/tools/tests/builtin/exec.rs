@@ -139,17 +139,6 @@ async fn refuses_an_argument_reaching_outside_the_workspace() {
 }
 
 #[tokio::test]
-async fn refuses_to_run_at_all_when_exec_is_disabled() {
-    let ws = TestWorkspace::new();
-    let error = run(
-        json!({"argv": ["true"]}),
-        &ws.with(|config| config.exec.enable = false),
-    )
-    .await;
-    assert_eq!(error.kind, Some(ErrorKind::PermissionDenied));
-}
-
-#[tokio::test]
 async fn passes_only_the_allow_listed_environment_through() {
     let ws = TestWorkspace::new();
     let mut ctx = ws.context().clone();
@@ -321,7 +310,7 @@ async fn still_refuses_a_denied_command_before_any_runner_is_consulted() {
     let runner = recording();
     let mut ctx = with_runner(&ws, &runner);
     ctx = ctx.with_config({
-        let mut config = darkwire_protocol::ToolsConfig::default();
+        let mut config = darkwire_protocol::AgentSettings::default();
         config.exec.denied_binaries = vec!["printf".to_owned()];
         config
     });
@@ -336,7 +325,7 @@ async fn passes_the_reconciled_timeout_not_the_models_request() {
     let runner = recording();
     let mut ctx = with_runner(&ws, &runner);
     ctx = ctx.with_config({
-        let mut config = darkwire_protocol::ToolsConfig::default();
+        let mut config = darkwire_protocol::AgentSettings::default();
         config.exec.timeout_ms = 5_000;
         config
     });

@@ -78,8 +78,8 @@ use darkwire_security::{
     WorkspaceJail, assert_gateway_compatible,
 };
 use darkwire_tools::{
-    AnyTool, AutomationResolver, BuiltinOptions, Placed, ToolRegistry, ToolRegistryOptions,
-    ToolSink, register_builtins,
+    AnyTool, AutomationResolver, BuiltinOptions, Placed, TOOL_SEARCH_NAME, ToolRegistry,
+    ToolRegistryOptions, ToolSink, register_builtins,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
@@ -932,6 +932,11 @@ impl WireRuntime {
                     .iter()
                     .map(|binding| binding.tool_name.clone()),
             );
+            // The door takes no permission, so it is never in the map; an
+            // override for it is placed whenever the short list is on.
+            if agent.settings.lazy_discovery {
+                advertised.push(TOOL_SEARCH_NAME.to_owned());
+            }
             warnings.extend(tool_prompt_warnings(agent, &advertised));
         }
         // Read off the stored entries rather than the resolved agents: these
@@ -945,19 +950,17 @@ impl WireRuntime {
         // registry describing a runtime that failed to build.
         self.tools
             .set_timeout_ms(default_agent.settings.tool_timeout_ms);
-        // Exact by source: an `exec` switched off in the settings panel has to
-        // disappear from the definitions the model sees, and MCP and extension
-        // tools registered on this same registry must survive that.
+        // Exact by source: a scheduler switched off in the settings panel has
+        // to take `automation` out of the definitions the model sees, and MCP
+        // and extension tools registered on this same registry must survive
+        // that. An install with no scheduler should not advertise a way to
+        // schedule; a tool that can only answer "this installation has no
+        // scheduler" costs a turn to learn what its absence would have said for
+        // free.
         self.tools.unregister_by_source(ToolSource::Builtin);
-        // A disabled scheduler drops `automation` for the same reason a disabled
-        // `exec` drops `exec`: an install with no scheduler should not advertise
-        // a way to schedule, and a tool that can only answer "this installation
-        // has no scheduler" costs a turn to learn what its absence would have
-        // said for free.
         if self.options.tools {
             register_builtins(
                 &self.tools,
-                Some(&config.tools),
                 BuiltinOptions {
                     scheduler: config.scheduler.enabled,
                 },
@@ -1380,7 +1383,6 @@ impl WireRuntime {
         );
         options.model = Some(endpoint.model);
         options.config = agent.settings.clone();
-        options.tools_config = Arc::new(agent.tools_config.clone());
         options.environment = agent.environment.clone();
         // The delegation half of what this agent may do. Beside the tools and
         // for the same reason: both are resolved once, here, so a turn never asks

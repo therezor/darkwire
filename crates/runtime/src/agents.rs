@@ -26,8 +26,8 @@ use darkwire_protocol::rest::ConfigWarning;
 use darkwire_protocol::{
     AgentEntry, AgentEnvironment, AgentSettings, Config, DEFAULT_AGENT_ID,
     DEFAULT_LIVE_STATE_TEMPLATE, NetworkMode, PromptMode, RESERVED_AGENT_IDS, ToolPermission,
-    ToolPermissions, ToolPromptOverrides, ToolsConfig, default_agent_tools, is_agent_id,
-    names_delimiter, subagent_tool_name,
+    ToolPermissions, ToolPromptOverrides, default_agent_tools, is_agent_id, names_delimiter,
+    subagent_tool_name,
 };
 use darkwire_security::assert_environment_network;
 use indexmap::IndexMap;
@@ -66,8 +66,6 @@ pub struct EffectiveAgent {
     pub settings: AgentSettings,
     /// Which tools this agent may call, and what happens when it does.
     pub tools: ToolPermissions,
-    /// `config.tools` with this agent's exec overrides applied.
-    pub tools_config: ToolsConfig,
     /// Where built-in command execution runs.
     pub environment: AgentEnvironment,
     /// The agents this one may delegate to, in the operator's order.
@@ -166,37 +164,6 @@ pub struct AgentResolution {
     pub agent: EffectiveAgent,
     /// `None` when `requested_id` resolved to itself.
     pub miss: Option<AgentMissReason>,
-}
-
-/// `config.tools`, narrowed by whatever this agent overrode.
-fn merge_tools_config(tools: &ToolsConfig, entry: Option<&AgentEntry>) -> ToolsConfig {
-    let mut merged = tools.clone();
-    let Some(patch) = entry.and_then(|entry| entry.exec.as_ref()) else {
-        return merged;
-    };
-    let exec = &mut merged.exec;
-    if let Some(enable) = patch.enable {
-        exec.enable = enable;
-    }
-    if let Some(timeout_ms) = patch.timeout_ms {
-        exec.timeout_ms = timeout_ms;
-    }
-    if let Some(path_append) = patch.path_append.clone() {
-        exec.path_append = path_append;
-    }
-    if let Some(allowed) = patch.allowed_binaries.clone() {
-        exec.allowed_binaries = allowed;
-    }
-    if let Some(denied) = patch.denied_binaries.clone() {
-        exec.denied_binaries = denied;
-    }
-    if let Some(env) = patch.env_allowlist.clone() {
-        exec.env_allowlist = env;
-    }
-    if let Some(max) = patch.max_output_bytes {
-        exec.max_output_bytes = max;
-    }
-    merged
 }
 
 /// The label an agent id resolves to, without building the whole agent.
@@ -437,7 +404,6 @@ fn build(
         } else {
             source.tools.clone()
         },
-        tools_config: merge_tools_config(&config.tools, entry),
         environment: source.environment.clone(),
         subagents: resolve_subagents(config, id, entry, warnings)?,
     };

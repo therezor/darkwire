@@ -57,7 +57,7 @@ use darkwire_core::messages::{ToolOptions, tool_message};
 use darkwire_core::{Clock, ErrorKind, Result};
 use darkwire_protocol::{
     AgentEnvironment, ChatMessage, Notice, NoticeKind, ToolApprovalRequest, ToolCall,
-    ToolCallStarted, ToolPermission, ToolResult, ToolRisk, ToolsConfig,
+    ToolCallStarted, ToolPermission, ToolResult, ToolRisk,
 };
 use darkwire_providers::{BoxFuture, ChatResult};
 use darkwire_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
@@ -280,7 +280,8 @@ pub struct ToolDispatcherOptions {
     /// Who to ask before an `ask` tool runs. `None` means nobody is there.
     pub approvals: Option<Arc<dyn ApprovalGate>>,
     /// The tool layer's configuration; the approval deadline is read from it.
-    pub tools_config: Arc<ToolsConfig>,
+    /// How long an `ask` waits for an answer before counting as denied.
+    pub approval_timeout_ms: u64,
     /// Whether the request advertises any tools at all.
     pub tools_enabled: bool,
     /// Head+tail budget for one tool result before it enters history.
@@ -298,7 +299,7 @@ pub struct ToolDispatcher {
     tools: Arc<dyn ToolScope>,
     subagents: IndexMap<String, SubagentBinding>,
     approvals: Option<Arc<dyn ApprovalGate>>,
-    tools_config: Arc<ToolsConfig>,
+    approval_timeout_ms: u64,
     tools_enabled: bool,
     max_tool_result_chars: usize,
     heartbeat_ms: u64,
@@ -313,7 +314,7 @@ impl ToolDispatcher {
             tools: options.tools,
             subagents: options.subagents,
             approvals: options.approvals,
-            tools_config: options.tools_config,
+            approval_timeout_ms: options.approval_timeout_ms,
             tools_enabled: options.tools_enabled,
             max_tool_result_chars: options.max_tool_result_chars,
             heartbeat_ms: options.heartbeat_ms,
@@ -728,7 +729,7 @@ impl ToolDispatcher {
             // operator asking for the command *is* the approval.
             let gate = self.approvals.as_ref()?;
 
-            let timeout_ms = self.tools_config.approval_timeout_ms;
+            let timeout_ms = self.approval_timeout_ms;
             let expires_at_ms = u64::try_from(self.clock.now_ms()).unwrap_or(0) + timeout_ms;
             let args = parse_tool_args(&call.arguments_json);
             let request = ApprovalRequest {

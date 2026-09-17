@@ -6,7 +6,7 @@
  * Nothing here is shared with the editor beyond its props.
  */
 
-import { RotateCcw, SquarePen } from 'lucide-react';
+import { Pin, PinOff, RotateCcw, SquarePen } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -102,6 +102,8 @@ export function ToolRow({
   fields,
   override,
   disabled,
+  pin,
+  alwaysOn = false,
   onChange,
   onOverrideChange,
 }: {
@@ -123,6 +125,20 @@ export function ToolRow({
    * make the switch destructive.
    */
   readonly disabled: boolean;
+  /**
+   * Whether this tool stays in the model's list under lazy discovery.
+   *
+   * Absent means the row has no pin: the agent is sent every tool, or this is
+   * `tool_search` itself. Present, the row shows a pressed or unpressed pin.
+   */
+  readonly pin?:
+    | {
+        readonly pinned: boolean;
+        readonly onChange: (pinned: boolean) => void;
+      }
+    | undefined;
+  /** A tool that takes no permission: the select shows Allowed and is locked. */
+  readonly alwaysOn?: boolean;
   readonly onChange: (next: ToolPermission) => void;
   readonly onOverrideChange: (next: ToolPromptOverride) => void;
 }): JSX.Element {
@@ -159,6 +175,25 @@ export function ToolRow({
       ) : (
         <Badge tone="neutral">{risk}</Badge>
       )}
+      {pin !== undefined && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="agent-editor__tool-pin"
+          disabled={disabled}
+          aria-pressed={pin.pinned}
+          aria-label={t('agents.toolPinFor', { name })}
+          onClick={() => {
+            pin.onChange(!pin.pinned);
+          }}
+        >
+          {pin.pinned ? (
+            <Pin aria-hidden="true" />
+          ) : (
+            <PinOff aria-hidden="true" />
+          )}
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"
@@ -187,7 +222,7 @@ export function ToolRow({
                 ? 'ask'
                 : permission
           }
-          disabled={disabled}
+          disabled={disabled || alwaysOn}
           options={TOOL_PERMISSIONS.filter(
             (option) =>
               ceiling === 'allow' ||

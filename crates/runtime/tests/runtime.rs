@@ -319,18 +319,6 @@ mod reconfigure {
     }
 
     #[test]
-    fn re_registers_the_built_ins_so_a_disabled_exec_disappears() {
-        let install = Install::with(&configured("llama3"));
-        let runtime = install.runtime().unwrap();
-        assert!(runtime.tools().has("exec"));
-        runtime
-            .reconfigure(&patch(json!({"tools": {"exec": {"enable": false}}})))
-            .unwrap();
-        assert!(!runtime.tools().has("exec"));
-        assert!(runtime.tools().has("read_file"));
-    }
-
-    #[test]
     fn re_registers_the_built_ins_so_a_disabled_scheduler_drops_automation() {
         // A tool that can only answer "this installation has no scheduler" costs
         // a turn to learn what its absence would have said for free.
@@ -352,7 +340,7 @@ mod reconfigure {
             .register(common::tool("mcp_files_read"), ToolSource::Mcp)
             .unwrap();
         runtime
-            .reconfigure(&patch(json!({"tools": {"exec": {"enable": false}}})))
+            .reconfigure(&patch(json!({"scheduler": {"enabled": false}})))
             .unwrap();
         // Exact by source: an MCP server is one connection however many saves
         // happen.
@@ -548,10 +536,10 @@ mod reload {
         let install = Install::with(&configured("llama3"));
         let runtime = install.runtime().unwrap();
         let mut edited = configured("llama3");
-        edited["tools"] = json!({"exec": {"enable": false}});
+        edited["scheduler"] = json!({"enabled": false});
         install.write_config(&edited);
         runtime.reload().unwrap();
-        assert!(!runtime.tools().has("exec"));
+        assert!(!runtime.tools().has("automation"));
     }
 
     #[test]

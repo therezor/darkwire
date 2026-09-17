@@ -142,6 +142,7 @@
           "tag",
           "platformPolicy",
           "toolPolicy",
+          "toolDiscovery",
           "nonce",
           "contributors",
           "runtimeSections",

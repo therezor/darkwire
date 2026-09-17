@@ -212,6 +212,9 @@ const VOLATILE: readonly string[] = [
  */
 const EXEC_TOOL = 'exec';
 
+/** The door to the tools lazy discovery hides. Never itself pinned. */
+const TOOL_SEARCH = 'tool_search';
+
 /**
  * The two tools that are the write half of a whole feature.
  *
@@ -482,11 +485,16 @@ function Editor({
     toolTimeoutSeconds: bind('toolTimeoutSeconds'),
     maxToolIterations: bind('maxToolIterations'),
     loopWallTimeoutSeconds: bind('loopWallTimeoutSeconds'),
+    approvalTimeoutSeconds: bind('approvalTimeoutSeconds'),
+    maxOutputChars: bind('maxOutputChars'),
+    execTimeoutSeconds: bind('execTimeoutSeconds'),
+    execMaxOutputBytes: bind('execMaxOutputBytes'),
   } satisfies Record<string, Bound>;
 
   const switches = {
     visionEnabled: bindToggle('visionEnabled'),
     toolsEnabled: bindToggle('toolsEnabled'),
+    lazyDiscovery: bindToggle('lazyDiscovery'),
     environmentAlwaysUseOwn: bindToggle('environmentAlwaysUseOwn'),
   } satisfies Record<string, Toggle>;
 
@@ -549,6 +557,8 @@ function Editor({
     for (const name of Object.keys(form.tools)) {
       names.add(name);
     }
+    // The door has its own group and no permission row: see `doorRow`.
+    names.delete(TOOL_SEARCH);
     // `exec` first, then A–Z. Alphabetical put the one tool that runs arbitrary
     // programs on this machine second from the top by accident of spelling, and
     // it is the row an operator opens this section to look at. Everything below
@@ -658,6 +668,11 @@ function Editor({
       ? 'agents.promptPlatformHintDefault'
       : 'agents.promptPlatformHintFrom';
 
+  const setPinned = (name: string, pinned: boolean): void => {
+    const without = form.pinnedTools.filter((pin) => pin !== name);
+    update('pinnedTools', pinned ? [...without, name] : without);
+  };
+
   const setToolPrompt = (name: string, override: ToolPromptOverride): void => {
     // Kept as typed, blanks and all. `pruneToolPrompts` drops the empty ones on
     // the way to the patch — doing it here instead would delete a row from under
@@ -684,6 +699,18 @@ function Editor({
         fields={tool === undefined ? [] : parameterFields(tool.parameters)}
         override={form.toolPrompts[name]}
         disabled={toolsOff}
+        // Only while the short list is on, and never on the door itself:
+        // `tool_search` is what the pins sit beside.
+        pin={
+          switches.lazyDiscovery.checked && name !== TOOL_SEARCH
+            ? {
+                pinned: form.pinnedTools.includes(name),
+                onChange: (pinned) => {
+                  setPinned(name, pinned);
+                },
+              }
+            : undefined
+        }
         onChange={(next) => {
           setToolPermission(name, next);
         }}
@@ -691,6 +718,43 @@ function Editor({
           setToolPrompt(name, next);
         }}
       />
+    );
+  };
+
+  /**
+   * `tool_search`, in its own group under the switch that makes it exist.
+   *
+   * No permission select and no pin: the scope always admits it and it is
+   * what the pins sit beside. Its wording is still the operator's to rewrite,
+   * which is why it is a `ToolRow` rather than a line of text.
+   */
+  const doorRow = (): JSX.Element | null => {
+    const tool = registered.get(TOOL_SEARCH);
+    if (tool === undefined) return null;
+    return (
+      <ul
+        className={cn(
+          'stack agent-editor__tools',
+          toolsOff && 'agent-editor__tools--off',
+        )}
+      >
+        <ToolRow
+          name={TOOL_SEARCH}
+          detail={tool.description}
+          risk={tool.risk}
+          permission="allow"
+          alwaysOn
+          fields={parameterFields(tool.parameters)}
+          override={form.toolPrompts[TOOL_SEARCH]}
+          disabled={toolsOff}
+          onChange={() => {
+            // Unreachable: an always-on row renders no permission select.
+          }}
+          onOverrideChange={(next) => {
+            setToolPrompt(TOOL_SEARCH, next);
+          }}
+        />
+      </ul>
     );
   };
 
@@ -1118,6 +1182,18 @@ function Editor({
             message={t('agents.toolsOffNote')}
           />
         )}
+        {/* The door first, because it changes what every row below means: on,
+            each row gains a pin, and the unpinned ones are what the model has
+            to search for. The row for `tool_search` itself appears only while
+            the switch is on, which is exactly when it is sent. */}
+        <SwitchRow
+          label={t('agents.lazyDiscovery')}
+          hint={t('agents.lazyDiscoveryHint')}
+          checked={switches.lazyDiscovery.checked}
+          onCheckedChange={switches.lazyDiscovery.set}
+        />
+        {switches.lazyDiscovery.checked && doorRow()}
+
         {actionToolNames.length > 0 && (
           <ul
             className={cn(
@@ -1129,7 +1205,7 @@ function Editor({
           </ul>
         )}
 
-        {/* Directly under the action list, because these are action tools —
+        {/* Directly under the action list, because these are action tools:
             calls the model makes during a turn, under the same permissions.
             What separates them is where they came from, which is the thing an
             operator is scanning for when a row is missing or unfamiliar. Not
@@ -1151,27 +1227,44 @@ function Editor({
             </ul>
           </>
         )}
+      </Section>
 
-        {/* Below the action tools rather than above them, and under the same
-            kind of heading the environment group uses. An operator scanning for
-            "what may this agent do in a turn" reads the list above; these two
-            are read when the question is "does this agent have memory at all",
-            which is the question the switches near the top answer. */}
+      {/* Its own section, with the two switches directly above the two rows
+          they are: the switches write the same `allow`/`deny` the rows show,
+          and the rows add "ask first" and the wording. Denying either also
+          removes a section from every prompt on the workspace, which is why
+          they read as feature switches rather than as one denied call. */}
+      <Section
+        title={t('agents.featureToolsGroup')}
+        description={t('agents.featureToolsDesc')}
+      >
+        <FieldGrid>
+          <SwitchRow
+            label={t('agents.memoryEnabled')}
+            hint={t('agents.memoryEnabledHint')}
+            checked={!memoryOff}
+            onCheckedChange={(next) => {
+              setToolPermission('memory', next ? 'allow' : 'deny');
+            }}
+          />
+          <SwitchRow
+            label={t('agents.skillsEnabled')}
+            hint={t('agents.skillsEnabledHint')}
+            checked={!skillsOff}
+            onCheckedChange={(next) => {
+              setToolPermission('skill', next ? 'allow' : 'deny');
+            }}
+          />
+        </FieldGrid>
         {featureToolNames.length > 0 && (
-          <>
-            <h3 className="agent-editor__tool-group">
-              {t('agents.featureToolsGroup')}
-            </h3>
-            <p className="page__note">{t('agents.featureToolsNote')}</p>
-            <ul
-              className={cn(
-                'stack agent-editor__tools',
-                toolsOff && 'agent-editor__tools--off',
-              )}
-            >
-              {featureToolNames.map((name) => toolRow(name))}
-            </ul>
-          </>
+          <ul
+            className={cn(
+              'stack agent-editor__tools',
+              toolsOff && 'agent-editor__tools--off',
+            )}
+          >
+            {featureToolNames.map((name) => toolRow(name))}
+          </ul>
         )}
       </Section>
 
@@ -1403,42 +1496,35 @@ function Editor({
             error={errors.loopWallTimeoutSeconds}
             hint={t('agents.zeroDisablesHint')}
           />
-        </FieldGrid>
-      </Section>
-
-      {/* Before the prompt section, which is where both of these end up.
-
-          These two switches *are* the `memory` and `skill` rows in Tools below —
-          they write the same `allow`/`deny`, and the row moves when the switch
-          does. That is deliberate, and is why there is no second config key: a
-          boolean beside the permission would be a way for the two to disagree,
-          and the permission is the one the runtime already gates the prompt
-          section on.
-
-          What they buy over the rows is that the rows do not look like feature
-          switches. `memory` and `skill` sit in an alphabetical list of file and
-          shell tools, where "this agent does not remember" reads as one denied
-          call rather than as the whole capability being off. */}
-      <Section
-        title={t('agents.knowledge')}
-        description={t('agents.knowledgeDesc')}
-      >
-        <FieldGrid>
-          <SwitchRow
-            label={t('agents.memoryEnabled')}
-            hint={t('agents.memoryEnabledHint')}
-            checked={!memoryOff}
-            onCheckedChange={(next) => {
-              setToolPermission('memory', next ? 'allow' : 'deny');
-            }}
+          {/* The tool layer's numbers, beside the caps they resemble. They were
+              install-wide and sat in Settings; a result budget is as much a
+              property of one agent as its iteration cap is. */}
+          <BoundField
+            label={t('agents.approvalTimeout')}
+            bound={fields.approvalTimeoutSeconds}
+            inputMode="decimal"
+            error={errors.approvalTimeoutSeconds}
+            hint={t('agents.approvalTimeoutHint')}
           />
-          <SwitchRow
-            label={t('agents.skillsEnabled')}
-            hint={t('agents.skillsEnabledHint')}
-            checked={!skillsOff}
-            onCheckedChange={(next) => {
-              setToolPermission('skill', next ? 'allow' : 'deny');
-            }}
+          <BoundField
+            label={t('agents.maxOutputChars')}
+            bound={fields.maxOutputChars}
+            inputMode="numeric"
+            error={errors.maxOutputChars}
+            hint={t('agents.maxOutputCharsHint')}
+          />
+          <BoundField
+            label={t('agents.execTimeout')}
+            bound={fields.execTimeoutSeconds}
+            inputMode="decimal"
+            error={errors.execTimeoutSeconds}
+            hint={t('agents.zeroDisablesHint')}
+          />
+          <BoundField
+            label={t('agents.execMaxOutputBytes')}
+            bound={fields.execMaxOutputBytes}
+            inputMode="numeric"
+            error={errors.execMaxOutputBytes}
           />
         </FieldGrid>
       </Section>

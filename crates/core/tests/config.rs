@@ -61,7 +61,10 @@ mod parse {
         let config = parse_config("{}", Path::new("config.yaml")).unwrap();
         assert_eq!(config.agents.list["default"].settings.provider, "auto");
         assert_eq!(config.server.port, 3000);
-        assert_eq!(config.tools.approval_timeout_ms, 5 * 60 * 1000);
+        assert_eq!(
+            config.agents.list["default"].settings.approval_timeout_ms,
+            5 * 60 * 1000
+        );
         assert_eq!(config, Config::default());
     }
 

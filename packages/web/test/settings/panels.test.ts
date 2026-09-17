@@ -50,12 +50,11 @@ describe('the settings panels', () => {
     // `extensions` with the extension host. There is no entry naming a future
     // phase: a panel is on this list once it has something to configure.
     //
-    // `environments` sits after `tools` and was promoted out of it: where an
-    // agent's commands run is not a tool setting, and the listing an operator
-    // reads before choosing one is too long to live inside another panel.
+    // There is no `tools` panel. Everything about how a tool runs is per
+    // agent and lives in the agent editor; the MCP servers have their own
+    // panel below.
     expect(SETTINGS_PANELS.map((panel) => panel.id)).toEqual([
       'providers',
-      'tools',
       'environments',
       'account',
       'appearance',
@@ -80,7 +79,7 @@ describe('the settings panels', () => {
 
 describe('panelById', () => {
   it('finds a panel by its id', () => {
-    expect(t(panelById('tools').label)).toBe('Tools');
+    expect(t(panelById('providers').label)).toBe('Providers');
   });
 
   it('falls back rather than 404ing on a stale bookmark', () => {

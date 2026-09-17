@@ -73,6 +73,61 @@
                   "toolsEnabled": {
                     "type": "boolean"
                   },
+                  "exec": {
+                    "type": "object",
+                    "properties": {
+                      "timeoutMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "pathAppend": {
+                        "type": "string"
+                      },
+                      "allowedBinaries": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "deniedBinaries": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "envAllowlist": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "maxOutputBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  },
+                  "approvalTimeoutMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "maxOutputChars": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "lazyDiscovery": {
+                    "type": "boolean"
+                  },
+                  "pinnedTools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "label": {
                     "type": "string"
                   },
@@ -148,45 +203,6 @@
                         "ask",
                         "deny"
                       ]
-                    }
-                  },
-                  "exec": {
-                    "type": "object",
-                    "properties": {
-                      "enable": {
-                        "type": "boolean"
-                      },
-                      "timeoutMs": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "pathAppend": {
-                        "type": "string"
-                      },
-                      "allowedBinaries": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "deniedBinaries": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "envAllowlist": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "maxOutputBytes": {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      }
                     }
                   },
                   "environment": {
@@ -365,55 +381,6 @@
     "tools": {
       "type": "object",
       "properties": {
-        "exec": {
-          "type": "object",
-          "properties": {
-            "enable": {
-              "type": "boolean"
-            },
-            "timeoutMs": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "pathAppend": {
-              "type": "string"
-            },
-            "allowedBinaries": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "deniedBinaries": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "envAllowlist": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "maxOutputBytes": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            }
-          }
-        },
-        "approvalTimeoutMs": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "maxOutputChars": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
         "mcpServers": {
           "type": "object",
           "propertyNames": {

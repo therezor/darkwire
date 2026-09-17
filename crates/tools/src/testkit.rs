@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use darkwire_core::ErrorKind;
-use darkwire_protocol::{ToolSource, ToolsConfig};
+use darkwire_protocol::{AgentSettings, ToolSource};
 use darkwire_security::{JailOptions, WorkspaceJail};
 use serde_json::{Map, Value};
 use tempfile::TempDir;
@@ -62,7 +62,7 @@ impl TestWorkspace {
     ///
     /// When the temp directory cannot be created — a failing test either way.
     pub fn new() -> TestWorkspace {
-        TestWorkspace::with_config(ToolsConfig::default())
+        TestWorkspace::with_config(AgentSettings::default())
     }
 
     /// A fresh workspace under `config`.
@@ -70,7 +70,7 @@ impl TestWorkspace {
     /// # Panics
     ///
     /// When the temp directory cannot be created — a failing test either way.
-    pub fn with_config(config: ToolsConfig) -> TestWorkspace {
+    pub fn with_config(config: AgentSettings) -> TestWorkspace {
         let dir = tempfile::Builder::new()
             .prefix("darkwire-tools-")
             .tempdir()
@@ -116,7 +116,7 @@ impl TestWorkspace {
     }
 
     /// A context with the same workspace and a config override.
-    pub fn with(&self, edit: impl FnOnce(&mut ToolsConfig)) -> ToolContext {
+    pub fn with(&self, edit: impl FnOnce(&mut AgentSettings)) -> ToolContext {
         let mut config = (*self.context.config).clone();
         edit(&mut config);
         self.context.clone().with_config(config)

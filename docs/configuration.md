@@ -63,18 +63,23 @@ on, and with nothing above it there would otherwise be nothing for a fresh insta
 run. The id also names the agent's directory on disk, so it follows the workspace id
 rules.
 
-| Key                   | Type                                     | Default  | Notes                                                                                                                                          |
-| --------------------- | ---------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`               | string                                   | `''`     | Empty means **unconfigured**, not "pick one". The agent is still listed and editable; only a turn on it is refused, with a message saying so.  |
-| `provider`            | string                                   | `'auto'` | An instance id, a bare provider type, or `auto`.                                                                                               |
-| `maxTokens`           | int > 0                                  | `8192`   | Output cap per response.                                                                                                                       |
-| `contextWindowTokens` | int > 0                                  | `65536`  | What the context inspector measures against.                                                                                                   |
-| `temperature`         | 0–2                                      | _unset_  | Absent means the request carries no `temperature` at all and the provider applies its own — the only correct answer for models that reject it. |
-| `maxToolIterations`   | int > 0                                  | `40`     | Tool rounds in one turn.                                                                                                                       |
-| `toolTimeoutMs`       | int ≥ 0                                  | `0`      |                                                                                                                                                |
-| `loopWallTimeoutMs`   | int ≥ 0                                  | `0`      | Wall-clock cap on a turn, checked at the top of each iteration.                                                                                |
-| `subagentTimeoutMs`   | int ≥ 0                                  | `0`      | Applies to delegations _this_ agent makes.                                                                                                     |
-| `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_  | Absent sends nothing, which is not the same as `off` — see below.                                                                              |
+| Key                   | Type                                     | Default   | Notes                                                                                                                                         |
+| --------------------- | ---------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`               | string                                   | `''`      | Empty means **unconfigured**, not "pick one". The agent is still listed and editable; only a turn on it is refused, with a message saying so. |
+| `provider`            | string                                   | `'auto'`  | An instance id, a bare provider type, or `auto`.                                                                                              |
+| `maxTokens`           | int > 0                                  | `8192`    | Output cap per response.                                                                                                                      |
+| `contextWindowTokens` | int > 0                                  | `65536`   | What the context inspector measures against.                                                                                                  |
+| `temperature`         | 0–2                                      | _unset_   | Absent means the request carries no `temperature` at all and the provider applies its own, the only correct answer for models that reject it. |
+| `maxToolIterations`   | int > 0                                  | `40`      | Tool rounds in one turn.                                                                                                                      |
+| `toolTimeoutMs`       | int ≥ 0                                  | `0`       |                                                                                                                                               |
+| `loopWallTimeoutMs`   | int ≥ 0                                  | `0`       | Wall-clock cap on a turn, checked at the top of each iteration.                                                                               |
+| `subagentTimeoutMs`   | int ≥ 0                                  | `0`       | Applies to delegations _this_ agent makes.                                                                                                    |
+| `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_   | Absent sends nothing, which is not the same as `off`. See below.                                                                              |
+| `approvalTimeoutMs`   | int > 0                                  | 5 min     | How long an `ask` prompt stays open before it counts as denied. `0` is refused: an approval that never expires holds the turn open forever.   |
+| `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result. `0` is refused: `read_file` sizes its buffer from this, so `0` would read one byte of every file.       |
+| `exec`                | object                                   | see below | What the `exec` tool may run for this agent. Whether it has `exec` at all is the `tools` map below.                                           |
+| `lazyDiscovery`       | boolean                                  | `false`   | Send `tool_search` plus the pinned tools instead of every permitted tool. See [Lazy discovery](tools.md#lazy-discovery).                      |
+| `pinnedTools`         | string[]                                 | `[]`      | Tools that stay in the list while `lazyDiscovery` is on. Names, not permissions. Replaced whole on a save.                                    |
 
 `reasoningEffort` is sent as the wire's own `reasoning_effort`, verbatim, and only
 `off` is translated — into whatever the provider spells "do not think" as
@@ -140,7 +145,6 @@ afterwards.
 | `toolPrompts`      | `Record<string, ToolPromptOverride>` | `{}`              | Per-tool replacements for the description and the argument descriptions. See [Tools](tools.md).              |
 | `enabled`          | boolean                              | `true`            |                                                                                                              |
 | `tools`            | `Record<string, allow\|ask\|deny>`   | see below         | **Replaces, never merges.** A tool absent from the map is not enabled.                                       |
-| `exec`             | patch of `tools.exec`                | _unset_           | Merged over the install-wide exec config, so one agent can hold a tighter allow-list.                        |
 | `environment`      | `{ name, alwaysUseOwn, network }`    | `{ name: '', … }` | Where this agent's commands run; empty means the host. See [Environments](environments.md).                  |
 | `subagents`        | `{ id, prompt, permission }[]`       | `[]`              | Agents this one may delegate to, in the order the model sees them.                                           |
 
@@ -295,30 +299,27 @@ past, and the result is an unauthenticated shell-capable agent on a LAN address.
 
 ## `tools`
 
-Install-wide tool settings. **Which tools an agent may call is not here** — that is
-`agents.list.<id>.tools`. See [Tools & permissions](tools.md).
+The MCP servers, and nothing else. **Which tools an agent may call is not here**, that
+is `agents.list.<id>.tools`, and neither is how a tool runs for an agent: `exec`, the
+approval timeout and the result budget are all per agent, in the table above. See
+[Tools & permissions](tools.md).
 
-| Key                 | Type    | Default   | Notes                                                                                                                                                                                      |
-| ------------------- | ------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `approvalTimeoutMs` | int > 0 | 5 minutes | How long an `ask` prompt stays open before it counts as denied.                                                                                                                            |
-| `maxOutputChars`    | int > 0 | `8192`    | Head+tail budget for one tool result. **`0` does not mean unlimited here** — `read_file` sizes its buffer from this, so `0` would read one byte of every file. Set a large number instead. |
+### `agents.list.<id>.exec`
 
-### `tools.exec`
+| Key               | Type     | Default                       | Notes                                                                                                                                                                                                     |
+| ----------------- | -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timeoutMs`       | int ≥ 0  | `0`                           |                                                                                                                                                                                                           |
+| `pathAppend`      | string   | `''`                          | Appended to the child's `PATH`.                                                                                                                                                                           |
+| `allowedBinaries` | string[] | `[]`                          | `argv[0]` allow-list, matched on basename. **Empty means "anything not denied"**, the opposite convention to `tools` on the agent, and deliberately so: this narrows a tool the operator already enabled. |
+| `deniedBinaries`  | string[] | `[]`                          | Checked first.                                                                                                                                                                                            |
+| `envAllowlist`    | string[] | `['PATH','HOME','LANG','TZ']` | Everything else is scrubbed from the child's environment.                                                                                                                                                 |
+| `maxOutputBytes`  | int > 0  | `1048576`                     | Enforced while the child writes, not after it exits.                                                                                                                                                      |
 
-| Key               | Type     | Default                       | Notes                                                                                                                                                                                                  |
-| ----------------- | -------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `enable`          | boolean  | `true`                        | `false` removes `exec` from the definitions entirely, rather than advertising a tool that refuses.                                                                                                     |
-| `timeoutMs`       | int ≥ 0  | `0`                           |                                                                                                                                                                                                        |
-| `pathAppend`      | string   | `''`                          | Appended to the child's `PATH`.                                                                                                                                                                        |
-| `allowedBinaries` | string[] | `[]`                          | `argv[0]` allow-list, matched on basename. **Empty means "anything not denied"** — the opposite convention to `agents.*.tools`, and deliberately so: this narrows a tool the operator already enabled. |
-| `deniedBinaries`  | string[] | `[]`                          | Checked first.                                                                                                                                                                                         |
-| `envAllowlist`    | string[] | `['PATH','HOME','LANG','TZ']` | Everything else is scrubbed from the child's environment.                                                                                                                                              |
-| `maxOutputBytes`  | int > 0  | `1048576`                     | Enforced while the child writes, not after it exits.                                                                                                                                                   |
-
-There are no patterns here for `$(...)`, backticks or `| sh`. The exec tool takes
-an `argv` vector and spawns `argv[0]` directly, so there is no string for a
-shell metacharacter to live in — scanning for them would reject legitimate commands while
-blocking nothing.
+There is no `enable` switch: an agent that should not run commands sets `exec: deny` in
+its `tools` map, like any other tool. There are no patterns here for `$(...)`, backticks
+or `| sh` either. The exec tool takes an `argv` vector and spawns `argv[0]` directly, so
+there is no string for a shell metacharacter to live in. Scanning for them would reject
+legitimate commands while blocking nothing.
 
 ### `tools.mcpServers.<id>`
 

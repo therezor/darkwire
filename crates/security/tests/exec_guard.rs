@@ -147,7 +147,7 @@ fn matches_the_plans_fixture() {
     }
     drop(dir);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases(&fixture).len(), 66);
+    assert_eq!(cases(&fixture).len(), 64);
 }
 
 #[test]
@@ -236,14 +236,6 @@ fn the_environment_is_allow_listed_in_order() {
 #[test]
 fn refuses_disabled_empty_and_nul() {
     let ws = workspace();
-    assert_eq!(
-        kind_of(&guard_with(
-            &ws,
-            &["git"],
-            &config(json!({"enable": false}))
-        )),
-        "permission_denied"
-    );
     assert_eq!(kind_of(&guard(&ws, &[])), "invalid_input");
     assert_eq!(kind_of(&guard(&ws, &[""])), "invalid_input");
     assert_eq!(
@@ -467,13 +459,6 @@ fn sandboxed_lifts_the_shell_and_path_rules_together() {
             .unwrap_err()
             .message
             .contains("NUL")
-    );
-    let disabled = config(json!({"enable": false}));
-    assert!(
-        sandboxed(&ws, &["nmap"], Some(&disabled))
-            .unwrap_err()
-            .message
-            .contains("disabled")
     );
     assert!(
         guard(&ws, &["bash", "-lc", "x"])

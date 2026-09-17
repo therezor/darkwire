@@ -79,6 +79,11 @@ pub trait AgentView: Send + Sync {
     /// be described by a context inspector that lists tools it cannot call.
     fn tools(&self) -> Vec<ToolDefinition>;
 
+    /// What one session's requests carry, which under lazy discovery is a
+    /// subset of [`AgentView::tools`] plus whatever that session activated.
+    /// The context inspector reads this, being a description of one session.
+    fn session_tools(&self, session_key: &str) -> Vec<ToolDefinition>;
+
     /// This agent's budget, which is what the context meter is measured
     /// against.
     fn context_window_tokens(&self) -> u32;

@@ -23,7 +23,6 @@ use darkwire_core::{Database, Result, SessionStore};
 use darkwire_protocol::json::Object;
 use darkwire_protocol::{
     AgentEnvironment, AgentSettings, ToolDefinition, ToolPermission, ToolPermissions, ToolRisk,
-    ToolsConfig,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_security::{JailOptions, JailResolver, WorkspaceJail, single_jail};
@@ -307,8 +306,6 @@ pub struct Setup {
     pub permissions: Option<ToolPermissions>,
     /// The agent's settings.
     pub config: AgentSettings,
-    /// The tool layer's settings.
-    pub tools_config: ToolsConfig,
     /// Who to ask before an `ask` tool runs.
     pub approvals: Option<Arc<dyn ApprovalGate>>,
     /// The agents this one may delegate to.
@@ -339,7 +336,6 @@ impl Default for Setup {
                 model: "test-model".to_owned(),
                 ..AgentSettings::default()
             },
-            tools_config: ToolsConfig::default(),
             approvals: None,
             subagents: Vec::new(),
             environment: AgentEnvironment::default(),
@@ -412,7 +408,6 @@ impl Harness {
             config: setup.config,
             environment: setup.environment,
             environments: setup.environments,
-            tools_config: Arc::new(setup.tools_config),
             approvals: setup.approvals,
             subagents,
             resolve_loop: setup.resolve_loop,

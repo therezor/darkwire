@@ -479,7 +479,7 @@ async fn an_agent_with_tools_off_advertises_nothing_and_runs_nothing() {
         ..Setup::default()
     });
 
-    assert!(harness.agent_loop.tool_definitions().is_empty());
+    assert!(harness.agent_loop.permitted_definitions().is_empty());
 
     let (events, result) = harness.say("web:1", "read").await;
 
@@ -518,7 +518,7 @@ async fn switching_tools_off_leaves_the_agent_permissions_alone() {
     // Off is not the same as denying every tool: the map is untouched and still
     // says `allow`, and the tool is simply not offered to this model.
     assert_eq!(
-        harness.agent_loop.tool_definitions().len(),
+        harness.agent_loop.permitted_definitions().len(),
         0,
         "nothing advertised"
     );
@@ -1323,7 +1323,7 @@ async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
         ..Setup::default()
     });
 
-    let definitions = harness.agent_loop.tool_definitions();
+    let definitions = harness.agent_loop.permitted_definitions();
     assert_eq!(definitions[0].description, "Open a file in this project.");
 
     let _ = harness.say("web:1", "hi").await;
@@ -1350,7 +1350,7 @@ async fn a_denied_tool_is_never_advertised() {
 
     // `deny` and absent are identical: the tool is not in the definitions the
     // model is sent.
-    let definitions = harness.agent_loop.tool_definitions();
+    let definitions = harness.agent_loop.permitted_definitions();
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
     assert_eq!(names, vec!["read_file"]);
 }
@@ -1398,4 +1398,306 @@ async fn finishing_a_turn_drains_whatever_is_left() {
     let result = turn.finish().await.expect("a turn");
 
     assert_eq!(result.stop_reason, StopReason::Complete);
+}
+
+/// Lazy tool discovery: the short list, the door, and what a session pulls in.
+mod lazy_discovery {
+    use darkwire_protocol::{AgentSettings, ToolPermissions};
+    use darkwire_tools::tool_search_tool;
+
+    use super::*;
+
+    fn lazy(pins: &[&str]) -> AgentSettings {
+        AgentSettings {
+            lazy_discovery: true,
+            pinned_tools: pins.iter().map(|pin| (*pin).to_owned()).collect(),
+            ..Setup::default().config
+        }
+    }
+
+    fn names(definitions: &[darkwire_protocol::ToolDefinition]) -> Vec<&str> {
+        definitions.iter().map(|tool| tool.name.as_str()).collect()
+    }
+
+    fn four_tools() -> Vec<darkwire_tools::AnyTool> {
+        vec![
+            FakeTool::reading("read_file", "x"),
+            FakeTool::writing("write_file", "y"),
+            FakeTool::reading("memory", "m"),
+            tool_search_tool(),
+        ]
+    }
+
+    fn setup(turns: Vec<ScriptedTurn>, pins: &[&str]) -> Setup {
+        Setup {
+            turns,
+            tools: four_tools(),
+            config: lazy(pins),
+            ..Setup::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn off_sends_the_permitted_list_unchanged() {
+        let harness = Harness::build(Setup {
+            tools: four_tools(),
+            ..Setup::default()
+        });
+        assert_eq!(
+            harness.agent_loop.tool_definitions("web:1"),
+            harness.agent_loop.permitted_definitions()
+        );
+    }
+
+    #[tokio::test]
+    async fn on_sends_the_door_then_the_pins_in_registry_order() {
+        let harness = Harness::build(setup(vec![ScriptedTurn::text("ok")], &[]));
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:1")),
+            vec!["tool_search"]
+        );
+
+        let harness = Harness::build(setup(
+            vec![ScriptedTurn::text("ok")],
+            &["write_file", "memory", "not_registered"],
+        ));
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:1")),
+            vec!["tool_search", "memory", "write_file"]
+        );
+
+        let _ = harness.say("web:1", "hi").await;
+        assert_eq!(
+            names(&harness.provider.requests()[0].tools),
+            vec!["tool_search", "memory", "write_file"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pin_the_agent_denies_is_not_sent() {
+        let mut permissions = ToolPermissions::new();
+        permissions.insert("tool_search".to_owned(), ToolPermission::Allow);
+        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
+        permissions.insert("write_file".to_owned(), ToolPermission::Deny);
+        let harness = Harness::build(Setup {
+            permissions: Some(permissions),
+            ..setup(vec![ScriptedTurn::text("ok")], &["write_file"])
+        });
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:1")),
+            vec!["tool_search"]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_with_nothing_to_hide_gets_the_whole_list_without_the_door_mattering() {
+        let harness = Harness::build(setup(
+            vec![ScriptedTurn::text("ok")],
+            &["read_file", "write_file", "memory"],
+        ));
+        assert_eq!(
+            harness.agent_loop.tool_definitions("web:1"),
+            harness.agent_loop.permitted_definitions()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_door_needs_no_entry_in_the_permission_map() {
+        // An agent from before the feature: a map that never heard of
+        // `tool_search`. It still gets the short list, because the door is not
+        // the map's to grant or refuse.
+        let mut permissions = ToolPermissions::new();
+        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
+        permissions.insert("write_file".to_owned(), ToolPermission::Allow);
+        let harness = Harness::build(Setup {
+            permissions: Some(permissions),
+            ..setup(vec![ScriptedTurn::text("ok")], &[])
+        });
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:1")),
+            vec!["tool_search"]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_prompt_explains_the_short_list_only_when_there_is_one() {
+        let harness = Harness::build(setup(vec![ScriptedTurn::text("ok")], &[]));
+        let _ = harness.say("web:1", "hi").await;
+        let system = darkwire_core::text_of(&harness.provider.requests()[0].messages[0]);
+        assert!(system.contains("## Finding tools"), "{system}");
+
+        let harness = Harness::build(Setup {
+            tools: four_tools(),
+            ..Setup::default()
+        });
+        let _ = harness.say("web:1", "hi").await;
+        let system = darkwire_core::text_of(&harness.provider.requests()[0].messages[0]);
+        assert!(!system.contains("## Finding tools"), "{system}");
+    }
+
+    #[tokio::test]
+    async fn a_search_finds_only_what_the_agent_may_call_and_marks_the_visible() {
+        let mut permissions = ToolPermissions::new();
+        permissions.insert("tool_search".to_owned(), ToolPermission::Allow);
+        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
+        permissions.insert("memory".to_owned(), ToolPermission::Allow);
+        permissions.insert("write_file".to_owned(), ToolPermission::Deny);
+        let harness = Harness::build(Setup {
+            permissions: Some(permissions),
+            ..setup(
+                vec![
+                    ScriptedTurn::calls(vec![tool_call(
+                        "c1",
+                        "tool_search",
+                        &json!({"query": "file memory"}),
+                    )]),
+                    ScriptedTurn::text("ok"),
+                ],
+                &["memory"],
+            )
+        });
+        let (events, _) = harness.say("web:1", "find").await;
+        let results = events_of(&events, "tool.result");
+        let content = results[0]["content"].as_str().unwrap();
+        assert!(content.contains("- read_file:"), "{content}");
+        assert!(
+            content.contains("- memory (already in your tool list)"),
+            "{content}"
+        );
+        assert!(!content.contains("write_file"), "{content}");
+        assert!(!content.contains("tool_search:"), "{content}");
+    }
+
+    #[tokio::test]
+    async fn an_activation_reaches_the_very_next_request_and_lasts_the_session() {
+        let read = FakeTool::reading("read_file", "x");
+        let harness = Harness::build(Setup {
+            tools: vec![
+                read.clone(),
+                FakeTool::writing("write_file", "y"),
+                tool_search_tool(),
+            ],
+            config: lazy(&[]),
+            turns: vec![
+                ScriptedTurn::calls(vec![tool_call(
+                    "c1",
+                    "tool_search",
+                    &json!({"activate": ["read_file", "ghost"]}),
+                )]),
+                ScriptedTurn::calls(vec![tool_call("c2", "read_file", &json!({"path": "a"}))]),
+                ScriptedTurn::text("done"),
+                ScriptedTurn::text("still here"),
+            ],
+            ..Setup::default()
+        });
+
+        let (events, result) = harness.say("web:1", "go").await;
+        assert_eq!(result.unwrap().iterations, 3);
+        let requests = harness.provider.requests();
+        assert_eq!(names(&requests[0].tools), vec!["tool_search"]);
+        // The request right after the activating batch already carries it.
+        assert_eq!(names(&requests[1].tools), vec!["tool_search", "read_file"]);
+        assert_eq!(names(&requests[2].tools), vec!["tool_search", "read_file"]);
+        assert_eq!(read.calls().len(), 1);
+
+        // No schema in the transcript, and the miss is answered.
+        let results = events_of(&events, "tool.result");
+        let content = results[0]["content"].as_str().unwrap();
+        assert!(content.contains("Activated: read_file."), "{content}");
+        assert!(content.contains("Unknown tool \"ghost\""), "{content}");
+        assert!(!content.contains("properties"), "{content}");
+
+        // The next turn on the same session starts with it; another session
+        // does not.
+        let _ = harness.say("web:1", "again").await;
+        assert_eq!(
+            names(&harness.provider.requests()[3].tools),
+            vec!["tool_search", "read_file"]
+        );
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:2")),
+            vec!["tool_search"]
+        );
+    }
+
+    #[tokio::test]
+    async fn activations_are_advertised_in_the_order_asked_never_re_sorted() {
+        let harness = Harness::build(setup(
+            vec![
+                ScriptedTurn::calls(vec![tool_call(
+                    "c1",
+                    "tool_search",
+                    &json!({"activate": ["write_file", "read_file"]}),
+                )]),
+                ScriptedTurn::text("done"),
+            ],
+            &["memory"],
+        ));
+        let _ = harness.say("web:1", "go").await;
+        assert_eq!(
+            names(&harness.provider.requests()[1].tools),
+            vec!["tool_search", "memory", "write_file", "read_file"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hidden_tool_called_by_name_runs_and_is_activated_by_that_call() {
+        let read = FakeTool::reading("read_file", "x");
+        let harness = Harness::build(Setup {
+            tools: vec![
+                read.clone(),
+                FakeTool::writing("write_file", "y"),
+                tool_search_tool(),
+            ],
+            config: lazy(&[]),
+            turns: vec![
+                ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({"path": "a"}))]),
+                ScriptedTurn::text("done"),
+            ],
+            ..Setup::default()
+        });
+        let (events, _) = harness.say("web:1", "go").await;
+        assert_eq!(read.calls().len(), 1);
+        assert_eq!(events_of(&events, "tool.result")[0]["ok"], json!(true));
+        assert_eq!(
+            names(&harness.provider.requests()[1].tools),
+            vec!["tool_search", "read_file"]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_override_for_tool_search_reaches_the_request() {
+        let mut overrides = darkwire_protocol::ToolPromptOverrides::new();
+        overrides.insert(
+            "tool_search".to_owned(),
+            darkwire_protocol::ToolPromptOverride {
+                description: "Look things up.".to_owned(),
+                fields: indexmap::IndexMap::new(),
+            },
+        );
+        let harness = Harness::build(Setup {
+            agent: Some(LoopAgent {
+                tool_prompts: Some(overrides),
+                ..LoopAgent::default()
+            }),
+            ..setup(vec![ScriptedTurn::text("ok")], &[])
+        });
+        let _ = harness.say("web:1", "hi").await;
+        let tools = &harness.provider.requests()[0].tools;
+        assert_eq!(tools[0].name, "tool_search");
+        assert_eq!(tools[0].description, "Look things up.");
+    }
+
+    #[tokio::test]
+    async fn a_call_written_as_text_to_a_hidden_tool_is_still_corrected() {
+        let harness = Harness::build(setup(
+            vec![
+                ScriptedTurn::text(r#"{"name": "read_file", "arguments": {"path": "a"}}"#),
+                ScriptedTurn::text("Sorry."),
+            ],
+            &[],
+        ));
+        let (_, result) = harness.say("web:1", "go").await;
+        assert_eq!(result.unwrap().iterations, 2);
+    }
 }

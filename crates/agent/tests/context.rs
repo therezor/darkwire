@@ -114,7 +114,7 @@ async fn the_tools_are_returned_as_well_as_measured() {
         ..Setup::default()
     });
     let _ = harness.say("web:1", "hello").await;
-    let definitions = harness.agent_loop.tool_definitions();
+    let definitions = harness.agent_loop.permitted_definitions();
 
     let report = measure_context(&MeasureContext {
         store: &harness.store,

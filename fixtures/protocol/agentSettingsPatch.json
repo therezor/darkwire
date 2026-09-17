@@ -25,6 +25,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "",
               "systemPrompt": "",
               "livePrompt": "",
@@ -101,6 +118,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "Coder",
               "systemPrompt": "Write code.",
               "livePrompt": "",
@@ -169,6 +203,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "Coder",
               "systemPrompt": "Write code.",
               "livePrompt": "",
@@ -238,6 +289,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "Coder",
               "systemPrompt": "Write code.",
               "livePrompt": "",
@@ -299,6 +367,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "",
               "systemPrompt": "",
               "livePrompt": "",
@@ -374,6 +459,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "Coder",
               "systemPrompt": "Write code.",
               "livePrompt": "",
@@ -443,6 +545,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "",
               "systemPrompt": "",
               "livePrompt": "",
@@ -516,6 +635,23 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "exec": {
+                "timeoutMs": 0,
+                "pathAppend": "",
+                "allowedBinaries": [],
+                "deniedBinaries": [],
+                "envAllowlist": [
+                  "PATH",
+                  "HOME",
+                  "LANG",
+                  "TZ"
+                ],
+                "maxOutputBytes": 1048576
+              },
+              "approvalTimeoutMs": 300000,
+              "maxOutputChars": 8192,
+              "lazyDiscovery": false,
+              "pinnedTools": [],
               "label": "Coder",
               "systemPrompt": "Write code.",
               "livePrompt": "",

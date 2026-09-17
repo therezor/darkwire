@@ -216,6 +216,12 @@
     color: var(--fg-3);
   }
 
+  /* A pressed pin is the one thing on the row that says "stays in the list",
+     so it takes the accent as a stroke, which is the text-and-stroke token. */
+  .agent-editor__tool-pin[aria-pressed='true'] {
+    color: var(--accent-fg);
+  }
+
   /* Wide enough for the longest option without the trigger resizing as the
      value changes — a control that moves when you use it reads as a glitch. */
   .agent-editor__tool-permission {
@@ -254,10 +260,10 @@
       --gap: var(--space-2);
 
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       grid-template-areas:
-        'text badge wording'
-        'permission permission permission';
+        'text badge pin wording'
+        'permission permission permission permission';
       align-items: start;
       padding-block: var(--space-3);
       /* Square, because the row now carries a rule: a radius here rounds the
@@ -283,6 +289,10 @@
        its own under the select, reading as a control belonging to no tool. */
     .agent-editor__tool-edit {
       grid-area: wording;
+    }
+
+    .agent-editor__tool-pin {
+      grid-area: pin;
     }
 
     .agent-editor__tool-permission {

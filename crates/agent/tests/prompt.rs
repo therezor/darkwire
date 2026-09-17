@@ -940,3 +940,85 @@ fn raw_mode_reads_the_same_clock_and_counter_as_template_mode() {
     assert!(raw.contains("Tool iterations left in this turn: 2."));
     assert!(block.contains("Tool iterations left in this turn: 2."));
 }
+
+mod lazy_discovery {
+    use darkwire_protocol::DEFAULT_TOOL_SEARCH_PROMPT;
+
+    use super::*;
+
+    /// Off, or every permitted tool listed: the model is told nothing, because
+    /// there is nothing to find.
+    #[tokio::test]
+    async fn the_section_is_absent_unless_tools_are_hidden() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools::default()),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(!prompt.contains("## Finding tools"), "{prompt}");
+
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: None,
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(!prompt.contains("## Finding tools"), "{prompt}");
+    }
+
+    /// The text is the constant, whole, and carries no count or name that an
+    /// activation could move: it sits in the cached half.
+    #[tokio::test]
+    async fn the_section_is_the_fixed_text_before_the_contributors() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                lazy_discovery: true,
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+        assert!(prompt.contains(DEFAULT_TOOL_SEARCH_PROMPT), "{prompt}");
+        assert!(DEFAULT_TOOL_SEARCH_PROMPT.contains("`tool_search`"));
+        assert!(!DEFAULT_TOOL_SEARCH_PROMPT.contains("{{"));
+        let policy = prompt.find("## Tool output policy").unwrap();
+        let finding = prompt.find("## Finding tools").unwrap();
+        assert!(policy < finding);
+    }
+
+    /// Raw mode places nothing itself, so it has to be able to ask for this
+    /// one too, and it renders to nothing when there is nothing to say.
+    #[test]
+    fn a_raw_template_can_name_the_section() {
+        let runtime = runtime();
+        let agent = PromptAgent {
+            system_prompt: "A{{toolDiscovery}}B".to_owned(),
+            ..PromptAgent::default()
+        };
+        let hidden = PromptTools {
+            lazy_discovery: true,
+            ..PromptTools::default()
+        };
+        let prompt = build_raw_prompt(&BuildRawPrompt {
+            agent: Some(&agent),
+            tools: Some(&hidden),
+            host: host(Platform::Linux),
+            time_zone: Some("UTC"),
+            ..BuildRawPrompt::new(&runtime, NONCE)
+        });
+        assert_eq!(prompt, format!("A{DEFAULT_TOOL_SEARCH_PROMPT}B"));
+
+        let prompt = build_raw_prompt(&BuildRawPrompt {
+            agent: Some(&agent),
+            tools: Some(&PromptTools::default()),
+            host: host(Platform::Linux),
+            time_zone: Some("UTC"),
+            ..BuildRawPrompt::new(&runtime, NONCE)
+        });
+        assert_eq!(prompt, "AB");
+    }
+}

@@ -23,7 +23,13 @@ fn an_empty_object_is_a_fully_populated_tree() {
     assert_eq!(agent.settings.max_tool_iterations, 40);
     assert_eq!(config.server.port, 3000);
     assert!(config.server.auth.enabled);
-    assert!(config.tools.exec.enable);
+    // The tool layer is the agent's: `tools` holds the MCP servers alone.
+    assert!(config.tools.mcp_servers.is_empty());
+    assert_eq!(agent.settings.approval_timeout_ms, 5 * 60 * 1000);
+    assert_eq!(agent.settings.max_output_chars, 8192);
+    assert_eq!(agent.settings.exec.max_output_bytes, 1024 * 1024);
+    assert!(!agent.settings.lazy_discovery);
+    assert!(agent.settings.pinned_tools.is_empty());
     assert_eq!(config.ui.timezone, "UTC");
     assert!(config.validate().is_ok());
 }

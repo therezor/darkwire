@@ -1,7 +1,7 @@
 # Tools and permissions
 
 What an agent can actually _do_, and who decided it could. Two halves: the tools
-themselves — eight built in, plus whatever MCP servers and extensions contribute — and the
+themselves (nine built in, plus whatever MCP servers and extensions contribute) and the
 `allow | ask | deny` map that gates every one of them, per agent.
 
 The short version, if you read one paragraph: **enablement and permission are the same
@@ -11,33 +11,36 @@ it to call and nothing to refuse.
 
 ## The built-ins
 
-Eight, and the count is deliberate: anything expressible as a command is `exec`'s job. A
+Nine, and the count is deliberate: anything expressible as a command is `exec`'s job. A
 `grep` tool would be a worse `rg`, and a `move_file` tool would be a worse `mv`.
 
-Six of them are capabilities the agent cannot get any other way. The last two —
-`memory` and `skill` — are not, and are here for a second reason: a tool carries a
-per-agent permission, so being a tool is what makes each feature switchable without a
-config flag beside it that could disagree. Denying either removes its prompt section too.
-See [Memory](memory.md) and [Skills](skills.md).
+Six of them are capabilities the agent cannot get any other way. `memory` and `skill`
+are not, and are here for a second reason: a tool carries a per-agent permission, so
+being a tool is what makes each feature switchable without a config flag beside it that
+could disagree. Denying either removes its prompt section too. See [Memory](memory.md)
+and [Skills](skills.md). `tool_search` is the door to the other tools when
+[lazy discovery](#lazy-discovery) is on, and is registered only then.
 
-| Tool         | Args                                        | Risk band | Does                                                                                        |
-| ------------ | ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
-| `read_file`  | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                              |
-| `list_dir`   | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                          |
-| `write_file` | `path`, `content`                           | `write`   | Creates or overwrites.                                                                      |
-| `edit_file`  | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                    |
-| `exec`       | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
-| `automation` | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                      |
-| `memory`     | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                          |
-| `skill`      | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
+| Tool          | Args                                        | Risk band | Does                                                                                        |
+| ------------- | ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `read_file`   | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                              |
+| `list_dir`    | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                          |
+| `write_file`  | `path`, `content`                           | `write`   | Creates or overwrites.                                                                      |
+| `edit_file`   | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                    |
+| `exec`        | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `automation`  | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                      |
+| `memory`      | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                          |
+| `skill`       | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
+| `tool_search` | `query?`, `activate?: string[]`             | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
 takes an argv array, never a command string.
 
-Setting `tools.exec.enable: false` removes `exec` from the definitions entirely rather
-than advertising a tool that will refuse — a model told about a tool that always fails
-spends iterations rediscovering that. `automation` follows the same rule against
-`scheduler.enabled`.
+There is no install-wide switch for `exec`. An agent that should not run commands sets
+`exec: deny` in its permission map, and the tool leaves that agent's definitions with
+it. What `exec` may run, and for how long, is on the agent too (`agents.list.<id>.exec`).
+`automation` is the one built-in an install can switch off as a whole, against
+`scheduler.enabled`: with no scheduler there is nothing for it to write to.
 
 ### `automation`
 
@@ -89,6 +92,40 @@ More tools arrive two ways: from a subagent, which appears as `ask_<id>` (see
 an agent may call — the agent's `tools` permission map stays the whole authority, with or
 without one. So an agent gains nothing by being given a container and loses nothing by
 having one taken away, beyond where its commands land.
+
+### Lazy discovery
+
+Every tool the agent may call is normally sent, schema and all, on every request. With a
+few MCP servers that is thousands of tokens a turn, and a small model chooses worse from
+a long list. Switching on **Find tools on demand** in the agent editor
+(`agents.list.<id>.lazyDiscovery`) sends the short list instead: `tool_search`, then the
+tools pinned on that agent (`pinnedTools`, the pin on each tool row), and nothing else.
+The rest are reachable by name. Per agent, because the agent on a small local model wants
+it and the agent on a large hosted one may not.
+
+- **Search**: `tool_search({query: "github issue"})` answers with up to ten names and one
+  line each, matched on the name, the description, the title and the argument names and
+  descriptions. Names already in the list say so. No schema is in the answer.
+- **Activate**: `tool_search({activate: ["mcp_github_create_issue"]})` puts the tool in
+  the list from the very next request, for the rest of the session. Several names at
+  once is one round trip. The answer names what changed and nothing more; the schema
+  arrives in the tools array, where it is paid for once.
+- **Pins** grant nothing: a pinned tool the agent denies is still not sent. Pin what
+  every turn needs (`read_file`, say) and leave the rest to search.
+- **A hidden tool called by name anyway runs.** The permission map is what decides, not
+  the advertised list, and the call counts as an activation.
+
+The system prompt gains one fixed section, `## Finding tools`, saying that the list is
+short and how to lengthen it. It names no hidden tool and no count, so an activation never
+changes the cached half of the prompt. An operator can rewrite `tool_search`'s description
+like any other tool's, in the agent editor.
+
+`tool_search` takes no permission: it reveals nothing the agent could not already call and
+runs nothing itself, so the scope always admits it and the editor shows it without a
+permission select, in its own group under the switch. An agent whose permitted tools are
+all pinned has nothing to hide and is sent the whole list even with the switch on. Activations are in memory: a restart or
+a settings save starts each session short again, and the model gets a tool back by
+searching for it or calling it.
 
 ## MCP servers
 
@@ -228,7 +265,7 @@ Enabling a tool and choosing its permission are one act. The alternative — a s
 list plus a separate policy table — is how a newly created agent quietly ends up holding
 every tool the registry happens to carry.
 
-Note this is the opposite convention to `tools.exec.allowedBinaries`, where empty means
+Note this is the opposite convention to an agent's `exec.allowedBinaries`, where empty means
 "anything not denied". That is deliberate: an allow-list of _binaries_ narrows a tool the
 operator already turned on, while this is the list of tools themselves.
 

@@ -367,30 +367,6 @@
       }
     },
     {
-      "name": "exec disabled",
-      "input": {
-        "argv": [
-          "git"
-        ],
-        "config": {
-          "enable": false
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "The exec tool is disabled by configuration"
-        }
-      }
-    },
-    {
       "name": "empty argv",
       "input": {
         "argv": [],
@@ -1914,30 +1890,6 @@
         "error": {
           "kind": "permission_denied",
           "message": "Arguments must not contain NUL bytes"
-        }
-      }
-    },
-    {
-      "name": "sandboxed: disabled is still disabled",
-      "input": {
-        "argv": [
-          "nmap"
-        ],
-        "config": {
-          "enable": false
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": true
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "The exec tool is disabled by configuration"
         }
       }
     }

@@ -65,15 +65,17 @@ use darkwire_protocol::{
     AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
-    ToolPromptOverrides, ToolsConfig, Usage, apply_tool_prompts, with_subagent_run,
+    ToolPromptOverrides, Usage, apply_tool_prompts, with_subagent_run,
 };
 use darkwire_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
 use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use darkwire_tools::{
-    AutomationResolver, EnvironmentResolver, Placed, PlacementRequest, ToolContext, ToolScope,
+    Activation, AutomationResolver, EnvironmentResolver, Placed, PlacementRequest,
+    TOOL_SEARCH_NAME, ToolContext, ToolDiscovery, ToolScope,
 };
 use futures::{Stream, StreamExt as _};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
+use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -232,10 +234,10 @@ pub struct AgentLoopOptions {
     /// Where built-in command execution runs.
     pub environment: AgentEnvironment,
     /// Defaults to the schema's defaults, so a caller with no config file
-    /// works.
+    /// works. Carries the tool layer's settings too: the `exec` rules, the
+    /// result budget, the approval timeout and lazy discovery are all per
+    /// agent.
     pub config: AgentSettings,
-    /// The tool layer's configuration.
-    pub tools_config: Arc<ToolsConfig>,
     /// Overrides `config.model`. One of the two must be non-empty.
     pub model: Option<String>,
     /// Which agent this loop is. Absent is the unnamed default.
@@ -309,7 +311,6 @@ impl AgentLoopOptions {
             environments: None,
             environment: AgentEnvironment::default(),
             config: AgentSettings::default(),
-            tools_config: Arc::new(ToolsConfig::default()),
             model: None,
             agent: None,
             time_zone: None,
@@ -682,8 +683,7 @@ struct LoopInner {
     automation: Option<Arc<dyn AutomationResolver>>,
     environments: Option<Arc<dyn EnvironmentResolver>>,
     environment: AgentEnvironment,
-    config: AgentSettings,
-    tools_config: Arc<ToolsConfig>,
+    config: Arc<AgentSettings>,
     model_id: String,
     contributors: Vec<Arc<dyn ContextContributor>>,
     time_zone: Option<Arc<dyn Fn() -> String + Send + Sync>>,
@@ -696,6 +696,56 @@ struct LoopInner {
     env: Arc<HashMap<String, String>>,
     host: Host,
     dispatcher: ToolDispatcher,
+    /// What each session has pulled in through `tool_search`, keyed by session
+    /// key. Same shape as the steering queue and for the same reason: one loop
+    /// serves every session on an agent, so nothing session-shaped may sit on
+    /// the instance unkeyed. In memory only; a rebuilt loop starts empty, and
+    /// the model gets a tool back by calling it, which re-activates it.
+    activated: Mutex<HashMap<String, Activated>>,
+}
+
+/// One session's activations under lazy discovery.
+#[derive(Debug, Default)]
+struct Activated {
+    /// In the order the model asked for them, which is the order they are
+    /// advertised in. Never re-sorted: the provider caches the request prefix
+    /// and the tools sit in it.
+    names: IndexSet<String>,
+    /// Bumped on every insertion. A turn compares it before and after a batch
+    /// of tool calls to learn whether its list moved.
+    revision: u64,
+}
+
+/// One turn's [`ToolDiscovery`] port: the loop, bound to the session that
+/// asked. Every answer is computed from the loop's permitted list at the moment
+/// of the call, so a tool that left the registry is not found and one that
+/// arrived is.
+struct SessionDiscovery {
+    agent_loop: AgentLoop,
+    session_key: String,
+}
+
+impl ToolDiscovery for SessionDiscovery {
+    fn corpus(&self) -> Vec<ToolDefinition> {
+        self.agent_loop
+            .permitted_definitions()
+            .into_iter()
+            .filter(|tool| tool.name != TOOL_SEARCH_NAME)
+            .collect()
+    }
+
+    fn visible(&self) -> Vec<String> {
+        self.agent_loop
+            .tool_definitions(&self.session_key)
+            .into_iter()
+            .map(|tool| tool.name)
+            .filter(|name| name != TOOL_SEARCH_NAME)
+            .collect()
+    }
+
+    fn activate(&self, names: &[String]) -> Activation {
+        self.agent_loop.activate(&self.session_key, names)
+    }
 }
 
 /// One agent's loop: a provider, a tool scope and a store, turned into turns.
@@ -743,7 +793,7 @@ impl AgentLoop {
             tools: Arc::clone(&options.tools),
             subagents: options.subagents.clone(),
             approvals: options.approvals.clone(),
-            tools_config: Arc::clone(&options.tools_config),
+            approval_timeout_ms: options.config.approval_timeout_ms,
             tools_enabled: options.config.tools_enabled,
             max_tool_result_chars: options.max_tool_result_chars,
             heartbeat_ms: options.tool_heartbeat_ms,
@@ -762,8 +812,7 @@ impl AgentLoop {
                 automation: options.automation,
                 environments: options.environments,
                 environment: options.environment,
-                config: options.config,
-                tools_config: options.tools_config,
+                config: Arc::new(options.config),
                 model_id: model,
                 contributors: options.contributors,
                 time_zone: options.time_zone,
@@ -776,6 +825,7 @@ impl AgentLoop {
                 env: options.env,
                 host: options.host,
                 dispatcher,
+                activated: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -821,13 +871,25 @@ impl AgentLoop {
     /// correction, the context inspector's count — then agrees on the same
     /// answer without any of them learning about the setting. A gate at the
     /// request would leave the panel listing tools the model was never offered.
-    pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
+    ///
+    /// This is everything the agent *may* call. What a session is *sent* is
+    /// [`AgentLoop::tool_definitions`], which narrows this under lazy discovery.
+    pub fn permitted_definitions(&self) -> Vec<ToolDefinition> {
         let inner = &self.inner;
         if !inner.config.tools_enabled {
             return Vec::new();
         }
 
-        let mut tools: Vec<ToolDefinition> = inner.tools.definitions().to_vec();
+        // The door is only a door while something is behind it. With lazy
+        // discovery off the agent is sent everything, and a `tool_search` in
+        // that list would spend a turn learning there is nothing to find.
+        let mut tools: Vec<ToolDefinition> = inner
+            .tools
+            .definitions()
+            .iter()
+            .filter(|tool| inner.config.lazy_discovery || tool.name != TOOL_SEARCH_NAME)
+            .cloned()
+            .collect();
 
         // Appended rather than merged and re-sorted. The registry's list is
         // already sorted, and keeping the subagents in the operator's
@@ -851,6 +913,130 @@ impl AgentLoop {
         }
 
         self.with_tool_prompts(tools)
+    }
+
+    /// The definitions one session's requests carry, as the provider receives
+    /// them.
+    ///
+    /// With lazy discovery off this is the permitted list. On, it is
+    /// `tool_search`, then the pinned tools this agent permits in the permitted
+    /// list's order, then whatever this session has activated in the order it
+    /// asked. Two cases fall back to the whole list, and both are deliberate:
+    ///
+    ///  - **Nothing would be hidden.** Every permitted tool is pinned, so the
+    ///    door would open onto an empty room and cost a turn to learn that.
+    ///  - **The door is not registered.** `tool_search` takes no permission,
+    ///    so the scope always admits it; it can only be missing from a registry
+    ///    built without built-ins, and then there is no way to reach a hidden
+    ///    tool and nothing is hidden.
+    pub fn tool_definitions(&self, session_key: &str) -> Vec<ToolDefinition> {
+        let full = self.permitted_definitions();
+        let Some(shown) = self.short_list(&full) else {
+            return full;
+        };
+        let mut sent: Vec<ToolDefinition> = shown.into_iter().cloned().collect();
+        let activated = self.inner.activated.lock();
+        if let Some(session) = activated.get(session_key) {
+            for name in &session.names {
+                if sent.iter().any(|tool| tool.name == *name) {
+                    continue;
+                }
+                if let Some(tool) = full.iter().find(|tool| tool.name == *name) {
+                    sent.push(tool.clone());
+                }
+            }
+        }
+        sent
+    }
+
+    /// The always-visible part of a lazy list: the door, then the pins. `None`
+    /// when this agent is sent the whole list; see [`AgentLoop::tool_definitions`].
+    fn short_list<'a>(&self, full: &'a [ToolDefinition]) -> Option<Vec<&'a ToolDefinition>> {
+        let config = &self.inner.config;
+        if !config.lazy_discovery {
+            return None;
+        }
+        let door = full.iter().find(|tool| tool.name == TOOL_SEARCH_NAME)?;
+        let mut shown = vec![door];
+        shown.extend(full.iter().filter(|tool| {
+            tool.name != TOOL_SEARCH_NAME && config.pinned_tools.contains(&tool.name)
+        }));
+        if shown.len() == full.len() {
+            return None;
+        }
+        Some(shown)
+    }
+
+    /// Whether this agent's requests carry the short list. A fact about the
+    /// agent, not the session: what a session activates lengthens its list
+    /// without changing whether anything is hidden.
+    fn hides_tools(&self) -> bool {
+        let full = self.permitted_definitions();
+        self.short_list(&full).is_some()
+    }
+
+    /// Adds `names` to `session_key`'s list, answering what happened to each.
+    ///
+    /// Only names in the permitted list are recorded, so the set is bounded by
+    /// it and a name the agent may not call is reported unknown rather than
+    /// remembered. Names already visible are reported as such and change
+    /// nothing, including the revision.
+    fn activate(&self, session_key: &str, names: &[String]) -> Activation {
+        let full = self.permitted_definitions();
+        let visible: Vec<String> = self
+            .tool_definitions(session_key)
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        let mut outcome = Activation::default();
+        let mut activated = self.inner.activated.lock();
+        let session = activated.entry(session_key.to_owned()).or_default();
+        for name in names {
+            if name == TOOL_SEARCH_NAME || visible.contains(name) {
+                outcome.already_visible.push(name.clone());
+            } else if full.iter().any(|tool| tool.name == *name) {
+                if session.names.insert(name.clone()) {
+                    session.revision += 1;
+                }
+                outcome.activated.push(name.clone());
+            } else {
+                outcome.unknown.push(name.clone());
+            }
+        }
+        outcome
+    }
+
+    /// Where `session_key`'s activations stand. Compared across a batch of tool
+    /// calls to learn whether the list has to be rebuilt.
+    fn activation_revision(&self, session_key: &str) -> u64 {
+        self.inner
+            .activated
+            .lock()
+            .get(session_key)
+            .map_or(0, |session| session.revision)
+    }
+
+    /// A hidden tool the model called by name anyway counts as activated.
+    ///
+    /// The call ran: the dispatcher checks the permission map, not the
+    /// advertised list, and the tool is permitted. Leaving the schema out of
+    /// the next request would have the model working from memory of a tool it
+    /// has just shown it wants. Names the agent may not call are ignored here
+    /// exactly as `activate` ignores them.
+    fn note_direct_calls(&self, session_key: &str, result: &ChatResult) {
+        if !self.inner.config.lazy_discovery {
+            return;
+        }
+        let names: Vec<String> = result
+            .message
+            .tool_calls
+            .iter()
+            .map(|call| call.name.clone())
+            .filter(|name| name != TOOL_SEARCH_NAME)
+            .collect();
+        if !names.is_empty() {
+            self.activate(session_key, &names);
+        }
     }
 
     /// The operator's wording in place of the compiled one.
@@ -939,6 +1125,7 @@ impl AgentLoop {
             // built-in a containered turn inherits, and the agent's override of
             // it is `platform_prompt` above.
             environment_notes: placed.prompt.clone(),
+            lazy_discovery: self.hides_tools(),
         })
     }
 
@@ -1105,6 +1292,11 @@ impl AgentLoop {
 /// The jail, the sandbox, the runner and the automation port are all resolved
 /// once and captured, so a workspace switch or a config change mid-turn cannot
 /// move where this turn's tools act.
+///
+/// `tool_definitions` is the one exception, and it moves for one reason only:
+/// the model itself activated a tool through `tool_search`. A config change
+/// still cannot move it. The list is rebuilt after the batch of tool calls that
+/// did it, so the very next request carries the schema the model asked for.
 struct TurnContext {
     session: SessionRecord,
     prompt_context: StaticPromptContext,
@@ -1212,12 +1404,21 @@ impl AgentLoop {
         let placed = self.resolve_placement(&placement);
         let environment = Arc::clone(&placed.environment);
 
-        let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.tools_config));
+        let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.config));
         tool_context.placement = Some(placement.clone());
         tool_context.token = token.clone();
         tool_context.clock = Arc::clone(&inner.clock);
         tool_context.env = Arc::clone(&inner.env);
         tool_context.automation = automation;
+        // Bound to this session, like the automation port. Attached whenever
+        // the install has lazy discovery on, because that is when `tool_search`
+        // is registered; an agent sent the whole list never calls it.
+        tool_context.discovery = inner.config.lazy_discovery.then(|| {
+            Arc::new(SessionDiscovery {
+                agent_loop: self.clone(),
+                session_key: input.session_key.clone(),
+            }) as Arc<dyn ToolDiscovery>
+        });
         tool_context.sandboxed = environment.confined();
         tool_context.runner = environment;
         // Deliberately left unset: `dispatch` is the one place a result is
@@ -1238,7 +1439,7 @@ impl AgentLoop {
 
         // Once per turn, both of them: see the module header.
         let nonce = create_tool_output_nonce(inner.random.as_ref());
-        let tool_definitions = self.tool_definitions();
+        let tool_definitions = self.tool_definitions(&input.session_key);
 
         let scope = TurnScope {
             session_key: input.session_key.clone(),
@@ -1330,7 +1531,7 @@ impl AgentLoop {
             session_key: input.session_key.clone(),
         };
 
-        let turn = self.open_turn(&input, token)?;
+        let mut turn = self.open_turn(&input, token)?;
         let opening = inner.store.append(
             &turn.scope.session_key,
             ChatMessage::User(user_message(input.content.clone())),
@@ -1412,7 +1613,7 @@ impl AgentLoop {
             state.iteration += 1;
             let flow = self
                 .one_iteration(
-                    &turn,
+                    &mut turn,
                     &preamble,
                     &mut state,
                     &mut attachments,
@@ -1455,7 +1656,7 @@ impl AgentLoop {
     /// One request, and whatever the model asked for after it.
     async fn one_iteration(
         &self,
-        turn: &TurnContext,
+        turn: &mut TurnContext,
         preamble: &Preamble,
         state: &mut TurnState,
         attachments: &mut AttachmentCache,
@@ -1710,8 +1911,11 @@ impl AgentLoop {
         // that the model tried to act. One correction per turn: a model that
         // gets it wrong twice is not going to be talked round, and a loop of
         // corrections would burn the iteration budget saying the same thing.
-        let names: Vec<String> = turn
-            .tool_definitions
+        // The permitted list, not the advertised one: under lazy discovery a
+        // model may write out a call to a tool it has not activated, and that
+        // is still a call it meant to make.
+        let names: Vec<String> = self
+            .permitted_definitions()
             .iter()
             .map(|tool| tool.name.clone())
             .collect();
@@ -1773,17 +1977,25 @@ impl AgentLoop {
     /// The model asked for tools. Run them, append, report.
     async fn run_tools(
         &self,
-        turn: &TurnContext,
+        turn: &mut TurnContext,
         result: &ChatResult,
         prompt: &PromptPreview,
         state: &mut TurnState,
         sink: &EventSink,
     ) -> Result<Flow> {
         let inner = &self.inner;
+        let revision_before = self.activation_revision(&turn.scope.session_key);
         let outcome = inner
             .dispatcher
             .dispatch(result, &turn.scope, sink, self)
             .await?;
+        self.note_direct_calls(&turn.scope.session_key, result);
+        // Rebuilt only when this batch moved it, so a turn that never touches
+        // `tool_search` keeps the list it opened with. Before the measurement
+        // below and before the next request, which both read it.
+        if self.activation_revision(&turn.scope.session_key) != revision_before {
+            turn.tool_definitions = self.tool_definitions(&turn.scope.session_key);
+        }
         // One transaction, and the store stays the turn's to write. A partial
         // write is exactly the orphaned tool result the history walker then has
         // to repair on every later request.

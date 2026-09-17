@@ -69,6 +69,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'automation',
   'memory',
   'skill',
+  'tool_search',
 ];
 
 /** Where a registered tool came from, so `unregisterBySource` can be exact. */
