@@ -115,7 +115,7 @@ codebase surgery, research sweeps, scheduled chores.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/chat-approval.light.png">
-  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session, Always and Deny." src="docs/screenshots/chat-approval.dark.png">
+  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session and Deny." src="docs/screenshots/chat-approval.dark.png">
 </picture>
 
 </td></tr>

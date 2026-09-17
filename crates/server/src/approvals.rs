@@ -16,10 +16,10 @@
 //! The decisions that are not obvious:
 //!
 //!  - **A remembered answer is keyed by tool name, not by arguments.** That is
-//!    what `session` and `always` mean, and a memory keyed by arguments would be
-//!    a cache nobody can predict. It is also why the UI has to say what it is
-//!    asking for: approving `exec` for the session approves the *next* `exec`
-//!    too, whatever it turns out to be.
+//!    what `session` means, and a memory keyed by arguments would be a cache
+//!    nobody can predict. It is also why the UI has to say what it is asking
+//!    for: approving `exec` for the session approves the *next* `exec` too,
+//!    whatever it turns out to be.
 //!  - **A refusal is remembered exactly like an approval.** "No, and stop
 //!    asking" is a thing users mean, and a scope that only ever widened
 //!    permission would be a scope that only works in one direction.
@@ -32,10 +32,10 @@
 //!    turn a cancelled turn into a tool failure the model then sees. A denial
 //!    nobody reads is harmless.
 //!
-//! `always` is remembered for the lifetime of the process and no longer. A
-//! durable "never ask me about this tool again" is a settings write, and a
-//! decision persisted through a path nothing can revoke would be worse than one
-//! that expires with the server.
+//! A conversation is as far as a remembered answer reaches. "Never ask me about
+//! this tool again" is a settings write: the tool's permission on the agent, set
+//! to `allow`. A prompt is the wrong place to make a decision that has no
+//! visible way back.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -114,16 +114,6 @@ pub struct HubApprovalGate {
     pending: Mutex<HashMap<String, PendingApproval>>,
     /// `session` scope: session key to tool name to decision.
     by_session: Mutex<HashMap<String, HashMap<String, RememberedDecision>>>,
-    /// `always` scope: agent id to tool name to decision, across every session.
-    ///
-    /// Keyed by agent rather than by tool alone, and that is a security boundary
-    /// rather than bookkeeping. Two agents can be configured with deliberately
-    /// different tool sets and approval policies; a standing "always allow
-    /// `exec`" granted while using a permissive agent would otherwise
-    /// pre-approve it for a locked-down one, silently undoing the restriction an
-    /// operator set up. "Always" means for this agent, on every session, until
-    /// the process ends.
-    always: Mutex<HashMap<String, HashMap<String, RememberedDecision>>>,
     watchers: Option<WatcherCount>,
     on_unattended: Option<UnattendedSink>,
 }
@@ -149,7 +139,6 @@ impl HubApprovalGate {
             clock: options.clock.unwrap_or_else(|| Arc::new(SystemClock)),
             pending: Mutex::new(HashMap::new()),
             by_session: Mutex::new(HashMap::new()),
-            always: Mutex::new(HashMap::new()),
             watchers: options.watchers,
             on_unattended: options.on_unattended,
         }
@@ -193,7 +182,6 @@ impl HubApprovalGate {
 
         self.remember(
             HubApprovalGate::scope_of(&pending.request),
-            &pending.request.agent_id,
             &pending.request.name,
             RememberedDecision { approved, scope },
         );
@@ -214,8 +202,7 @@ impl HubApprovalGate {
     /// Forgets a session: its remembered answers, and any prompt still parked.
     ///
     /// Called when the hub drops a session, which is the moment nothing can
-    /// answer for it any more. `always` survives — it was scoped to an agent,
-    /// not to a session.
+    /// answer for it any more.
     ///
     /// Matched against the *scope* rather than the request's own session, so a
     /// prompt parked by a subagent of this conversation is settled too. It is
@@ -241,73 +228,19 @@ impl HubApprovalGate {
         }
     }
 
-    /// Forgets standing approvals for agents that are no longer configured.
-    ///
-    /// Not a cache detail — a permission one. An agent id is user-authored and
-    /// re-creatable, so a deleted `reviewer` and a new one created under the
-    /// same name are two different agents that happen to share a key. Without
-    /// this, the new one silently inherits every tool the old one was ever
-    /// granted standing permission for, and the operator who granted them was
-    /// answering about an agent that no longer exists.
-    ///
-    /// Session-scoped answers are untouched: those belong to a conversation, and
-    /// a conversation does not stop existing because an agent did.
-    pub fn retain_agents(&self, agent_ids: &[String]) {
-        self.always
-            .lock()
-            .retain(|agent_id, _| agent_ids.iter().any(|kept| kept == agent_id));
-    }
-
-    /// Carries standing approvals from one agent id to another.
-    ///
-    /// The other half of [`HubApprovalGate::retain_agents`], and the reason both
-    /// are needed: a rename is the *same* agent, so its permissions follow it,
-    /// where a delete-then-recreate is a different agent and its permissions
-    /// must not.
-    pub fn rename_agent(&self, from: &str, to: &str) {
-        let mut always = self.always.lock();
-        if let Some(decisions) = always.remove(from) {
-            always.insert(to.to_owned(), decisions);
-        }
-    }
-
-    /// The session's own answer wins over the standing one: it is the more
-    /// specific of the two, and the more recently given. A session is bound to
-    /// one agent, so the session-scoped map needs no agent dimension — and a
-    /// subagent's turn carries its own `agent_id`, so the standing half stays
-    /// per-agent even though the session half is the conversation's.
-    fn recall(&self, session_key: &str, agent_id: &str, tool: &str) -> Option<RememberedDecision> {
-        let session = self
-            .by_session
+    /// A session is bound to one agent, so the memory needs no agent dimension:
+    /// the conversation the answer was given in is the whole key.
+    fn recall(&self, session_key: &str, tool: &str) -> Option<RememberedDecision> {
+        self.by_session
             .lock()
             .get(session_key)
             .and_then(|tools| tools.get(tool))
-            .copied();
-        session.or_else(|| {
-            self.always
-                .lock()
-                .get(agent_id)
-                .and_then(|tools| tools.get(tool))
-                .copied()
-        })
+            .copied()
     }
 
-    fn remember(
-        &self,
-        session_key: &str,
-        agent_id: &str,
-        tool: &str,
-        decision: RememberedDecision,
-    ) {
+    fn remember(&self, session_key: &str, tool: &str, decision: RememberedDecision) {
         match decision.scope {
             ApprovalScope::Once => {}
-            ApprovalScope::Always => {
-                self.always
-                    .lock()
-                    .entry(agent_id.to_owned())
-                    .or_default()
-                    .insert(tool.to_owned(), decision);
-            }
             ApprovalScope::Session => {
                 self.by_session
                     .lock()
@@ -356,21 +289,13 @@ impl HubApprovalGate {
     /// Parks one request and waits for whichever of the three answers arrives
     /// first.
     async fn park(&self, request: &ApprovalRequest) -> ApprovalDecision {
-        if let Some(remembered) = self.recall(
-            HubApprovalGate::scope_of(request),
-            &request.agent_id,
-            &request.name,
-        ) {
+        if let Some(remembered) = ApprovalGate::remembered(self, request) {
             tracing::debug!(
                 session_key = %request.session_key,
                 tool = %request.name,
                 "approval answered from memory"
             );
-            return ApprovalDecision {
-                approved: remembered.approved,
-                scope: Some(remembered.scope),
-                reason: None,
-            };
+            return remembered;
         }
 
         // A turn already cancelled has nobody left to show a prompt to. Parking
@@ -442,6 +367,17 @@ impl HubApprovalGate {
 impl ApprovalGate for HubApprovalGate {
     fn ask<'a>(&'a self, request: &'a ApprovalRequest) -> BoxFuture<'a, Result<ApprovalDecision>> {
         Box::pin(async move { Ok(self.park(request).await) })
+    }
+
+    /// The same lookup `park` starts with, offered before the prompt is
+    /// announced so a remembered answer never reaches a screen.
+    fn remembered(&self, request: &ApprovalRequest) -> Option<ApprovalDecision> {
+        self.recall(HubApprovalGate::scope_of(request), &request.name)
+            .map(|remembered| ApprovalDecision {
+                approved: remembered.approved,
+                scope: Some(remembered.scope),
+                reason: None,
+            })
     }
 }
 

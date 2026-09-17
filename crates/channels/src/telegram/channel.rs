@@ -891,7 +891,6 @@ fn scope_words(scope: ApprovalScope) -> &'static str {
     match scope {
         ApprovalScope::Once => "once",
         ApprovalScope::Session => "for this session",
-        ApprovalScope::Always => "for this agent, from now on",
     }
 }
 

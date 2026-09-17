@@ -427,10 +427,62 @@ async fn an_approval_request_names_the_agent_that_asked() {
 
     let _ = harness.say("web:1", "run it").await;
 
-    // A standing "always allow" given while using a permissive agent must not
-    // silently pre-approve it for a locked-down one: the permission an operator
-    // granted was to that agent, not to a name.
+    // The notification raised for a prompt nobody is watching names the agent
+    // that wants to run something. "An agent wants to run `exec`" is not
+    // something an operator can act on.
     assert_eq!(gate.seen()[0].agent_id, "locked-down");
+}
+
+#[tokio::test]
+async fn does_not_announce_a_prompt_the_gate_has_already_answered() {
+    let gate = ScriptedGate::remembering(ApprovalDecision::allow());
+    let harness = Harness::build(Setup {
+        turns: one_exec_call(),
+        tools: vec![FakeTool::new(
+            "exec",
+            darkwire_protocol::ToolRisk::Exec,
+            common::harness::Behaviour::Answer("ok".to_owned()),
+        )],
+        permissions: Some(asking("exec")),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    // The point of "this session" is that the question stops being asked. A
+    // request announced anyway draws a card on every client and replaces it a
+    // millisecond later, which is what the operator sees as a flash.
+    assert!(events_of(&events, "tool.approvalRequest").is_empty());
+    assert!(gate.seen().is_empty());
+    let results = events_of(&events, "tool.result");
+    assert_eq!(results[0]["ok"], json!(true));
+}
+
+#[tokio::test]
+async fn refuses_without_announcing_when_the_gate_remembers_a_denial() {
+    let gate = ScriptedGate::remembering(ApprovalDecision::refuse());
+    let harness = Harness::build(Setup {
+        turns: one_exec_call(),
+        tools: vec![FakeTool::new(
+            "exec",
+            darkwire_protocol::ToolRisk::Exec,
+            common::harness::Behaviour::Answer("ok".to_owned()),
+        )],
+        permissions: Some(asking("exec")),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    assert!(events_of(&events, "tool.approvalRequest").is_empty());
+    let results = events_of(&events, "tool.result");
+    assert_eq!(results[0]["ok"], json!(false));
+    // The remembered refusal is a person's, so the model is told it was
+    // refused rather than that the deployment forbids it.
+    let notices = events_of(&events, "notice");
+    assert!(notices[0]["message"].as_str().unwrap().contains("refused"));
 }
 
 #[tokio::test]

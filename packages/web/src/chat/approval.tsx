@@ -7,13 +7,15 @@
  * depending on what was asked a paragraph earlier. It also cannot stack: two
  * tabs, or one turn with two gated calls, would queue modals.
  *
- * The three scopes are the protocol's, and each is a different promise:
+ * The two scopes are the protocol's, and each is a different promise:
  *
- *  - **Once** — this call. The next one asks again.
- *  - **Session** — every call to this tool for the rest of the conversation.
- *  - **Always** — as long as the server is up. It is not persisted, and the
- *    label says so, because a "never ask me again" that survives restarts and
- *    has no visible way back is a decision the user cannot undo.
+ *  - **Once**: this call. The next one asks again.
+ *  - **Session**: every call to this tool for the rest of the conversation.
+ *
+ * There is no third. A standing permission is a configuration decision, and it
+ * is made where it can be seen and taken back: the tool's permission on the
+ * agent, set to Allow. A button that grants one from here would be a decision
+ * with no visible way back.
  *
  * The deadline is the server's `expiresAtMs`, counted down locally. When it
  * passes, the buttons go: pressing one would send an answer the gate stopped
@@ -52,11 +54,6 @@ const SCOPES: ReadonlyArray<{
     scope: 'session',
     label: 'This session',
     hint: 'Allow this tool for the rest of this session.',
-  },
-  {
-    scope: 'always',
-    label: 'Always',
-    hint: 'Allow this tool until the server restarts. Not written to disk.',
   },
 ];
 

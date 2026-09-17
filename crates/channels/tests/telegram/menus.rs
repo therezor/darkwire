@@ -342,9 +342,10 @@ fn an_empty_listing_produces_an_empty_keyboard() {
 }
 
 #[test]
-fn an_approval_offers_three_scopes_and_one_refusal() {
-    // Denial is `once` on purpose: a "deny always" one tap from "deny once", on
-    // a phone, is a way to silently disable a tool and not find out for a week.
+fn an_approval_offers_two_scopes_and_one_refusal() {
+    // Denial is `once` on purpose: a "deny for the session" one tap from "deny
+    // once", on a phone, is a way to silently disable a tool and not find out
+    // for an hour.
     let (store, _clock) = store();
 
     let keyboard = approval_keyboard("call-1", "telegram:4471", 4471, &store, NOW + 60_000);
@@ -355,12 +356,9 @@ fn an_approval_offers_three_scopes_and_one_refusal() {
         .flatten()
         .map(|button| button.text.as_str())
         .collect();
-    assert_eq!(
-        labels,
-        vec!["✅ Once", "✅ This session", "✅ Always", "⛔ Deny"]
-    );
+    assert_eq!(labels, vec!["✅ Once", "✅ This session", "⛔ Deny"]);
 
-    let deny = &keyboard.inline_keyboard[1][1];
+    let deny = &keyboard.inline_keyboard[1][0];
     let CallbackLookup::Found(CallbackPayload::Approve {
         approved, scope, ..
     }) = store.take(&deny.callback_data, 4471)

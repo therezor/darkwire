@@ -747,21 +747,6 @@ impl SessionHub {
         }
     }
 
-    /// Forgets standing tool approvals for agents that are no longer
-    /// configured.
-    ///
-    /// Called after a settings write, because that is the only moment an agent
-    /// can stop existing. The gate is the hub's, so the route reaches it through
-    /// here rather than being handed the gate as a second dependency.
-    pub fn retain_agents(&self, agent_ids: &[String]) {
-        self.approvals.retain_agents(agent_ids);
-    }
-
-    /// Carries one agent's standing tool approvals to its new id.
-    pub fn rename_agent(&self, from: &str, to: &str) {
-        self.approvals.rename_agent(from, to);
-    }
-
     /// Re-announces a session's workspace after something moved it.
     ///
     /// Called by `PATCH /api/sessions/:key`, so a second tab — or the Files page

@@ -40,7 +40,7 @@ const promptWith = (
 };
 
 describe('an unanswered prompt', () => {
-  it('names the tool and offers the three scopes plus a denial', async () => {
+  it('names the tool and offers the two scopes plus a denial', async () => {
     const onAnswer = promptWith({});
 
     expect(screen.getByText('exec')).toBeInTheDocument();
@@ -54,12 +54,19 @@ describe('an unanswered prompt', () => {
     await userEvent.click(screen.getByRole('button', { name: 'This session' }));
     expect(onAnswer).toHaveBeenCalledWith(true, 'session');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Always' }));
-    expect(onAnswer).toHaveBeenCalledWith(true, 'always');
-
     // A denial is scoped to the call whatever the operator pressed before it.
     await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
     expect(onAnswer).toHaveBeenCalledWith(false, 'once');
+  });
+
+  it('offers no standing permission, which is an agent setting', () => {
+    promptWith({});
+
+    // A prompt can grant this call or this conversation. Anything longer is
+    // configuration, made where it can be seen and taken back.
+    expect(
+      screen.queryByRole('button', { name: 'Always' }),
+    ).not.toBeInTheDocument();
   });
 });
 

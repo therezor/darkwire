@@ -69,7 +69,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::approval::{
-    ApprovalGate, ApprovalRequest, DenialReason, denied_notice, denied_tool_result,
+    ApprovalDecision, ApprovalGate, ApprovalRequest, DenialReason, denied_notice,
+    denied_tool_result,
 };
 use crate::events::{AgentEvent, EventSink};
 use crate::subagent::SubagentBinding;
@@ -161,6 +162,20 @@ enum ApprovalOutcome {
     Approved,
     Aborted,
     Denied(DenialReason),
+}
+
+impl ApprovalOutcome {
+    /// What a decision the gate handed over without being awaited means.
+    ///
+    /// A refusal is `Declined` rather than `Policy`: a remembered answer is one
+    /// a person gave, and the model is told the difference.
+    fn of(decision: &ApprovalDecision) -> ApprovalOutcome {
+        if decision.approved {
+            ApprovalOutcome::Approved
+        } else {
+            ApprovalOutcome::Denied(DenialReason::Declined)
+        }
+    }
 }
 
 /// What the tool half of a turn needs from the half above it.
@@ -729,18 +744,27 @@ impl ToolDispatcher {
                 token: turn.token.clone(),
             };
 
-            sink.emit(ToolApprovalRequest {
-                tag: darkwire_protocol::ToolApprovalRequestTag,
-                turn_id: turn.turn_id.clone(),
-                call_id: call.id.clone(),
-                name: call.name.clone(),
-                args,
-                risk,
-                expires_at_ms,
-            })
-            .await;
+            // Asked before the event goes out, and the order is the whole
+            // point. "This session" means the question stops being asked; a
+            // prompt announced first would appear on every client and be
+            // replaced in the same breath by the answer the gate already held.
+            let outcome = if let Some(decision) = gate.remembered(&request) {
+                ApprovalOutcome::of(&decision)
+            } else {
+                sink.emit(ToolApprovalRequest {
+                    tag: darkwire_protocol::ToolApprovalRequestTag,
+                    turn_id: turn.turn_id.clone(),
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    args,
+                    risk,
+                    expires_at_ms,
+                })
+                .await;
+                self.decide(gate.as_ref(), &request, timeout_ms).await
+            };
 
-            match self.decide(gate.as_ref(), &request, timeout_ms).await {
+            match outcome {
                 ApprovalOutcome::Approved => return None,
                 ApprovalOutcome::Aborted => return Some(cancelled_execution(&call.name)),
                 ApprovalOutcome::Denied(reason) => reason,

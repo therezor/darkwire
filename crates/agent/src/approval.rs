@@ -11,10 +11,9 @@
 //!    tool's risk and the deployment's policy, so no transport can forget to
 //!    check and no transport can decide the answer differently.
 //!  - **The gate decides the answer**, and it is the gate that remembers one.
-//!    `once | session | always` is scope *memory*, which needs a
-//!    session-shaped store and a way to persist `always` — both of which
-//!    belong to the thing holding the connection to a human, not to a turn
-//!    that will end in a minute.
+//!    `once | session` is scope *memory*, which needs a session-shaped store
+//!    outliving the turn. So it belongs to the thing holding the connection to
+//!    a human, not to a turn that will end in a minute.
 //!  - **The loop owns the deadline.** A gate that never resolves — a browser
 //!    tab closed on an open prompt — would otherwise hang the turn forever,
 //!    and the turn is the only party that knows it is still waiting.
@@ -45,12 +44,11 @@ pub struct ApprovalRequest {
     pub root_session_key: String,
     /// Which agent is asking.
     ///
-    /// A gate that remembers an answer beyond one call has to remember it *per
-    /// agent*: two agents can be configured with deliberately different tool
-    /// sets and approval policies, and a standing "always allow `exec`" given
-    /// while using a permissive one must not silently pre-approve it for a
-    /// locked-down one. The permission an operator granted was to that agent,
-    /// not to a name.
+    /// Not part of the memory key: a session is bound to one agent, so the
+    /// conversation already says which. It is here because a prompt raised
+    /// against a session nobody is watching has to name the agent that wants to
+    /// run something, and "an agent wants to run `exec`" is not a notification
+    /// anyone can act on.
     pub agent_id: String,
     /// The turn the call belongs to.
     pub turn_id: String,
@@ -112,6 +110,22 @@ pub trait ApprovalGate: Send + Sync {
     /// gate. An `aborted` error is the exception and means the turn ended
     /// under the prompt, which is a cancellation rather than a denial.
     fn ask<'a>(&'a self, request: &'a ApprovalRequest) -> BoxFuture<'a, Result<ApprovalDecision>>;
+
+    /// The answer this gate already holds, if it holds one.
+    ///
+    /// Asked before `tool.approvalRequest` goes out, and that is the whole
+    /// point of it: a gate that remembers "this session" answers `ask` in the
+    /// same tick it is called, so announcing the prompt first puts a card on
+    /// every client and takes it away a millisecond later. The scope the
+    /// operator chose is meant to stop the question being asked, not to answer
+    /// it faster.
+    ///
+    /// Synchronous and non-committal. A gate that remembers nothing keeps the
+    /// default, and one that does must give the same answer `ask` would.
+    fn remembered(&self, request: &ApprovalRequest) -> Option<ApprovalDecision> {
+        let _ = request;
+        None
+    }
 }
 
 /// Why a call was refused.

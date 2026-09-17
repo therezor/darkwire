@@ -168,32 +168,44 @@ async fn remembers_a_session_scoped_answer_for_that_session_alone() {
     parked(&gate, 1).await;
 }
 
+// What the loop is told before it announces a prompt
+
 #[tokio::test]
-async fn remembers_an_always_scoped_answer_across_sessions() {
+async fn reports_a_remembered_answer_without_parking_anything() {
     let gate = gate_at(START_MS);
 
     let first = ask(
         &gate,
         approval_request(RequestOptions {
             call_id: Some("a"),
-            session_key: Some("web:1"),
             ..RequestOptions::default()
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Always);
+    gate.resolve("a", true, ApprovalScope::Session);
     first.await.unwrap();
 
-    let second = gate
-        .ask(&approval_request(RequestOptions {
-            call_id: Some("b"),
-            session_key: Some("telegram:9"),
-            ..RequestOptions::default()
-        }))
-        .await
-        .unwrap();
-    assert!(second.approved);
-    assert_eq!(second.scope, Some(ApprovalScope::Always));
+    // The loop asks this before it emits `tool.approvalRequest`. An answer here
+    // is what keeps a prompt the operator has already answered off the screen
+    // instead of drawing it and replacing it in the same breath.
+    let second = approval_request(RequestOptions {
+        call_id: Some("b"),
+        ..RequestOptions::default()
+    });
+    let remembered = gate.remembered(&second).expect("the session answered");
+    assert!(remembered.approved);
+    assert_eq!(remembered.scope, Some(ApprovalScope::Session));
+    assert_eq!(gate.pending_count(), 0);
+}
+
+#[tokio::test]
+async fn reports_nothing_for_a_tool_nobody_has_answered_for() {
+    let gate = gate_at(START_MS);
+
+    assert!(
+        gate.remembered(&approval_request(RequestOptions::default()))
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -590,71 +602,6 @@ async fn treats_an_untracked_deployment_as_attended_so_a_fixture_raises_nothing(
 // Across agents
 
 #[tokio::test]
-async fn does_not_let_one_agents_standing_answer_pre_approve_anothers_call() {
-    // Two agents are configured with deliberately different permissions. An
-    // "always allow" granted while using the permissive one must not silently
-    // undo the restriction on the locked-down one.
-    let gate = gate_at(START_MS);
-
-    let granted = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("writer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Always);
-    assert!(granted.await.unwrap().approved);
-
-    // Same tool, same session, different agent: still has to ask.
-    let pending = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-
-    gate.resolve("c2", false, ApprovalScope::Once);
-    assert!(!pending.await.unwrap().approved);
-}
-
-#[tokio::test]
-async fn remembers_a_standing_answer_for_the_agent_it_was_given_to() {
-    let gate = gate_at(START_MS);
-
-    let first = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("writer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Always);
-    first.await.unwrap();
-
-    // A different session, the same agent: answered from memory, nothing parks.
-    let second = gate
-        .ask(&approval_request(RequestOptions {
-            agent_id: Some("writer"),
-            session_key: Some("web:2"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }))
-        .await
-        .unwrap();
-    assert!(second.approved);
-    assert_eq!(second.scope, Some(ApprovalScope::Always));
-    assert_eq!(gate.pending_count(), 0);
-}
-
-#[tokio::test]
 async fn keeps_a_session_scoped_answer_to_that_session_whoever_runs_it() {
     let gate = gate_at(START_MS);
 
@@ -682,152 +629,4 @@ async fn keeps_a_session_scoped_answer_to_that_session_whoever_runs_it() {
         }),
     );
     parked(&gate, 1).await;
-}
-
-// When an agent goes away
-
-#[tokio::test]
-async fn forgets_a_departed_agents_standing_answers() {
-    // The bug this exists to stop: an agent id is user-authored, so deleting
-    // `reviewer` and creating a new `reviewer` produces two different agents
-    // that share a key — and the second would inherit the first's permissions.
-    let gate = gate_at(START_MS);
-
-    let granted = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Always);
-    granted.await.unwrap();
-
-    gate.retain_agents(&["default".to_owned()]);
-
-    // The re-created agent has to ask for itself.
-    let _pending = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            session_key: Some("web:2"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-}
-
-#[tokio::test]
-async fn keeps_the_standing_answers_of_agents_that_are_still_configured() {
-    let gate = gate_at(START_MS);
-
-    let granted = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("writer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Always);
-    granted.await.unwrap();
-
-    gate.retain_agents(&["default".to_owned(), "writer".to_owned()]);
-
-    let second = gate
-        .ask(&approval_request(RequestOptions {
-            agent_id: Some("writer"),
-            session_key: Some("web:2"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }))
-        .await
-        .unwrap();
-    assert!(second.approved);
-    assert_eq!(gate.pending_count(), 0);
-}
-
-#[tokio::test]
-async fn leaves_session_scoped_answers_alone_which_belong_to_the_conversation() {
-    let gate = gate_at(START_MS);
-
-    let granted = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Session);
-    granted.await.unwrap();
-
-    gate.retain_agents(&["default".to_owned()]);
-
-    // Same session, so the conversation's own answer still stands — a
-    // conversation does not stop existing because an agent did.
-    let second = gate
-        .ask(&approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }))
-        .await
-        .unwrap();
-    assert!(second.approved);
-}
-
-#[tokio::test]
-async fn carries_a_standing_answer_across_a_rename_which_is_the_same_agent() {
-    let gate = gate_at(START_MS);
-
-    let granted = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            call_id: Some("c1"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Always);
-    granted.await.unwrap();
-
-    gate.rename_agent("reviewer", "code-review");
-
-    let second = gate
-        .ask(&approval_request(RequestOptions {
-            agent_id: Some("code-review"),
-            session_key: Some("web:2"),
-            call_id: Some("c2"),
-            ..RequestOptions::default()
-        }))
-        .await
-        .unwrap();
-    assert!(second.approved);
-    assert_eq!(second.scope, Some(ApprovalScope::Always));
-
-    // And nothing is left behind under the old name.
-    let _third = ask(
-        &gate,
-        approval_request(RequestOptions {
-            agent_id: Some("reviewer"),
-            session_key: Some("web:3"),
-            call_id: Some("c3"),
-            ..RequestOptions::default()
-        }),
-    );
-    parked(&gate, 1).await;
-}
-
-#[tokio::test]
-async fn renames_an_agent_that_has_no_standing_answers_without_inventing_any() {
-    let gate = gate_at(START_MS);
-    gate.rename_agent("reviewer", "code-review");
-    assert_eq!(gate.pending_count(), 0);
 }

@@ -55,7 +55,8 @@ never drops a running turn.
 - **Tool cards** — one per call, with the risk badge, running/succeeded/failed status,
   progress ticks for slow calls, and a flag when output was truncated.
 - **Approval prompts** show the arguments before the call runs, and take Approve once /
-  this session / always, or Deny. See [Tools & permissions](tools.md#answering).
+  this session, or Deny. A standing permission is an agent setting, not a button here.
+  See [Tools & permissions](tools.md#answering).
 - **Subagent cards** nest inside the call that started them, and survive a reload
   _during_ the delegation with everything the subagent had already written. The replay
   ring cannot do that on its own — it holds 512 frames and a subagent emits one per token
@@ -85,7 +86,7 @@ run yet:
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="screenshots/chat-approval.light.png">
-  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session, Always and Deny." src="screenshots/chat-approval.dark.png">
+  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session and Deny." src="screenshots/chat-approval.dark.png">
 </picture>
 
 ### Composer

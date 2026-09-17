@@ -147,8 +147,11 @@ pub struct ToolDefinition {
 
 /// How long an approval decision holds.
 ///
-/// `session` is what makes the prompt tolerable in practice — approving `exec`
-/// once per session rather than once per call.
+/// `session` is what makes the prompt tolerable in practice: approving `exec`
+/// once per session rather than once per call. It is also the longest an answer
+/// given in a prompt can hold. A standing permission is a configuration
+/// decision, so it is made where it can be seen and revoked, by setting the
+/// tool's permission to `allow` on the agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalScope {
@@ -157,8 +160,6 @@ pub enum ApprovalScope {
     Once,
     /// Every call of this tool for the rest of the session.
     Session,
-    /// Every call of this tool, remembered.
-    Always,
 }
 
 /// An operator's replacement for one tool's prose.

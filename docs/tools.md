@@ -263,17 +263,24 @@ operator's keyboard must install a gate; the server does.
 
 ### Answering
 
-An approval prompt takes one of three scopes:
+An approval prompt takes one of two scopes:
 
 | Scope     | Remembered                                                                                                                                                           |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `once`    | Not at all.                                                                                                                                                          |
 | `session` | For the session, keyed on the **root** session — so answering "this session" inside a subagent means the session you are looking at, not the one-delegation session. |
-| `always`  | Per agent, for the life of the process. A standing "always allow `exec`" on a permissive agent must not pre-approve it for a locked-down one.                        |
 
-**A refusal is remembered exactly like an approval.** Denying `always` is a real answer.
+**A refusal is remembered exactly like an approval.** Denying for the session is a real
+answer.
 
-Standing approvals are dropped when an agent is deleted and carried across a rename.
+**A conversation is as far as an answer reaches.** There is no "always" button, because a
+standing permission is a configuration decision: set the tool's permission to `allow` on
+the agent, where it is visible and can be taken back. A prompt is the wrong place to grant
+something with no way back.
+
+**A remembered answer is never announced.** The loop asks the gate what it already holds
+before it emits `tool.approvalRequest`, so the second `exec` of a session runs without a
+card appearing and vanishing again.
 
 ### Timeouts and denial
 

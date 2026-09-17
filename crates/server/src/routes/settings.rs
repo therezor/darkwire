@@ -90,19 +90,8 @@ pub async fn patch(
         .map(|rename| (rename.from.as_str(), rename.to.as_str()))
         .collect();
     state.runtime.store().reassign_agents(&moves)?;
-    // In memory and last, because it cannot fail in a way worth ordering
-    // around. The same agent, so its standing tool approvals follow it; a
-    // delete-and-recreate is a *different* agent and deliberately does not —
-    // see `forget_departed_agents`.
-    for rename in &renames {
-        if rename.from != rename.to {
-            state.hub.rename_agent(&rename.from, &rename.to);
-        }
-    }
 
-    forget_departed_agents(&state);
-    // On both writers, for the reason `forget_departed_agents` is on both: a
-    // patch and a reload can each move `scheduler.*`. The engine reads
+    // A patch and a reload can each move `scheduler.*`. The engine reads
     // `enabled`, `concurrency` and `runRetention` live, but its *timer* is armed
     // from what was due when it last looked — so without this, switching the
     // scheduler on does nothing until a restart.
@@ -121,7 +110,6 @@ pub async fn patch(
 /// publishes.
 pub async fn reload(State(state): State<AppState>) -> Result<Json<SettingsResponse>, HttpError> {
     state.runtime.reload()?;
-    forget_departed_agents(&state);
     if let Some(scheduler) = &state.scheduler {
         scheduler.refresh();
     }
@@ -276,24 +264,4 @@ fn rename_patch(
     }
 
     Ok(list)
-}
-
-/// Drops standing tool approvals for agents this write removed.
-///
-/// On both writers, because both can remove an agent: a patch does it directly,
-/// and a reload does it by re-reading a file someone edited by hand.
-///
-/// The thing it prevents is not a stale cache but a privilege carried across an
-/// identity boundary. An agent id is user-authored and re-creatable, so deleting
-/// `reviewer` and creating a new `reviewer` produces two different agents that
-/// share a key — and without this the second inherits every standing "always
-/// allow" the first was ever granted.
-fn forget_departed_agents(state: &AppState) {
-    let live: Vec<String> = state
-        .runtime
-        .agents()
-        .into_iter()
-        .map(|agent| agent.id)
-        .collect();
-    state.hub.retain_agents(&live);
 }

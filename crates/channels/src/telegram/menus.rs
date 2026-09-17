@@ -371,12 +371,13 @@ pub fn picker(
     picker_keyboard(rows, menu, chat_id, store, 0, DEFAULT_PAGE_SIZE)
 }
 
-/// Four buttons: the three approval scopes, and a refusal.
+/// Three buttons: the two approval scopes, and a refusal.
 ///
-/// Denial is `once` on purpose, though the gate supports the other two. A "deny
-/// always" that is one tap away from "deny once", on a phone, is a way to
-/// silently disable a tool for an agent and not find out for a week. An operator
-/// who means it can say so where there is room to explain it.
+/// Denial is `once` on purpose, though the gate remembers a refusal just as it
+/// remembers an approval. A "deny for the session" one tap away from "deny
+/// once", on a phone, is a way to silently disable a tool and not find out for
+/// an hour. An operator who means it can say so where there is room to explain
+/// it.
 pub fn approval_keyboard(
     call_id: &str,
     session_key: &str,
@@ -404,10 +405,7 @@ pub fn approval_keyboard(
                 button("✅ Once", true, ApprovalScope::Once),
                 button("✅ This session", true, ApprovalScope::Session),
             ],
-            vec![
-                button("✅ Always", true, ApprovalScope::Always),
-                button("⛔ Deny", false, ApprovalScope::Once),
-            ],
+            vec![button("⛔ Deny", false, ApprovalScope::Once)],
         ],
     }
 }

@@ -376,13 +376,13 @@ describe('speaking', () => {
       expiresAtMs: 1_000,
     });
 
-    approveTool('c1', true, 'always');
+    approveTool('c1', true, 'session');
 
     expect(socket().sent.at(-1)).toEqual({
       type: 'tool.approve',
       callId: 'c1',
       approved: true,
-      scope: 'always',
+      scope: 'session',
     });
     // The gate is the server's; the acknowledgement is ours, and it happens on
     // the click rather than on the echo.

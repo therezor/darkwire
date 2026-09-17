@@ -174,6 +174,8 @@ impl Tool for FakeTool {
 pub struct ScriptedGate {
     answers: Mutex<Vec<Answer>>,
     seen: Mutex<Vec<ApprovalRequest>>,
+    /// What the gate says it already knows, before anyone is asked.
+    remembered: Mutex<Option<ApprovalDecision>>,
 }
 
 /// What a gate does when asked.
@@ -195,7 +197,16 @@ impl ScriptedGate {
         Arc::new(ScriptedGate {
             answers: Mutex::new(answers),
             seen: Mutex::new(Vec::new()),
+            remembered: Mutex::new(None),
         })
+    }
+
+    /// A gate that already holds an answer, the way one does after "this
+    /// session".
+    pub fn remembering(decision: ApprovalDecision) -> Arc<ScriptedGate> {
+        let gate = ScriptedGate::new(vec![Answer::Silent]);
+        *gate.remembered.lock().unwrap() = Some(decision);
+        gate
     }
 
     /// Every request the gate was shown, in order.
@@ -230,6 +241,10 @@ impl ApprovalGate for ScriptedGate {
                 }
             }
         })
+    }
+
+    fn remembered(&self, _request: &ApprovalRequest) -> Option<ApprovalDecision> {
+        self.remembered.lock().unwrap().clone()
     }
 }
 

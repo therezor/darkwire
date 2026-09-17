@@ -110,10 +110,13 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 /**
  * How long an approval decision holds.
  *
- * `session` is what makes the prompt tolerable in practice — approving `exec`
- * once per session rather than once per call.
+ * `session` is what makes the prompt tolerable in practice: approving `exec`
+ * once per session rather than once per call. It is also the longest an answer
+ * given in a prompt can hold. A standing permission is a configuration
+ * decision, so it is made where it can be seen and revoked, by setting the
+ * tool's permission to `allow` on the agent.
  */
-export const ApprovalScopeSchema = z.enum(['once', 'session', 'always']);
+export const ApprovalScopeSchema = z.enum(['once', 'session']);
 export type ApprovalScope = z.infer<typeof ApprovalScopeSchema>;
 
 // Rewriting what a tool says about itself
