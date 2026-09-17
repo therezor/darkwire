@@ -21,6 +21,7 @@
 //! runs on every test and would pad whichever crate held it.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -496,6 +497,10 @@ impl ServerRuntime for FakeRuntime {
 
     fn store(&self) -> Arc<SessionStore> {
         Arc::clone(&self.store)
+    }
+
+    fn workspaces_dir(&self) -> PathBuf {
+        self.agent.paths.workspaces_dir.clone()
     }
 
     fn workspaces(&self) -> Arc<WorkspaceStore> {

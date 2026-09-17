@@ -102,9 +102,20 @@ export const DEFAULT_WORKSPACE_ID = 'default';
 /** 1–40 chars, lowercase alphanumerics and hyphens, no leading or trailing hyphen. */
 export const WORKSPACE_ID_PATTERN: RegExp = SLUG_ID_PATTERN;
 
+/**
+ * The whole workspaces tree, as the file browser asks for it.
+ *
+ * Not a workspace and never in the registry: it names the directory every
+ * workspace's folder sits in, which is what the browser opens at so a reader
+ * can see all of them at once. Reserved so no workspace can take the name and
+ * shadow it, and legal nowhere else — an agent's jail is still one folder.
+ */
+export const WORKSPACES_ROOT_ID = 'workspaces';
+
 /** Reserved as *names to create*. `default` is still a legal id to resolve. */
 export const RESERVED_WORKSPACE_IDS: ReadonlySet<string> = new Set([
   DEFAULT_WORKSPACE_ID,
+  WORKSPACES_ROOT_ID,
   ...RESERVED_DEVICE_NAMES,
 ]);
 

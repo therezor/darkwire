@@ -90,9 +90,18 @@ pub fn slugify(name: &str, reserved: &[&str], fallback: &str) -> String {
 /// workspace's.
 pub const DEFAULT_WORKSPACE_ID: &str = "default";
 
+/// The whole workspaces tree, as the file browser asks for it.
+///
+/// Not a workspace and never in the registry: it names the directory every
+/// workspace's folder sits in, which is what the browser opens at so a reader
+/// can see all of them at once. Reserved so no workspace can take the name and
+/// shadow it, and legal nowhere else — an agent's jail is still one folder.
+pub const WORKSPACES_ROOT_ID: &str = "workspaces";
+
 /// Reserved as *names to create*. `default` is still a legal id to resolve.
 pub const RESERVED_WORKSPACE_IDS: &[&str] = &[
     DEFAULT_WORKSPACE_ID,
+    WORKSPACES_ROOT_ID,
     "con",
     "prn",
     "aux",

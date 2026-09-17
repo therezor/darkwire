@@ -46,14 +46,14 @@ describe('normalisePath', () => {
 
 describe('breadcrumbs', () => {
   it('starts at the workspace even at the root', () => {
-    expect(breadcrumbs(ROOT_PATH)).toEqual([
-      { label: 'workspace', path: ROOT_PATH },
+    expect(breadcrumbs(ROOT_PATH, 'acme')).toEqual([
+      { label: 'acme', path: ROOT_PATH },
     ]);
   });
 
   it('accumulates a clickable path per segment', () => {
-    expect(breadcrumbs('notes/2026/july')).toEqual([
-      { label: 'workspace', path: '' },
+    expect(breadcrumbs('notes/2026/july', 'acme')).toEqual([
+      { label: 'acme', path: '' },
       { label: 'notes', path: 'notes' },
       { label: '2026', path: 'notes/2026' },
       { label: 'july', path: 'notes/2026/july' },
@@ -61,7 +61,19 @@ describe('breadcrumbs', () => {
   });
 
   it('is unchanged by the other spelling of the same directory', () => {
-    expect(breadcrumbs('./notes/')).toEqual(breadcrumbs('notes'));
+    expect(breadcrumbs('./notes/', 'acme')).toEqual(
+      breadcrumbs('notes', 'acme'),
+    );
+  });
+
+  // The root crumb names the workspace, so it is the caller's to supply. A
+  // label fixed in here was the same word on every workspace, which is what
+  // made the trail unable to say which one you were in.
+  it('names the root after the workspace it was given', () => {
+    expect(breadcrumbs('notes', 'research')[0]).toEqual({
+      label: 'research',
+      path: ROOT_PATH,
+    });
   });
 });
 

@@ -188,8 +188,9 @@ test.describe('a claimed install with nothing configured', () => {
     ).toBeVisible();
 
     // The files screen is the proof that "everything but a turn" is not a
-    // slogan: it lists the workspace on an install that cannot chat.
+    // slogan: it browses the workspaces tree on an install that cannot chat.
     await app.getByRole('link', { name: 'Files' }).click();
+    await app.getByRole('link', { name: 'default', exact: true }).click();
     await expect(app.getByText('notes.md')).toBeVisible();
   });
 });

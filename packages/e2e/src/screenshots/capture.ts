@@ -268,7 +268,10 @@ const SCREENS: readonly Screen[] = [
   },
   {
     name: 'files',
-    route: '/files',
+    // Inside a workspace, not at the list of them. `/files` on its own is every
+    // workspace as a row, and a picture of two folder names says less about the
+    // file browser than the browser itself does.
+    route: '/files?workspace=default',
     settle: async (page) => {
       await page.getByText('notes.md').first().waitFor();
     },

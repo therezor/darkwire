@@ -83,7 +83,8 @@ const filesSearchSchema = z.object({
    *
    * In the URL rather than only in the workspace context, so a link to a file
    * is complete: half an address in someone else's `localStorage` is not a
-   * shareable link. Absent means "whatever the switcher is on".
+   * shareable link. Absent means the workspaces directory, which is the top of
+   * the tree the page browses and the parent of every workspace's folder.
    */
   workspace: z.string().optional(),
   /**

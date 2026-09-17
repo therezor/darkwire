@@ -69,6 +69,27 @@ const NOTES_LISTING = {
   ],
 };
 
+/** The workspaces directory: one folder per workspace, `default` among them. */
+const WORKSPACES_LISTING = {
+  path: '',
+  entries: [
+    {
+      path: 'acme',
+      name: 'acme',
+      isDirectory: true,
+      sizeBytes: 0,
+      modifiedAtMs: 1_700_000_000_000,
+    },
+    {
+      path: 'default',
+      name: 'default',
+      isDirectory: true,
+      sizeBytes: 0,
+      modifiedAtMs: 1_700_000_000_000,
+    },
+  ],
+};
+
 const SHELL_ROUTES: Record<string, StubRoute> = {
   '/api/auth/me': [200, { authenticated: true, authEnabled: false }],
   // Claimed: the setup overlay mounts above the login one and would
@@ -80,7 +101,10 @@ const SHELL_ROUTES: Record<string, StubRoute> = {
 };
 
 function mount(
-  path = '/files',
+  // Inside the default workspace, because that is where all but a handful of
+  // these cases live. `/files` with nothing after it is the list of workspaces,
+  // and the cases that want that one ask for it.
+  path = '/files?workspace=default',
   overrides: Record<string, StubRoute> = {},
 ): {
   readonly user: ReturnType<typeof userEvent.setup>;
@@ -92,9 +116,11 @@ function mount(
     // The listing answers per directory, which is what the navigation case
     // needs: a stub keyed only on the path could not tell the two apart.
     'GET /api/files': (request) =>
-      request.query.get('path') === 'notes'
-        ? [200, NOTES_LISTING]
-        : [200, ROOT_LISTING],
+      request.query.get('workspace') === 'workspaces'
+        ? [200, WORKSPACES_LISTING]
+        : request.query.get('path') === 'notes'
+          ? [200, NOTES_LISTING]
+          : [200, ROOT_LISTING],
     'DELETE /api/files': [204, null],
     'POST /api/files/upload': [
       201,
@@ -173,6 +199,89 @@ async function deleteFrom(
   await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 }
 
+describe('the workspaces directory', () => {
+  it('opens there when the address names no workspace', async () => {
+    const { calls } = mount('/files');
+
+    // Every workspace's folder, which is what makes all of them reachable from
+    // one page. No workspace contains another, so this is the only listing that
+    // shows more than one.
+    expect(
+      await screen.findByRole('link', { name: 'acme' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'default' })).toBeInTheDocument();
+
+    // The reserved id, not a workspace: the server turns it into the directory
+    // the folders sit in.
+    const listing = calls.find((call) => call.path === '/api/files');
+    expect(listing?.query.get('workspace')).toBe('workspaces');
+  });
+
+  it('walks into a workspace, and the address carries it', async () => {
+    const { user, router } = mount('/files');
+
+    await user.click(await screen.findByRole('link', { name: 'acme' }));
+
+    // A directory here is a workspace, so the address names the workspace
+    // rather than a path inside the tree above it.
+    expect(router.state.location.searchStr).toContain('path=acme');
+  });
+
+  it('will not delete the default workspace’s folder', async () => {
+    const { user } = mount('/files');
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for default' }),
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'Delete' }),
+    ).not.toBeInTheDocument();
+    // Everything else on the row is still there, so this is one item withheld
+    // rather than a row with nothing to do to it.
+    expect(
+      screen.getByRole('menuitem', { name: 'Rename' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers Delete on every other folder there', async () => {
+    const { user } = mount('/files');
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for acme' }),
+    );
+    expect(
+      screen.getByRole('menuitem', { name: 'Delete' }),
+    ).toBeInTheDocument();
+  });
+
+  it('treats a directory called default inside a workspace as ordinary', async () => {
+    const { user } = mount('/files?workspace=default', {
+      'GET /api/files': [
+        200,
+        {
+          path: '',
+          entries: [
+            {
+              path: 'default',
+              name: 'default',
+              isDirectory: true,
+              sizeBytes: 0,
+              modifiedAtMs: 1_700_000_000_000,
+            },
+          ],
+        },
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for default' }),
+    );
+    expect(
+      screen.getByRole('menuitem', { name: 'Delete' }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('the file browser', () => {
   it('lists the workspace root and asks for it as `.`', async () => {
     const { calls } = mount();
@@ -205,13 +314,17 @@ describe('the file browser', () => {
     ).toBeInTheDocument();
     expect(router.state.location.searchStr).toContain('path=notes');
 
+    // The workspace's own crumb, which is its folder. Clicking it goes to the
+    // top of *this* workspace and not out of it: `workspace` survives and only
+    // `path` goes.
     const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    await user.click(within(trail).getByRole('link', { name: 'workspace' }));
+    await user.click(within(trail).getByRole('link', { name: 'default' }));
 
     expect(
       await screen.findByRole('link', { name: 'notes.md' }),
     ).toBeInTheDocument();
     expect(router.state.location.searchStr).not.toContain('path=');
+    expect(router.state.location.searchStr).toContain('workspace=default');
   });
 
   it('opens a file through the address, so its row is a link like every other', async () => {
@@ -231,7 +344,7 @@ describe('the file browser', () => {
   });
 
   it('opens the file the address names on a cold load', async () => {
-    mount('/files?file=notes.md');
+    mount('/files?workspace=default&file=notes.md');
 
     expect(
       await screen.findByRole('textbox', { name: 'Contents of notes.md' }),
@@ -239,7 +352,7 @@ describe('the file browser', () => {
   });
 
   it('takes the file back out of the address when the dialog closes', async () => {
-    const { user, router } = mount('/files?file=notes.md');
+    const { user, router } = mount('/files?workspace=default&file=notes.md');
     await screen.findByRole('textbox', { name: 'Contents of notes.md' });
 
     await user.keyboard('{Escape}');
@@ -251,7 +364,7 @@ describe('the file browser', () => {
   });
 
   it('offers the whole empty directory as somewhere to drop a file', async () => {
-    mount('/files', {
+    mount('/files?workspace=default', {
       'GET /api/files': [200, { path: '', entries: [] }],
     });
 
@@ -264,11 +377,11 @@ describe('the file browser', () => {
   });
 
   it('shows the trail down to the directory it is in', async () => {
-    mount('/files?path=notes');
+    mount('/files?workspace=default&path=notes');
 
     const trail = await screen.findByRole('navigation', { name: 'Breadcrumb' });
     expect(
-      within(trail).getByRole('link', { name: 'workspace' }),
+      within(trail).getByRole('link', { name: 'default' }),
     ).toBeInTheDocument();
     // The current directory is text, not a link to where it already is.
     expect(
@@ -278,7 +391,7 @@ describe('the file browser', () => {
   });
 
   it('uploads into the directory being looked at', async () => {
-    const { user, calls } = mount('/files?path=notes');
+    const { user, calls } = mount('/files?workspace=default&path=notes');
     await screen.findByRole('link', { name: 'a.txt' });
 
     const file = new File(['hello'], 'report.txt', { type: 'text/plain' });
@@ -397,7 +510,7 @@ describe('the file browser', () => {
   });
 
   it('says so rather than failing when a directory cannot be listed', async () => {
-    mount('/files', {
+    mount('/files?workspace=default', {
       'GET /api/files': [
         404,
         { error: { code: 'not_found', message: 'No such file: gone' } },
@@ -459,7 +572,7 @@ describe('the file editor', () => {
   });
 
   it('keeps the edits and explains when the file moved under it', async () => {
-    const { user } = mount('/files', {
+    const { user } = mount('/files?workspace=default', {
       'PUT /api/files/text': [
         409,
         {
@@ -486,7 +599,7 @@ describe('the file editor', () => {
   });
 
   it('will not edit a truncated file, because saving a prefix deletes the rest', async () => {
-    const { user } = mount('/files', {
+    const { user } = mount('/files?workspace=default', {
       'GET /api/files/text': [
         200,
         {
@@ -530,7 +643,7 @@ describe('the file editor', () => {
    * browser-side type check.
    */
   it('offers the editor for a file the MIME table does not know', async () => {
-    const { user, calls } = mount('/files', {
+    const { user, calls } = mount('/files?workspace=default', {
       'GET /api/files': [
         200,
         {
@@ -566,7 +679,7 @@ describe('the file editor', () => {
   });
 
   it('offers a download instead when the bytes turn out not to be text', async () => {
-    const { user } = mount('/files', {
+    const { user } = mount('/files?workspace=default', {
       'GET /api/files/text': [
         400,
         {
@@ -588,7 +701,7 @@ describe('the file editor', () => {
 
 describe('creating entries', () => {
   it('creates a folder in the directory being looked at', async () => {
-    const { user, calls } = mount('/files?path=notes');
+    const { user, calls } = mount('/files?workspace=default&path=notes');
     await screen.findByRole('link', { name: 'a.txt' });
 
     await user.click(screen.getByRole('button', { name: 'New' }));
@@ -659,7 +772,7 @@ describe('renaming', () => {
   }
 
   it('renames a folder, sending both ends of the move', async () => {
-    const { user, calls } = mount('/files', {
+    const { user, calls } = mount('/files?workspace=default', {
       'POST /api/files/move': [
         200,
         {
@@ -706,7 +819,7 @@ describe('renaming', () => {
     // Joined to the entry's own parent rather than to the directory on screen.
     // They agree today; a rename that quietly relocated a row would not be
     // visible until something could list an entry from elsewhere.
-    const { user, calls } = mount('/files?path=notes', {
+    const { user, calls } = mount('/files?workspace=default&path=notes', {
       'POST /api/files/move': [
         200,
         {
@@ -736,7 +849,7 @@ describe('renaming', () => {
   });
 
   it('reports a refusal rather than pretending it worked', async () => {
-    const { user, calls } = mount('/files', {
+    const { user, calls } = mount('/files?workspace=default', {
       'POST /api/files/move': [
         409,
         {

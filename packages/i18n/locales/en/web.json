@@ -472,7 +472,8 @@
     "tooBig": "This file is {{size}} and only the first part was read. Saving would delete the rest, so it cannot be edited here — download it instead.",
     "upload": "Upload files",
     "uploaded_one": "Uploaded {{count}} file",
-    "uploaded_other": "Uploaded {{count}} files"
+    "uploaded_other": "Uploaded {{count}} files",
+    "workspaces": "Workspaces"
   },
   "nav": {
     "agents": "Agents",

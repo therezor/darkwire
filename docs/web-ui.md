@@ -25,16 +25,16 @@ origin blocked. See [Security](security.md#privacy).
 
 ## Screens
 
-| Route                             | What it is                                                    |
-| --------------------------------- | ------------------------------------------------------------- |
-| `/`                               | Chat. `?session=` picks the session.                          |
-| `/agents`, `/agents/:id`          | Agent list and editor.                                        |
-| `/workspaces`, `/workspaces/:id`  | Workspace list and editor.                                    |
-| `/files`                          | File browser. `?path=` and `?workspace=` are in the URL.      |
-| `/notifications`                  | The archive.                                                  |
-| `/settings`                       | `?panel=` picks the tab.                                      |
-| `/settings/providers/:instanceId` | One endpoint's editor.                                        |
-| `/tokens`                         | Every design token and primitive on one page. Not in the nav. |
+| Route                             | What it is                                                           |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `/`                               | Chat. `?session=` picks the session.                                 |
+| `/agents`, `/agents/:id`          | Agent list and editor.                                               |
+| `/workspaces`, `/workspaces/:id`  | Workspace list and editor.                                           |
+| `/files`                          | File browser. Without `?workspace=` it opens at the workspaces tree. |
+| `/notifications`                  | The archive.                                                         |
+| `/settings`                       | `?panel=` picks the tab.                                             |
+| `/settings/providers/:instanceId` | One endpoint's editor.                                               |
+| `/tokens`                         | Every design token and primitive on one page. Not in the nav.        |
 
 The shell is two columns; below `md` the sidebar becomes a drawer rather than a narrowed
 rail. The header carries the wordmark, a connection badge with a Reload action, the
@@ -219,9 +219,12 @@ it names which workspace the open conversation's tools use, and moving it writes
 binding on the session. The move takes effect from the next turn — a turn already
 running finishes in the workspace it started in.
 
-The Files page opens at the default workspace. Every workspace is its own folder on
-disk and none of them can see another, so the way to a different one is the link out of
-the workspaces manager, which sets `?workspace=` in the URL.
+The Files page opens at the directory every workspace's folder sits in, so all of them
+are on screen at once and a row walks into one. That directory is a jail root for the
+browser alone: an agent still gets one workspace's folder and cannot reach a sibling.
+The `default` folder is the one row there with no Delete, because every session falls
+back to it. The workspaces manager links into a single workspace by setting
+`?workspace=` in the URL.
 
 Which workspace a given turn actually ran in is recorded per turn and shown in the turn
 details popover, because a conversation that has been moved spans more than one.

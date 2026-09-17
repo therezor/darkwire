@@ -32,7 +32,7 @@ test.describe('the text editor', () => {
       data: { path: 'long.ts', content: LONG_FILE, workspaceId: 'default' },
     });
 
-    await app.goto(`${harness.url}/files`);
+    await app.goto(`${harness.url}/files?workspace=default`);
     await app.getByRole('link', { name: 'long.ts', exact: true }).click();
 
     const editor = app.locator('.code-editor');
@@ -76,7 +76,7 @@ test.describe('the text editor', () => {
       data: { path: 'long.ts', content: LONG_FILE, workspaceId: 'default' },
     });
 
-    await app.goto(`${harness.url}/files`);
+    await app.goto(`${harness.url}/files?workspace=default`);
     await app.getByRole('link', { name: 'long.ts', exact: true }).click();
 
     const editor = app.locator('.code-editor');
@@ -127,7 +127,7 @@ test.describe('renaming', () => {
       data: { path: 'drafts/one.md', content: 'first', workspaceId: 'default' },
     });
 
-    await app.goto(`${harness.url}/files`);
+    await app.goto(`${harness.url}/files?workspace=default`);
     await app.getByRole('button', { name: 'Actions for drafts' }).click();
     await app.getByRole('menuitem', { name: 'Rename' }).click();
 
@@ -162,7 +162,7 @@ test.describe('renaming', () => {
       data: { path: 'other.md', content: 'and me', workspaceId: 'default' },
     });
 
-    await app.goto(`${harness.url}/files`);
+    await app.goto(`${harness.url}/files?workspace=default`);
     await app.getByRole('button', { name: 'Actions for other.md' }).click();
     await app.getByRole('menuitem', { name: 'Rename' }).click();
 

@@ -50,10 +50,15 @@ interface Crumb {
  * Root is always the first crumb and is always clickable, so a browser that
  * navigated six levels down has one target to get back rather than six presses
  * of a Back button that is also the browser's.
+ *
+ * `rootLabel` is passed in rather than fixed here: the root of this trail is a
+ * particular workspace, and only the caller knows which. What sits above it is
+ * the caller's too — the list of workspaces is not a path, so it cannot be a
+ * crumb this function produces.
  */
-export function breadcrumbs(path: string): Crumb[] {
+export function breadcrumbs(path: string, rootLabel: string): Crumb[] {
   const normalised = normalisePath(path);
-  const crumbs: Crumb[] = [{ label: 'workspace', path: ROOT_PATH }];
+  const crumbs: Crumb[] = [{ label: rootLabel, path: ROOT_PATH }];
   if (normalised === ROOT_PATH) return crumbs;
 
   let accumulated = '';

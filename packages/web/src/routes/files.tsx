@@ -1,14 +1,25 @@
 /**
  * The file browser.
  *
- * It shows the workspace: the one tree the agent's filesystem tools may reach,
- * and therefore the one tree a reader needs to see to know what a turn actually
+ * It shows the workspaces: the trees the agent's filesystem tools may reach,
+ * and therefore the trees a reader needs to see to know what a turn actually
  * did. Every path in and out is workspace-relative, and nothing here decides
  * whether a path is legal — `WorkspaceJail` does that on the server, for every
  * caller, and a second copy of those rules in a React component would be a
  * weaker one that no security test reads.
  *
  * The decisions:
+ *
+ *  - **Without a workspace in the address, it opens at the workspaces
+ *    directory.** That is the folder every workspace's own folder sits in, so
+ *    the page opens on all of them and each is walked into like any other
+ *    directory. The tree is the navigation, which is why this page has no
+ *    workspace control of its own; `/workspaces` is where one is created,
+ *    renamed and detached. The directory is a jail root for *this* page only —
+ *    an agent still gets one workspace's folder and cannot see a sibling.
+ *  - **The default workspace's folder cannot be deleted from here.** Every
+ *    session falls back to it. Every other row at that level is an ordinary
+ *    directory and behaves like one.
  *
  *  - **The directory is in the URL, and so is the file open on top of it.** A
  *    file browser whose location lives in component state loses it on reload,
@@ -56,7 +67,11 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DEFAULT_WORKSPACE_ID, type FileEntry } from '@darkwire/protocol';
+import {
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACES_ROOT_ID,
+  type FileEntry,
+} from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
@@ -104,6 +119,21 @@ const ASCENDING_FIRST: readonly SortKey[] = ['name'];
 /** What "New…" is being asked for. `undefined` means the dialog is closed. */
 type NewKind = 'file' | 'directory';
 
+/**
+ * Whether this row is the default workspace's folder at the top of the tree.
+ *
+ * True for exactly one row on exactly one listing. Anywhere inside a workspace
+ * a directory called `default` is an ordinary directory, which is why this asks
+ * about the listing as well as the name.
+ */
+function protectedFolder(workspace: string, entry: FileEntry): boolean {
+  return (
+    workspace === WORKSPACES_ROOT_ID &&
+    entry.isDirectory &&
+    entry.path === DEFAULT_WORKSPACE_ID
+  );
+}
+
 export function FilesRoute(): JSX.Element {
   const { t } = useTranslation();
   const fmt = useFormat();
@@ -114,12 +144,12 @@ export function FilesRoute(): JSX.Element {
   } = useSearch({ from: '/files' });
   // The URL wins when it has one, so a link to a file is complete and
   // shareable — this page's own doctrine is that its location lives in the
-  // address bar. Without one it is the default workspace, which is the *parent*
-  // of every named one: they appear here as ordinary folders and are opened by
-  // clicking into them. That is why this page needs no workspace control of its
-  // own — the tree is the navigation. `/workspaces` is where they are created
-  // and renamed, and its rows link back here with the parameter set.
-  const workspace = fromUrl ?? DEFAULT_WORKSPACE_ID;
+  // address bar. Without one it is the whole workspaces tree: every workspace
+  // is a folder in it, they are opened by clicking into them, and that is why
+  // this page needs no workspace control of its own. `/workspaces` is where
+  // they are created and renamed, and its rows link back here with the
+  // parameter set.
+  const workspace = fromUrl ?? WORKSPACES_ROOT_ID;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -548,15 +578,23 @@ export function FilesRoute(): JSX.Element {
                         <Pencil />
                         Rename
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="menu__item--danger"
-                        onSelect={() => {
-                          setPendingDelete(entry);
-                        }}
-                      >
-                        <Trash2 />
-                        Delete
-                      </DropdownMenuItem>
+                      {/* The default workspace's folder is the one directory
+                          here that nothing may remove: every session falls back
+                          to it, so there is no coherent thing deleting it could
+                          mean. The store refuses to detach the workspace for
+                          the same reason, and the item is absent rather than
+                          failing when pressed. */}
+                      {!protectedFolder(workspace, entry) && (
+                        <DropdownMenuItem
+                          className="menu__item--danger"
+                          onSelect={() => {
+                            setPendingDelete(entry);
+                          }}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      )}
                     </RowActions>
                   }
                 />
@@ -685,7 +723,13 @@ export function FilesRoute(): JSX.Element {
 }
 
 /**
- * Where you are, and every step of the way back to the root.
+ * Where you are, and every step of the way back.
+ *
+ * The trail starts above the workspace, at the list of them, because that is
+ * now a place on this page rather than a different screen — and the workspace
+ * itself is a crumb for the same reason. It is named by its folder rather than
+ * by its display name: the folder is what the address holds and what the server
+ * jails, and two workspaces may share a name.
  *
  * Links, like the rows under them: a crumb is a directory, a directory is an
  * address, and a control that changes the address without an `href` cannot be
@@ -703,7 +747,19 @@ function Breadcrumbs({
   readonly onNavigate: () => void;
 }): JSX.Element {
   const { t } = useTranslation();
-  const crumbs = breadcrumbs(path);
+  const crumbs = breadcrumbs(
+    path,
+    // The root crumb is the tree you are in. At the top that is the workspaces
+    // directory, which is not a workspace and has no id worth printing.
+    workspace === WORKSPACES_ROOT_ID ? t('files.workspaces') : workspace,
+  ).map((crumb) => ({
+    key: crumb.path,
+    label: crumb.label,
+    search:
+      crumb.path === ROOT_PATH
+        ? { workspace }
+        : { workspace, path: crumb.path },
+  }));
 
   return (
     <nav aria-label={t('files.breadcrumb')}>
@@ -711,7 +767,7 @@ function Breadcrumbs({
         {crumbs.map((crumb, index) => {
           const last = index === crumbs.length - 1;
           return (
-            <li key={crumb.path}>
+            <li key={crumb.key}>
               {index > 0 && <span className="breadcrumbs__separator">/</span>}
               {last ? (
                 // The current directory is text, not a link to itself.
@@ -721,10 +777,7 @@ function Breadcrumbs({
               ) : (
                 <Link
                   to="/files"
-                  search={{
-                    ...(crumb.path === ROOT_PATH ? {} : { path: crumb.path }),
-                    workspace,
-                  }}
+                  search={crumb.search}
                   className="breadcrumbs__link"
                   onClick={onNavigate}
                 >

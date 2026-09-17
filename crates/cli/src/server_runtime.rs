@@ -32,7 +32,7 @@
 //!    [`ModelSource`]: the terminal's `/model` asks the same question and there
 //!    is one implementation of the answer.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use darkwire_agent::{PromptPreview, PromptPreviewInput};
@@ -547,6 +547,10 @@ impl ServerRuntime for CliServerRuntime {
 
     fn workspaces(&self) -> Arc<WorkspaceStore> {
         Arc::clone(self.runtime.workspaces())
+    }
+
+    fn workspaces_dir(&self) -> PathBuf {
+        self.runtime.paths().workspaces_dir
     }
 
     /// Read from disk on every call, deliberately.

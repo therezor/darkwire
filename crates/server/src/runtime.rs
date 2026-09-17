@@ -20,6 +20,7 @@
 //! and a required member would make every such double invent an answer. Each
 //! one has a default that reports the honest empty state.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use darkwire_agent::{PromptPreview, PromptPreviewInput};
@@ -209,6 +210,15 @@ pub trait ServerRuntime: Send + Sync {
 
     /// The workspace registry.
     fn workspaces(&self) -> Arc<WorkspaceStore>;
+
+    /// The directory every workspace's folder sits in.
+    ///
+    /// The file browser opens here, so a reader sees every workspace at once
+    /// rather than one folder with no way to the others. It is not a jail root
+    /// for an agent and never becomes one: `jail_for` still answers with a
+    /// single workspace's folder, which is what keeps one out of another's
+    /// reach.
+    fn workspaces_dir(&self) -> PathBuf;
 
     /// Independently installed container definitions, read fresh.
     fn environments(&self) -> Vec<EnvironmentListing> {

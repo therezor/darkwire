@@ -98,8 +98,8 @@ const NAV: readonly NavItem[] = [
   { to: '/agents', label: 'nav.agents', icon: BrainCircuit },
   { to: '/files', label: 'nav.files', icon: FolderOpen },
   // Directly after Files, because that is what a workspace holds. The Files
-  // page browses the default tree and every named workspace is a folder inside
-  // it; this row is where they are created, renamed and detached.
+  // page opens at the directory they all sit in; this row is where they are
+  // created, renamed and detached.
   { to: '/workspaces', label: 'nav.workspaces', icon: Boxes },
   // Before Settings, and a row of its own rather than a settings panel: the
   // jobs are a list an operator keeps, which is the same kind of thing as

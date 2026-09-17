@@ -184,9 +184,28 @@ test.describe('workspaces', () => {
 
     await app.goto(`${harness.url}/files`);
 
-    // Every workspace is its own folder now, so the default holds none of them.
-    // What it lists is its own seeded files and nothing belonging to anyone
-    // else: the isolation is symmetric rather than one-way.
+    // The page opens at the directory every workspace's folder sits in, so all
+    // of them are reachable from one listing. No workspace contains another, so
+    // this is the only place more than one is visible.
+    await expect(
+      app.getByRole('link', { name: 'acme', exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.getByRole('link', { name: 'research', exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.getByRole('link', { name: 'acme-only.md', exact: true }),
+    ).toHaveCount(0);
+
+    // Walking into one, which is what the rows are for.
+    await app.getByRole('link', { name: 'acme', exact: true }).click();
+    await expect(
+      app.getByRole('link', { name: 'acme-only.md', exact: true }),
+    ).toBeVisible();
+
+    // And a workspace still sees only itself: the folder beside it is not a
+    // directory inside it.
+    await app.goto(`${harness.url}/files?workspace=default`);
     await expect(
       app.getByRole('link', { name: 'notes.md', exact: true }),
     ).toBeVisible();

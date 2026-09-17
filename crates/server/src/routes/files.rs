@@ -22,14 +22,14 @@ use axum::extract::{Extension, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, body};
-use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
+use darkwire_core::ids::{DEFAULT_WORKSPACE_ID, WORKSPACES_ROOT_ID};
 use darkwire_core::{ErrorKind, WireError, ensure_dir};
 use darkwire_protocol::rest::{
     CreateDirectoryRequest, FileEntry, FileListResponse, FileTextResponse, FileWriteRequest,
     MoveFileRequest, SignedUrl, SignedUrlRequest, UploadResponse,
 };
 use darkwire_protocol::ws::ErrorCode;
-use darkwire_security::jail::WorkspaceJail;
+use darkwire_security::jail::{JailOptions, WorkspaceJail};
 use garde::Validate;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -490,7 +490,21 @@ impl Signer {
 /// into existence: the path resolver would happily accept any legal slug — that
 /// is deliberate, so a *detached* workspace's sessions keep working — so the
 /// boundary that decides "a user can still see this one" belongs here.
+/// The jail one request works under.
+///
+/// `workspaces` is not a workspace: it is the directory every workspace's
+/// folder sits in, and it gets a jail of its own so the browser can open at the
+/// top of the tree and walk down into any of them. Nothing else resolves it —
+/// an agent asks for a workspace by id and gets that one folder, which is what
+/// keeps one workspace out of another's reach. The browser is an authenticated
+/// human, and `~/.darkwire` (the settings, the vault, the database) is a
+/// different tree entirely, so nothing under this root is a secret the caller
+/// could not already read.
 fn jail_for(state: &AppState, workspace_id: &str) -> Result<Arc<WorkspaceJail>, HttpError> {
+    if workspace_id == WORKSPACES_ROOT_ID {
+        let root = state.runtime.workspaces_dir();
+        return Ok(Arc::new(WorkspaceJail::new(JailOptions::new(root))?));
+    }
     if state.runtime.workspaces().get(workspace_id)?.is_none() {
         return Err(HttpError::not_found(format!(
             "No such workspace: {workspace_id}"

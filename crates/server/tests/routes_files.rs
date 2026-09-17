@@ -206,6 +206,90 @@ async fn the_listing_answers_the_workspace_root_by_default_directories_first() {
     assert_eq!(answer.json()["path"], "");
 }
 
+/// The reserved id the browser opens at: the directory the folders sit in.
+///
+/// Not a workspace, and the registry never holds it. It exists so one page can
+/// show every workspace at once, which no per-workspace jail can do because no
+/// workspace contains another.
+#[tokio::test]
+async fn the_workspaces_root_lists_every_workspace_as_a_folder() {
+    let test = server();
+    let acme = make_workspace(&test, "Acme");
+    write_file(&test, &acme, "brief.md", b"a");
+    write_file(&test, "default", "notes.md", b"n");
+
+    let answer = get(&test, "/api/files?workspace=workspaces").await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let names: Vec<&str> = answer.json()["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"acme"), "got {names:?}");
+    assert!(names.contains(&"default"), "got {names:?}");
+    // Folders, not the files inside them: this listing is one level up.
+    assert!(!names.contains(&"brief.md"), "got {names:?}");
+}
+
+/// The isolation the split exists for, and the reason this root is the
+/// browser's alone: a workspace still sees only itself.
+#[tokio::test]
+async fn a_workspace_still_cannot_see_its_sibling() {
+    let test = server();
+    let acme = make_workspace(&test, "Acme");
+    write_file(&test, &acme, "brief.md", b"a");
+
+    let answer = get(&test, "/api/files?workspace=default").await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let names: Vec<&str> = answer.json()["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect();
+    assert!(!names.contains(&"acme"), "got {names:?}");
+}
+
+/// Reading one workspace's file through the root, by the path the listing gave.
+#[tokio::test]
+async fn the_workspaces_root_reads_a_file_inside_a_workspace() {
+    let test = server();
+    let acme = make_workspace(&test, "Acme");
+    write_file(&test, &acme, "brief.md", b"the brief");
+
+    let answer = get(
+        &test,
+        &format!("/api/files/text?workspace=workspaces&path={acme}/brief.md"),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.json()["content"], "the brief");
+}
+
+/// The tree above the workspaces directory stays out of reach.
+///
+/// A climb is clamped to the root rather than refused, which is what the jail
+/// does for every workspace and is why this root gets one at all. The parent
+/// holds `workspaces` itself, so seeing that name in the answer is what an
+/// escape would look like.
+#[tokio::test]
+async fn the_workspaces_root_clamps_a_path_that_climbs_out_of_it() {
+    let test = server();
+
+    let answer = get(&test, "/api/files?workspace=workspaces&path=../..").await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.json()["path"], "");
+    let names: Vec<&str> = answer.json()["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"default"), "got {names:?}");
+    assert!(!names.contains(&"workspaces"), "got {names:?}");
+}
+
 #[tokio::test]
 async fn the_listing_answers_a_subdirectory() {
     let test = server();

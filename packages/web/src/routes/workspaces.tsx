@@ -87,9 +87,9 @@ export function WorkspacesRoute(): JSX.Element {
       // that shows a value it will not match on reads as broken.
       haystack: (workspace) => `${workspace.name} ${workspace.id}`,
       comparators: COMPARE,
-      // The default workspace holds every other one, so it is the parent of the
-      // list rather than a peer in it. It stays at the top in both directions for
-      // the same reason a directory does in Files.
+      // The default is where a session lands when nothing names a workspace, so
+      // it stays at the top in both directions: it is the one row that is an
+      // answer to a question nobody asked.
       group: (workspace) => (workspace.isDefault ? 0 : 1),
       tiebreak: (a, b) => a.name.localeCompare(b.name),
     });
@@ -160,24 +160,20 @@ export function WorkspacesRoute(): JSX.Element {
                     className="data-list__open"
                     aria-label={`Edit ${workspace.name}`}
                   >
-                    {/* A folder, because that is what a workspace is. One
-                          icon for both kinds — that the default holds the
-                          others is what the badge beside it says, and a second
-                          glyph saying the same thing is a second thing to
-                          learn. */}
+                    {/* A folder, because that is what a workspace is. One icon
+                          for every row — which one is the default is what the
+                          badge beside it says, and a second glyph saying the
+                          same thing is a second thing to learn. */}
                     <Folder />
                     <span className="stack workspaces__name">
                       <span className="workspaces__name-row">
                         <span className="truncate">{workspace.name}</span>
                         {workspace.isDefault && <Badge>default</Badge>}
                       </span>
-                      {/* Rooted at `/`, so the column reads `/` against
-                            `/acme` and the nesting is visible rather than
-                            described. The default is not in a folder called
-                            `default` — it *is* the root — and it is not called
-                            `workspace` either, which is the Files breadcrumb's
-                            name for whichever workspace you are in. See
-                            `workspaces/folder.ts`. */}
+                      {/* Rooted at `/`, so a row reads `/acme` against
+                            `/default` and the two are visibly siblings. Files
+                            spells it the same way in its own list and in its
+                            breadcrumb. See `workspaces/folder.ts`. */}
                       <span className="workspaces__folder truncate">
                         {folderLabel(workspace)}
                       </span>
