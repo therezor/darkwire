@@ -406,7 +406,13 @@ fn session(home: &tempfile::TempDir) -> darkwire::chat::ChatSession {
             color: Some(false),
             ..Globals::default()
         },
-        &ChatArgs::default(),
+        // `--home` moves DarkWire's state and nothing else, so the workspaces
+        // are named too. Without this they resolve under the home directory of
+        // whoever is running the tests.
+        &ChatArgs {
+            workspaces: Some(home.path().join("workspaces").display().to_string()),
+            ..ChatArgs::default()
+        },
         &Env::empty(),
     )
     .unwrap()

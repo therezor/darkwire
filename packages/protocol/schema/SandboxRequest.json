@@ -208,6 +208,23 @@
         "instance"
       ],
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "resolveImage"
+        },
+        "reference": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "reference"
+      ],
+      "additionalProperties": false
     }
   ]
 }

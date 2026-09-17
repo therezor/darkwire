@@ -3,14 +3,11 @@
 Time: Tuesday, 14 November 2023 at 22:13 (UTC) — 2023-11-14T22:13:20Z
 ## Running commands
 
-`exec` runs on this machine — Linux x64, Node 22.11.0 — as a real process on the real
-filesystem. Unlike the file tools it is therefore *not* confined to the workspace,
-which is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is
-refused rather than resolved inside. Its working directory is already the
-workspace root, so pass relative arguments.
+`exec` runs with the workspace root as its working directory, so pass relative
+arguments. Paths outside the workspace may be refused.
 
-- Standard shell tools and UTF-8 are available.
-- Prefer the file tools where they are simpler or more reliable than a command.
+The file tools always act on the workspace on this machine, whatever `exec`
+does. Prefer them where they are simpler or more reliable than a command.
 
 ## Tool output policy
 

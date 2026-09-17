@@ -4,6 +4,7 @@ use crate::container_pool::{
     ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
 };
 use darkwire_core::{ErrorKind, Result, SystemClock, WireError};
+use darkwire_protocol::rest::ResolveImageResponse;
 use darkwire_protocol::{EnvironmentNetwork, SandboxRequest};
 use darkwire_security::environment::invalid;
 use darkwire_security::{ExecGuardOptions, JailOptions, PolicyStore, WorkspaceJail, guard_exec};
@@ -53,19 +54,6 @@ impl ServiceConfig {
     /// or control state. Daemon paths are explicit operator mappings, never
     /// accepted from a client request.
     fn validate_paths(&mut self) -> Result<()> {
-        use std::path::{Component, Path};
-        fn absolute(path: &Path) -> Result<()> {
-            if !path.is_absolute()
-                || path.parent().is_none()
-                || path.components().any(|c| matches!(c, Component::ParentDir))
-            {
-                return Err(invalid(format!(
-                    "Expected an absolute non-root path: {}",
-                    path.display()
-                )));
-            }
-            Ok(())
-        }
         for path in [
             &self.socket,
             &self.policy_root,
@@ -93,6 +81,24 @@ impl ServiceConfig {
                 .file_name()
                 .ok_or_else(|| invalid("Missing socket name"))?,
         );
+        let mut workspaces = std::mem::take(&mut self.workspaces);
+        for registration in workspaces.values_mut() {
+            self.check_registration(registration)?;
+        }
+        self.workspaces = workspaces;
+        Ok(())
+    }
+
+    /// Canonicalise one workspace mount and refuse it if it overlaps ours.
+    ///
+    /// Split out of [`Self::validate_paths`] because a registration no longer
+    /// has to be present at boot: a [`WorkspaceLookup`] answers for workspaces
+    /// created since, and one that skipped this check would be a way around it.
+    /// One function, so the two paths cannot drift into two answers.
+    pub(crate) fn check_registration(
+        &self,
+        registration: &mut WorkspaceRegistration,
+    ) -> Result<()> {
         let mut protected = vec![self.state_root.clone(), self.socket.clone()];
         let environments = self.policy_root.join("environments");
         protected.push(if environments.exists() {
@@ -102,31 +108,67 @@ impl ServiceConfig {
         } else {
             environments
         });
-        for registration in self.workspaces.values_mut() {
-            absolute(&registration.path)?;
-            absolute(&registration.daemon_path)?;
-            registration.path = registration
-                .path
-                .canonicalize()
-                .map_err(|e| invalid(e.to_string()))?;
-            if !registration.path.is_dir()
-                || protected.iter().any(|path| {
-                    path.starts_with(&registration.path) || registration.path.starts_with(path)
-                })
-                || self
-                    .daemon_state_root
-                    .starts_with(&registration.daemon_path)
-                || registration
-                    .daemon_path
-                    .starts_with(&self.daemon_state_root)
-            {
-                return Err(invalid(
-                    "Workspace mounts must not overlap sandbox policy or control state",
-                ));
-            }
+        absolute(&registration.path)?;
+        absolute(&registration.daemon_path)?;
+        registration.path = registration
+            .path
+            .canonicalize()
+            .map_err(|e| invalid(e.to_string()))?;
+        if !registration.path.is_dir()
+            || protected.iter().any(|path| {
+                path.starts_with(&registration.path) || registration.path.starts_with(path)
+            })
+            || self
+                .daemon_state_root
+                .starts_with(&registration.daemon_path)
+            || registration
+                .daemon_path
+                .starts_with(&self.daemon_state_root)
+        {
+            return Err(invalid(
+                "Workspace mounts must not overlap sandbox policy or control state",
+            ));
         }
         Ok(())
     }
+}
+
+/// Answers "may this workspace exist, and what may it reach" per request.
+///
+/// `ServiceConfig.workspaces` is read once, which is right for a deployed
+/// service: that map is an operator's allow-list bounding an app in another
+/// trust domain, and it should not move without them saying so. An embedded
+/// service is the same operator, the same process tree and the same policy
+/// directory, so its answer is derived rather than configured. Deriving it once
+/// at boot meant a workspace or an environment created afterwards could not run
+/// until `serve` restarted.
+///
+/// A lookup is consulted only for a workspace the fixed map does not name, so a
+/// deployed service that supplies none behaves exactly as before.
+pub trait WorkspaceLookup: Send + Sync {
+    /// The registration for this workspace, or `None` if there is no such
+    /// workspace. Paths need not be canonical: the service checks and
+    /// canonicalises what it is handed.
+    fn resolve(&self, workspace: &str) -> Option<WorkspaceRegistration>;
+}
+
+/// Refuse a path that is relative, root, or walks upward.
+///
+/// Free rather than nested in `validate_paths`, because the per-registration
+/// check the dynamic path shares needs it too.
+fn absolute(path: &std::path::Path) -> Result<()> {
+    if !path.is_absolute()
+        || path.parent().is_none()
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(invalid(format!(
+            "Expected an absolute non-root path: {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 /// One workspace a client may name, and the policy it may reach from there.
@@ -324,6 +366,9 @@ struct Service {
     config: ServiceConfig,
     store: Arc<PolicyStore>,
     pool: Arc<ContainerPool>,
+    /// Consulted for a workspace the configured map does not name. `None` for a
+    /// deployed service, whose allow-list is the operator's to write.
+    lookup: Option<Arc<dyn WorkspaceLookup>>,
 }
 impl Service {
     /// The placement one request resolves to, checked against this service's
@@ -340,10 +385,23 @@ impl Service {
         session: &str,
         network: &EnvironmentNetwork,
     ) -> Result<PlacementRequest> {
-        let registration =
-            self.config.workspaces.get(workspace).ok_or_else(|| {
-                invalid("Workspace is not registered with the environment service")
-            })?;
+        // The configured map first, so a deployed allow-list is never widened by
+        // a lookup. Only a workspace it does not name reaches one, and what
+        // comes back goes through the same overlap check the boot-time
+        // registrations did.
+        let registration = if let Some(registration) = self.config.workspaces.get(workspace) {
+            registration.clone()
+        } else {
+            let mut resolved = self
+                .lookup
+                .as_ref()
+                .and_then(|lookup| lookup.resolve(workspace))
+                .ok_or_else(|| {
+                    invalid("Workspace is not registered with the environment service")
+                })?;
+            self.config.check_registration(&mut resolved)?;
+            resolved
+        };
         if !registration
             .environments
             .iter()
@@ -477,6 +535,23 @@ impl Service {
                 ),
             },
             SandboxRequest::List => Ok(json!({"instances":self.pool.status()})),
+            SandboxRequest::ResolveImage { reference } => {
+                // On a blocking pool thread: a pull can take minutes and this
+                // runs on the reactor that answers every other request. The
+                // accept loop spawns a task per connection, so an `exec` in
+                // another session is unaffected either way.
+                let pool = Arc::clone(&self.pool);
+                let asked = reference.clone();
+                let resolved = tokio::task::spawn_blocking(move || pool.resolve_image(&asked))
+                    .await
+                    .map_err(|error| invalid(format!("Resolving the image panicked: {error}")))??;
+                serde_json::to_value(ResolveImageResponse {
+                    reference,
+                    image: resolved.image,
+                    pulled: resolved.pulled,
+                })
+                .map_err(|e| invalid(e.to_string()))
+            }
             SandboxRequest::Stop { instance } => {
                 self.pool.stop_instance(&instance)?;
                 Ok(json!({"stopped":instance}))
@@ -528,7 +603,18 @@ impl Service {
 }
 
 /// Start the operator-configured service. Socket permissions are restricted to its group.
-pub async fn serve(mut config: ServiceConfig) -> Result<()> {
+///
+/// The configured workspace map is the whole allow-list. Use [`serve_with`] to
+/// supply a [`WorkspaceLookup`] as well.
+pub async fn serve(config: ServiceConfig) -> Result<()> {
+    serve_with(config, None).await
+}
+
+/// [`serve`], plus a lookup for workspaces the configured map does not name.
+pub async fn serve_with(
+    mut config: ServiceConfig,
+    lookup: Option<Arc<dyn WorkspaceLookup>>,
+) -> Result<()> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     std::fs::create_dir_all(&config.state_root).map_err(|e| invalid(e.to_string()))?;
     if let Some(parent) = config.socket.parent() {
@@ -582,6 +668,7 @@ pub async fn serve(mut config: ServiceConfig) -> Result<()> {
         config,
         store,
         pool,
+        lookup,
     });
     let connections = Arc::new(tokio::sync::Semaphore::new(64));
     let mut maintenance = tokio::time::interval(MAINTENANCE_EVERY);

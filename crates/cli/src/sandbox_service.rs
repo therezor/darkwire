@@ -21,19 +21,26 @@
 //! so it registers every workspace in the registry against every installed
 //! definition — and the approval each one still needs is unchanged.
 //!
-//! A workspace created *after* boot is not reachable from a container until
-//! `serve` restarts, because the registration is read once. That is stated in
-//! `docs/sandbox-service.md` rather than solved with a reload path, because a
-//! deployed service has the same property and configuring one is the answer for
-//! an install that adds workspaces while running.
+//! **It is answered per request rather than read at boot.** Deriving it once
+//! meant a workspace or an environment created while the server ran could not
+//! be used until `serve` restarted, which is a confusing way to learn that a
+//! definition you just saved is "not authorized". A deployed service keeps the
+//! configured map it was given; only this generated one moves.
+//!
+//! For the same reason the service starts with no environment installed at all.
+//! It costs nothing, because the engine is probed on first use rather than at
+//! boot, and it is what lets the Environments screen resolve an image digest
+//! before there is an environment to put it in.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use darkwire_core::paths::workspace_dir_for;
+use darkwire_core::paths::{ensure_dir, workspace_dir_for};
 use darkwire_core::workspace_store::WorkspaceStore;
 use darkwire_core::{Result, WirePaths};
-use darkwire_environment::service::{ServiceConfig, WorkspaceRegistration, socket_path};
+use darkwire_environment::service::{
+    ServiceConfig, WorkspaceLookup, WorkspaceRegistration, serve_with, socket_path,
+};
 use darkwire_security::PolicyStore;
 
 use crate::i18n::Env;
@@ -52,7 +59,7 @@ const BIND_TIMEOUT_MS: u64 = 2_000;
 /// installed could ask for an environment.
 pub async fn start_embedded(
     paths: &WirePaths,
-    workspaces: &WorkspaceStore,
+    workspaces: &Arc<WorkspaceStore>,
     env: &Env,
 ) -> Option<Arc<tokio::task::JoinHandle<Result<()>>>> {
     let socket = socket_path(env.get("DARKWIRE_SANDBOX_SOCKET"), paths);
@@ -71,21 +78,24 @@ pub async fn start_embedded(
         return None;
     }
 
-    let policies = PolicyStore::new(paths.policy_dir.clone());
-    let environments: Vec<String> = policies
-        .list_environments()
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
-    if environments.is_empty() {
-        // Nothing could name an environment, so binding a socket and holding a
-        // maintenance timer open would buy nothing. An operator who installs
-        // one afterwards restarts `serve`, which is what they would do to pick
-        // up the approval anyway.
+    // The service canonicalises its policy root, so the directory has to exist
+    // before it binds. It usually does, because installing a definition creates
+    // it, and this used to return early on an install that had none at all. It
+    // no longer does, which makes an install that has never had an environment
+    // the ordinary case rather than one that never reached here.
+    //
+    // Created here rather than in `serve`, because only the embedded service
+    // owns this directory. A deployed one is handed a mount, and a missing
+    // mount is a misconfiguration it should refuse rather than paper over.
+    if let Err(error) = ensure_dir(&paths.policy_dir) {
+        tracing::warn!(
+            path = %paths.policy_dir.display(),
+            error = %error.message,
+            "could not create the policy directory; no container can start"
+        );
         return None;
     }
 
-    let registrations = registrations(paths, workspaces, &environments);
     let state_root = paths.root.join("sandbox");
     let config = ServiceConfig {
         socket: socket.clone(),
@@ -103,13 +113,21 @@ pub async fn start_embedded(
             .get("DARKWIRE_GATEWAY_IMAGE")
             .filter(|value| !value.is_empty())
             .map(str::to_owned),
-        workspaces: registrations,
+        // Empty, and answered by the lookup below instead. A deployed service
+        // fills this from its own config file; here it would be a snapshot that
+        // goes stale the moment a workspace or an environment is added.
+        workspaces: BTreeMap::new(),
     };
+    let lookup = Arc::new(DerivedRegistrations {
+        paths: paths.clone(),
+        workspaces: Arc::clone(workspaces),
+        policies: PolicyStore::new(paths.policy_dir.clone()),
+    });
     let task = Arc::new(tokio::spawn(async move {
         // A failure here is not a boot failure. Everything that does not need an
         // environment keeps working, and the first command that does gets a
         // sentence naming the socket that was not there.
-        if let Err(error) = darkwire_environment::service::serve(config).await {
+        if let Err(error) = serve_with(config, Some(lookup)).await {
             tracing::warn!(error = %error.message, "the embedded sandbox service stopped");
             return Err(error);
         }
@@ -119,41 +137,54 @@ pub async fn start_embedded(
     Some(task)
 }
 
-/// Every registered workspace, each reachable by the same definitions.
+/// Every registered workspace, each reachable by every installed definition.
 ///
-/// A workspace whose id no longer resolves to a directory is skipped rather
-/// than failing the boot: the registry outlives a directory somebody deleted by
-/// hand, and refusing to start the server over one is a worse answer than
-/// refusing the turn that names it.
-fn registrations(
-    paths: &WirePaths,
-    workspaces: &WorkspaceStore,
-    environments: &[String],
-) -> BTreeMap<String, WorkspaceRegistration> {
-    let records = workspaces.list().unwrap_or_else(|error| {
-        // Registering nothing in silence would make every containerised turn
-        // report "Workspace is not registered", which names the wrong problem.
-        tracing::warn!(
-            error = %error.message,
-            "could not read the workspace registry; no workspace can run an environment"
-        );
-        Vec::new()
-    });
-    let mut map = BTreeMap::new();
-    for record in records {
-        let Ok(path) = workspace_dir_for(paths, &record.id) else {
-            continue;
-        };
-        map.insert(
-            record.id,
-            WorkspaceRegistration {
-                daemon_path: path.clone(),
-                path,
-                environments: environments.to_vec(),
-            },
-        );
+/// Resolved per request rather than snapshotted, so a workspace created or an
+/// environment installed while `serve` runs is usable without a restart. The
+/// service canonicalises and overlap-checks whatever this returns, so the
+/// answer here is a claim rather than a grant.
+struct DerivedRegistrations {
+    paths: WirePaths,
+    workspaces: Arc<WorkspaceStore>,
+    policies: PolicyStore,
+}
+
+impl WorkspaceLookup for DerivedRegistrations {
+    fn resolve(&self, workspace: &str) -> Option<WorkspaceRegistration> {
+        // Through the registry rather than straight to a directory: an id that
+        // names no workspace must not become one by being asked for.
+        let known = self
+            .workspaces
+            .list()
+            .unwrap_or_else(|error| {
+                // Answering "not registered" in silence would name the wrong
+                // problem for every containerised turn.
+                tracing::warn!(
+                    error = %error.message,
+                    "could not read the workspace registry; no workspace can run an environment"
+                );
+                Vec::new()
+            })
+            .into_iter()
+            .any(|record| record.id == workspace);
+        if !known {
+            return None;
+        }
+        let path = workspace_dir_for(&self.paths, workspace).ok()?;
+        Some(WorkspaceRegistration {
+            daemon_path: path.clone(),
+            path,
+            // DarkWire is on the host here, so every installed definition is
+            // reachable from every workspace. The allow-list bounds a remote
+            // app, and there is not one.
+            environments: self
+                .policies
+                .list_environments()
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect(),
+        })
     }
-    map
 }
 
 /// Polls until the spawned service answers, or the bound elapses.

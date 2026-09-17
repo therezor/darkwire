@@ -194,20 +194,30 @@ the part that decides when the model reaches for it.
 
 ## What is on disk
 
-Everything under `~/.darkwire`, or `$DARKWIRE_HOME`. Directories are created `0700`.
+Two trees. `~/.darkwire`, or `$DARKWIRE_HOME`, holds what DarkWire owns; `~/DarkWire/workspaces`,
+or `$DARKWIRE_WORKSPACES`, holds what you own. Directories are created `0700`.
 
-| Path                      | Contents                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `config.yaml`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                         |
-| `darkwire.db`             | One SQLite file, one connection, one WAL.                                                                          |
-| `vault.json`, `vault.key` | The encrypted credential vault.                                                                                    |
-| `workspace/`              | The jail root. Named workspaces are subdirectories of it.                                                          |
-| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told. |
-| `policy/environments/`    | Environment definitions. Outside the workspace, so injection cannot edit the policy the agent runs under.          |
-| `runs/<containerId>/`     | Sandbox command transcripts. Outside the workspace — a symlink-planting escape was demonstrated before this moved. |
-| `extensions/<id>/`        | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                         |
-| `extension-data/<id>/`    | What an extension writes at runtime — a sibling of its install directory, never a child.                           |
-| `logs/`                   | —                                                                                                                  |
+Nothing under the first is inside a jail, so prompt injection has no route to the rules an
+agent runs under. Each folder in the second **is** a jail root.
+
+| Path                      | Contents                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `config.yaml`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                           |
+| `darkwire.db`             | One SQLite file, one connection, one WAL.                                                                            |
+| `vault.json`, `vault.key` | The encrypted credential vault.                                                                                      |
+| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told.   |
+| `policy/environments/`    | Environment definitions. Outside every workspace, so injection cannot edit the policy the agent runs under.          |
+| `runs/<containerId>/`     | Sandbox command transcripts. Outside every workspace — a symlink-planting escape was demonstrated before this moved. |
+| `extensions/<id>/`        | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                           |
+| `extension-data/<id>/`    | What an extension writes at runtime — a sibling of its install directory, never a child.                             |
+| `logs/`                   | —                                                                                                                    |
+
+And under the workspaces folder:
+
+| Path       | Contents                                                              |
+| ---------- | --------------------------------------------------------------------- |
+| `default/` | The workspace every install has, and the one a session falls back to. |
+| `<id>/`    | One folder per registered workspace, each a jail root of its own.     |
 
 ### The database
 
@@ -226,7 +236,7 @@ cannot deadlock on itself. Every table is `STRICT`.
 | `sessions`                                       | Key, title, origin, agent, workspace, metadata, sequence counters |
 | `messages`                                       | Append-only, `(session_key, seq)` unique, cascade-deleted         |
 | `turn_stats`                                     | Per turn: model, provider, iterations, stop reason, token counts  |
-| `workspaces`                                     | Id, label, root                                                   |
+| `workspaces`                                     | Id, name, timestamps, the default flag, metadata. No path column. |
 | `auth_secrets`, `auth_sessions`, `auth_throttle` | Password, username, setup code, sessions, throttle counters       |
 | `notifications`                                  | The bell and the archive                                          |
 | `extension_approvals`                            | The sha256 over every byte of each approved extension directory   |

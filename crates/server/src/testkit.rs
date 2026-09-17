@@ -347,7 +347,7 @@ pub struct FakeRuntime {
 }
 
 impl FakeRuntime {
-    /// A runtime over `database`, with its workspace tree under `root`.
+    /// A runtime over `database`, with its workspaces tree under `root`.
     pub fn new(
         database: &Database,
         root: &std::path::Path,
@@ -361,12 +361,14 @@ impl FakeRuntime {
             home: Some(root.to_path_buf()),
             ..ResolveWirePaths::default()
         })?;
-        std::fs::create_dir_all(&paths.workspace).map_err(|error| {
-            WireError::new(
-                ErrorKind::Storage,
-                format!("Could not create the workspace root: {error}"),
-            )
-        })?;
+        std::fs::create_dir_all(workspace_dir_for(&paths, DEFAULT_WORKSPACE_ID)?).map_err(
+            |error| {
+                WireError::new(
+                    ErrorKind::Storage,
+                    format!("Could not create the default workspace: {error}"),
+                )
+            },
+        )?;
 
         let store = Arc::new(SessionStore::new(
             database.clone(),

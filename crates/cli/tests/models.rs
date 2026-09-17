@@ -197,6 +197,12 @@ fn install(config: &serde_json::Value) -> (TempDir, Arc<WireRuntime>) {
     .expect("the config is written");
     let runtime = create_runtime(RuntimeOptions {
         home: Some(temp.path().to_string_lossy().into_owned()),
+        workspaces: Some(
+            temp.path()
+                .join("workspaces")
+                .to_string_lossy()
+                .into_owned(),
+        ),
         env: Some(HashMap::new()),
         // Explicit rather than defaulted: the default opens a vault on demand,
         // and opening one writes a key to the OS keychain.

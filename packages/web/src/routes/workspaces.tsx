@@ -213,8 +213,8 @@ export function WorkspacesRoute(): JSX.Element {
                       <Pencil />
                       Edit
                     </DropdownMenuItem>
-                    {/* The default is the parent of every other workspace;
-                          there is no coherent thing removing it could mean. */}
+                    {/* Every session falls back to the default, so there is no
+                          coherent thing removing it could mean. */}
                     {!workspace.isDefault && (
                       <DropdownMenuItem
                         className="menu__item--danger"

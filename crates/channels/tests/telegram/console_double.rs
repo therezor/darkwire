@@ -114,10 +114,11 @@ impl FakeConsole {
             counter_ids("m"),
         )?;
         // A real store needs somewhere to make a workspace's directory. The
-        // temporary directory is both the install root and the workspace root.
+        // temporary directory is both the install root and the workspaces
+        // folder, so nothing reaches the developer's own home.
         let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some(root.clone()),
-            workspace: Some(root),
+            workspaces: Some(root),
             env: Some(std::collections::HashMap::new()),
             home: Some(dir.path().to_path_buf()),
         })?;

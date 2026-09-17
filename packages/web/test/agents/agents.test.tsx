@@ -2070,6 +2070,123 @@ describe('choosing an environment', () => {
       patchesOf(calls)[0]?.agents?.list?.researcher?.environment?.name,
     ).toBe('development');
   });
+
+  /** The one box for `## Running commands`, and what it inherits. */
+  describe('what the model is told about the place', () => {
+    /** An environment whose definition describes its own image. */
+    const TALKATIVE = {
+      ...ENVIRONMENT,
+      definition: {
+        ...ENVIRONMENT.definition,
+        prompt: 'Alpine 3.23. The shell is ash, not bash.',
+      },
+    };
+
+    it('inherits what the definition says, under a heading it did not write', async () => {
+      const { user } = mount('/agents/researcher', {
+        ...ROUTES,
+        '/api/environments': [200, { environments: [TALKATIVE] }],
+      });
+      await openAdvanced(user);
+
+      const box = await screen.findByLabelText(
+        'Running commands for Researcher',
+      );
+      expect(box).toHaveValue(
+        '## Running commands\n\nAlpine 3.23. The shell is ash, not bash.',
+      );
+    });
+
+    it('falls back to the default once the agent runs on the host', async () => {
+      // The question the two-box version had no answer to: there is no
+      // definition on the host, and this is the same box either way.
+      const { user } = mount('/agents/researcher', {
+        ...ROUTES,
+        '/api/environments': [200, { environments: [TALKATIVE] }],
+      });
+      await openAdvanced(user);
+
+      await choose(
+        user,
+        'Environment',
+        /Host \(commands run on this machine\)/,
+      );
+
+      const box = await screen.findByLabelText(
+        'Running commands for Researcher',
+      );
+      expect((box as HTMLTextAreaElement).value).toContain(
+        'Paths outside the workspace may be refused',
+      );
+    });
+
+    it('falls back to the default when the image says nothing', async () => {
+      // Not an empty box. A container whose definition is silent used to leave
+      // this blank, which reads as broken rather than as deliberate, and left
+      // the model with no section at all.
+      const { user } = mount('/agents/researcher', ROUTES);
+      await openAdvanced(user);
+
+      const box = await screen.findByLabelText(
+        'Running commands for Researcher',
+      );
+      expect((box as HTMLTextAreaElement).value).toContain(
+        'Paths outside the workspace may be refused',
+      );
+      expect(
+        screen.getByText(/One default wherever it runs/),
+      ).toBeInTheDocument();
+    });
+
+    it('stores nothing while the box is only showing what it inherited', async () => {
+      // The box displays the definition's words, and a save that carried them
+      // would freeze this agent on today's image: the point of inheriting is
+      // that re-imaging the container re-words every agent that uses it.
+      const { user, calls } = mount('/agents/researcher', {
+        ...ROUTES,
+        '/api/environments': [200, { environments: [TALKATIVE] }],
+      });
+
+      await choose(user, 'Network', /^None$/);
+      await user.click(
+        await screen.findByRole('button', { name: 'Save changes' }),
+      );
+      await waitFor(() => {
+        expect(patchesOf(calls)).toHaveLength(1);
+      });
+
+      const entry = patchesOf(calls)[0]?.agents?.list?.researcher;
+      expect(entry).toBeDefined();
+      expect(entry?.platformPrompt).toBe('');
+    });
+
+    it('seeds the box, so narrowing an image is deleting from its own list', async () => {
+      // The whole reason one field is enough. The first keystroke hands the
+      // form the built-in with the edit applied, not a single character.
+      const { user, calls } = mount('/agents/researcher', {
+        ...ROUTES,
+        '/api/environments': [200, { environments: [TALKATIVE] }],
+      });
+      await openAdvanced(user);
+
+      const box = await screen.findByLabelText(
+        'Running commands for Researcher',
+      );
+      await user.type(box, ' git only.');
+      await user.click(
+        await screen.findByRole('button', { name: 'Save changes' }),
+      );
+      await waitFor(() => {
+        expect(patchesOf(calls)).toHaveLength(1);
+      });
+
+      expect(
+        patchesOf(calls)[0]?.agents?.list?.researcher?.platformPrompt,
+      ).toBe(
+        '## Running commands\n\nAlpine 3.23. The shell is ash, not bash. git only.',
+      );
+    });
+  });
 });
 
 describe('subagents', () => {

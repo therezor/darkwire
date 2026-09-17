@@ -139,6 +139,7 @@ const SCREENS: ReadonlyArray<{ readonly path: string; readonly name: string }> =
     { path: '/notifications', name: 'notifications' },
     { path: '/settings', name: 'settings' },
     { path: '/settings?panel=providers', name: 'providers' },
+    { path: '/settings?panel=environments', name: 'environments' },
     { path: '/tokens', name: 'style guide' },
   ];
 

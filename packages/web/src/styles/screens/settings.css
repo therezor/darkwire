@@ -64,6 +64,37 @@
     color: var(--danger-fg);
   }
 
+  /* The image box and the button that fills it, as one field. The button sits
+     under the box rather than beside it so it does not shrink the input on a
+     phone, where the reference is the longer of the two. */
+  .settings-environment__image {
+    --gap: var(--space-2);
+  }
+
+  .settings-environment__image > .btn {
+    align-self: start;
+  }
+
+  /* The rest of a definition, behind a disclosure.
+   *
+   * A `.settings-section` as well, so closed it is a card with a title and
+   * nothing under it rather than a line of text floating between two cards.
+   * The summary is therefore set like a section title: it is the heading of
+   * the card it opens, and a dimmer one would read as a caption belonging to
+   * the section above. */
+  .settings-advanced > summary {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+    color: var(--fg-1);
+    cursor: pointer;
+  }
+
+  .settings-advanced__body {
+    --gap: var(--space-4);
+
+    margin-top: var(--space-4);
+  }
+
   /* The whole row is the label, so the hit target is the sentence rather than
    * the 2.25rem control at the end of it. */
   .settings-switch-row {

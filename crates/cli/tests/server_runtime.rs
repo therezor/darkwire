@@ -39,6 +39,7 @@ use parking_lot::Mutex;
 fn runtime(dir: &tempfile::TempDir) -> Arc<WireRuntime> {
     darkwire_runtime::create_runtime(RuntimeOptions {
         home: Some(dir.path().display().to_string()),
+        workspaces: Some(dir.path().join("workspaces").display().to_string()),
         vault: VaultChoice::None,
         env: Some(HashMap::new()),
         ..RuntimeOptions::default()

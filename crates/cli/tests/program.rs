@@ -178,7 +178,7 @@ fn maps_every_flag_onto_the_chat_options() {
     assert_eq!(args.model.as_deref(), Some("qwen3"));
     assert_eq!(args.provider.as_deref(), Some("ollama"));
     assert_eq!(args.agent_id.as_deref(), Some("reviewer"));
-    assert_eq!(args.workspace.as_deref(), Some("/tmp/ws"));
+    assert_eq!(args.workspaces.as_deref(), Some("/tmp/ws"));
     assert_eq!(globals.home.as_deref(), Some("/srv/ghost"));
     assert!(args.fresh);
     assert!(!args.show_reasoning);
@@ -202,11 +202,11 @@ fn defaults_the_session_and_leaves_unset_overrides_absent() {
 
 #[test]
 fn distinguishes_the_two_workspace_flags() {
-    // `-w` moves the whole tree; `-W` picks a workspace inside it. Accepting
-    // either on one flag and guessing by whether the string exists on disk is
-    // how a typo'd id silently becomes a path.
+    // `-w` names the folder the workspaces live in; `-W` picks one inside it.
+    // Accepting either on one flag and guessing by whether the string exists on
+    // disk is how a typo'd id silently becomes a path.
     let (_, args) = chat(&["chat", "-w", "/tmp/tree", "-W", "acme", "hi"]);
-    assert_eq!(args.workspace.as_deref(), Some("/tmp/tree"));
+    assert_eq!(args.workspaces.as_deref(), Some("/tmp/tree"));
     assert_eq!(args.workspace_id.as_deref(), Some("acme"));
 }
 
@@ -373,7 +373,7 @@ fn serve_maps_every_flag() {
             "0.0.0.0",
             "--port",
             "8080",
-            "--workspace",
+            "--workspaces",
             "/tmp/ws",
             "--password",
             "hunter2",
@@ -385,7 +385,7 @@ fn serve_maps_every_flag() {
 
     assert_eq!(args.host.as_deref(), Some("0.0.0.0"));
     assert_eq!(args.port, Some(8080));
-    assert_eq!(args.workspace.as_deref(), Some("/tmp/ws"));
+    assert_eq!(args.workspaces.as_deref(), Some("/tmp/ws"));
     assert_eq!(args.password.as_deref(), Some("hunter2"));
     assert_eq!(args.ui.as_deref(), Some("/tmp/dist"));
 }
@@ -400,7 +400,7 @@ fn serve_takes_the_short_forms_too() {
     // Zero is a real request — the operating system picks — and has to survive
     // the "is it set" question that an `Option` answers and a sentinel cannot.
     assert_eq!(args.port, Some(0));
-    assert_eq!(args.workspace.as_deref(), Some("/tmp/ws"));
+    assert_eq!(args.workspaces.as_deref(), Some("/tmp/ws"));
 }
 
 #[test]

@@ -27,7 +27,7 @@ fn view() -> HeaderView {
         agent: "Reviewer".to_owned(),
         model: "claude-opus-5".to_owned(),
         provider: "Anthropic".to_owned(),
-        workspace: "/home/dev/workspace".to_owned(),
+        workspaces: "/home/dev/DarkWire/workspaces".to_owned(),
         workspace_name: "Research".to_owned(),
         session: "a conversation".to_owned(),
         context: Some(ContextUsage {
@@ -45,7 +45,7 @@ fn names_every_field_the_operator_needs_to_know_they_are_in_the_right_place() {
         "Reviewer",
         "claude-opus-5",
         "Anthropic",
-        "/home/dev/workspace",
+        "/home/dev/DarkWire/workspaces",
         "a conversation",
     ] {
         assert!(header.contains(value), "missing {value} in:\n{header}");

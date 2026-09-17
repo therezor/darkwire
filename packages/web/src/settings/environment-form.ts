@@ -20,6 +20,7 @@
 import type { TFunction } from 'i18next';
 
 import {
+  DEFAULT_PLATFORM_NOTES,
   EnvironmentDefinitionSchema,
   type ContainerRuntime,
   type EnvironmentDefinition,
@@ -60,6 +61,15 @@ export const SECCOMP_PROFILES: readonly SeccompProfile[] = [
 export interface EnvironmentForm {
   readonly name: string;
   readonly image: string;
+  /**
+   * What this image holds, in the definition's own words.
+   *
+   * Carried like every other field rather than left out, and for a sharper
+   * reason than most: the route takes a whole definition, so a form that did
+   * not hold this would delete a hand-written one on the first save from this
+   * screen and say nothing.
+   */
+  readonly prompt: string;
   readonly runtime: ContainerRuntime;
   readonly workdir: string;
   readonly user: string;
@@ -96,6 +106,11 @@ export function parseLines(value: string): string[] {
  * cannot drift. `name` and `image` are then blanked, because they are the two
  * fields with no useful default and the schema requires both to parse at all: a
  * placeholder left in either box is a value somebody saves by accident.
+ *
+ * The prompt is seeded with the wording a silent definition would have
+ * inherited anyway, so a new environment opens on the text it is about to send
+ * rather than on an empty box whose effect nobody can see. It is the body
+ * without the heading, because the definition's words are placed under one.
  */
 export function emptyEnvironmentForm(): EnvironmentForm {
   const defaults = EnvironmentDefinitionSchema.parse({
@@ -103,7 +118,12 @@ export function emptyEnvironmentForm(): EnvironmentForm {
     name: 'placeholder',
     image: 'placeholder',
   });
-  return { ...toEnvironmentForm(defaults), name: '', image: '' };
+  return {
+    ...toEnvironmentForm(defaults),
+    name: '',
+    image: '',
+    prompt: DEFAULT_PLATFORM_NOTES,
+  };
 }
 
 export function toEnvironmentForm(
@@ -112,6 +132,7 @@ export function toEnvironmentForm(
   return {
     name: definition.name,
     image: definition.image,
+    prompt: definition.prompt ?? '',
     runtime: definition.runtime,
     workdir: definition.workdir,
     user: definition.user,
@@ -196,6 +217,10 @@ export function toEnvironmentDefinition(
       kind: 'container',
       name: form.name,
       image: form.image.trim(),
+      // Omitted when blank rather than written as `''`. `save_environment`
+      // re-emits the whole file, and an empty key in every definition that has
+      // nothing to say is noise in a file people hand-edit.
+      ...(form.prompt.trim() === '' ? {} : { prompt: form.prompt }),
       runtime: form.runtime,
       workdir: form.workdir.trim(),
       user: form.user.trim(),

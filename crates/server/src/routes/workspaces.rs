@@ -1,15 +1,14 @@
 //! The workspace manager over HTTP.
 //!
-//! A workspace is a named folder the user works in. `default` is the tree at
-//! `<root>/workspace` and is also the parent of every named workspace, so it
-//! can see all of them; a named workspace sees only itself.
+//! A workspace is a named folder the user works in. Every one of them,
+//! `default` included, is a folder under the workspaces directory, and none of
+//! them can see another.
 //!
 //! **No path ever crosses this boundary.** A workspace is created by name, gets
-//! a derived slug, and lives at `<root>/workspace/<slug>`. Accepting a directory
+//! a derived slug, and lives at `<workspaces>/<slug>`. Accepting a directory
 //! from a client would turn "managed directories only" from a fact into a
 //! convention, and the first request that sent `/` would hand an authenticated
-//! caller the entire filesystem — including the vault sitting one level above
-//! the workspace.
+//! caller the entire filesystem.
 //!
 //! **Deleting detaches; it does not remove.** The registry row goes and the
 //! directory stays. A delete in a web UI is one click away from a misclick and

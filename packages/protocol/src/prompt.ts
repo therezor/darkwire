@@ -70,9 +70,9 @@ export const SECTION_SEPARATOR = '\n\n---\n\n';
  * rather than interpolated into this template. A placeholder cannot express
  * "this section does not apply": it renders to a string, and an empty one
  * leaves the blank lines the template wrote around it. A section that does not
- * apply is simply not in the list. It is still the operator's to edit —
- * `DEFAULT_PLATFORM_HOST_TEMPLATE` and its container twin, on the Running
- * commands box in the agent editor — just not as this template's variable.
+ * apply is simply not in the list. It is still the operator's to edit,
+ * `DEFAULT_PLATFORM_TEMPLATE` on the Running commands box in the agent editor,
+ * just not as this template's variable.
  *
  * `RAW_PROMPT_PLACEHOLDERS` keeps it, because raw mode places every section
  * itself and has to be able to name this one.
@@ -385,6 +385,60 @@ export const PLATFORM_PROMPT_PLACEHOLDERS = [
   'shellPolicy',
 ] as const;
 
+/** The heading the command policy renders under. */
+export const COMMAND_POLICY_HEADING = '## Running commands';
+
+/**
+ * The default body, without the heading it is placed under.
+ *
+ * Exported because the environment editor seeds its box with it. A definition's
+ * `prompt` is placed under the heading, so a new one starting from the heading
+ * too would nest a section inside a section.
+ */
+export const DEFAULT_PLATFORM_NOTES = `\`exec\` runs with the workspace root as its working directory, so pass relative
+arguments. Paths outside the workspace may be refused.
+
+The file tools always act on the workspace on this machine, whatever \`exec\`
+does. Prefer them where they are simpler or more reliable than a command.`;
+
+/**
+ * What `## Running commands` says when nobody has said anything else.
+ *
+ * **One template for every placement.** There used to be two, a host arm and a
+ * container arm, because the host arm named two things that are false in a
+ * container: that commands run on this machine, and that they are *not*
+ * confined to the workspace. Both are gone from this wording, so one text is
+ * true wherever the turn lands and the prompt no longer has to know.
+ *
+ * **Plain text, no placeholders.** `{{runtime}}` and `{{shellPolicy}}` are
+ * still offered and still filled, because a stored template may name them, but
+ * the default names neither.
+ *
+ * Composed from the heading and the body rather than written out, so the text
+ * an operator is seeded with and the text they inherit cannot drift.
+ */
+export const DEFAULT_PLATFORM_TEMPLATE = `${COMMAND_POLICY_HEADING}\n\n${DEFAULT_PLATFORM_NOTES}`;
+
+/**
+ * What `## Running commands` inherits, given what the environment definition
+ * says about its image.
+ *
+ * Empty notes, which is every turn on the host and every container whose
+ * definition is silent, give `DEFAULT_PLATFORM_TEMPLATE`. Anything else is the
+ * definition's own words: only the image knows what it holds, and saying it
+ * once per image beats restating it on every agent that uses one.
+ *
+ * The result carries the heading either way, because a built-in is the seed an
+ * operator's first edit is a diff against.
+ */
+export function platformTemplate(notes: string): string {
+  const said = notes.trim();
+  if (said === '') {
+    return DEFAULT_PLATFORM_TEMPLATE;
+  }
+  return `${COMMAND_POLICY_HEADING}\n\n${said}`;
+}
+
 /**
  * What a *tool-output policy* template may ask for.
  *
@@ -422,26 +476,6 @@ export const MEMORY_PROMPT_PLACEHOLDERS = [
   /** How many memories the index carries, as a decimal string. */
   'count',
 ] as const;
-
-/** `{{platformPolicy}}` when `exec` runs on this machine. */
-export const DEFAULT_PLATFORM_HOST_TEMPLATE = `## Running commands
-
-\`exec\` runs on this machine — {{runtime}} — as a real process on the real
-filesystem. Unlike the file tools it is therefore *not* confined to the workspace,
-which is why an argument pointing outside it (\`/etc/passwd\`, \`../secrets\`) is
-refused rather than resolved inside. Its working directory is already the
-workspace root, so pass relative arguments.{{shellPolicy}}`;
-
-/** `{{platformPolicy}}` when `exec` runs in a selected container. */
-export const DEFAULT_PLATFORM_CONTAINER_TEMPLATE = `## Running commands
-
-Commands you run with \`exec\` run inside a container, not on the host. What they
-can reach is fixed by the container definition and the agent's network policy.
-File tools act on the workspace on this machine; the same workspace is mounted
-inside the container.
-
-Assume nothing about what is installed beyond a base image. Check for a tool
-before relying on it.`;
 
 /**
  * The section that makes the tool-output delimiters mean something.

@@ -6,7 +6,8 @@
  * describes a container and sits flat rather than inside the variant.
  *
  * A container definition is an image, the hardening around it, its resource
- * budget, and whether agents share one instance. It grants nothing: an agent's
+ * budget, and what the image holds in its own words. It grants nothing: an
+ * agent's
  * `tools` permission map is the whole authority for what the model may call,
  * with or without a container, so choosing where commands run cannot widen what
  * an agent can do.
@@ -109,13 +110,16 @@ export const EnvironmentDefinitionSchema = z
     kind: EnvironmentKindSchema.default('container'),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     /**
-     * @deprecated Read by nothing. What the model is told about where its
-     * commands run is one section now, `agents.list.<id>.platformPrompt`, which
-     * says both where they run and what is installed there.
+     * What this image holds, in the definition's own words.
      *
-     * Still parsed because every definition written before the change carries
-     * it. A definition setting it is reported on its row. It goes one release
-     * after that.
+     * The one thing neither this repo nor the model can work out. It fills the
+     * second half of the agent's `## Running commands` section, so a toolchain
+     * is described once per image rather than once per agent that uses it.
+     * Plain prose, no heading and no placeholders: the heading is supplied
+     * around it, and a definition describing itself has no holes.
+     *
+     * An agent that edits its own `platformPrompt` starts from this text and
+     * narrows it, leaving every other agent using the image as it was.
      */
     prompt: z.string().optional(),
     /**
@@ -130,7 +134,9 @@ export const EnvironmentDefinitionSchema = z
      * on the workspace, the definition and the network, with neither the agent
      * nor the session in it.
      *
-     * Parsed and reported for the same reason `prompt` above is.
+     * Still parsed because every definition written before the change carries
+     * it, and reported on its row so an operator is told rather than left with
+     * a file that quietly means less than it says.
      */
     shared: z.boolean().optional(),
     runtime: ContainerRuntimeSchema.default('runc'),

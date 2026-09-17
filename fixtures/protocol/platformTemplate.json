@@ -1,0 +1,40 @@
+{
+  "function": "platformTemplate",
+  "cases": [
+    {
+      "name": "an image that says nothing inherits the default template",
+      "input": {
+        "notes": ""
+      },
+      "output": "## Running commands\n\n`exec` runs with the workspace root as its working directory, so pass relative\narguments. Paths outside the workspace may be refused.\n\nThe file tools always act on the workspace on this machine, whatever `exec`\ndoes. Prefer them where they are simpler or more reliable than a command."
+    },
+    {
+      "name": "whitespace says nothing either",
+      "input": {
+        "notes": "   \n  "
+      },
+      "output": "## Running commands\n\n`exec` runs with the workspace root as its working directory, so pass relative\narguments. Paths outside the workspace may be refused.\n\nThe file tools always act on the workspace on this machine, whatever `exec`\ndoes. Prefer them where they are simpler or more reliable than a command."
+    },
+    {
+      "name": "the definition's own words, under a heading it did not write",
+      "input": {
+        "notes": "Alpine 3.23. git, util-linux and ca-certificates are installed.\nThe shell is ash, not bash."
+      },
+      "output": "## Running commands\n\nAlpine 3.23. git, util-linux and ca-certificates are installed.\nThe shell is ash, not bash."
+    },
+    {
+      "name": "surrounding whitespace is trimmed off the notes",
+      "input": {
+        "notes": "\n\t  Alpine 3.23.  \n\n"
+      },
+      "output": "## Running commands\n\nAlpine 3.23."
+    },
+    {
+      "name": "CRLF and astral text survive",
+      "input": {
+        "notes": "A\r\nB 😀"
+      },
+      "output": "## Running commands\n\nA\r\nB 😀"
+    }
+  ]
+}

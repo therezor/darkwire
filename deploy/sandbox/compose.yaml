@@ -13,7 +13,9 @@ services:
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - ${DARKWIRE_DATA_DIR}/policies:/policies:ro
       - ${DARKWIRE_DATA_DIR}/sandbox-state:/sandbox-state
-      - ${DARKWIRE_DATA_DIR}/workspaces/default:/workspaces/default
+      # The whole tree, not one workspace: every workspace is its own folder in
+      # here, and a mount of just the default would lose the rest on restart.
+      - ${DARKWIRE_DATA_DIR}/workspaces:/workspaces
       - control:/run/darkwire
     restart: unless-stopped
     stop_grace_period: 20s
@@ -24,6 +26,8 @@ services:
       target: app
     environment:
       DARKWIRE_HOME: /app-state
+      # The mount below, not the container home, is where the workspaces live.
+      DARKWIRE_WORKSPACES: /workspaces
       DARKWIRE_SANDBOX_SOCKET: /run/darkwire/sandbox.sock
       DARKWIRE_PASSWORD: ${DARKWIRE_PASSWORD:?Set the web login password}
     ports:
@@ -34,7 +38,7 @@ services:
       # approvals for itself rather than being told them, so both have to see
       # the same bytes; neither may write them.
       - ${DARKWIRE_DATA_DIR}/policies:/app-state/policy:ro
-      - ${DARKWIRE_DATA_DIR}/workspaces/default:/workspaces/default
+      - ${DARKWIRE_DATA_DIR}/workspaces:/workspaces
       - control:/run/darkwire
     depends_on:
       - sandbox

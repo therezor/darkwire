@@ -156,8 +156,8 @@ fn with_default<T: JsonSchema>(default: Value) -> impl Fn(&mut SchemaGenerator) 
     }
 }
 
-fn workspace_path(generator: &mut SchemaGenerator) -> Schema {
-    with_default::<config::WorkspacePath>(Value::from(""))(generator)
+fn workspaces_path(generator: &mut SchemaGenerator) -> Schema {
+    with_default::<config::WorkspacesPath>(Value::from(""))(generator)
 }
 
 fn providers_config(generator: &mut SchemaGenerator) -> Schema {
@@ -274,8 +274,8 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::AgentSettings>,
     },
     RegisteredSchema {
-        name: "WorkspacePath",
-        schema: workspace_path,
+        name: "WorkspacesPath",
+        schema: workspaces_path,
     },
     RegisteredSchema {
         name: "AgentsConfig",
@@ -765,6 +765,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "SandboxRequest",
         schema: schema_for::<rest::SandboxRequest>,
+    },
+    RegisteredSchema {
+        name: "ResolveImageResponse",
+        schema: schema_for::<rest::ResolveImageResponse>,
     },
     RegisteredSchema {
         name: "McpServerState",

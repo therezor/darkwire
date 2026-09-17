@@ -48,6 +48,7 @@ pub fn env_map(env: &Env) -> HashMap<String, String> {
 /// environment would make "which variable moved this" unanswerable.
 const ENV_NAMES: &[&str] = &[
     "DARKWIRE_HOME",
+    "DARKWIRE_WORKSPACES",
     "DARKWIRE_LANG",
     "DARKWIRE_LOG_LEVEL",
     "DARKWIRE_CATALOGUE",
@@ -66,12 +67,12 @@ const ENV_NAMES: &[&str] = &[
     "TZ",
 ];
 
-/// How a global `--home` and a per-command `--workspace` become paths.
+/// How a global `--home` and a per-command `--workspaces` become paths.
 ///
 /// One function so the answer cannot differ between the command that loads a
 /// config to read it and the one that builds a whole runtime over it.
 #[must_use]
-pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> ResolveWirePaths {
+pub fn load_options(globals: &Globals, workspaces: Option<&str>, env: &Env) -> ResolveWirePaths {
     let mut map = env_map(env);
     // Every provider's key variable, which resolution consults when no config
     // names a provider. Copied on demand rather than listed above, because the
@@ -86,7 +87,7 @@ pub fn load_options(globals: &Globals, workspace: Option<&str>, env: &Env) -> Re
     }
     ResolveWirePaths {
         root: globals.home.clone(),
-        workspace: workspace.map(str::to_owned),
+        workspaces: workspaces.map(str::to_owned),
         env: Some(map),
         home: None,
     }

@@ -48,7 +48,9 @@ pub struct EffectiveAgent {
     pub live_prompt: String,
     /// What is appended in the last few iterations of a turn.
     pub wrap_up_prompt: String,
-    /// The `## Running commands` section.
+    /// The `## Running commands` section. Empty inherits the built-in for this
+    /// turn's placement: the host rule, or the environment definition's own
+    /// words about its image.
     pub platform_prompt: String,
     /// The `## Tool output policy` section.
     pub tool_policy_prompt: String,
@@ -468,26 +470,30 @@ pub fn tool_prompt_warnings(
         .collect()
 }
 
-/// Wording an operator wrote that nothing places any more.
+/// Wording an operator wrote that nothing places.
 ///
 /// Two ways to lose a prompt in silence, and silence is the thing to avoid: an
-/// operator who wrote a paragraph deserves to be told it stopped being sent,
+/// operator who wrote a paragraph deserves to be told it is not being sent,
 /// rather than discovering it from the model's behaviour.
 ///
-/// `environmentPrompt` is the field that carried the old `## Environment`
-/// section. `{{environment}}` is its placeholder, and a raw template still
-/// naming it is worse than a dead field: `render_prompt_template` leaves an
-/// unfilled placeholder alone rather than blanking it, so the model is shown
-/// the braces.
+/// `environmentPrompt` carried the old `## Environment` section. There is one
+/// section about placement now and one field for it, whose built-in is the
+/// definition's own words in a container. `{{environment}}` is that field's old
+/// placeholder, and a raw template naming it is worse than a dead field:
+/// `render_prompt_template` leaves an unfilled placeholder alone rather than
+/// blanking it, so the model is shown the braces.
 pub fn retired_prompt_warnings(id: &str, entry: &AgentEntry) -> Vec<AgentConfigWarning> {
     let mut warnings = Vec::new();
-    let environment_prompt = entry.environment_prompt.as_deref();
-    if environment_prompt.is_some_and(|text| !text.trim().is_empty()) {
+    if entry
+        .environment_prompt
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty())
+    {
         warnings.push(AgentConfigWarning {
             agent_id: id.to_owned(),
             code: AgentWarningCode::RetiredPrompt,
             message: format!(
-                "Agent \"{id}\" sets `environmentPrompt`, which is no longer placed. Its \n  wording belongs in `platformPrompt`, which now says both where commands run\n  and what is installed there."
+                "Agent \"{id}\" sets `environmentPrompt`, which is no longer placed. Its\n  wording belongs in `platformPrompt`, the one section about where commands\n  run and what is installed there."
             ),
             subject: Some("environmentPrompt".to_owned()),
         });
@@ -497,7 +503,7 @@ pub fn retired_prompt_warnings(id: &str, entry: &AgentEntry) -> Vec<AgentConfigW
             agent_id: id.to_owned(),
             code: AgentWarningCode::RetiredPrompt,
             message: format!(
-                "Agent \"{id}\" has a raw template naming `{{{{environment}}}}`, which nothing\n  fills any more. An unfilled placeholder is left alone rather than blanked, so\n  the model is shown the braces. Use `{{{{platformPolicy}}}}`."
+                "Agent \"{id}\" has a raw template naming `{{{{environment}}}}`, which nothing\n  fills. An unfilled placeholder is left alone rather than blanked, so the model\n  is shown the braces. Use `{{{{platformPolicy}}}}`, which places both halves."
             ),
             subject: Some("systemPrompt".to_owned()),
         });

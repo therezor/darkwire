@@ -17,6 +17,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_PLATFORM_NOTES } from '@darkwire/protocol';
+
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
 import {
@@ -34,9 +36,10 @@ const DEFINITION = {
   kind: 'container',
   name: 'dev',
   image: IMAGE,
+  prompt: 'Alpine 3.23. The shell is ash, not bash.',
   runtime: 'runc',
   workdir: '/work',
-  // Hand-written, and not editable on this screen. The round-trip test below
+  // Hand-written, and behind the Advanced disclosure. The round-trip test below
   // is the one that says a save does not replace them with defaults.
   user: '1001:1001',
   caps: { drop: ['ALL'], add: ['CHOWN'] },
@@ -154,22 +157,169 @@ describe('the environment editor', () => {
     });
   });
 
-  it('shows what it does not edit, rather than hiding it', async () => {
-    // "What is this container actually doing" is a question this screen should
-    // answer even for the fields it leaves to the file.
+  it('keeps what the definition says about its image, and can be edited', async () => {
+    // Read by a model rather than by the engine, and the only field on this
+    // screen that is. It was carried by nothing before it was rendered, so a
+    // save from here deleted a hand-written one.
+    const { user, calls } = mount('/settings/environments/dev', {
+      'PUT /api/environments/dev': [200, { environments: [ENVIRONMENT] }],
+    });
+
+    const notes = await screen.findByLabelText('Running commands');
+    expect(notes).toHaveValue('Alpine 3.23. The shell is ash, not bash.');
+
+    await user.clear(notes);
+    await user.type(notes, 'Debian 13. bash, git, ripgrep.');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(putBody(calls)).toMatchObject({
+        prompt: 'Debian 13. bash, git, ripgrep.',
+      });
+    });
+  });
+
+  describe('resolving an image', () => {
+    /** What the service answers for a tag it had to fetch. */
+    const PULLED = {
+      reference: 'node:22',
+      image: `node@sha256:${'c'.repeat(64)}`,
+      pulled: true,
+    };
+
+    it('fills the box with the digest, so nobody runs docker inspect', async () => {
+      // The step that made adding a container a research project. The rule does
+      // not move: what lands in the box is still a digest.
+      const { user } = mount('/settings/environments/dev', {
+        'POST /api/sandboxes': [200, PULLED],
+      });
+
+      const image = await screen.findByLabelText('Image');
+      await user.clear(image);
+      await user.type(image, 'node:22');
+      await user.click(screen.getByRole('button', { name: 'Resolve' }));
+
+      await waitFor(() => {
+        expect(image).toHaveValue(PULLED.image);
+      });
+      expect(screen.getByText(/was pulled/)).toBeInTheDocument();
+    });
+
+    it('sends the reference as a management op, not as an exec', async () => {
+      const { user, calls } = mount('/settings/environments/dev', {
+        'POST /api/sandboxes': [200, PULLED],
+      });
+
+      const image = await screen.findByLabelText('Image');
+      await user.clear(image);
+      await user.type(image, 'node:22');
+      await user.click(screen.getByRole('button', { name: 'Resolve' }));
+
+      await waitFor(() => {
+        expect(
+          calls.some(
+            (call) =>
+              call.method === 'POST' &&
+              call.path === '/api/sandboxes' &&
+              JSON.stringify(call.body) ===
+                JSON.stringify({ op: 'resolveImage', reference: 'node:22' }),
+          ),
+        ).toBe(true);
+      });
+    });
+
+    it('says what the engine said when there is no such image', async () => {
+      const { user } = mount('/settings/environments/dev', {
+        'POST /api/sandboxes': [
+          422,
+          { error: { code: 'tool', message: 'manifest unknown' } },
+        ],
+      });
+
+      const image = await screen.findByLabelText('Image');
+      await user.clear(image);
+      await user.type(image, 'node:nope');
+      await user.click(screen.getByRole('button', { name: 'Resolve' }));
+
+      expect(await screen.findByText(/manifest unknown/)).toBeInTheDocument();
+    });
+  });
+
+  it('says to leave the heading out, since it is placed under one', async () => {
     const { user } = mount('/settings/environments/dev');
+
+    const notes = await screen.findByLabelText('Running commands');
+    await user.clear(notes);
+    await user.type(notes, '## What is here');
+
+    expect(screen.getByText(/Leave the heading out/)).toBeInTheDocument();
+  });
+
+  it('edits the hardening behind the disclosure, and sends it', async () => {
+    // The readout this replaced protected nothing: the route takes a whole
+    // definition, so the browser could already write every one of these. What
+    // refuses a bad one is the server, and it still does.
+    const { user, calls } = mount('/settings/environments/dev', {
+      'PUT /api/environments/dev': [200, { environments: [ENVIRONMENT] }],
+    });
 
     await user.click(await screen.findByText('Advanced'));
 
-    expect(screen.getByText('1001:1001')).toBeInTheDocument();
-    // Both mounts, on one readout. Matched loosely because the DOM normalises
-    // the newline between them into a space.
+    const uid = screen.getByLabelText('Runs as');
+    await user.clear(uid);
+    await user.type(uid, '1002:1002');
+
+    // Each mount is a line, and each line has commas inside it. Splitting on
+    // those would cut one mount into three broken ones.
+    const tmpfs = screen.getByLabelText('Writable temporary mounts');
+    await user.clear(tmpfs);
+    await user.type(
+      tmpfs,
+      '/tmp:rw,nosuid,size=512m{Enter}/var/tmp:rw,size=16m',
+    );
+
+    await user.click(screen.getByLabelText('Read-only root filesystem'));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(putBody(calls)).toMatchObject({
+        user: '1002:1002',
+        security: {
+          readOnlyRoot: false,
+          tmpfs: ['/tmp:rw,nosuid,size=512m', '/var/tmp:rw,size=16m'],
+        },
+      });
+    });
+  });
+
+  it('refuses a max-processes box that is not a number', async () => {
+    // The two numeric boxes under the disclosure validate the way the two above
+    // it do. Their errors were unreachable while the section was a readout.
+    const { user, calls } = mount('/settings/environments/dev');
+
+    await user.click(await screen.findByText('Advanced'));
+
+    const pids = screen.getByLabelText('Max processes');
+    await user.clear(pids);
+    await user.type(pids, 'lots');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
     expect(
-      screen.getByText(/\/tmp:rw,nosuid,size=512m\s+\/home\/ghost:rw,size=64m/),
+      await screen.findByText('Enter a number of zero or more.'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/policy\/environments\/dev\.yaml/),
-    ).toBeInTheDocument();
+    expect(putBody(calls)).toBeUndefined();
+  });
+
+  it('opens a new environment on the wording it would have inherited', async () => {
+    // An empty box was the default, invisibly. Seeding it means the text a new
+    // environment sends is the text on screen, and narrowing it is deleting.
+    mount('/settings/environments/new');
+
+    const notes = await screen.findByLabelText('Running commands');
+    expect(notes).toHaveValue(DEFAULT_PLATFORM_NOTES);
+    // The body without its heading, so the editor's own warning does not fire
+    // on a form nobody has typed in yet.
+    expect(screen.queryByText(/Leave the heading out/)).not.toBeInTheDocument();
   });
 
   it('refuses a name that is not a slug, before anything is sent', async () => {

@@ -29,8 +29,7 @@ import {
   ConfigSchema,
   DEFAULT_LIVE_STATE_TEMPLATE,
   DEFAULT_MEMORY_TEMPLATE,
-  DEFAULT_PLATFORM_HOST_TEMPLATE,
-  DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
+  DEFAULT_PLATFORM_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
@@ -56,6 +55,7 @@ import {
   isSlugId,
   namesDelimiter,
   newUuid,
+  platformTemplate,
   renderPromptTemplate,
   renderWrapUp,
   slugify,
@@ -91,6 +91,11 @@ interface Fixture {
 function orNull(value: unknown): unknown {
   return value === undefined ? null : value;
 }
+
+/** What an environment definition says about its own image. */
+const IMAGE_NOTES =
+  'Alpine 3.23. git, util-linux and ca-certificates are installed.\n' +
+  'The shell is ash, not bash.';
 
 const VALUES = {
   name: 'Reviewer',
@@ -217,27 +222,17 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         },
       },
       {
-        name: 'default: DEFAULT_PLATFORM_HOST_TEMPLATE',
+        // Named and still filled, so a stored template that uses them keeps
+        // working. The default itself names neither.
+        name: 'default: DEFAULT_PLATFORM_TEMPLATE',
         input: {
-          template: DEFAULT_PLATFORM_HOST_TEMPLATE,
+          template: DEFAULT_PLATFORM_TEMPLATE,
           values: {
-            runtime: 'Linux x64, Node 22.0.0',
+            runtime: 'Linux x64, DarkWire 0.5.0',
             platform: 'linux',
             workspaceId: 'acme',
             shellPolicy:
               '\n\nA POSIX shell is available through `["sh","-c","…"]`.',
-          },
-        },
-      },
-      {
-        name: 'default: DEFAULT_PLATFORM_CONTAINER_TEMPLATE',
-        input: {
-          template: DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
-          values: {
-            runtime: 'macOS arm64, Node 22.0.0',
-            platform: 'darwin',
-            workspaceId: 'acme',
-            shellPolicy: '',
           },
         },
       },
@@ -317,7 +312,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
       {
         name: 'vocabulary: PLATFORM_PROMPT_PLACEHOLDERS',
         input: {
-          template: `${DEFAULT_PLATFORM_HOST_TEMPLATE}\n${DEFAULT_PLATFORM_CONTAINER_TEMPLATE}`,
+          template: `${DEFAULT_PLATFORM_TEMPLATE}\n{{runtime}} {{shellPolicy}}`,
           known: PLATFORM_PROMPT_PLACEHOLDERS,
         },
       },
@@ -395,6 +390,31 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
     ],
     run: (input) =>
       renderWrapUp(input.template as string, input.iterationsLeft as number),
+  },
+  platformTemplate: {
+    cases: [
+      {
+        name: 'an image that says nothing inherits the default template',
+        input: { notes: '' },
+      },
+      {
+        name: 'whitespace says nothing either',
+        input: { notes: '   \n  ' },
+      },
+      {
+        name: "the definition's own words, under a heading it did not write",
+        input: { notes: IMAGE_NOTES },
+      },
+      {
+        name: 'surrounding whitespace is trimmed off the notes',
+        input: { notes: '\n\t  Alpine 3.23.  \n\n' },
+      },
+      {
+        name: 'CRLF and astral text survive',
+        input: { notes: 'A\r\nB 😀' },
+      },
+    ],
+    run: (input) => platformTemplate(input.notes as string),
   },
   effectiveToolPolicy: {
     cases: [

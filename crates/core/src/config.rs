@@ -25,9 +25,8 @@
 //!
 //!  - **Paths are resolved twice, on purpose.** The config file lives under the
 //!    root, so the root has to be resolved before the file can be read, but the
-//!    file is what names the workspace. The second pass folds the config's
-//!    `workspace` in, with an explicit caller-supplied workspace still winning
-//!    over both.
+//!    file is what may name the workspaces folder. The second pass folds the
+//!    config's `workspaces` in, and [`load_config`] states the precedence.
 
 use std::fs;
 use std::io::Write as _;
@@ -38,12 +37,12 @@ use garde::Validate as _;
 use serde_json::Value;
 
 use crate::errors::{ErrorKind, Result, WireError};
-use crate::paths::{ResolveWirePaths, WirePaths, ensure_dir};
+use crate::paths::{ResolveWirePaths, WORKSPACES_ENV_VAR, WirePaths, ensure_dir};
 
 /// Inputs to [`load_config`].
 #[derive(Debug, Clone, Default)]
 pub struct LoadConfigOptions {
-    /// Where the root and, absent a config, the workspace come from.
+    /// Where the root and, absent a config, the workspaces folder come from.
     pub paths: ResolveWirePaths,
     /// Overrides `<root>/config.yaml`.
     pub file: Option<PathBuf>,
@@ -54,7 +53,7 @@ pub struct LoadConfigOptions {
 pub struct LoadedConfig {
     /// The settings tree.
     pub config: Config,
-    /// With `workspace` folded in from the config, unless the caller named one.
+    /// With `workspaces` folded in from the config, unless something beat it.
     pub paths: WirePaths,
     /// The file that was read, or would have been.
     pub file: PathBuf,
@@ -257,11 +256,16 @@ fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
 
 /// The settings tree and the paths derived from it.
 ///
-/// Precedence for the workspace is the explicit option, then the config file,
-/// then `<root>/workspace`. An explicit workspace is an instruction for one run
-/// and must not be overridden by whatever the config happens to say; an empty
-/// `workspace` means "unset", so a root moved with `DARKWIRE_HOME` takes its
-/// workspace with it.
+/// Precedence for the workspaces folder is the explicit option, then
+/// `DARKWIRE_WORKSPACES`, then the config file, then `~/DarkWire/workspaces`.
+/// An explicit folder is an instruction for one run and must not be overridden
+/// by whatever the config happens to say; the environment sits above the file
+/// because it is how a container and a test relocate a tree whose config they
+/// do not own. An empty `workspaces` means "unset".
+///
+/// The environment is read *here* rather than left to [`WirePaths::resolve`].
+/// Folding the config value in first would hand `resolve` a `Some`, and the
+/// variable it checks after that would never be consulted.
 pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
     let base = WirePaths::resolve(options.paths.clone())?;
     let file = options.file.unwrap_or_else(|| base.config_file.clone());
@@ -293,8 +297,11 @@ pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
     };
 
     let mut resolve = options.paths;
-    if resolve.workspace.is_none() && !config.workspace.is_empty() {
-        resolve.workspace = Some(config.workspace.clone());
+    if resolve.workspaces.is_none()
+        && !env_names_workspaces(resolve.env.as_ref())
+        && !config.workspaces.is_empty()
+    {
+        resolve.workspaces = Some(config.workspaces.clone());
     }
 
     Ok(LoadedConfig {
@@ -303,4 +310,20 @@ pub fn load_config(options: LoadConfigOptions) -> Result<LoadedConfig> {
         file,
         from_file: text.is_some(),
     })
+}
+
+/// Whether `DARKWIRE_WORKSPACES` is set, so the config value stays out of the
+/// way.
+///
+/// Shared with the runtime's own fold, which has no file read to hang the same
+/// decision off. `None` means the process environment.
+pub fn env_names_workspaces<S: std::hash::BuildHasher>(
+    env: Option<&std::collections::HashMap<String, String, S>>,
+) -> bool {
+    match env {
+        Some(env) => env
+            .get(WORKSPACES_ENV_VAR)
+            .is_some_and(|set| !set.is_empty()),
+        None => std::env::var(WORKSPACES_ENV_VAR).is_ok_and(|set| !set.is_empty()),
+    }
 }

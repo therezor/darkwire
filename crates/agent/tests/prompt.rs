@@ -111,8 +111,16 @@ async fn the_host_static_prompt_is_byte_identical() {
     assert_eq!(prompt, include_str!("golden/static-host.txt"));
 }
 
+/// Windows gets the same default as everywhere else.
+///
+/// It used to get its own paragraph, generated into `{{shellPolicy}}`, warning
+/// that GNU tools may be absent. The default names no placeholder now, so that
+/// paragraph reaches a prompt only through a template that asks for it. What a
+/// Windows install loses is real, and it is the price of one default text an
+/// operator can read end to end; an install that wants the warning back writes
+/// it into the agent, where it is visible rather than generated.
 #[tokio::test]
-async fn windows_gets_its_own_shell_advice_byte_for_byte() {
+async fn windows_gets_the_same_default_as_every_other_platform() {
     let context = context();
     let prompt = build_static_prompt(BuildStaticPrompt {
         tools: Some(&PromptTools::default()),
@@ -121,8 +129,8 @@ async fn windows_gets_its_own_shell_advice_byte_for_byte() {
     })
     .await;
 
-    assert_eq!(prompt, include_str!("golden/static-windows.txt"));
-    assert!(prompt.contains("Do not assume GNU tools"));
+    assert_eq!(prompt, include_str!("golden/static-host.txt"));
+    assert!(!prompt.contains("Do not assume GNU tools"));
 }
 
 /// There is one placement section, not two.
@@ -135,12 +143,15 @@ async fn windows_gets_its_own_shell_advice_byte_for_byte() {
 mod one_placement_section {
     use super::*;
 
+    const NOTES: &str = "Alpine 3.23. The shell is ash, not bash.";
+
+    /// An image that has not described itself inherits the default, which is
+    /// the same text the host gets. Not a blank box and not a second wording.
     #[tokio::test]
-    async fn the_environment_section_is_gone() {
+    async fn an_image_that_says_nothing_inherits_the_default() {
         let context = context();
         let prompt = build_static_prompt(BuildStaticPrompt {
             tools: Some(&PromptTools {
-                confined: true,
                 ..PromptTools::default()
             }),
             host: host(Platform::Linux),
@@ -149,18 +160,21 @@ mod one_placement_section {
         .await;
 
         assert!(!prompt.contains("## Environment"), "{prompt}");
-        assert!(prompt.contains("## Running commands"), "{prompt}");
+        assert!(
+            prompt.contains("Paths outside the workspace may be refused"),
+            "{prompt}"
+        );
     }
 
+    /// What is installed is the one fact a model cannot work out, and only the
+    /// image knows it. The definition's words are the *built-in* here, so they
+    /// arrive with the heading and without the agent storing anything.
     #[tokio::test]
-    async fn the_container_wording_tells_the_model_to_check_before_relying() {
-        // The line that replaced the section: nobody but the operator knows
-        // what is in an image, and a model that assumes spends a turn finding
-        // out. Said once in the built-in rather than guessed per definition.
+    async fn a_containered_agent_inherits_what_the_definition_says() {
         let context = context();
         let prompt = build_static_prompt(BuildStaticPrompt {
             tools: Some(&PromptTools {
-                confined: true,
+                environment_notes: NOTES.to_owned(),
                 ..PromptTools::default()
             }),
             host: host(Platform::Linux),
@@ -169,7 +183,75 @@ mod one_placement_section {
         .await;
 
         assert!(
-            prompt.contains("Assume nothing about what is installed"),
+            prompt.contains(&format!("## Running commands\n\n{NOTES}")),
+            "{prompt}"
+        );
+        assert_eq!(prompt.matches("## Running commands").count(), 1, "{prompt}");
+        // Replaced, not prepended. An image that lists what it holds has said
+        // the useful half of the default, and charging every turn for both is
+        // charging twice.
+        assert!(
+            !prompt.contains("Paths outside the workspace may be refused"),
+            "{prompt}"
+        );
+    }
+
+    /// One field, so an override replaces the whole section rather than one
+    /// half of it. That is what the editor's seeding is for: the operator opens
+    /// the box on the image's own list and edits it down.
+    #[tokio::test]
+    async fn an_agents_own_wording_replaces_what_it_inherited() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                environment_notes: NOTES.to_owned(),
+                platform_prompt: Some("## Running commands\n\nUse `git` only.".to_owned()),
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+
+        assert!(prompt.contains("Use `git` only."), "{prompt}");
+        assert!(!prompt.contains("Alpine"), "{prompt}");
+        assert_eq!(prompt.matches("## Running commands").count(), 1, "{prompt}");
+    }
+
+    /// A single space is the delete, and it deletes the section even when the
+    /// definition had something to say.
+    #[tokio::test]
+    async fn a_space_deletes_the_section_the_definition_would_have_filled() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools {
+                environment_notes: NOTES.to_owned(),
+                platform_prompt: Some(" ".to_owned()),
+                ..PromptTools::default()
+            }),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+
+        assert!(!prompt.contains("## Running commands"), "{prompt}");
+        assert!(!prompt.contains("Alpine"), "{prompt}");
+    }
+
+    /// The host is the same field, the same box and now the same built-in.
+    #[tokio::test]
+    async fn the_host_inherits_that_very_same_default() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools::default()),
+            host: host(Platform::Linux),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+
+        assert!(prompt.contains("## Running commands"), "{prompt}");
+        assert!(
+            prompt.contains("Paths outside the workspace may be refused"),
             "{prompt}"
         );
     }
@@ -179,40 +261,60 @@ mod one_placement_section {
 mod the_command_policy_default {
     use super::*;
 
-    /// The bug this covers: the choice used to be made once per agent, while
-    /// inheritance is per turn. So a subagent that named no environment and
-    /// inherited its caller's container was told its commands ran on this
-    /// machine while they ran in a container.
+    /// One built-in for every placement, so nothing here asks where the turn
+    /// landed.
+    ///
+    /// There used to be two, and the wording of the host arm was the reason:
+    /// it told the model its commands ran on this machine and were *not*
+    /// confined to the workspace, neither of which holds in a container. Both
+    /// claims are gone, so one text is true either way and the bug they caused
+    /// cannot come back through a wrong branch.
     #[tokio::test]
-    async fn follows_the_turn_rather_than_the_agent() {
+    async fn is_the_same_wherever_the_turn_lands() {
         let context = context();
-        let confined = build_static_prompt(BuildStaticPrompt {
-            tools: Some(&PromptTools {
-                confined: true,
-                ..PromptTools::default()
-            }),
-            host: host(Platform::Linux),
-            ..BuildStaticPrompt::new(&context)
-        })
-        .await;
-        assert!(confined.contains("run inside a container, not on the host"));
-        assert!(!confined.contains("as a real process on the real"));
-
-        let unconfined = build_static_prompt(BuildStaticPrompt {
+        let prompt = build_static_prompt(BuildStaticPrompt {
             tools: Some(&PromptTools::default()),
             host: host(Platform::Linux),
             ..BuildStaticPrompt::new(&context)
         })
         .await;
-        assert!(unconfined.contains("as a real process on the real"));
+
+        assert!(prompt.contains("## Running commands"), "{prompt}");
+        assert!(
+            prompt.contains("Paths outside the workspace may be refused"),
+            "{prompt}"
+        );
+        // The two claims that made a second arm necessary.
+        assert!(
+            !prompt.contains("on this machine as a real process"),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("*not* confined"), "{prompt}");
+    }
+
+    /// The default is plain text now. `{{runtime}}` and `{{shellPolicy}}` are
+    /// still filled, so a stored template naming one keeps working, but the
+    /// wording every install starts from names neither.
+    #[tokio::test]
+    async fn names_no_placeholder_it_would_have_to_generate() {
+        let context = context();
+        let prompt = build_static_prompt(BuildStaticPrompt {
+            tools: Some(&PromptTools::default()),
+            host: host(Platform::Windows),
+            ..BuildStaticPrompt::new(&context)
+        })
+        .await;
+
+        // The generated shell paragraph, which only Windows ever wanted.
+        assert!(!prompt.contains("Do not assume GNU tools"), "{prompt}");
+        assert!(!prompt.contains("{{"), "{prompt}");
     }
 
     #[tokio::test]
-    async fn an_operators_own_wording_wins_over_both() {
+    async fn an_operators_own_wording_wins_over_it() {
         let context = context();
         let prompt = build_static_prompt(BuildStaticPrompt {
             tools: Some(&PromptTools {
-                confined: true,
                 platform_prompt: Some("## Running commands\n\nMine.".to_owned()),
                 ..PromptTools::default()
             }),
@@ -221,7 +323,7 @@ mod the_command_policy_default {
         })
         .await;
         assert!(prompt.contains("Mine."));
-        assert!(!prompt.contains("run inside a container"));
+        assert!(!prompt.contains("Paths outside the workspace may be refused"));
     }
 }
 
@@ -340,7 +442,13 @@ async fn the_static_half_carries_nothing_that_changes_during_a_session() {
 async fn an_unrecognised_platform_is_named_as_the_target_reports_it() {
     let context = context();
     let prompt = build_static_prompt(BuildStaticPrompt {
-        tools: Some(&PromptTools::default()),
+        tools: Some(&PromptTools {
+            // Named here because the default names neither any more. Both are
+            // still offered and still filled, so a template stored before that
+            // keeps working, and this is what says so.
+            platform_prompt: Some("## Running commands\n\n{{runtime}}{{shellPolicy}}".to_owned()),
+            ..PromptTools::default()
+        }),
         host: Host {
             platform: Platform::named("freebsd"),
             runtime_label: "FreeBSD amd64, DarkWire 0.0.0".to_owned(),
@@ -350,7 +458,6 @@ async fn an_unrecognised_platform_is_named_as_the_target_reports_it() {
     .await;
 
     assert!(prompt.contains("FreeBSD amd64"));
-    // A host-based agent on a POSIX platform still gets the shell paragraph.
     assert!(prompt.contains("Standard shell tools and UTF-8 are available"));
 }
 

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "reference": {
+      "type": "string"
+    },
+    "image": {
+      "type": "string"
+    },
+    "pulled": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reference",
+    "image",
+    "pulled"
+  ],
+  "additionalProperties": false
+}

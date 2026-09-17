@@ -142,6 +142,27 @@ pub trait ContainerEngine: Send + Sync {
     /// that is slowly more loaded than it should be. Every sandbox carries a
     /// `darkwire.session` label so this can find them without guessing at names.
     fn reap_orphans(&self) -> Result<()>;
+    /// Turns an image reference into the digest a definition may pin.
+    ///
+    /// Fetches it first when the engine does not already hold it, which is why
+    /// this is the one engine call that can take minutes. Default is a refusal
+    /// rather than a guess: an engine that cannot resolve must not hand back
+    /// something that looks like a digest.
+    fn resolve_image(&self, _reference: &str) -> Result<ResolvedImage> {
+        Err(WireError::new(
+            ErrorKind::Tool,
+            "This engine cannot resolve an image reference",
+        ))
+    }
+}
+
+/// One image reference, resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedImage {
+    /// The digest-pinned form.
+    pub image: String,
+    /// Whether the engine had to fetch it first.
+    pub pulled: bool,
 }
 
 /// Builds the runner for a container the pool has just started.
@@ -930,6 +951,14 @@ impl ContainerPool {
         self.options.engine.probe()
     }
 
+    /// The digest an image reference pins to, fetching it if need be.
+    ///
+    /// Touches no instance and takes no lock: it is the one operation here that
+    /// is about an image rather than a container.
+    pub fn resolve_image(&self, reference: &str) -> Result<ResolvedImage> {
+        self.options.engine.resolve_image(reference)
+    }
+
     /// The runner for a turn, decided without touching the daemon.
     ///
     /// Resolving is on the turn-open path, and starting a container there meant
@@ -1013,6 +1042,22 @@ pub const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 /// A container start may have to load a large image, so it gets longer.
 pub const START_TIMEOUT: Duration = Duration::from_mins(1);
 
+/// A pull may fetch gigabytes over whatever link the machine has.
+///
+/// Generous on purpose, and the only deadline here measured in minutes. It is a
+/// bound on a runaway rather than an expectation: an operator pressed a button
+/// and is watching, and a resolve that failed at thirty seconds on a slow link
+/// would send them back to a terminal, which is the thing this removes.
+pub const PULL_TIMEOUT: Duration = Duration::from_mins(10);
+
+/// The first non-empty line of some output, trimmed.
+///
+/// Engine output arrives with a trailing newline, and a failure's stderr is
+/// often several lines of which the first is the reason.
+fn first_line(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).find(|line| !line.is_empty())
+}
+
 /// Whether the process behind an owner tag is still running. Injected so the
 /// sweep's ownership rules are testable without a live peer.
 pub type LivenessFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
@@ -1038,6 +1083,8 @@ pub struct DockerEngineOptions {
     pub control_timeout: Option<Duration>,
     /// How long a container start may take. Defaults to [`START_TIMEOUT`].
     pub start_timeout: Option<Duration>,
+    /// How long resolving an image may take. Defaults to [`PULL_TIMEOUT`].
+    pub pull_timeout: Option<Duration>,
 }
 
 impl Default for DockerEngineOptions {
@@ -1049,6 +1096,7 @@ impl Default for DockerEngineOptions {
             is_owner_alive: None,
             control_timeout: None,
             start_timeout: None,
+            pull_timeout: None,
         }
     }
 }
@@ -1074,6 +1122,7 @@ pub struct DockerEngine {
     is_owner_alive: LivenessFn,
     control_timeout: Duration,
     start_timeout: Duration,
+    pull_timeout: Duration,
 }
 
 impl std::fmt::Debug for DockerEngine {
@@ -1104,6 +1153,7 @@ pub fn docker_engine(options: DockerEngineOptions) -> Arc<dyn ContainerEngine> {
             .unwrap_or_else(|| Arc::new(owner_process_looks_alive)),
         control_timeout: options.control_timeout.unwrap_or(CONTROL_TIMEOUT),
         start_timeout: options.start_timeout.unwrap_or(START_TIMEOUT),
+        pull_timeout: options.pull_timeout.unwrap_or(PULL_TIMEOUT),
     })
 }
 
@@ -1197,6 +1247,32 @@ impl DockerEngine {
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
+    }
+
+    /// The digest-pinned form of a reference the engine already holds.
+    ///
+    /// `RepoDigests` first, because a registry digest names the image wherever
+    /// it is pulled from and is what a definition on another machine can pin
+    /// too. An image built locally and never pushed has none, so its own `Id`
+    /// is the fallback: still a content address, still immutable, just only
+    /// meaningful on this engine. `None` means the engine does not hold it.
+    fn inspect_digest(&self, reference: &str) -> Option<String> {
+        let repo = self.capture(&argv(&[
+            "image",
+            "inspect",
+            reference,
+            "--format",
+            "{{index .RepoDigests 0}}",
+        ]));
+        if let Some(digest) = first_line(&repo).filter(|line| line.contains("@sha256:")) {
+            return Some(digest.to_owned());
+        }
+        let id = self.capture(&argv(&[
+            "image", "inspect", reference, "--format", "{{.Id}}",
+        ]));
+        first_line(&id)
+            .filter(|line| line.starts_with("sha256:"))
+            .map(str::to_owned)
     }
 
     /// Stdout of one call, or empty when it failed.
@@ -1320,6 +1396,41 @@ impl ContainerEngine for DockerEngine {
             self.capture(&argv(&["rm", "--force", id]));
         }
         Ok(())
+    }
+
+    fn resolve_image(&self, reference: &str) -> Result<ResolvedImage> {
+        // Locally first, so a reference the engine already holds answers
+        // instantly and an operator fixing a typo is not made to wait on a
+        // network round trip.
+        if let Some(image) = self.inspect_digest(reference) {
+            return Ok(ResolvedImage {
+                image,
+                pulled: false,
+            });
+        }
+        let pull = self.capture_raw(&argv(&["pull", reference]), self.pull_timeout)?;
+        if pull.code != Some(0) {
+            // The engine's own words. It knows whether this was a typo, a
+            // private registry or no network, and a sentence invented here
+            // would be a worse guess than any of them.
+            let said = first_line(&pull.stderr).unwrap_or("the engine gave no reason");
+            return Err(WireError::new(
+                ErrorKind::Tool,
+                format!("Could not pull \"{reference}\": {said}"),
+            )
+            .with_detail("reference", reference.to_owned()));
+        }
+        let image = self.inspect_digest(reference).ok_or_else(|| {
+            WireError::new(
+                ErrorKind::Tool,
+                format!("Pulled \"{reference}\" but the engine reported no digest for it"),
+            )
+            .with_detail("reference", reference.to_owned())
+        })?;
+        Ok(ResolvedImage {
+            image,
+            pulled: true,
+        })
     }
 
     fn start(&self, args: &[String]) -> Result<()> {

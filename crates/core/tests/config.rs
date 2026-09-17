@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use darkwire_core::config::{
     LoadConfigOptions, load_config, parse_config, render_config, save_config, validation_issues,
 };
-use darkwire_core::paths::ResolveWirePaths;
+use darkwire_core::paths::{ResolveWirePaths, WORKSPACES_ENV_VAR};
 use darkwire_core::{ErrorKind, WireError};
 use darkwire_protocol::Config;
 use serde_json::{Value, json};
@@ -40,7 +40,7 @@ fn options(root: &Path) -> LoadConfigOptions {
             root: Some(root.to_string_lossy().into_owned()),
             env: Some(HashMap::new()),
             home: Some(PathBuf::from("/home/someone-else")),
-            workspace: None,
+            workspaces: None,
         },
         file: None,
     }
@@ -182,54 +182,79 @@ mod load {
     }
 
     #[test]
-    fn keeps_the_workspace_under_the_root_when_the_config_names_none() {
-        // A default of the literal `~/.darkwire/workspace` would restate the
-        // *default* root, so an install relocated with DARKWIRE_HOME would point
-        // the agent's tools back at the home directory it thought it had left.
+    fn puts_the_workspaces_under_the_home_when_the_config_names_none() {
+        // A literal default would write one machine's home directory into a
+        // file meant to be portable, and the workspaces do not follow the root:
+        // `DARKWIRE_HOME` moves DarkWire's state, not the user's files.
         let root = temp();
         let loaded = load_config(options(root.path())).unwrap();
-        assert_eq!(loaded.config.workspace, "");
-        assert_eq!(loaded.paths.workspace, root.path().join("workspace"));
+        assert_eq!(loaded.config.workspaces, "");
+        assert_eq!(
+            loaded.paths.workspaces_dir,
+            PathBuf::from("/home/someone-else").join("DarkWire/workspaces")
+        );
     }
 
     #[test]
-    fn folds_the_config_workspace_into_the_resolved_paths() {
+    fn folds_the_config_workspaces_into_the_resolved_paths() {
         let root = temp();
         write_config(
             root.path(),
-            &json!({"workspace": "projects/alpha"}).to_string(),
+            &json!({"workspaces": "projects/alpha"}).to_string(),
         );
         let loaded = load_config(options(root.path())).unwrap();
         // Relative to the root, not the process cwd.
-        assert_eq!(loaded.paths.workspace, root.path().join("projects/alpha"));
+        assert_eq!(
+            loaded.paths.workspaces_dir,
+            root.path().join("projects/alpha")
+        );
     }
 
     #[test]
-    fn expands_tilde_in_the_config_workspace_against_the_given_home() {
+    fn lets_the_environment_variable_win_over_the_config_file() {
+        // The config value is folded in *before* `WirePaths::resolve` runs, so
+        // a fold that ignored the variable would hand `resolve` a `Some` and
+        // the variable would never be read at all.
+        let root = temp();
+        write_config(
+            root.path(),
+            &json!({"workspaces": "from-config"}).to_string(),
+        );
+        let mut options = options(root.path());
+        options.paths.env = Some(HashMap::from([(
+            WORKSPACES_ENV_VAR.to_owned(),
+            "/mnt/from-env".to_owned(),
+        )]));
+        let loaded = load_config(options).unwrap();
+        assert_eq!(loaded.paths.workspaces_dir, PathBuf::from("/mnt/from-env"));
+    }
+
+    #[test]
+    fn expands_tilde_in_the_config_workspaces_against_the_given_home() {
         let root = temp();
         let home = temp();
         write_config(
             root.path(),
-            &json!({"workspace": "~/ghost-work"}).to_string(),
+            &json!({"workspaces": "~/ghost-work"}).to_string(),
         );
         let mut options = options(root.path());
         options.paths.home = Some(home.path().to_path_buf());
         let loaded = load_config(options).unwrap();
-        assert_eq!(loaded.paths.workspace, home.path().join("ghost-work"));
+        assert_eq!(loaded.paths.workspaces_dir, home.path().join("ghost-work"));
     }
 
     #[test]
-    fn lets_an_explicit_workspace_win_over_the_config_file() {
+    fn lets_an_explicit_workspaces_folder_win_over_the_config_file() {
         let root = temp();
         write_config(
             root.path(),
-            &json!({"workspace": "from-config"}).to_string(),
+            &json!({"workspaces": "from-config"}).to_string(),
         );
         let mut options = options(root.path());
-        options.paths.workspace =
+        options.paths.workspaces =
             Some(root.path().join("from-flag").to_string_lossy().into_owned());
         let loaded = load_config(options).unwrap();
-        assert_eq!(loaded.paths.workspace, root.path().join("from-flag"));
+        assert_eq!(loaded.paths.workspaces_dir, root.path().join("from-flag"));
     }
 
     #[test]
@@ -284,7 +309,7 @@ mod load {
         let options = LoadConfigOptions {
             paths: ResolveWirePaths {
                 root: None,
-                workspace: None,
+                workspaces: None,
                 env: Some(HashMap::from([(
                     "DARKWIRE_HOME".to_owned(),
                     root.path().to_string_lossy().into_owned(),
@@ -325,7 +350,7 @@ mod save {
         let file = root.path().join("config.yaml");
         save_config(&file, &parse_config("{}", &file).unwrap()).unwrap();
         let text = fs::read_to_string(&file).unwrap();
-        assert!(text.starts_with("workspace:"));
+        assert!(text.starts_with("workspaces:"));
         assert!(text.ends_with('\n'));
     }
 

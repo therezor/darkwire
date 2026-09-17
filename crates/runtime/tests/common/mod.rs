@@ -95,6 +95,9 @@ impl Install {
     pub fn options(&self) -> RuntimeOptions {
         RuntimeOptions {
             home: Some(self.root.to_string_lossy().into_owned()),
+            // Named explicitly, or the workspaces would resolve under
+            // the home directory of whoever is running the tests.
+            workspaces: Some(self.root.join("workspaces").to_string_lossy().into_owned()),
             env: Some(HashMap::new()),
             // An explicit "no vault" rather than the default: the default opens
             // one on demand, and opening one writes a key to the OS keychain.
@@ -104,6 +107,29 @@ impl Install {
             database: Some(self.database.clone()),
             clock: Some(Arc::clone(&self.clock) as Arc<dyn Clock>),
             ..RuntimeOptions::default()
+        }
+    }
+
+    /// Options with the workspaces folder left for the config to name.
+    ///
+    /// Only for the cases that are *about* that resolution. It panics unless
+    /// the config already names a relative folder, because that is what keeps
+    /// the tree inside the temporary install: one that names nothing resolves
+    /// into the home directory of whoever is running the tests.
+    pub fn options_without_a_workspaces_folder(&self) -> RuntimeOptions {
+        let text = std::fs::read_to_string(self.config_file()).unwrap_or_default();
+        let named = serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|config| config.get("workspaces")?.as_str().map(str::to_owned))
+            .is_some_and(|folder| !folder.is_empty());
+        assert!(
+            named,
+            "the config has to name a relative workspaces folder, or the tree \
+             lands in the real home directory"
+        );
+        RuntimeOptions {
+            workspaces: None,
+            ..self.options()
         }
     }
 

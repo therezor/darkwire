@@ -12,18 +12,17 @@
  * session that named the old one — done in one request, because a folder that
  * moved without its conversations is worse than either half. Two things it
  * cannot do, and both are refused rather than hidden: the default workspace's
- * folder *is* the workspace root and the parent of every other one, so its box
- * is inert; and a signed URL already in flight carries the old folder and stops
- * resolving. Those are minted for seconds at a time, and the alternative was a
+ * id is what every session falls back to, so its box is inert; and a signed URL
+ * already in flight carries the old folder and stops resolving. Those are minted for seconds at a time, and the alternative was a
  * folder nobody could ever correct.
  *
- * **The default's folder is `/`.** It is the workspace root itself —
- * `workspaceDirFor` maps that one id to `paths.workspace`, and every other
- * workspace is a directory inside it — so `/` is both what it is and the reason
- * it cannot move. This screen has rendered two wrong answers on the way here:
- * `workspace/default`, a directory that does not exist, and then `workspace`,
- * which collides with what the Files breadcrumb calls the root of whichever
- * workspace you are *in*. See `folder.ts`.
+ * **The default's folder is written like any other.** It is a directory beside
+ * them, not the tree they sit in, so the box states `/default` and is inert
+ * because the id is fixed rather than because the folder is special. This
+ * screen has rendered two wrong answers on the way here: `workspace/default`,
+ * a directory that did not exist, and then `workspace`, which collides with
+ * what the Files breadcrumb calls the root of whichever workspace you are
+ * *in*. See `folder.ts`.
  *
  * **Delete is in the head, not at the bottom of the form.** A destructive action
  * does not belong in the reading order of the settings it would destroy — and
@@ -257,9 +256,9 @@ function Editor({
           </h1>
           {workspace?.isDefault === true && <Badge>default</Badge>}
           <span className="spacer" />
-          {/* The default is the parent of every other workspace; there is no
-              coherent thing removing it could mean — and neither is there for
-              one that does not exist yet. */}
+          {/* Every install has the default and every session falls back to it,
+              so there is no coherent thing removing it could mean — and neither
+              is there for one that does not exist yet. */}
           {workspace !== undefined && !workspace.isDefault && (
             <RowActions label={workspace.name}>
               <DropdownMenuItem
@@ -305,10 +304,12 @@ function Editor({
             // The default's folder is stated, not hinted. A placeholder is the
             // wrong slot for a fact: drawn in the muted tier, it means "nothing
             // here yet", so the one box on the screen whose answer is fixed
-            // would also be the one that looks empty. A value, and inert — `/`
-            // is the root every other workspace is a directory inside, so there
-            // is no rename of it that does not mean relocating the whole tree.
-            value={workspace?.isDefault === true ? WORKSPACE_ROOT_PATH : folder}
+            // would also be the one that looks empty. A value, and inert: the
+            // default's folder is named after its id, and the id is what every
+            // session falls back to, so it cannot move.
+            value={
+              workspace?.isDefault === true ? folderLabel(workspace) : folder
+            }
             className="workspaces__folder-input"
             spellCheck={false}
             disabled={workspace?.isDefault === true}

@@ -31,10 +31,10 @@ fn an_empty_object_is_a_fully_populated_tree() {
 #[test]
 fn a_config_re_serialises_in_declaration_order() {
     let text = serde_json::to_string_pretty(&Config::default()).unwrap();
-    let workspace = text.find("\"workspace\"").unwrap();
+    let workspaces = text.find("\"workspaces\"").unwrap();
     let agents = text.find("\"agents\"").unwrap();
     let ui = text.find("\"ui\"").unwrap();
-    assert!(workspace < agents && agents < ui);
+    assert!(workspaces < agents && agents < ui);
     let again: Config = serde_json::from_str(&text).unwrap();
     assert_eq!(again, Config::default());
 }

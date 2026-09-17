@@ -10,11 +10,18 @@ against the policy directory rather than the caller's word.
 **A single-binary install needs none of this.** `darkwire serve` starts the service as a
 task of its own on a socket under the install root when no deployed one answers, and
 talks to it exactly as it would talk to one beside it. One code path, one set of approval
-checks, and the engine still owned by one component. It registers every workspace in the
-registry at boot, so a workspace created afterwards needs a `serve` restart before a
-container in it will run; nothing is started when `DARKWIRE_SANDBOX_SOCKET` names a service
-or a socket is already listening, because two services over one state directory would each
-try to reap the other's containers.
+checks, and the engine still owned by one component. Every workspace in the registry may
+use every installed definition, answered per request rather than read at boot, so a
+workspace created or an environment installed while the server runs needs no restart. A
+deployed service keeps the allow-list its config file gives it, because that one exists to
+bound an app in another trust domain.
+
+Nothing is started when `DARKWIRE_SANDBOX_SOCKET` names a service or a socket is already
+listening, because two services over one state directory would each try to reap the
+other's containers. An install with no environments and no container engine still starts
+it: the engine is probed on first use rather than at boot, so it costs such a machine
+nothing, and it is what lets the Environments screen resolve an image digest before there
+is an environment to put it in.
 
 ## Upgrading a deployed service
 
@@ -31,9 +38,11 @@ same binary.
 
 ## Container deployment
 
-Copy `deploy/sandbox/examples` into an absolute data directory as `policies`, replace the
-example image placeholder with a digest or local image ID, then install each environment
-definition from an operator-controlled installation. Build the gateway image when any
+Copy `deploy/sandbox/examples` into an absolute data directory as `policies`, so
+`dev.yaml` lands at `policies/environments/dev.yaml`. Replace its image placeholder with a
+digest: **Settings > Environments** resolves one from a tag for you, or
+`docker image inspect <ref> --format '{{index .RepoDigests 0}}'` prints it. Then install
+each environment definition from an operator-controlled installation. Build the gateway image when any
 agent asks for `allowlist` egress:
 
 ```bash
@@ -45,8 +54,9 @@ docker compose -f deploy/sandbox/compose.yaml up --build
 ```
 
 The Compose file mounts the runtime socket only into `sandbox`. Policy files are read-only
-in both services; app state, sandbox state and the registered workspace have separate
-mounts. `DARKWIRE_DATA_DIR` is also the absolute host path the Docker daemon sees. If the
+in both services; app state, sandbox state and the workspaces folder have separate mounts.
+The workspaces mount is the folder that holds them all, not one workspace: each is a
+directory inside it, so a mount of the default alone would lose the rest on restart. `DARKWIRE_DATA_DIR` is also the absolute host path the Docker daemon sees. If the
 daemon runs elsewhere, use a JSON service config and set each `daemonPath` explicitly.
 
 The default web listener is bound to `127.0.0.1:3000`. Put TLS/authentication in front of

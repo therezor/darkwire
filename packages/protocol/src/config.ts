@@ -135,20 +135,18 @@ function patchOf<S extends z.ZodRawShape>(
  * agents with separate identities opening the same one is the thing this is
  * built around. `AgentEntrySchema` therefore cannot name it, and a test says so.
  *
- * Empty means `<root>/workspace`, where the root is `DARKWIRE_HOME` or
- * `~/.darkwire`. Deliberately *not* defaulted to the literal `~/.darkwire/workspace`:
- * that string restates the default root, so an install that moved its root with
- * `DARKWIRE_HOME` would keep a workspace back under the home directory — silently
- * pointing the agent's filesystem tools at a tree the operator thought they had
- * relocated. A relative path here is resolved against the root, never against
- * the process working directory.
+ * Empty means `~/DarkWire/workspaces`. Deliberately *not* defaulted to that
+ * literal string: writing one machine's home directory into the file makes the
+ * config non-portable and a container mount silently wrong. A relative path
+ * here is resolved against the root, never against the process working
+ * directory, and `DARKWIRE_WORKSPACES` wins over whatever this says.
  *
  * Merged per field like every other root key, which is what makes an omitted
  * key preserve it. It must never move under a `REPLACE_WHOLESALE` path: there an
  * omission *deletes*, so a settings save touching something else would silently
- * reset the configured root.
+ * reset the configured folder.
  */
-export const WorkspacePathSchema = z.string().default('');
+export const WorkspacesPathSchema = z.string().default('');
 
 /**
  * What one agent sends, and what it costs.
@@ -646,8 +644,8 @@ export type SubagentRef = z.infer<typeof SubagentRefSchema>;
  * and an agent in that state is listed, editable and refused a turn rather than
  * quietly borrowing somebody else's. See `AgentSettingsSchema.model`.
  *
- * `workspace` is deliberately absent. The working folder is root-level and
- * shared — see `WorkspacePathSchema`.
+ * `workspaces` is deliberately absent. The working folder is root-level and
+ * shared — see `WorkspacesPathSchema`.
  */
 export const AgentEntrySchema = AgentSettingsSchema.extend({
   /** Shown in the UI. Empty falls back to the id. */
@@ -698,12 +696,15 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    */
   promptMode: PromptModeSchema.default('template'),
   /**
-   * The `## Running commands` section, as a template. Fills `{{platformPolicy}}`.
+   * The `## Running commands` section: where commands run, and what is there.
+   * Fills `{{platformPolicy}}`.
    *
-   * Empty means the built-in for this agent's placement. `exec` on the host and
-   * `exec` in an environment get different defaults, and which one applies is
-   * decided per turn, because a subagent runs where its caller's reference
-   * says it does. A single space removes the section.
+   * Empty inherits a built-in that depends on placement, and which one applies
+   * is decided per turn, because a subagent runs where its caller's reference
+   * says it does. On the host that built-in is the rule `guardExec` enforces.
+   * In a container it is the environment definition's own `prompt`, because
+   * only the image knows what it holds; an image that says nothing places no
+   * section at all. A single space removes the section.
    *
    * Editing it does not widen anything. Where a command may reach is decided by
    * `guardExec` and the workspace jail, neither of which reads the prompt; this
@@ -711,12 +712,12 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    */
   platformPrompt: z.string().default(''),
   /**
-   * @deprecated Read by nothing. `## Running commands` is the one placement
-   * section now, and `platformPrompt` above says both where commands run and
-   * what is installed there.
+   * @deprecated Read by nothing. `platformPrompt` above is the one section
+   * about placement, and in a container its built-in is already the
+   * definition's own words.
    *
-   * Still parsed so an agent that set it can be told its wording is no longer
-   * placed, rather than losing it in silence. It goes one release after that.
+   * Still parsed so an agent that set it can be told its wording is not placed,
+   * rather than losing it in silence.
    */
   environmentPrompt: z.string().optional(),
   /**
@@ -950,8 +951,8 @@ export const UiConfigSchema = z.object({
 // Root
 
 export const ConfigSchema = z.object({
-  /** The folder every agent works in. See `WorkspacePathSchema`. */
-  workspace: WorkspacePathSchema,
+  /** The folder the workspaces live in. See `WorkspacesPathSchema`. */
+  workspaces: WorkspacesPathSchema,
   agents: AgentsConfigSchema.prefault({}),
   providers: ProvidersConfigSchema,
   server: ServerConfigSchema.prefault({}),
@@ -1109,14 +1110,14 @@ export const ConfigPatchSchema = z.strictObject({
     .optional(),
   ui: patchOf(UiConfigSchema).optional(),
   /**
-   * Stripped of its default, not `WorkspacePathSchema.optional()`.
+   * Stripped of its default, not `WorkspacesPathSchema.optional()`.
    *
    * `.optional()` leaves the `ZodDefault` in place, so a patch parsed from `{}`
-   * would carry `workspace: ''` and every settings save would reset a configured
-   * root to "unset". That is the exact hazard `patchOf` exists to prevent, and
-   * this is the one root field that needs it written out by hand.
+   * would carry `workspaces: ''` and every settings save would reset a
+   * configured folder to "unset". That is the exact hazard `patchOf` exists to
+   * prevent, and this is the one root field that needs it written out by hand.
    */
-  workspace: z.string().optional(),
+  workspaces: z.string().optional(),
 });
 export type ConfigPatch = z.infer<typeof ConfigPatchSchema>;
 

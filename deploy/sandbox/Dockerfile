@@ -22,7 +22,7 @@ COPY --from=build /src/target/release/darkwire-environment /usr/local/bin/darkwi
 ENTRYPOINT ["darkwire-environment"]
 CMD ["serve-env"]
 
-# The image `containers/dev.yaml` points at. Built separately and referenced by
+# The image `environments/dev.yaml` points at. Built separately and referenced by
 # its id, never by this tag: a container definition that named a tag would be
 # repointable after approval.
 FROM alpine:3.23 AS tools

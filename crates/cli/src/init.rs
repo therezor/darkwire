@@ -335,8 +335,8 @@ pub async fn init(options: InitOptions<'_>, streams: &mut Streams) -> Result<u8>
     writeln!(
         streams.out,
         "  {}  {}\n",
-        palette.dim.apply(&t.t(keys::init::WORKSPACE)),
-        answers.workspace
+        palette.dim.apply(&t.t(keys::init::WORKSPACES)),
+        answers.workspaces
     )?;
     writeln!(
         streams.out,
@@ -352,8 +352,8 @@ pub async fn init(options: InitOptions<'_>, streams: &mut Streams) -> Result<u8>
 pub struct Answers {
     /// A BCP-47 tag, written to `ui.locale` — the same field the web UI reads.
     pub locale: String,
-    /// The workspace root.
-    pub workspace: String,
+    /// The folder the workspaces live in.
+    pub workspaces: String,
     /// The id the new provider instance takes.
     pub instance_id: String,
     /// The instance itself.
@@ -488,11 +488,11 @@ async fn collect(
 ) -> Result<Answers> {
     let locale = ask_locale(ask, streams, loaded, t)?;
 
-    let workspace_default = loaded.paths.workspace.to_string_lossy().into_owned();
-    let workspace = ask.text(
+    let workspaces_default = loaded.paths.workspaces_dir.to_string_lossy().into_owned();
+    let workspaces = ask.text(
         &mut streams.out,
-        &t.t(keys::init::WORKSPACE_DIR),
-        Some(&workspace_default),
+        &t.t(keys::init::WORKSPACES_DIR),
+        Some(&workspaces_default),
     )?;
 
     let spec = ask_provider(ask, streams, palette, t)?;
@@ -540,7 +540,7 @@ async fn collect(
 
     Ok(Answers {
         locale,
-        workspace,
+        workspaces,
         instance_id,
         instance: ProviderConfig {
             kind: spec.id.clone(),
@@ -568,10 +568,10 @@ fn write(
     credentials: &mut dyn CredentialSink,
 ) -> Result<()> {
     let mut merged: Config = loaded.config.clone();
-    // The workspace is the install's; the model and provider are the default
-    // agent's. Two homes because they are two kinds of thing — an agent works
-    // *in* a workspace and does not own one.
-    merged.workspace.clone_from(&answers.workspace);
+    // The workspaces folder is the install's; the model and provider are the
+    // default agent's. Two homes because they are two kinds of thing: an agent
+    // works *in* a workspace and does not own one.
+    merged.workspaces.clone_from(&answers.workspaces);
     merged.ui.locale.clone_from(&answers.locale);
     let agent = merged
         .agents

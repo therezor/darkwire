@@ -121,7 +121,7 @@ DarkWire is listening.
   URL        http://127.0.0.1:3000
   Auth       enabled
   Agent      not configured — add a provider in the UI, or run `darkwire init`
-  Workspace  /Users/you/.darkwire/workspace
+  Workspaces  /Users/you/DarkWire/workspaces
 
 First run. Open the URL above and enter this one-time code:
 
@@ -166,13 +166,13 @@ uses it. [Environments](environments.md) explains what each definition decides.
 ## 4. Your first conversation
 
 The agent can only read and write inside one folder, called the **workspace** — by default
-`~/.darkwire/workspace`, which starts empty. Give it something to look at:
+`~/DarkWire/workspaces/default`, which starts empty. Give it something to look at:
 
 ```bash
-mkdir -p ~/.darkwire/workspace
+mkdir -p ~/DarkWire/workspaces/default
 echo '# Notes
 
-Remember to water the plants.' > ~/.darkwire/workspace/notes.md
+Remember to water the plants.' > ~/DarkWire/workspaces/default/notes.md
 ```
 
 Then ask, in the composer:
@@ -199,11 +199,15 @@ back:
 
 ## 5. Giving it a real project
 
-A single note is not much to work with. Either copy a project into the workspace, or point
-DarkWire at one where it already lives:
+A single note is not much to work with. Either copy a project into the workspace, or make
+a workspace of your own on the **Workspaces** screen and copy it in there. Each workspace
+is one folder under `~/DarkWire/workspaces`, so you can also put the files in place first
+and create a workspace on the same folder name to adopt them.
+
+To keep the whole tree somewhere else, name the folder that holds them:
 
 ```bash
-darkwire serve --workspace ~/code/my-project
+darkwire serve --workspaces ~/code/wire-workspaces
 ```
 
 Now browse and edit it on the **Files** screen, or just ask the agent to.
@@ -247,15 +251,25 @@ See [Tools & permissions](tools.md).
 
 ## 7. Where your things live
 
-Everything is under `~/.darkwire`, or `$DARKWIRE_HOME`:
+DarkWire's own state is under `~/.darkwire`, or `$DARKWIRE_HOME`:
 
-| Path                         | What                                                                                |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| `config.yaml`                | The settings tree. **Safe to commit** — no credentials are in it.                   |
-| `darkwire.db`                | Sessions, messages, turn stats, auth, notifications, approvals.                     |
-| `vault.json` + `vault.key`   | The encrypted credential vault. The key moves to the OS keychain when there is one. |
-| `workspace/`                 | The only tree the agent's file tools can reach.                                     |
-| `containers/`, `extensions/` | Installed manifests — beside the workspace, never inside it.                        |
+| Path                       | What                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `config.yaml`              | The settings tree. **Safe to commit** — no credentials are in it.                   |
+| `darkwire.db`              | Sessions, messages, turn stats, auth, notifications, approvals.                     |
+| `vault.json` + `vault.key` | The encrypted credential vault. The key moves to the OS keychain when there is one. |
+| `policy/`, `extensions/`   | Installed manifests — outside every workspace, never inside one.                    |
+
+Your files are under `~/DarkWire/workspaces`, or `$DARKWIRE_WORKSPACES`, one folder per
+workspace:
+
+| Path       | What                                                          |
+| ---------- | ------------------------------------------------------------- |
+| `default/` | The workspace every install has, and what a session opens in. |
+| `<id>/`    | Each workspace you make. None of them can reach another.      |
+
+The split is deliberate. `DARKWIRE_HOME` moves DarkWire's state and leaves your files
+alone; the only tree the agent's file tools can reach is the one workspace it is in.
 
 API keys never go in `config.yaml`. They go to the vault, keyed by provider instance, so
 you can commit your settings and share them.

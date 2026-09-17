@@ -45,6 +45,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_AGENT_TOOLS,
   DEFAULT_USERNAME,
+  DEFAULT_WORKSPACE_ID,
   type ConfigPatch,
 } from '@darkwire/protocol';
 
@@ -140,7 +141,8 @@ export interface Harness {
   readonly pid: number;
   /** The fake model's endpoint, for a spec that configures a second instance. */
   readonly providerUrl: string;
-  /** The jail root, for a spec that wants to look at what a tool wrote. */
+  /** The default workspace's folder, for a spec that wants to look at what a
+   * tool wrote. Its siblings are beside it, not inside it. */
   readonly workspace: string;
   /** The one-time code, on an unclaimed harness. `undefined` once claimed. */
   readonly setupCode: string | undefined;
@@ -222,13 +224,13 @@ function seedWorkspace(root: string): void {
  */
 function harnessConfig(
   options: HarnessOptions,
-  workspace: string,
+  workspaces: string,
   providerUrl: string,
 ): Record<string, unknown> {
   const patch = options.config ?? {};
   return {
     ...patch,
-    workspace,
+    workspaces,
     // Replaced wholesale when a spec names it, so a spec can say "nothing is
     // configured" by naming an empty map — which is a state the wizard has a
     // step for and which a harness that always added its own endpoint could
@@ -321,13 +323,17 @@ export async function startHarness(
   const bin = binary();
   const ui = uiRoot();
   const home = mkdtempSync(join(tmpdir(), 'darkwire-e2e-home-'));
-  const workspace = mkdtempSync(join(tmpdir(), 'darkwire-e2e-work-'));
+  // The folder that holds them all, and the default's own folder inside it.
+  // Every workspace is a directory in here, the default included, so the
+  // fixture files go one level down rather than at the top.
+  const workspaces = mkdtempSync(join(tmpdir(), 'darkwire-e2e-work-'));
+  const workspace = join(workspaces, DEFAULT_WORKSPACE_ID);
   seedWorkspace(workspace);
 
   const provider = await startFakeProvider(ROUTES);
 
   const configFile = join(home, 'config.yaml');
-  let config = harnessConfig(options, workspace, provider.url);
+  let config = harnessConfig(options, workspaces, provider.url);
   writeFileSync(configFile, JSON.stringify(config, null, 2));
 
   const readyFile = join(home, 'ready.json');
@@ -338,8 +344,8 @@ export async function startHarness(
       'serve',
       '--home',
       home,
-      '--workspace',
-      workspace,
+      '--workspaces',
+      workspaces,
       '--host',
       '127.0.0.1',
       '--port',
@@ -359,6 +365,7 @@ export async function startHarness(
       env: {
         PATH: process.env.PATH ?? '',
         HOME: home,
+        DARKWIRE_WORKSPACES: workspaces,
         DARKWIRE_TEST_HOOKS: '1',
         NO_COLOR: '1',
         DARKWIRE_LOG_LEVEL: 'warn',
@@ -395,7 +402,7 @@ export async function startHarness(
     }
     await provider.close();
     rmSync(home, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
+    rmSync(workspaces, { recursive: true, force: true });
   };
 
   let ready: ReadyRecord;

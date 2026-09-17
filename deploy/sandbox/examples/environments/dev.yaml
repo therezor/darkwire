@@ -1,0 +1,40 @@
+# One environment, as the service reads it.
+#
+# Copy this tree to the data directory as `policies/`, so this file lands at
+# `policies/environments/dev.yaml`. The filename is the name: they must match.
+---
+schema: darkwire.environment/1
+name: dev
+
+# Must be digest-pinned. A tag can be repointed later, which would leave this
+# definition running an image nobody chose.
+#
+# Settings > Environments resolves one for you: type `alpine:3.23`, press
+# Resolve, and the digest lands in the box. By hand it is:
+#
+#   docker pull alpine:3.23
+#   docker image inspect alpine:3.23 --format '{{index .RepoDigests 0}}'
+#
+# For the image built from `deploy/sandbox/Dockerfile --target tools`, which is
+# local and never pushed, use its id instead:
+#
+#   docker image inspect darkwire-tools --format '{{.Id}}'
+image: REPLACE_WITH_A_DIGEST
+
+# What every agent running here is told about the place. Plain prose, no
+# heading: it is placed under one. Say what is installed, which shell, and what
+# is missing. An agent narrows it with its own `environmentPrompt`.
+prompt: |
+  Alpine 3.23. git, util-linux and ca-certificates are installed.
+  The shell is ash, not bash: no arrays, no `[[ ]]`, no process substitution.
+  There is no package manager available and no network unless the agent's
+  policy grants one, so nothing can be installed at runtime.
+
+user: 1000:1000
+security:
+  noNewPrivileges: true
+  readOnlyRoot: true
+  # `exec` records its pid here so a timeout or a cancel has something to
+  # signal. A read-only root with no writable /tmp cannot be cancelled.
+  tmpfs:
+    - '/tmp:rw,nosuid,size=128m'

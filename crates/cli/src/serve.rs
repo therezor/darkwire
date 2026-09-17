@@ -880,7 +880,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     // (1) Read once, here, only for the database path: the runtime loads it
     // again for itself, and the config it ends up with is the one everything
     // else uses.
-    let (loaded, database) = open_store(&globals, args.workspace.as_deref(), &env)?;
+    let (loaded, database) = open_store(&globals, args.workspaces.as_deref(), &env)?;
     let clock = Arc::new(SystemClock);
 
     // (2) Before the runtime, because the runtime hands it to the loop.
@@ -909,7 +909,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     // (3) The runtime, then the hub over its loop.
     let runtime = create_runtime(RuntimeOptions {
         home: globals.home.clone(),
-        workspace: args.workspace.clone(),
+        workspaces: args.workspaces.clone(),
         approvals: Some(approvals.clone()),
         automation: Some(Arc::clone(&automation) as Arc<dyn darkwire_tools::AutomationResolver>),
         env: Some(env_map(&env)),
@@ -1394,7 +1394,7 @@ pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -
             },
         ),
         (
-            t.t(keys::serve::WORKSPACE),
+            t.t(keys::serve::WORKSPACES),
             running.runtime.jail().root().display().to_string(),
         ),
         (

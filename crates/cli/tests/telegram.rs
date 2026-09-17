@@ -45,7 +45,7 @@ fn paths(home: &TempDir, with_vault: bool) -> WirePaths {
     let root = home.path().to_string_lossy().into_owned();
     let resolved = WirePaths::resolve(ResolveWirePaths {
         root: Some(root),
-        workspace: None,
+        workspaces: None,
         env: Some(HashMap::new()),
         home: Some(home.path().to_path_buf()),
     })
@@ -352,6 +352,12 @@ fn install(config: Option<&Value>) -> (TempDir, Arc<WireRuntime>) {
     }
     let runtime = create_runtime(RuntimeOptions {
         home: Some(temp.path().to_string_lossy().into_owned()),
+        workspaces: Some(
+            temp.path()
+                .join("workspaces")
+                .to_string_lossy()
+                .into_owned(),
+        ),
         env: Some(HashMap::new()),
         // Explicit rather than defaulted: the default opens a vault on demand,
         // and opening one writes a key to the OS keychain.

@@ -85,9 +85,9 @@ pub fn slugify(name: &str, reserved: &[&str], fallback: &str) -> String {
 
 /// The workspace every install has, and the one that cannot be deleted.
 ///
-/// Reserved as a *name to create* because it names the parent of every other
-/// workspace rather than a folder beside them; it is still a legal id to
-/// resolve.
+/// Reserved as a *name to create* because the store bootstraps it; it is still
+/// a legal id to resolve, and its folder is a sibling of every other
+/// workspace's.
 pub const DEFAULT_WORKSPACE_ID: &str = "default";
 
 /// Reserved as *names to create*. `default` is still a legal id to resolve.

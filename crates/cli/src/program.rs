@@ -114,9 +114,9 @@ pub struct ChatArgs {
     pub model: Option<String>,
     /// `-p, --provider <id>`.
     pub provider: Option<String>,
-    /// `-w, --workspace <dir>`: the workspace **root**, which moves the tree.
-    pub workspace: Option<String>,
-    /// `-W, --workspace-id <id>`: which workspace inside that root.
+    /// `-w, --workspaces <dir>`: the folder the workspaces live in.
+    pub workspaces: Option<String>,
+    /// `-W, --workspace-id <id>`: which workspace inside that folder.
     pub workspace_id: Option<String>,
     /// `--new`.
     pub fresh: bool,
@@ -136,7 +136,7 @@ impl Default for ChatArgs {
             agent_id: None,
             model: None,
             provider: None,
-            workspace: None,
+            workspaces: None,
             workspace_id: None,
             fresh: false,
             json: false,
@@ -153,8 +153,8 @@ pub struct ServeArgs {
     pub host: Option<String>,
     /// `-P, --port <port>`, already validated. `0` asks the OS for a free one.
     pub port: Option<u16>,
-    /// `-w, --workspace <dir>`.
-    pub workspace: Option<String>,
+    /// `-w, --workspaces <dir>`.
+    pub workspaces: Option<String>,
     /// `--password`, or `DARKWIRE_PASSWORD`. Empty is absent.
     pub password: Option<String>,
     /// `--username`, or `DARKWIRE_USERNAME`. Empty is absent.
@@ -477,15 +477,15 @@ fn chat_args(t: &Translations, hidden: bool) -> Vec<Arg> {
             .long("provider")
             .value_name("id")
             .help(t.t(keys::chat::options::PROVIDER)),
-        // Two different things, deliberately spelled differently. `-w` moves
-        // the whole tree; `-W` picks a workspace inside it. Accepting either on
-        // one flag and guessing by whether the string exists on disk is how a
-        // typo'd id silently becomes a path.
-        Arg::new("workspace")
+        // Two different things, deliberately spelled differently. `-w` names
+        // the folder the workspaces live in; `-W` picks one inside it.
+        // Accepting either on one flag and guessing by whether the string
+        // exists on disk is how a typo'd id silently becomes a path.
+        Arg::new("workspaces")
             .short('w')
-            .long("workspace")
+            .long("workspaces")
             .value_name("dir")
-            .help(t.t(keys::chat::options::WORKSPACE)),
+            .help(t.t(keys::chat::options::WORKSPACES)),
         Arg::new("workspace-id")
             .short('W')
             .long("workspace-id")
@@ -548,11 +548,11 @@ fn serve_command(t: &Translations) -> Command {
                 .help(t.t(keys::serve::options::PORT)),
         )
         .arg(
-            Arg::new("workspace")
+            Arg::new("workspaces")
                 .short('w')
-                .long("workspace")
+                .long("workspaces")
                 .value_name("dir")
-                .help(t.t(keys::serve::options::WORKSPACE)),
+                .help(t.t(keys::serve::options::WORKSPACES)),
         )
         .arg(
             Arg::new("password")
@@ -687,7 +687,7 @@ fn chat_args_of(matches: &ArgMatches) -> ChatArgs {
         agent_id: string_of(matches, "agent"),
         model: string_of(matches, "model"),
         provider: string_of(matches, "provider"),
-        workspace: string_of(matches, "workspace"),
+        workspaces: string_of(matches, "workspaces"),
         workspace_id: string_of(matches, "workspace-id"),
         fresh: flag(matches, "new"),
         json: flag(matches, "json"),
@@ -709,7 +709,7 @@ fn serve_args_of(matches: &ArgMatches, env: &Env, t: &Translations) -> Result<Se
     Ok(ServeArgs {
         host: string_of(matches, "host"),
         port: resolve_port(matches.get_one::<String>("port"), t)?,
-        workspace: string_of(matches, "workspace"),
+        workspaces: string_of(matches, "workspaces"),
         password,
         username,
         ui: string_of(matches, "ui"),

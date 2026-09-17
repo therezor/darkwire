@@ -38,6 +38,20 @@ fn describe(environment: &EnvironmentDefinition) -> Vec<String> {
             environment.caps.add.join(" +")
         ));
     }
+    // What every agent running here is told. Printed because "read a definition
+    // before an agent uses it" is what this command is for, and the prose is
+    // the only part of one the model ever sees.
+    if let Some(prompt) = environment.prompt.as_deref().map(str::trim)
+        && !prompt.is_empty()
+    {
+        let mut said = prompt.lines();
+        if let Some(first) = said.next() {
+            lines.push(format!("    says       {first}"));
+        }
+        for line in said {
+            lines.push(format!("               {line}"));
+        }
+    }
     if let Err(error) = assert_gateway_compatible(environment) {
         // Not a refusal: an environment with no network is perfectly usable, and
         // the operator may never ask this one for an allow-list. It is printed

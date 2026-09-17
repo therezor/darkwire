@@ -154,30 +154,17 @@
       "output": "Tool iterations left in this turn: 2. Wrap up — answer with what you have, or say plainly what is still missing."
     },
     {
-      "name": "default: DEFAULT_PLATFORM_HOST_TEMPLATE",
+      "name": "default: DEFAULT_PLATFORM_TEMPLATE",
       "input": {
-        "template": "## Running commands\n\n`exec` runs on this machine — {{runtime}} — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.{{shellPolicy}}",
+        "template": "## Running commands\n\n`exec` runs with the workspace root as its working directory, so pass relative\narguments. Paths outside the workspace may be refused.\n\nThe file tools always act on the workspace on this machine, whatever `exec`\ndoes. Prefer them where they are simpler or more reliable than a command.",
         "values": {
-          "runtime": "Linux x64, Node 22.0.0",
+          "runtime": "Linux x64, DarkWire 0.5.0",
           "platform": "linux",
           "workspaceId": "acme",
           "shellPolicy": "\n\nA POSIX shell is available through `[\"sh\",\"-c\",\"…\"]`."
         }
       },
-      "output": "## Running commands\n\n`exec` runs on this machine — Linux x64, Node 22.0.0 — as a real process on the real\nfilesystem. Unlike the file tools it is therefore *not* confined to the workspace,\nwhich is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is\nrefused rather than resolved inside. Its working directory is already the\nworkspace root, so pass relative arguments.\n\nA POSIX shell is available through `[\"sh\",\"-c\",\"…\"]`."
-    },
-    {
-      "name": "default: DEFAULT_PLATFORM_CONTAINER_TEMPLATE",
-      "input": {
-        "template": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.\n\nAssume nothing about what is installed beyond a base image. Check for a tool\nbefore relying on it.",
-        "values": {
-          "runtime": "macOS arm64, Node 22.0.0",
-          "platform": "darwin",
-          "workspaceId": "acme",
-          "shellPolicy": ""
-        }
-      },
-      "output": "## Running commands\n\nCommands you run with `exec` run inside a container, not on the host. What they\ncan reach is fixed by the container definition and the agent's network policy.\nFile tools act on the workspace on this machine; the same workspace is mounted\ninside the container.\n\nAssume nothing about what is installed beyond a base image. Check for a tool\nbefore relying on it."
+      "output": "## Running commands\n\n`exec` runs with the workspace root as its working directory, so pass relative\narguments. Paths outside the workspace may be refused.\n\nThe file tools always act on the workspace on this machine, whatever `exec`\ndoes. Prefer them where they are simpler or more reliable than a command."
     },
     {
       "name": "default: DEFAULT_TOOL_POLICY_TEMPLATE",

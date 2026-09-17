@@ -402,6 +402,9 @@ async fn container_definitions_are_listed() {
 /// Reported beside the hardening rather than refused: an operator is told what
 /// their file says that no longer does anything and fixes it in their own time.
 /// Silence would be the file quietly meaning less than it says.
+///
+/// `prompt` is in the fixture and deliberately *not* reported: it is placed
+/// again, as the second half of the agent's `## Running commands`.
 #[tokio::test]
 async fn a_definition_setting_a_retired_field_says_so() {
     let test = with_containers(vec![definition(
@@ -418,7 +421,7 @@ async fn a_definition_setting_a_retired_field_says_so() {
         .collect::<String>();
 
     assert!(joined.contains("no longer read"), "{weakened:?}");
-    assert!(joined.contains("no longer placed"), "{weakened:?}");
+    assert!(!joined.contains("prompt"), "{weakened:?}");
 }
 
 #[tokio::test]

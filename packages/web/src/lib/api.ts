@@ -20,7 +20,9 @@
  */
 
 import {
+  ResolveImageResponseSchema,
   SandboxListResponseSchema,
+  type ResolveImageResponse,
   type SandboxListResponse,
   type SandboxRequest,
   AutomationJobListResponseSchema,
@@ -531,6 +533,21 @@ export const api = {
     request('/api/sandboxes', z.record(z.string(), z.unknown()), {
       method: 'POST',
       body: operation,
+    }),
+
+  /**
+   * Turn an image reference into the digest a definition may pin.
+   *
+   * Its own method rather than a `manageSandbox` call, because it is the one
+   * operation here that may take minutes: the engine pulls when it does not
+   * already hold the image. No timeout is set on purpose: an operator pressed a
+   * button and is watching, and giving up on a slow link would send them back to
+   * a terminal, which is the thing this removes.
+   */
+  resolveImage: (reference: string): Promise<ResolveImageResponse> =>
+    request('/api/sandboxes', ResolveImageResponseSchema, {
+      method: 'POST',
+      body: { op: 'resolveImage', reference },
     }),
 
   /** The environment definitions an operator installed. */

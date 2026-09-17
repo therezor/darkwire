@@ -218,9 +218,9 @@ it names which workspace the open conversation's tools use, and moving it writes
 binding on the session. The move takes effect from the next turn — a turn already
 running finishes in the workspace it started in.
 
-The Files page opens at the default workspace, which is the parent of every named one,
-so they appear there as ordinary folders and are opened by clicking into them. Named
-workspaces cannot see each other.
+The Files page opens at the default workspace. Every workspace is its own folder on
+disk and none of them can see another, so the way to a different one is the link out of
+the workspaces manager, which sets `?workspace=` in the URL.
 
 Which workspace a given turn actually ran in is recorded per turn and shown in the turn
 details popover, because a conversation that has been moved spans more than one.
@@ -305,17 +305,33 @@ ask, because it takes access away and leaves the files where they are.
 
 **Environments is the one panel that writes outside `config.yaml`.** A definition is a
 file in the policy directory, which sits beside the workspace rather than inside it, so
-nothing a tool can write reaches one. The editor shows four fields (name, image, memory
-and CPUs) because those are what an operator actually sets. The runtime, the uid, the
-hardening and the device list are what a catalogue definition ships correctly and nobody
-hand-edits; they are shown read-only under Advanced, beside the path of the file that
-changes them.
+nothing a tool can write reaches one. The editor opens on the five fields an operator
+actually sets: the name, the image, what the image holds, memory and CPUs.
 
-**The form still carries them and sends them back untouched.** The route takes a whole
-definition, so a form that dropped the fields it does not render would replace a
-hand-written tmpfs or capability with a schema default on the first save, and nothing
-would say so. A save cannot widen what the file already refuses either way, since it
-clears exactly the checks a hand-written file clears.
+**An agent's prompts are one section.** Every template it owns is edited under Prompts,
+in the order the model reads them: the identity is open, and the other six sit behind one
+disclosure. Per-tool wording stays on its tool row, because there is one per tool and an
+install can advertise twenty.
+
+**The image box resolves a tag into a digest.** A definition must pin one, and finding it
+meant `docker pull` and `docker image inspect` in a terminal. Type `node:22`, press
+Resolve, and the digest lands in the box; the engine pulls first if it does not already
+hold the image, which is why that press can take minutes and says whether it had to. The
+rule does not move, and neither does the check: what is saved is still a digest.
+
+**The rest of the definition is under Advanced, and it is editable.** The runtime, the
+uid, the workdir, the hardening switches, the seccomp profile, the mounts, the devices,
+the capabilities and the passed-through variable names all have controls, behind a
+disclosure that is closed by default because nearly every visit is about the image and
+the budget. They were a read-only readout once, and that was a door that looked locked
+without being one: the route takes a whole definition, so the browser could already
+write every one of these. What refuses a bad one is the server, which clears a save
+exactly as it clears a hand-written file, and what it merely disapproves of comes back
+as the weakened line at the top of the page.
+
+**The form carries every field, rendered or not.** A form that dropped one would replace
+a hand-written tmpfs or capability with a schema default on the first save, and nothing
+would say so.
 
 The warnings on a row — what hardening a definition weakens, whether a restricted
 allow-list could be enforced in it — are resolved on the server, so the terminal and the

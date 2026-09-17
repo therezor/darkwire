@@ -40,8 +40,8 @@ pub use logger::{JsonLayer, LogLevel, LogSink, LoggerOptions, create_logger, sil
 pub use message_bus::{MessageBus, MessageBusOptions, PublishResult, RateLimiter};
 pub use messages::{assistant_message, system_message, text_of, tool_message, user_message};
 pub use paths::{
-    HOME_ENV_VAR, ResolveWirePaths, WirePaths, ensure_dir, expand_home, extension_data_dir_for,
-    extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,
+    HOME_ENV_VAR, ResolveWirePaths, WORKSPACES_ENV_VAR, WirePaths, ensure_dir, expand_home,
+    extension_data_dir_for, extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,
 };
 pub use session_store::{
     SessionRecord, SessionStore, StoredMessageRecord, TurnStatsRecord, to_stored_message,

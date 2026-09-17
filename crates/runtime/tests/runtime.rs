@@ -156,22 +156,25 @@ mod construction {
     }
 
     #[test]
-    fn resolves_the_workspace_from_the_config_relative_to_the_home() {
-        let install = Install::with(&json!({"workspace": "projects"}));
-        let runtime = install.runtime().unwrap();
-        assert!(runtime.paths().workspace.ends_with("projects"));
+    fn resolves_the_workspaces_folder_from_the_config_relative_to_the_root() {
+        let install = Install::with(&json!({"workspaces": "projects"}));
+        let runtime = create_runtime(install.options_without_a_workspaces_folder()).unwrap();
+        assert_eq!(
+            runtime.paths().workspaces_dir,
+            install.root.join("projects")
+        );
     }
 
     #[test]
-    fn lets_an_explicit_workspace_win_over_the_config() {
-        let install = Install::with(&json!({"workspace": "projects"}));
+    fn lets_an_explicit_workspaces_folder_win_over_the_config() {
+        let install = Install::with(&json!({"workspaces": "projects"}));
         let elsewhere = install.temp.path().join("elsewhere");
         let runtime = create_runtime(RuntimeOptions {
-            workspace: Some(elsewhere.to_string_lossy().into_owned()),
+            workspaces: Some(elsewhere.to_string_lossy().into_owned()),
             ..install.options()
         })
         .unwrap();
-        assert!(runtime.paths().workspace.ends_with("elsewhere"));
+        assert!(runtime.paths().workspaces_dir.ends_with("elsewhere"));
     }
 
     #[test]
@@ -370,9 +373,13 @@ mod reconfigure {
     }
 
     #[test]
-    fn moves_the_jail_when_the_workspace_moves_and_reuses_it_when_it_does_not() {
-        let install = Install::with(&configured("llama3"));
-        let runtime = install.runtime().unwrap();
+    fn moves_the_jail_when_the_workspaces_folder_moves_and_reuses_it_when_it_does_not() {
+        let mut config = configured("llama3");
+        config["workspaces"] = json!("first");
+        let install = Install::with(&config);
+        // The patch has to be what names the folder, so the construction-time
+        // override is left off: it wins over a patch, deliberately.
+        let runtime = create_runtime(install.options_without_a_workspaces_folder()).unwrap();
         let before = runtime.jail();
         runtime
             .reconfigure(&patch(json!({"agents": {"list": {"default": {
@@ -384,10 +391,11 @@ mod reconfigure {
         assert!(Arc::ptr_eq(&before, &runtime.jail()));
 
         runtime
-            .reconfigure(&patch(json!({"workspace": "elsewhere"})))
+            .reconfigure(&patch(json!({"workspaces": "elsewhere"})))
             .unwrap();
         assert!(!Arc::ptr_eq(&before, &runtime.jail()));
-        assert!(runtime.jail().root().ends_with("elsewhere"));
+        // The default's own folder, one level inside the tree that moved.
+        assert!(runtime.jail().root().ends_with("elsewhere/default"));
     }
 
     #[test]

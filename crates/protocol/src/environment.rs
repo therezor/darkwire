@@ -219,17 +219,22 @@ pub struct EnvironmentDefinition {
     /// The name agents select, which is also its filename.
     #[schemars(regex(pattern = "^[a-z0-9][a-z0-9-]{0,63}$"))]
     pub name: String,
-    /// Read by nothing. What the model is told about where its commands run is
-    /// one section now, `agents.list.<id>.platform_prompt`, which says both
-    /// where they run and what is installed there.
+    /// What this image holds, in the definition's own words.
     ///
-    /// Still parsed because every definition written before the change carries
-    /// it. A definition setting it is reported on its row. It goes one release
-    /// after that.
+    /// **The one thing neither this repo nor the model can work out.** It fills
+    /// the second half of the agent's `## Running commands` section, so a
+    /// toolchain is described once per image instead of once per agent that
+    /// uses it. Plain prose, no heading and no placeholders: the heading is
+    /// supplied around it, and a definition describing itself has no holes.
     ///
-    /// `skip_serializing_if` is load-bearing: `save_environment` re-emits the
-    /// whole definition, so without it every save from the editor would write
-    /// the field back and the row would report itself forever.
+    /// An agent that edits its own `platform_prompt` starts from this text and
+    /// narrows it, which is how one granted three of ten tools stops
+    /// advertising the other seven, and leaves every other agent using the
+    /// image as it was.
+    ///
+    /// `skip_serializing_if` keeps `save_environment`, which re-emits the whole
+    /// definition, from writing `prompt: null` into every file that never set
+    /// one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     /// Must be digest-pinned: an immutable image ID or a registry digest. A
@@ -242,7 +247,9 @@ pub struct EnvironmentDefinition {
     /// workspace, the definition and the network, with neither the agent nor
     /// the session in it.
     ///
-    /// Parsed and reported for the same reason `prompt` above is.
+    /// Still parsed because every definition written before the change carries
+    /// it, and reported on its row so an operator is told rather than left with
+    /// a file that quietly means less than it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared: Option<bool>,
     /// The OCI runtime.

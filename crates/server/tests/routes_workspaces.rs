@@ -90,9 +90,15 @@ async fn delete(test: &TestServer, uri: &str) -> Answer {
     send(test, "DELETE", uri, None).await
 }
 
-/// The directory one workspace slug sits in.
+/// The directory one workspace slug sits in. Every id is a folder, `default`
+/// included, and they are siblings.
 fn folder(test: &TestServer, id: &str) -> std::path::PathBuf {
-    test.home.path().join("workspace").join(id)
+    workspaces_dir(test).join(id)
+}
+
+/// The folder that holds them all.
+fn workspaces_dir(test: &TestServer) -> std::path::PathBuf {
+    test.home.path().join("DarkWire/workspaces")
 }
 
 fn make_workspace(test: &TestServer, name: &str) -> String {
@@ -252,7 +258,7 @@ async fn creating_adopts_an_existing_folder() {
 #[tokio::test]
 async fn a_slug_that_collides_with_a_file_is_refused() {
     let test = server();
-    std::fs::create_dir_all(test.home.path().join("workspace")).unwrap();
+    std::fs::create_dir_all(workspaces_dir(&test)).unwrap();
     std::fs::write(folder(&test, "research"), "not a folder").unwrap();
 
     let answer = post(
@@ -336,9 +342,8 @@ async fn a_name_and_a_folder_arrive_in_one_request() {
 #[tokio::test]
 async fn the_default_cannot_be_moved() {
     let test = server();
-    // Its directory *is* the workspace root and the parent of every other
-    // workspace; there is no rename of it that does not mean relocating the
-    // entire tree.
+    // Its id is what every session falls back to, and the jail cache builds it
+    // by name, so there is nowhere for a rename of it to land.
     let answer = patch(&test, "/api/workspaces/default", json!({"id": "elsewhere"})).await;
     assert_eq!(answer.status, StatusCode::CONFLICT);
 }

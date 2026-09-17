@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use darkwire_core::paths::{
-    HOME_ENV_VAR, ResolveWirePaths, WirePaths, ensure_dir, expand_home, extension_data_dir_for,
-    extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,
+    HOME_ENV_VAR, ResolveWirePaths, WORKSPACES_ENV_VAR, WirePaths, ensure_dir, expand_home,
+    extension_data_dir_for, extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,
 };
 use darkwire_core::{ErrorKind, WireError};
 
@@ -24,7 +24,7 @@ fn home() -> PathBuf {
 fn options() -> ResolveWirePaths {
     ResolveWirePaths {
         root: None,
-        workspace: None,
+        workspaces: None,
         env: Some(HashMap::new()),
         home: Some(home()),
     }
@@ -142,7 +142,7 @@ mod resolve_wire_paths {
             paths,
             WirePaths {
                 root: root.clone(),
-                workspace: root.join("workspace"),
+                workspaces_dir: home().join("DarkWire/workspaces"),
                 shared_dir: root.join("shared"),
                 policy_dir: root.join("policy"),
                 runs_dir: root.join("runs"),
@@ -162,7 +162,17 @@ mod resolve_wire_paths {
         // A definition names what a container may do, so one writable through
         // `write_file` would let prompt injection widen the box it runs in.
         let paths = default_paths();
-        assert!(!paths.policy_dir.starts_with(&paths.workspace));
+        assert!(!paths.policy_dir.starts_with(&paths.workspaces_dir));
+    }
+
+    #[test]
+    fn puts_the_workspaces_beside_the_root_rather_than_inside_it() {
+        // The root holds the vault, the database and the policy tree, and each
+        // workspace is a jail root. Nesting one in the other is what this
+        // layout exists to avoid.
+        let paths = default_paths();
+        assert!(!paths.workspaces_dir.starts_with(&paths.root));
+        assert!(!paths.root.starts_with(&paths.workspaces_dir));
     }
 
     #[test]
@@ -220,37 +230,79 @@ mod resolve_wire_paths {
     }
 
     #[test]
-    fn resolves_a_relative_workspace_against_the_root_not_the_cwd() {
+    fn resolves_a_relative_workspaces_folder_against_the_root_not_the_cwd() {
         // A service restarted from a different directory must not end up with a
-        // different workspace while the database still points at the old one.
+        // different tree while the database still points at the old one.
         let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some("/srv/ghost".to_owned()),
-            workspace: Some("files".to_owned()),
+            workspaces: Some("files".to_owned()),
             ..options()
         })
         .unwrap();
-        assert_eq!(paths.workspace, PathBuf::from("/srv/ghost/files"));
+        assert_eq!(paths.workspaces_dir, PathBuf::from("/srv/ghost/files"));
     }
 
     #[test]
-    fn accepts_an_absolute_workspace_outside_the_root() {
+    fn accepts_an_absolute_workspaces_folder_outside_the_root() {
         let paths = WirePaths::resolve(ResolveWirePaths {
             root: Some("/srv/ghost".to_owned()),
-            workspace: Some("/mnt/data".to_owned()),
+            workspaces: Some("/mnt/data".to_owned()),
             ..options()
         })
         .unwrap();
-        assert_eq!(paths.workspace, PathBuf::from("/mnt/data"));
+        assert_eq!(paths.workspaces_dir, PathBuf::from("/mnt/data"));
     }
 
     #[test]
-    fn expands_a_tilde_in_the_workspace() {
+    fn expands_a_tilde_in_the_workspaces_folder() {
         let paths = WirePaths::resolve(ResolveWirePaths {
-            workspace: Some("~/projects".to_owned()),
+            workspaces: Some("~/projects".to_owned()),
             ..options()
         })
         .unwrap();
-        assert_eq!(paths.workspace, home().join("projects"));
+        assert_eq!(paths.workspaces_dir, home().join("projects"));
+    }
+
+    #[test]
+    fn honours_the_workspaces_environment_variable() {
+        let paths = WirePaths::resolve(ResolveWirePaths {
+            env: Some(HashMap::from([(
+                WORKSPACES_ENV_VAR.to_owned(),
+                "/mnt/wire".to_owned(),
+            )])),
+            ..options()
+        })
+        .unwrap();
+        assert_eq!(paths.workspaces_dir, PathBuf::from("/mnt/wire"));
+    }
+
+    #[test]
+    fn lets_an_explicit_workspaces_folder_beat_the_environment_variable() {
+        let paths = WirePaths::resolve(ResolveWirePaths {
+            workspaces: Some("/mnt/flag".to_owned()),
+            env: Some(HashMap::from([(
+                WORKSPACES_ENV_VAR.to_owned(),
+                "/mnt/env".to_owned(),
+            )])),
+            ..options()
+        })
+        .unwrap();
+        assert_eq!(paths.workspaces_dir, PathBuf::from("/mnt/flag"));
+    }
+
+    #[test]
+    fn treats_an_empty_workspaces_variable_as_unset_rather_than_as_the_root() {
+        // The trap `DARKWIRE_HOME=` has: an empty value resolving to the root
+        // would put every workspace beside the vault.
+        let paths = WirePaths::resolve(ResolveWirePaths {
+            env: Some(HashMap::from([(
+                WORKSPACES_ENV_VAR.to_owned(),
+                String::new(),
+            )])),
+            ..options()
+        })
+        .unwrap();
+        assert_eq!(paths.workspaces_dir, home().join("DarkWire/workspaces"));
     }
 }
 
@@ -301,20 +353,24 @@ mod workspace_dir_for_tests {
     use super::*;
 
     #[test]
-    fn maps_the_default_to_the_workspace_root_itself() {
+    fn gives_the_default_a_folder_like_every_other_workspace() {
         let paths = default_paths();
         assert_eq!(
             workspace_dir_for(&paths, "default").unwrap(),
-            paths.workspace
+            paths.workspaces_dir.join("default")
         );
     }
 
     #[test]
-    fn nests_a_named_workspace_under_the_root() {
+    fn makes_every_workspace_a_sibling_of_the_default() {
         let paths = default_paths();
         assert_eq!(
             workspace_dir_for(&paths, "client-acme").unwrap(),
-            paths.workspace.join("client-acme")
+            paths.workspaces_dir.join("client-acme")
+        );
+        assert_eq!(
+            workspace_dir_for(&paths, "client-acme").unwrap().parent(),
+            workspace_dir_for(&paths, "default").unwrap().parent()
         );
     }
 
@@ -352,7 +408,7 @@ mod shared_dir_for_tests {
         assert!(
             !shared_dir_for(&paths, "default")
                 .unwrap()
-                .starts_with(&paths.workspace)
+                .starts_with(&paths.workspaces_dir)
         );
     }
 
@@ -401,12 +457,12 @@ mod extension_dirs {
         assert!(
             !extension_dir_for(&paths, "slack")
                 .unwrap()
-                .starts_with(&paths.workspace)
+                .starts_with(&paths.workspaces_dir)
         );
         assert!(
             !extension_data_dir_for(&paths, "slack")
                 .unwrap()
-                .starts_with(&paths.workspace)
+                .starts_with(&paths.workspaces_dir)
         );
     }
 

@@ -41,8 +41,7 @@ import {
   DEFAULT_LIVE_STATE_TEMPLATE,
   DEFAULT_MEMORY_TEMPLATE,
   DEFAULT_SKILLS_TEMPLATE,
-  DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
-  DEFAULT_PLATFORM_HOST_TEMPLATE,
+  platformTemplate,
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_TOOL_POLICY_TEMPLATE,
   DEFAULT_WRAP_UP_TEMPLATE,
@@ -67,6 +66,7 @@ import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
 import { RowActions } from '@/components/crud/row-actions.js';
+import type { WebKey } from '@/i18n/keys.js';
 import { api } from '@/lib/api.js';
 import { cn } from '@/lib/cn.js';
 import { queryKeys } from '@/lib/query.js';
@@ -644,6 +644,19 @@ function Editor({
   ): void => {
     update('tools', { ...form.tools, [name]: permission });
   };
+
+  /**
+   * Where the Running commands built-in came from, in one sentence.
+   *
+   * Two answers rather than three: there is one default text now, so the only
+   * question left is whether this environment's definition replaced it. The
+   * host and a container whose image is silent both inherit the same wording
+   * and get the same sentence.
+   */
+  const platformHint: WebKey =
+    (chosenEnvironment?.definition?.prompt ?? '').trim() === ''
+      ? 'agents.promptPlatformHintDefault'
+      : 'agents.promptPlatformHintFrom';
 
   const setToolPrompt = (name: string, override: ToolPromptOverride): void => {
     // Kept as typed, blanks and all. `pruneToolPrompts` drops the empty ones on
@@ -1491,56 +1504,26 @@ function Editor({
                   The stored values survive — switching back restores them. */}
               {!raw && (
                 <>
-                  <TemplateEditor
-                    key={`${String(formEpoch)}-live`}
-                    name={name}
-                    label="agents.promptLive"
-                    builtIn={DEFAULT_LIVE_STATE_TEMPLATE}
-                    value={form.livePrompt}
-                    placeholders={LIVE_PROMPT_PLACEHOLDERS}
-                    hint="agents.promptLiveHint"
-                    onChange={(next) => {
-                      update('livePrompt', next);
-                    }}
-                  />
-                  <TemplateEditor
-                    key={`${String(formEpoch)}-wrapup`}
-                    name={name}
-                    label="agents.promptWrapUp"
-                    builtIn={DEFAULT_WRAP_UP_TEMPLATE}
-                    value={form.wrapUpPrompt}
-                    placeholders={['iterationsLeft']}
-                    hint="agents.promptWrapUpHint"
-                    onChange={(next) => {
-                      update('wrapUpPrompt', next);
-                    }}
-                  />
+                  {/* First in the disclosure because it is second in the
+                      prompt. One default text wherever the turn lands, replaced
+                      by the definition's own words when the image has any,
+                      because only the image knows what it holds. Editing seeds
+                      the box with whichever applies, so narrowing an image's
+                      tool list is opening it on that list and deleting. */}
                   <TemplateEditor
                     key={`${String(formEpoch)}-platform`}
                     name={name}
                     label="agents.promptPlatform"
-                    builtIn={
-                      form.environmentName.trim() === ''
-                        ? DEFAULT_PLATFORM_HOST_TEMPLATE
-                        : DEFAULT_PLATFORM_CONTAINER_TEMPLATE
-                    }
+                    builtIn={platformTemplate(
+                      chosenEnvironment?.definition?.prompt ?? '',
+                    )}
                     value={form.platformPrompt}
                     placeholders={PLATFORM_PROMPT_PLACEHOLDERS}
-                    hint={
-                      // The built-in shown is the one for the environment this
-                      // agent names. A delegated turn runs where its caller
-                      // does unless this agent pins itself, and the runtime
-                      // picks the wording per turn, so the box can be showing
-                      // the host built-in for an agent that ends up in a
-                      // container. Said rather than hidden.
-                      form.environmentAlwaysUseOwn
-                        ? 'agents.promptPlatformHint'
-                        : 'agents.promptPlatformInheritHint'
-                    }
-                    // Tool-shaped like the two below it: every line it renders
-                    // describes running a command, and the file tools it names
-                    // are tools too. With none of them there is nothing left for
-                    // the section to be about.
+                    hint={platformHint}
+                    // Tool-shaped like the policy box below: every line it
+                    // renders describes running a command, and the file tools it
+                    // names are tools too. With none of them there is nothing
+                    // left for the section to be about.
                     {...(toolsOff
                       ? {
                           warning: {
@@ -1612,6 +1595,33 @@ function Editor({
                     }}
                   />
                   <TemplateEditor
+                    key={`${String(formEpoch)}-skills`}
+                    name={name}
+                    label="agents.promptSkills"
+                    builtIn={DEFAULT_SKILLS_TEMPLATE}
+                    value={form.skillsPrompt}
+                    placeholders={SKILLS_PROMPT_PLACEHOLDERS}
+                    hint="agents.promptSkillsHint"
+                    {...(toolsOff
+                      ? {
+                          warning: {
+                            title: t('agents.toolsOffTitle'),
+                            message: t('agents.promptNotPlacedNoTools'),
+                          },
+                        }
+                      : skillsOff
+                        ? {
+                            warning: {
+                              title: t('agents.toolsOffTitle'),
+                              message: t('agents.promptNotPlacedNoSkills'),
+                            },
+                          }
+                        : {})}
+                    onChange={(next) => {
+                      update('skillsPrompt', next);
+                    }}
+                  />
+                  <TemplateEditor
                     key={`${String(formEpoch)}-memory`}
                     name={name}
                     label="agents.promptMemory"
@@ -1644,30 +1654,27 @@ function Editor({
                     }}
                   />
                   <TemplateEditor
-                    key={`${String(formEpoch)}-skills`}
+                    key={`${String(formEpoch)}-live`}
                     name={name}
-                    label="agents.promptSkills"
-                    builtIn={DEFAULT_SKILLS_TEMPLATE}
-                    value={form.skillsPrompt}
-                    placeholders={SKILLS_PROMPT_PLACEHOLDERS}
-                    hint="agents.promptSkillsHint"
-                    {...(toolsOff
-                      ? {
-                          warning: {
-                            title: t('agents.toolsOffTitle'),
-                            message: t('agents.promptNotPlacedNoTools'),
-                          },
-                        }
-                      : skillsOff
-                        ? {
-                            warning: {
-                              title: t('agents.toolsOffTitle'),
-                              message: t('agents.promptNotPlacedNoSkills'),
-                            },
-                          }
-                        : {})}
+                    label="agents.promptLive"
+                    builtIn={DEFAULT_LIVE_STATE_TEMPLATE}
+                    value={form.livePrompt}
+                    placeholders={LIVE_PROMPT_PLACEHOLDERS}
+                    hint="agents.promptLiveHint"
                     onChange={(next) => {
-                      update('skillsPrompt', next);
+                      update('livePrompt', next);
+                    }}
+                  />
+                  <TemplateEditor
+                    key={`${String(formEpoch)}-wrapup`}
+                    name={name}
+                    label="agents.promptWrapUp"
+                    builtIn={DEFAULT_WRAP_UP_TEMPLATE}
+                    value={form.wrapUpPrompt}
+                    placeholders={['iterationsLeft']}
+                    hint="agents.promptWrapUpHint"
+                    onChange={(next) => {
+                      update('wrapUpPrompt', next);
                     }}
                   />
                 </>

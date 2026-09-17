@@ -55,6 +55,7 @@ use darkwire_agent::{
     AgentLoop, AgentLoopOptions, ContextContributor, Host, LoopAgent, LoopResolver,
     MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, subagent_map,
 };
+use darkwire_core::config::env_names_workspaces;
 use darkwire_core::paths::ResolveWirePaths;
 use darkwire_core::{
     Clock, Database, ErrorKind, LoadConfigOptions, Result, SessionStore, SystemClock, WireError,
@@ -154,8 +155,9 @@ pub enum ExtensionChoice {
 pub struct RuntimeOptions {
     /// `DARKWIRE_HOME` override.
     pub home: Option<String>,
-    /// Wins over the config's `workspace`, and keeps winning after a patch.
-    pub workspace: Option<String>,
+    /// The folder the workspaces live in. Wins over `DARKWIRE_WORKSPACES` and
+    /// the config's `workspaces`, and keeps winning after a patch.
+    pub workspaces: Option<String>,
     /// Pins the model for this process; config cannot move it.
     pub model: Option<String>,
     /// Pins the provider for this process; config cannot move it.
@@ -206,7 +208,7 @@ impl Default for RuntimeOptions {
     fn default() -> Self {
         RuntimeOptions {
             home: None,
-            workspace: None,
+            workspaces: None,
             model: None,
             provider: None,
             tools: true,
@@ -228,7 +230,7 @@ impl std::fmt::Debug for RuntimeOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuntimeOptions")
             .field("home", &self.home)
-            .field("workspace", &self.workspace)
+            .field("workspaces", &self.workspaces)
             .field("model", &self.model)
             .field("provider", &self.provider)
             .field("tools", &self.tools)
@@ -343,19 +345,23 @@ fn new_id(clock: Arc<dyn Clock>) -> darkwire_core::session_store::IdSource {
 
 /// Where a config's paths land.
 ///
-/// The same precedence the loader applies — an explicit workspace, then the
-/// config file, then `<root>/workspace` — restated here because a reconfigure
-/// has a new config and no file read to hang it off.
+/// The same precedence the loader applies, restated here because a reconfigure
+/// has a new config and no file read to hang it off: an explicit folder, then
+/// `DARKWIRE_WORKSPACES`, then the config file, then `~/DarkWire/workspaces`.
+/// The environment is checked before the config value is folded in, or
+/// `WirePaths::resolve` would be handed a `Some` and never look at it.
 fn paths_for(config: &Config, options: &RuntimeOptions) -> Result<WirePaths> {
-    let configured = config.workspace.clone();
-    let workspace = options.workspace.clone().or(if configured.is_empty() {
-        None
-    } else {
-        Some(configured)
-    });
+    let configured = config.workspaces.clone();
+    let workspaces = options.workspaces.clone().or(
+        if configured.is_empty() || env_names_workspaces(options.env.as_ref()) {
+            None
+        } else {
+            Some(configured)
+        },
+    );
     WirePaths::resolve(ResolveWirePaths {
         root: options.home.clone(),
-        workspace,
+        workspaces,
         env: options.env.clone(),
         home: None,
     })
@@ -438,7 +444,7 @@ impl WireRuntime {
         let loaded = load_config(LoadConfigOptions {
             paths: ResolveWirePaths {
                 root: options.home.clone(),
-                workspace: options.workspace.clone(),
+                workspaces: options.workspaces.clone(),
                 env: Some(env.clone()),
                 home: None,
             },
@@ -838,7 +844,7 @@ impl WireRuntime {
         let loaded = load_config(LoadConfigOptions {
             paths: ResolveWirePaths {
                 root: self.options.home.clone(),
-                workspace: self.options.workspace.clone(),
+                workspaces: self.options.workspaces.clone(),
                 env: Some(self.env.clone()),
                 home: None,
             },
@@ -905,7 +911,7 @@ impl WireRuntime {
         // workspace fails *here* — before any of the mutations below — which is
         // what keeps a reconfigure all-or-nothing.
         let jails = match previous {
-            Some(previous) if previous.paths.workspace == paths.workspace => {
+            Some(previous) if previous.paths.workspaces_dir == paths.workspaces_dir => {
                 Arc::clone(&previous.jails)
             }
             _ => Arc::new(JailCache::new(paths.clone())?),
@@ -1250,11 +1256,14 @@ impl CacheResolver {
 /// tool is written against one. A turn naming no environment runs here, which
 /// is what an install with no container engine does for every agent.
 ///
-/// It holds only the socket now. It used to read the definition's prompt as
-/// well, back when `## Environment` was a section of its own; the one placement
-/// section is the agent's, and nothing here needs to open a policy file.
+/// It also reads the definition's own wording for what is installed, which is
+/// why it holds a store. That read belongs here rather than in the loop for the
+/// same reason the backend choice does: opening a policy file is
+/// composition-root work, and a loop that could do it would be a loop that
+/// knows where the policy directory is.
 struct ServiceEnvironments {
     socket: std::path::PathBuf,
+    policies: PolicyStore,
 }
 
 impl darkwire_tools::EnvironmentResolver for ServiceEnvironments {
@@ -1262,11 +1271,23 @@ impl darkwire_tools::EnvironmentResolver for ServiceEnvironments {
         if request.environment.is_empty() {
             return Placed::host();
         }
+        // A definition that has gone missing or stopped parsing since boot is
+        // not this function's to refuse. The command itself is still guarded,
+        // and the service re-reads the definition before it runs anything. What
+        // is lost is the prompt section, which is the right thing to lose: an
+        // unreadable definition should not cost the turn its tools.
+        let prompt = self
+            .policies
+            .require_environment(&request.environment)
+            .ok()
+            .and_then(|installed| installed.definition.prompt)
+            .unwrap_or_default();
         Placed {
             environment: Arc::new(darkwire_environment::service::ContainerEnvironment::new(
                 darkwire_environment::service::SandboxClient::new(self.socket.clone()),
                 request.clone(),
             )),
+            prompt,
         }
     }
 }
@@ -1375,6 +1396,7 @@ impl WireRuntime {
         options.automation.clone_from(&self.options.automation);
         options.environments = Some(Arc::new(ServiceEnvironments {
             socket: self.sandbox_socket(),
+            policies: PolicyStore::new(paths.policy_dir.clone()),
         }));
         // Read per turn, so the clock the model is given is the same one the
         // scheduler reads cron expressions against and the UI renders timestamps

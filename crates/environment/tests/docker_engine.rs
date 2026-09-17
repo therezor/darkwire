@@ -213,6 +213,7 @@ mod reaping {
             is_owner_alive: Some(Arc::new(move |owner: &str| alive.contains(&owner))),
             control_timeout: Some(Duration::from_millis(400)),
             start_timeout: Some(Duration::from_millis(800)),
+            pull_timeout: Some(Duration::from_millis(800)),
         })
     }
 
@@ -293,4 +294,96 @@ fn defaults_to_the_docker_cli_owned_by_this_process() {
 fn the_shipped_deadlines_are_the_ones_measured_against_a_dead_socket() {
     assert_eq!(CONTROL_TIMEOUT, Duration::from_secs(5));
     assert_eq!(START_TIMEOUT, Duration::from_mins(1));
+}
+
+/// Turning what an operator typed into what a definition may pin.
+///
+/// The whole point is that the digest requirement does not move: every case
+/// below either produces a content address or refuses. Four shapes, because
+/// each comes from a different place an image can live.
+mod resolving_an_image {
+    use super::*;
+
+    const REGISTRY_DIGEST: &str =
+        "node@sha256:1111111111111111111111111111111111111111111111111111111111111111";
+    const LOCAL_ID: &str =
+        "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+
+    fn engine(fake: &Fake) -> Arc<dyn ContainerEngine> {
+        fake.engine_with(DockerEngineOptions {
+            control_timeout: Some(Duration::from_millis(400)),
+            pull_timeout: Some(Duration::from_millis(800)),
+            ..DockerEngineOptions::default()
+        })
+    }
+
+    #[test]
+    fn an_image_already_here_resolves_without_a_pull() {
+        // The common case once an operator has the image: instant, and no
+        // network. `pulled` says so, because the screen that waited on it is
+        // the one that has to explain the difference.
+        let fake = fake(&format!(
+            "case \"$*\" in\n  *RepoDigests*) echo '{REGISTRY_DIGEST}'; exit 0;;\n  *) exit 1;;\nesac"
+        ));
+
+        let resolved = engine(&fake).resolve_image("node:22").expect("a digest");
+
+        assert_eq!(resolved.image, REGISTRY_DIGEST);
+        assert!(!resolved.pulled);
+        assert!(
+            !fake.calls().iter().any(|call| call.starts_with("pull")),
+            "{:?}",
+            fake.calls()
+        );
+    }
+
+    #[test]
+    fn an_image_that_is_not_here_yet_is_pulled_first() {
+        // Two inspects around one pull: the first misses, the pull fetches, the
+        // second reads the digest off what arrived.
+        let fake = fake(&format!(
+            "if [ -f \"$(dirname \"$0\")/pulled\" ]; then\n  case \"$*\" in *RepoDigests*) echo '{REGISTRY_DIGEST}'; exit 0;; esac\nfi\ncase \"$*\" in\n  pull*) touch \"$(dirname \"$0\")/pulled\"; exit 0;;\nesac\nexit 1"
+        ));
+
+        let resolved = engine(&fake).resolve_image("node:22").expect("a digest");
+
+        assert_eq!(resolved.image, REGISTRY_DIGEST);
+        assert!(resolved.pulled);
+        assert!(
+            fake.calls().iter().any(|call| call == "pull node:22"),
+            "{:?}",
+            fake.calls()
+        );
+    }
+
+    #[test]
+    fn an_image_built_here_and_never_pushed_falls_back_to_its_id() {
+        // No `RepoDigests` at all, which is what a local `docker build`
+        // produces. Its own id is still a content address, so it still pins.
+        let fake = fake(&format!(
+            "case \"$*\" in\n  *RepoDigests*) exit 1;;\n  *'{{{{.Id}}}}'*) echo '{LOCAL_ID}'; exit 0;;\n  *) exit 1;;\nesac"
+        ));
+
+        let resolved = engine(&fake).resolve_image("mine:dev").expect("an id");
+
+        assert_eq!(resolved.image, LOCAL_ID);
+        assert!(!resolved.pulled);
+    }
+
+    #[test]
+    fn a_reference_that_does_not_exist_reports_what_the_engine_said() {
+        // The engine knows whether this was a typo, a private registry or no
+        // network at all. Any sentence invented here would be a worse guess.
+        let fake = fake(
+            "case \"$*\" in\n  pull*) echo 'manifest unknown' >&2; exit 1;;\n  *) exit 1;;\nesac",
+        );
+
+        let error = engine(&fake)
+            .resolve_image("node:nope")
+            .expect_err("a refusal");
+
+        assert_eq!(error.kind, ErrorKind::Tool);
+        assert!(error.message.contains("manifest unknown"), "{error:?}");
+        assert!(error.message.contains("node:nope"), "{error:?}");
+    }
 }

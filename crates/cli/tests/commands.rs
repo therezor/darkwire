@@ -62,6 +62,7 @@ impl Install {
         }
         let runtime = create_runtime(RuntimeOptions {
             home: Some(root.to_string_lossy().into_owned()),
+            workspaces: Some(root.join("workspaces").to_string_lossy().into_owned()),
             env: Some(std::collections::HashMap::new()),
             // Explicit rather than defaulted: the default opens a vault on
             // demand, and opening one writes a key to the OS keychain.

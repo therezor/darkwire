@@ -48,7 +48,7 @@ fn paths_in(root: &Path) -> WirePaths {
         ..ResolveWirePaths::default()
     })
     .unwrap();
-    std::fs::create_dir_all(&paths.workspace).unwrap();
+    std::fs::create_dir_all(&paths.workspaces_dir).unwrap();
     paths
 }
 

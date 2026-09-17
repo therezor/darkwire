@@ -760,8 +760,35 @@ export const SandboxRequestSchema = z.discriminatedUnion('op', [
       instance: z.string(),
     })
     .strict(),
+  /**
+   * Turn an image reference into the digest a definition may pin.
+   *
+   * A definition must name an image by digest, because a tag is a mutable
+   * pointer and one repointed later would run code nobody chose. Finding that
+   * digest by hand meant `docker pull` and `docker image inspect` in a
+   * terminal. The rule does not move: what comes back is still a digest.
+   */
+  z
+    .object({
+      op: z.literal('resolveImage'),
+      reference: z.string(),
+    })
+    .strict(),
 ]);
 export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
+
+/** What one image reference resolved to. */
+export const ResolveImageResponseSchema = z
+  .object({
+    /** Echoed, so a slow answer can be matched to the box that asked. */
+    reference: z.string(),
+    /** The digest-pinned form, ready to paste into a definition. */
+    image: z.string(),
+    /** Whether the engine had to fetch it first. */
+    pulled: z.boolean(),
+  })
+  .strict();
+export type ResolveImageResponse = z.infer<typeof ResolveImageResponseSchema>;
 
 // MCP servers
 
@@ -1129,8 +1156,8 @@ export type CreateWorkspaceRequest = z.infer<
  * What an edit may change: the label, the folder, or both.
  *
  * `id` is the directory name, so sending it is a `rename(2)` under a tree
- * somebody may be working in — refused for the default workspace, whose folder
- * *is* the workspace root and the parent of every other one. Both fields are
+ * somebody may be working in — refused for the default workspace, whose id is
+ * what every session falls back to and so cannot change. Both fields are
  * optional and a body with neither is a no-op, which is what lets the editor
  * send one PATCH for whichever boxes were touched.
  */

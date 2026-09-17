@@ -369,7 +369,7 @@ describe('the workspaces page', () => {
     mount();
 
     expect(
-      await screen.findByText(/cannot reach each other/),
+      await screen.findByText(/none of them can reach another/),
     ).toBeInTheDocument();
   });
 
@@ -431,28 +431,29 @@ describe('the workspace editor', () => {
     expect(calls.some((call) => call.method === 'PATCH')).toBe(false);
   });
 
-  it('leaves the default workspace no folder to move', async () => {
+  it("states the default workspace's folder and will not let it move", async () => {
     mount('/workspaces/default');
 
-    // Its directory *is* the root every other workspace is created inside, so
-    // there is nothing a rename of it could mean. The box holds `/` as a value
-    // rather than as a placeholder: a placeholder is drawn muted and means
-    // "nothing here yet", which made the one answer on the screen that is fixed
-    // look like the one nobody had filled in.
+    // A folder like any other, named after the id — and the id is what every
+    // session falls back to, so a rename of it has nowhere to land. The box
+    // holds it as a value rather than as a placeholder: a placeholder is drawn
+    // muted and means "nothing here yet", which made the one answer on the
+    // screen that is fixed look like the one nobody had filled in.
     const folder = await screen.findByLabelText('Folder');
     expect(folder).toBeDisabled();
-    expect(folder).toHaveValue('/');
+    expect(folder).toHaveValue('/default');
   });
 
-  it('never claims the default lives in a folder called default', async () => {
+  it('writes the default like every other workspace, because it is one', async () => {
     mount();
 
-    // `workspace/default` is a path that does not exist, and the list rendered
-    // it under the name for a while. The default's row reads `/`, so the column
-    // shows the nesting the others sit in — and never borrows `workspace`,
+    // The default used to read `/` because its folder was the tree the others
+    // sat in. It is a sibling now, so the column shows its own folder and no
+    // row implies a nesting that is not there. It never borrows `workspace`,
     // which the Files breadcrumb already uses for a different directory.
     expect(await screen.findByText('/acme')).toBeInTheDocument();
-    expect(screen.getByText('/', { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('/default', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText('/', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText(/^workspace/)).not.toBeInTheDocument();
   });
 

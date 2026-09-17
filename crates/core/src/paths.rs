@@ -15,12 +15,23 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use crate::errors::{ErrorKind, Result, WireError};
-use crate::ids::{DEFAULT_WORKSPACE_ID, is_extension_id, is_workspace_id};
+use crate::ids::{is_extension_id, is_workspace_id};
 
 /// Overrides the root for tests, CI, and multi-instance installs.
 pub const HOME_ENV_VAR: &str = "DARKWIRE_HOME";
 
+/// Overrides where the workspaces live, for the same three reasons.
+///
+/// Separate from [`HOME_ENV_VAR`] because the two trees move independently: a
+/// container relocates DarkWire's state without relocating the folder the user
+/// mounted their files into.
+pub const WORKSPACES_ENV_VAR: &str = "DARKWIRE_WORKSPACES";
+
 const DEFAULT_ROOT_DIRNAME: &str = ".darkwire";
+
+/// Under the home directory, not under the root. The files in here are the
+/// user's own, so they belong somewhere a person would think to open.
+const DEFAULT_WORKSPACES_DIRNAME: &str = "DarkWire/workspaces";
 
 /// Expands a leading `~` to `home`.
 ///
@@ -45,7 +56,7 @@ pub fn expand_home(input: &str, home: &Path) -> PathBuf {
 /// path against `base`.
 ///
 /// `base` is the directory a relative path is relative to. Anything originating
-/// in config passes the config file's directory, so a relative `workspace`
+/// in config passes the config file's directory, so a relative `workspaces`
 /// means "beside the config" rather than "wherever the service was started".
 pub fn resolve_path(input: &str, base: &Path, home: &Path) -> PathBuf {
     let expanded = expand_home(input, home);
@@ -79,33 +90,31 @@ fn normalise(path: &Path) -> PathBuf {
 
 /// Every directory and file DarkWire owns, resolved absolute.
 ///
-/// Four of these are **outside the jail** on purpose. The jail root *is* the
-/// workspace, so anything kept inside it is readable and writable by
-/// `write_file`, which turns prompt injection into a way of rewriting what the
-/// agent is told. What stays out here is what an agent must not be able to
-/// author: the shared layer, container policy, sandbox transcripts and
-/// installed extensions. Memory and skills stay *inside* the workspace, because
-/// each is meant to be read, corrected and committed beside the project it
-/// describes; the mitigation is `write_file: ask`.
+/// **Two trees, and the split is the containment argument.** `root` holds what
+/// DarkWire owns: the settings, the database, the vault, the logs, installed
+/// extensions, container policy and sandbox transcripts. `workspaces_dir` holds
+/// what the user owns, one folder per workspace. Each of those folders is a
+/// jail root, and nothing under `root` is inside one, so prompt injection has
+/// no route to the rules an agent runs under.
+///
+/// Memory and skills are the deliberate exception. They live *inside* a
+/// workspace, because each is meant to be read, corrected and committed beside
+/// the project it describes; the mitigation is `write_file: ask`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WirePaths {
-    /// `~/.darkwire` unless overridden. Everything below is derived from it.
+    /// `~/.darkwire` unless overridden. DarkWire's own state, and never a jail
+    /// root. Everything below except `workspaces_dir` is derived from it.
     pub root: PathBuf,
-    /// The default workspace, and the parent of every named one. A turn in
-    /// `default` reaches every other workspace's files; named workspaces are
-    /// isolated from each other.
-    pub workspace: PathBuf,
+    /// `~/DarkWire/workspaces` unless overridden. The parent of every
+    /// workspace's folder, the default's included, and itself never a jail
+    /// root.
+    pub workspaces_dir: PathBuf,
     /// The layer agents working in one folder share, keyed by workspace.
     pub shared_dir: PathBuf,
     /// Operator-installed policy: `environments/`, holding one `<name>.yaml`
     /// per definition.
-    ///
-    /// Beside the workspace and never inside it: the jail root *is* the
-    /// workspace, so policy kept in there would be writable by `write_file` and
-    /// prompt injection would become a way to rewrite the rules an agent runs
-    /// under.
     pub policy_dir: PathBuf,
-    /// Sandbox command transcripts. Moved out of the workspace after a
+    /// Sandbox command transcripts. Kept out of the workspaces tree after a
     /// symlink-planting host-file overwrite was demonstrated.
     pub runs_dir: PathBuf,
     /// The settings tree.
@@ -130,8 +139,8 @@ pub struct WirePaths {
 pub struct ResolveWirePaths {
     /// Wins over `DARKWIRE_HOME`, which wins over `~/.darkwire`.
     pub root: Option<String>,
-    /// Defaults to `<root>/workspace`.
-    pub workspace: Option<String>,
+    /// Wins over `DARKWIRE_WORKSPACES`, which wins over `~/DarkWire/workspaces`.
+    pub workspaces: Option<String>,
     /// The environment to consult; defaults to the process environment.
     pub env: Option<HashMap<String, String>>,
     /// The home directory; defaults to the process user's.
@@ -147,11 +156,20 @@ impl WirePaths {
                 WireError::new(ErrorKind::Config, "Cannot determine the home directory")
             })?,
         };
-        let from_env = match &options.env {
-            Some(env) => env.get(HOME_ENV_VAR).cloned(),
-            None => std::env::var(HOME_ENV_VAR).ok(),
+        // Both up front, because reading one after moving a field out of
+        // `options` would borrow what has already been partially moved.
+        let (root_from_env, workspaces_from_env) = match &options.env {
+            Some(env) => (
+                env.get(HOME_ENV_VAR).cloned(),
+                env.get(WORKSPACES_ENV_VAR).cloned(),
+            ),
+            None => (
+                std::env::var(HOME_ENV_VAR).ok(),
+                std::env::var(WORKSPACES_ENV_VAR).ok(),
+            ),
         };
-        let root_input = options.root.or(from_env).unwrap_or_else(|| {
+
+        let root_input = options.root.or(root_from_env).unwrap_or_else(|| {
             home.join(DEFAULT_ROOT_DIRNAME)
                 .to_string_lossy()
                 .into_owned()
@@ -165,11 +183,16 @@ impl WirePaths {
             }
         };
 
-        // Relative to the root, not the cwd: a workspace that moved because a
-        // service was restarted from a different directory would orphan the
-        // agent's memory files while leaving the database pointing at them.
-        let workspace = match options.workspace {
-            None => root.join("workspace"),
+        // A relative override resolves against the root, not the cwd: a tree
+        // that moved because a service was restarted from a different
+        // directory would orphan the agent's memory files while leaving the
+        // database pointing at them.
+        // An empty variable is unset, not "the root". `DARKWIRE_WORKSPACES=`
+        // in a compose file would otherwise resolve to `root` itself and put
+        // every workspace beside the vault.
+        let from_env = workspaces_from_env.filter(|value| !value.is_empty());
+        let workspaces_dir = match options.workspaces.or(from_env) {
+            None => home.join(DEFAULT_WORKSPACES_DIRNAME),
             Some(input) => resolve_path(&input, &root, &home),
         };
 
@@ -184,7 +207,7 @@ impl WirePaths {
             extension_data_dir: root.join("extension-data"),
             vault_file: root.join("vault.json"),
             key_file: root.join("vault.key"),
-            workspace,
+            workspaces_dir,
             root,
         })
     }
@@ -199,16 +222,14 @@ impl WirePaths {
 /// consult the registry: a detached workspace still has sessions, and they must
 /// keep resolving to their own files rather than falling into someone else's.
 ///
-/// `default` maps to the workspace root itself. That special case is the price
-/// of "the default workspace is the folder that holds the others".
+/// Every id is one folder under `workspaces_dir`, `default` included. They are
+/// siblings, so none can reach another: `../sibling` resolves outside the
+/// asking workspace's own root.
 pub fn workspace_dir_for(paths: &WirePaths, id: &str) -> Result<PathBuf> {
-    if id == DEFAULT_WORKSPACE_ID {
-        return Ok(paths.workspace.clone());
-    }
     if !is_workspace_id(id) {
         return Err(not_an_id("a workspace", id));
     }
-    Ok(paths.workspace.join(id))
+    Ok(paths.workspaces_dir.join(id))
 }
 
 /// The directory holding what every agent in one workspace may share.

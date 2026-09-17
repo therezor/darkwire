@@ -54,8 +54,10 @@ pub struct HeaderView {
     pub model: String,
     /// The provider instance behind that model. Empty when there is none.
     pub provider: String,
-    /// The workspace *directory*, which is what the startup header shows.
-    pub workspace: String,
+    /// The folder the workspaces live in, which is what the startup header
+    /// shows. Not one workspace's directory: resolving that would create it as
+    /// a side effect of printing a line.
+    pub workspaces: String,
     /// The workspace's name in the registry, which is what the bar shows.
     pub workspace_name: String,
     /// The conversation's title, falling back to its key.
@@ -70,7 +72,7 @@ fn rows_for(view: &HeaderView) -> [(&'static str, &str); 5] {
         (keys::chat::header::AGENT, view.agent.as_str()),
         (keys::chat::header::MODEL, view.model.as_str()),
         (keys::chat::header::PROVIDER, view.provider.as_str()),
-        (keys::chat::header::WORKSPACE, view.workspace.as_str()),
+        (keys::chat::header::WORKSPACES, view.workspaces.as_str()),
         (keys::chat::header::SESSION, view.session.as_str()),
     ]
 }

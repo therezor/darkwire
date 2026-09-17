@@ -66,15 +66,15 @@ git log --oneline -20 | darkwire chat "what changed"   # a pipe target
 | `-a, --agent <id>`        | The agent this session runs on.                          |
 | `-m, --model <id>`        | Model id, overriding the configured default.             |
 | `-p, --provider <id>`     | Provider instance id, overriding the configured default. |
-| `-w, --workspace <dir>`   | The workspace **root** — moves the whole tree.           |
-| `-W, --workspace-id <id>` | Which workspace inside that root new sessions land in.   |
+| `-w, --workspaces <dir>`  | The folder the workspaces live in.                       |
+| `-W, --workspace-id <id>` | Which workspace inside it new sessions land in.          |
 | `--new`                   | Clear the session before this turn.                      |
 | `--json`                  | One agent event per line, as JSON.                       |
 | `--no-reasoning`          | Hide the model's reasoning stream.                       |
 | `--no-tools`              | Run the turn with no tools registered at all.            |
 
 **`-w` and `-W` are deliberately different flags** for two different things, and the
-capital is the narrower one: `-w` says where the whole tree lives, `-W` picks a workspace
+capital is the narrower one: `-w` says which folder holds the workspaces, `-W` picks one
 inside it. Reaching for the wrong one moves your files rather than switching folder.
 
 `--json` is the scripting surface. Each line is one event from the same stream the web UI
@@ -216,14 +216,14 @@ leaves the install exactly as it was.
 
 Serves the UI, the REST API and the WebSocket on one port.
 
-| Flag                    | Does                                                            |
-| ----------------------- | --------------------------------------------------------------- |
-| `-H, --host <host>`     | Bind address, overriding the configured default.                |
-| `-P, --port <port>`     | Port, overriding the configured default.                        |
-| `-w, --workspace <dir>` | Workspace root, overriding the configured default.              |
-| `--password <password>` | Set or rotate the login password. Or `DARKWIRE_PASSWORD`.       |
-| `--username <username>` | The login name, alongside `--password`. Or `DARKWIRE_USERNAME`. |
-| `--ui <dir>`            | A built UI to serve instead of the bundled one.                 |
+| Flag                     | Does                                                            |
+| ------------------------ | --------------------------------------------------------------- |
+| `-H, --host <host>`      | Bind address, overriding the configured default.                |
+| `-P, --port <port>`      | Port, overriding the configured default.                        |
+| `-w, --workspaces <dir>` | The folder the workspaces live in, overriding the config.       |
+| `--password <password>`  | Set or rotate the login password. Or `DARKWIRE_PASSWORD`.       |
+| `--username <username>`  | The login name, alongside `--password`. Or `DARKWIRE_USERNAME`. |
+| `--ui <dir>`             | A built UI to serve instead of the bundled one.                 |
 
 It starts with nothing configured and prints a one-time setup code. Two refusals are
 worth knowing before you meet them:
@@ -276,7 +276,7 @@ Environment instances are managed through the isolated service:
 ```bash
 darkwire sandbox health
 darkwire sandbox list
-darkwire sandbox start --environment <id> --workspace <id>
+darkwire sandbox start --environment <id> --workspace <id>  # an id, not a directory
 darkwire sandbox stop <instance>
 darkwire sandbox restart <instance>
 ```
@@ -287,19 +287,20 @@ one. See [Sandbox service](sandbox-service.md).
 
 ## Environment
 
-| Variable                    | Does                                                                      |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `DARKWIRE_HOME`             | The root. Beaten by `--home`, beats `~/.darkwire`.                        |
-| `DARKWIRE_PASSWORD`         | Fallback for `serve --password`.                                          |
-| `DARKWIRE_USERNAME`         | Fallback for `serve --username`.                                          |
-| `DARKWIRE_LANG`             | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.         |
-| `DARKWIRE_LOG_LEVEL`        | Then `LOG_LEVEL`, then `info`.                                            |
-| `DARKWIRE_DEBUG`            | Any non-empty value prints stack traces instead of the sentence.          |
-| `DARKWIRE_SANDBOX_SOCKET`   | The sandbox service socket. Naming one stops `serve` starting its own.    |
-| `DARKWIRE_DATA_DIR`         | `darkwire-environment serve-env`: the absolute host path the daemon sees. |
-| `DARKWIRE_CONTAINER_ENGINE` | `docker` or `podman`. Defaults to `docker`.                               |
-| `DARKWIRE_GATEWAY_IMAGE`    | The egress gateway image, needed for `allowlist` egress.                  |
-| `DARKWIRE_ENVIRONMENTS`     | `serve-env`: environments to register. Defaults to `dev`.                 |
+| Variable                    | Does                                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `DARKWIRE_HOME`             | DarkWire's own state. Beaten by `--home`, beats `~/.darkwire`.                                                 |
+| `DARKWIRE_WORKSPACES`       | The workspaces folder. Beaten by `--workspaces`, beats `~/DarkWire/workspaces` and the config. Empty is unset. |
+| `DARKWIRE_PASSWORD`         | Fallback for `serve --password`.                                                                               |
+| `DARKWIRE_USERNAME`         | Fallback for `serve --username`.                                                                               |
+| `DARKWIRE_LANG`             | Locale. Ranks above `config.ui.locale`, which ranks above `LANG`.                                              |
+| `DARKWIRE_LOG_LEVEL`        | Then `LOG_LEVEL`, then `info`.                                                                                 |
+| `DARKWIRE_DEBUG`            | Any non-empty value prints stack traces instead of the sentence.                                               |
+| `DARKWIRE_SANDBOX_SOCKET`   | The sandbox service socket. Naming one stops `serve` starting its own.                                         |
+| `DARKWIRE_DATA_DIR`         | `darkwire-environment serve-env`: the absolute host path the daemon sees.                                      |
+| `DARKWIRE_CONTAINER_ENGINE` | `docker` or `podman`. Defaults to `docker`.                                                                    |
+| `DARKWIRE_GATEWAY_IMAGE`    | The egress gateway image, needed for `allowlist` egress.                                                       |
+| `DARKWIRE_ENVIRONMENTS`     | `serve-env`: environments to register. Defaults to `dev`.                                                      |
 
 Provider API keys are read from the environment **only when the vault has no entry** for
 that instance — the vault wins. [Configuration](configuration.md#environment-variables)

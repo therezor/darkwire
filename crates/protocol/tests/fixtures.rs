@@ -25,17 +25,16 @@ use std::path::{Path, PathBuf};
 
 use darkwire_protocol::{
     AgentSettingsChange, ClientMessage, Config, DEFAULT_LIVE_STATE_TEMPLATE,
-    DEFAULT_MEMORY_TEMPLATE, DEFAULT_PLATFORM_CONTAINER_TEMPLATE, DEFAULT_PLATFORM_HOST_TEMPLATE,
-    DEFAULT_SKILLS_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_TOOL_POLICY_TEMPLATE,
-    DEFAULT_WRAP_UP_TEMPLATE, LIVE_PROMPT_PLACEHOLDERS, MEMORY_PROMPT_PLACEHOLDERS,
-    PLATFORM_PROMPT_PLACEHOLDERS, PROMPT_PLACEHOLDERS, RAW_PROMPT_PLACEHOLDERS,
-    SKILLS_PROMPT_PLACEHOLDERS, ServerMessage, SubagentRunRef, TOOL_POLICY_PLACEHOLDERS,
-    ToolDefinition, ToolPromptOverrides, TurnTiming, UNSEQUENCED_SERVER_EVENTS, Usage, UuidRandom,
-    agent_settings_patch, apply_tool_prompts, default_subagent_prompt, derive_agent_id,
-    derive_workspace_id, effective_tool_policy, is_loopback_host, is_slug_id, names_delimiter,
-    new_uuid, render_prompt_template, render_wrap_up, slugify, subagent_runs_of,
-    subagent_tool_name, tokens_per_second, tool_policy_uses_nonce, unknown_placeholders,
-    with_subagent_run,
+    DEFAULT_MEMORY_TEMPLATE, DEFAULT_PLATFORM_TEMPLATE, DEFAULT_SKILLS_TEMPLATE,
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_TOOL_POLICY_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE,
+    LIVE_PROMPT_PLACEHOLDERS, MEMORY_PROMPT_PLACEHOLDERS, PLATFORM_PROMPT_PLACEHOLDERS,
+    PROMPT_PLACEHOLDERS, RAW_PROMPT_PLACEHOLDERS, SKILLS_PROMPT_PLACEHOLDERS, ServerMessage,
+    SubagentRunRef, TOOL_POLICY_PLACEHOLDERS, ToolDefinition, ToolPromptOverrides, TurnTiming,
+    UNSEQUENCED_SERVER_EVENTS, Usage, UuidRandom, agent_settings_patch, apply_tool_prompts,
+    default_subagent_prompt, derive_agent_id, derive_workspace_id, effective_tool_policy,
+    is_loopback_host, is_slug_id, names_delimiter, new_uuid, platform_template,
+    render_prompt_template, render_wrap_up, slugify, subagent_runs_of, subagent_tool_name,
+    tokens_per_second, tool_policy_uses_nonce, unknown_placeholders, with_subagent_run,
 };
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
@@ -92,8 +91,7 @@ fn named_constant(name: &str) -> Option<Value> {
         "DEFAULT_SYSTEM_PROMPT_TEMPLATE" => json!(DEFAULT_SYSTEM_PROMPT_TEMPLATE),
         "DEFAULT_LIVE_STATE_TEMPLATE" => json!(DEFAULT_LIVE_STATE_TEMPLATE),
         "DEFAULT_WRAP_UP_TEMPLATE" => json!(DEFAULT_WRAP_UP_TEMPLATE),
-        "DEFAULT_PLATFORM_HOST_TEMPLATE" => json!(DEFAULT_PLATFORM_HOST_TEMPLATE),
-        "DEFAULT_PLATFORM_CONTAINER_TEMPLATE" => json!(DEFAULT_PLATFORM_CONTAINER_TEMPLATE),
+        "DEFAULT_PLATFORM_TEMPLATE" => json!(DEFAULT_PLATFORM_TEMPLATE),
         "DEFAULT_TOOL_POLICY_TEMPLATE" => json!(DEFAULT_TOOL_POLICY_TEMPLATE),
         "DEFAULT_SKILLS_TEMPLATE" => json!(DEFAULT_SKILLS_TEMPLATE),
         "DEFAULT_MEMORY_TEMPLATE" => json!(DEFAULT_MEMORY_TEMPLATE),
@@ -134,6 +132,7 @@ const FUNCTIONS: &[&str] = &[
     "unknownPlaceholders",
     "renderWrapUp",
     "effectiveToolPolicy",
+    "platformTemplate",
     "toolPolicyUsesNonce",
     "namesDelimiter",
     "tokensPerSecond",
@@ -179,6 +178,7 @@ fn run(function: &str, input: &Value) -> Value {
                 arg(input, "iterationsLeft")
             ))
         }
+        "platformTemplate" => json!(platform_template(&arg::<String>(input, "notes"))),
         "effectiveToolPolicy" => {
             let template: Option<String> = optional_arg(input, "template");
             json!(effective_tool_policy(template.as_deref()))

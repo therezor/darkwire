@@ -18,7 +18,7 @@
       "model": "model",
       "provider": "provider",
       "session": "session",
-      "workspace": "workspace"
+      "workspaces": "workspaces"
     },
     "interrupted": "interrupted — the prompt is yours again",
     "noProvider": "no provider",
@@ -31,8 +31,8 @@
       "noTools": "run the turn with no tools registered",
       "provider": "provider id, overriding the configured default",
       "session": "session to continue",
-      "workspace": "workspace root, overriding the configured default",
-      "workspaceId": "workspace new sessions land in"
+      "workspaceId": "workspace new sessions land in",
+      "workspaces": "folder the workspaces live in, overriding the configured default"
     }
   },
   "environment": {
@@ -78,8 +78,8 @@
     "model": "Model",
     "provider": "Provider",
     "whichProvider": "Which provider?",
-    "workspace": "Workspace",
-    "workspaceDir": "Workspace directory"
+    "workspaces": "Workspaces",
+    "workspacesDir": "Workspaces directory"
   },
   "menu": {
     "current": "current",
@@ -170,7 +170,7 @@
       "port": "port, overriding the configured default",
       "ui": "a built UI to serve, instead of the bundled one",
       "username": "set the login name alongside --password (or DARKWIRE_USERNAME)",
-      "workspace": "workspace root, overriding the configured default"
+      "workspaces": "folder the workspaces live in, overriding the configured default"
     },
     "pressCtrlC": "Press Ctrl-C to stop.",
     "stopped": "Stopped.",
@@ -178,7 +178,7 @@
     "uiBundled": "bundled with this binary",
     "uiUnbuilt": "not bundled — serving the API only (this binary was built without the web UI)",
     "url": "URL",
-    "workspace": "Workspace"
+    "workspaces": "Workspaces"
   },
   "slash": {
     "errors": {

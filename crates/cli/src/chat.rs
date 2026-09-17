@@ -411,7 +411,7 @@ impl ChatSession {
                 },
                 |spec| spec.display_name.clone(),
             ),
-            workspace: self.runtime.paths().workspace.display().to_string(),
+            workspaces: self.runtime.paths().workspaces_dir.display().to_string(),
             workspace_name: self
                 .runtime
                 .workspaces()
@@ -435,7 +435,7 @@ impl ChatSession {
 pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession> {
     let runtime = darkwire_runtime::create_runtime(RuntimeOptions {
         home: globals.home.clone(),
-        workspace: args.workspace.clone(),
+        workspaces: args.workspaces.clone(),
         model: args.model.clone(),
         provider: args.provider.clone(),
         tools: args.tools,

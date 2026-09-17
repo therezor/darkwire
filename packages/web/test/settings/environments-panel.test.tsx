@@ -28,7 +28,8 @@ import {
 } from '@testkit/render.js';
 import { STATUS } from '@testkit/fixtures.js';
 
-const IMAGE = `sha256:${'a'.repeat(64)}`;
+const DIGEST = `sha256:${'a'.repeat(64)}`;
+const IMAGE = `node@${DIGEST}`;
 
 /**
  * One shared environment definition, as the wire carries it.
@@ -61,6 +62,20 @@ const DEFINITION = {
 
 const ENVIRONMENT = { name: 'dev', definition: DEFINITION, weakened: [] };
 
+/** One workspace, the default, so the warm-up select opens on it. */
+const WORKSPACES = {
+  workspaces: [
+    {
+      id: 'default',
+      name: 'Default',
+      isDefault: true,
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      sessionCount: 0,
+    },
+  ],
+};
+
 const SHELL_ROUTES: Record<string, StubRoute> = {
   '/api/auth/me': [200, { authenticated: true, authEnabled: false }],
   '/api/setup': [200, { required: false }],
@@ -77,6 +92,7 @@ function mount(overrides: Record<string, StubRoute> = {}): {
     ...SHELL_ROUTES,
     '/api/environments': [200, { environments: [] }],
     '/api/sandboxes': [200, { instances: [] }],
+    '/api/workspaces': [200, WORKSPACES],
     ...overrides,
   });
 
@@ -120,9 +136,11 @@ describe('the environments panel', () => {
       ],
     });
 
-    // By its image rather than its name: the name is also an option in the
-    // warm-it form below, so a bare text match would find two.
-    expect(await screen.findByText(IMAGE)).toBeInTheDocument();
+    // The image without its digest. Sixty-four characters that tell two
+    // definitions apart only when they share a tag wrapped to three lines and
+    // pushed everything under them down; the editor still shows the whole one.
+    expect(await screen.findByText('node')).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(DIGEST))).not.toBeInTheDocument();
     expect(screen.getByText(/2048 MB/)).toBeInTheDocument();
     // The one a list that showed names alone would hide.
     expect(
@@ -215,11 +233,15 @@ describe('the environments panel', () => {
       'POST /api/sandboxes': [200, instances],
     });
 
-    await user.selectOptions(
-      await screen.findByLabelText('Environment'),
-      'dev',
+    // From the definition's own row, beside Edit and Delete. The dialog asks
+    // only where, because the row already said which.
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for dev' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Start it now' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Start a container' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start a container' }));
 
     await waitFor(() => {
       expect(
@@ -238,6 +260,45 @@ describe('the environments panel', () => {
         network: { mode: 'none', allow: [], hosts: [], dns: [] },
       });
     });
-    expect(await screen.findByText(/Agents: operator/)).toBeInTheDocument();
+    // The workspace, and nothing about who holds it: the agent list changes
+    // between two polls, so a row naming it rewrote itself while being read.
+    expect(await screen.findByText('In default')).toBeInTheDocument();
+    expect(screen.queryByText(/operator/)).not.toBeInTheDocument();
+  });
+
+  it('stops a running container from the kebab on its row', async () => {
+    const instances = {
+      instances: [
+        {
+          id: 'dw-sbx-1',
+          workspace: 'default',
+          environment: 'dev',
+          busy: 1,
+          lastUsedMs: 1,
+          agents: [],
+        },
+      ],
+    };
+    const { user, calls } = mount({
+      '/api/environments': [200, { environments: [ENVIRONMENT] }],
+      '/api/sandboxes': [200, instances],
+      'POST /api/sandboxes': [200, instances],
+    });
+
+    // Busy is a badge rather than a column, so an idle row says nothing at all.
+    expect(await screen.findByText('1 active command')).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for dw-sbx-1' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Stop' }));
+
+    await waitFor(() => {
+      expect(
+        calls.find(
+          (call) => call.method === 'POST' && call.path === '/api/sandboxes',
+        )?.body,
+      ).toEqual({ op: 'stop', instance: 'dw-sbx-1' });
+    });
   });
 });

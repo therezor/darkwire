@@ -611,7 +611,7 @@
         }
       }
     },
-    "workspace": {
+    "workspaces": {
       "type": "string"
     }
   },

@@ -30,17 +30,6 @@ async function workspacesOf(
   return body.workspaces.map((row) => ({ id: row.id, name: row.name }));
 }
 
-/**
- * Opens a named workspace on the Files page by clicking into its folder.
- *
- * There is no workspace control here to drive: the page opens at the default
- * workspace, which is the parent of every named one, so they are ordinary
- * folders and the tree *is* the navigation.
- */
-async function openFolder(app: Page, id: string): Promise<void> {
-  await app.getByRole('link', { name: id, exact: true }).click();
-}
-
 test.describe('workspaces', () => {
   test('a workspace is created under a folder of its own choosing', async ({
     app,
@@ -159,17 +148,18 @@ test.describe('workspaces', () => {
     ).toContain('web-acme-1');
   });
 
-  test('the default workspace has no folder to move', async ({
+  test('the default workspace has a folder, and it cannot move', async ({
     app,
     harness,
   }) => {
     await app.goto(`${harness.url}/workspaces/default`);
 
-    // Its directory *is* the root every other workspace sits inside, so the box
-    // is inert rather than absent, states `/`, and says why it cannot move.
+    // A folder like any other, named after the id. The id is what every session
+    // falls back to, so the box is inert rather than absent, states the folder,
+    // and says why it cannot move.
     await expect(app.getByLabel('Folder')).toBeDisabled();
-    await expect(app.getByLabel('Folder')).toHaveValue('/');
-    await expect(app.getByText(/no folder of its own to move/)).toBeVisible();
+    await expect(app.getByLabel('Folder')).toHaveValue('/default');
+    await expect(app.getByText(/cannot move/)).toBeVisible();
   });
 
   test('the Files tree walks into a workspace, and they do not see each other', async ({
@@ -194,13 +184,22 @@ test.describe('workspaces', () => {
 
     await app.goto(`${harness.url}/files`);
 
-    // Default is the parent of the others, so it sees them as folders — which
-    // is the layout working, not a leak.
+    // Every workspace is its own folder now, so the default holds none of them.
+    // What it lists is its own seeded files and nothing belonging to anyone
+    // else: the isolation is symmetric rather than one-way.
+    await expect(
+      app.getByRole('link', { name: 'notes.md', exact: true }),
+    ).toBeVisible();
     await expect(
       app.getByRole('link', { name: 'acme', exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      app.getByRole('link', { name: 'acme-only.md', exact: true }),
+    ).toHaveCount(0);
 
-    await openFolder(app, 'acme');
+    // Straight to one of them by URL, which is what a link out of the
+    // workspaces manager does.
+    await app.goto(`${harness.url}/files?workspace=acme`);
     await expect(
       app.getByRole('link', { name: 'acme-only.md', exact: true }),
     ).toBeVisible();
@@ -208,8 +207,7 @@ test.describe('workspaces', () => {
       app.getByRole('link', { name: 'research-only.md', exact: true }),
     ).toHaveCount(0);
 
-    // Straight to the other one by URL, which is what a link out of the
-    // workspaces manager does. The assertion the query key exists for: a cached
+    // And on to the other. The assertion the query key exists for: a cached
     // listing from the previous workspace would still be on screen here.
     await app.goto(`${harness.url}/files?workspace=research`);
     await expect(

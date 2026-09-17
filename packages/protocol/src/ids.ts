@@ -86,8 +86,8 @@ export function slugify(
  * and a path. The character rules and their rationale are at the top of this
  * file.
  *
- * What is specific to a workspace: **`default` is reserved**, because it names
- * the parent of every other workspace rather than a folder beside them.
+ * What is specific to a workspace: **`default` is reserved**, because the
+ * store bootstraps it and every session falls back to it.
  *
  * These moved here from `darkwire-core` for the reason stated at the top of
  * this file, which now applies to both kinds: the browser mints one. The create

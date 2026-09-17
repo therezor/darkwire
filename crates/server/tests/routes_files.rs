@@ -120,13 +120,10 @@ async fn delete(test: &TestServer, uri: &str) -> Answer {
     send(test, "DELETE", uri, None).await
 }
 
-/// The directory one workspace slug sits in.
+/// The directory one workspace slug sits in. Every id is a folder, `default`
+/// included, and they are siblings.
 fn workspace_dir(test: &TestServer, id: &str) -> std::path::PathBuf {
-    if id == "default" {
-        test.home.path().join("workspace")
-    } else {
-        test.home.path().join("workspace").join(id)
-    }
+    test.home.path().join("DarkWire/workspaces").join(id)
 }
 
 fn write_file(test: &TestServer, workspace: &str, relative: &str, content: &[u8]) {

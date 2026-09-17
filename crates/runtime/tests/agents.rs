@@ -12,7 +12,8 @@ use darkwire_protocol::{Config, DEFAULT_AGENT_ID, NetworkMode, PromptMode, ToolP
 use darkwire_runtime::agents::{AgentMissReason, AgentWarningCode};
 use darkwire_runtime::{
     EffectiveAgent, assert_writable_agent_ids, has_agent, list_agents, prune_dangling_subagents,
-    resolve_agent, resolve_agent_or_default, resolve_agents, tool_prompt_warnings,
+    resolve_agent, resolve_agent_or_default, resolve_agents, retired_prompt_warnings,
+    tool_prompt_warnings,
 };
 use serde_json::{Value, json};
 
@@ -627,6 +628,68 @@ mod tool_prompts {
         // Registered tools are not all named in `agents.list`, so this needs the
         // advertised set rather than the entry alone.
         assert!(tool_prompt_warnings(&agent, &["nmap".to_owned()]).is_empty());
+    }
+}
+
+mod retired_prompts {
+    use super::*;
+
+    /// One section about placement, one field for it.
+    ///
+    /// `environmentPrompt` carried the old `## Environment` half. It is still
+    /// parsed, because an operator who wrote a paragraph deserves to be told it
+    /// is not being sent rather than to work it out from the model.
+    #[test]
+    fn reports_an_agent_still_setting_the_old_environment_field() {
+        let tree = config(&json!({"agents": {"list": {
+            "a": {"environmentPrompt": "Node 22 is installed."},
+        }}}));
+        let entry = tree.agents.list.get("a").expect("the entry");
+
+        let warnings = retired_prompt_warnings("a", entry);
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, AgentWarningCode::RetiredPrompt);
+        assert_eq!(warnings[0].subject.as_deref(), Some("environmentPrompt"));
+        assert!(warnings[0].message.contains("platformPrompt"));
+    }
+
+    /// Empty is how "I never set this" is spelled, and it is not worth a line.
+    #[test]
+    fn says_nothing_about_one_that_is_set_to_nothing() {
+        let tree = config(&json!({"agents": {"list": {
+            "a": {"environmentPrompt": "   "},
+        }}}));
+        let entry = tree.agents.list.get("a").expect("the entry");
+
+        assert!(retired_prompt_warnings("a", entry).is_empty());
+    }
+
+    /// Worse than a dead field: an unfilled placeholder renders literally, so
+    /// the model is shown the braces.
+    #[test]
+    fn reports_a_raw_template_naming_a_placeholder_nothing_fills() {
+        let tree = config(&json!({"agents": {"list": {
+            "a": {"promptMode": "raw", "systemPrompt": "Here: {{environment}}"},
+        }}}));
+        let entry = tree.agents.list.get("a").expect("the entry");
+
+        let warnings = retired_prompt_warnings("a", entry);
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].subject.as_deref(), Some("systemPrompt"));
+    }
+
+    /// Template mode places the section itself, so the placeholder is not a
+    /// thing the operator asked for and there is nothing to warn about.
+    #[test]
+    fn leaves_the_same_text_alone_outside_raw_mode() {
+        let tree = config(&json!({"agents": {"list": {
+            "a": {"systemPrompt": "Here: {{environment}}"},
+        }}}));
+        let entry = tree.agents.list.get("a").expect("the entry");
+
+        assert!(retired_prompt_warnings("a", entry).is_empty());
     }
 }
 

@@ -35,7 +35,12 @@ fn setup() -> Setup {
         root: Some(temp.path().to_string_lossy().into_owned()),
         env: Some(HashMap::new()),
         home: Some(PathBuf::from("/home/someone-else")),
-        workspace: None,
+        workspaces: Some(
+            temp.path()
+                .join("workspaces")
+                .to_string_lossy()
+                .into_owned(),
+        ),
     })
     .unwrap();
     std::fs::create_dir_all(&paths.root).unwrap();

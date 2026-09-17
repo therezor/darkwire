@@ -24,7 +24,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use darkwire_environment::service::{SandboxClient, ServiceConfig, WorkspaceRegistration, serve};
+use darkwire_environment::service::{
+    SandboxClient, ServiceConfig, WorkspaceLookup, WorkspaceRegistration, serve, serve_with,
+};
 use darkwire_protocol::rest::SandboxRequest;
 use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 use serde_json::{Value, json};
@@ -55,6 +57,15 @@ fn container() -> Value {
 
 impl Harness {
     async fn start() -> Harness {
+        Harness::boot(false).await
+    }
+
+    /// The embedded shape: nothing registered, everything derived.
+    async fn start_with_lookup() -> Harness {
+        Harness::boot(true).await
+    }
+
+    async fn boot(derived: bool) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let policy = root.join("policy");
@@ -78,19 +89,30 @@ impl Harness {
             // silently start a container on the machine running the suite.
             engine: root.join("no-such-engine").to_string_lossy().into_owned(),
             gateway_image: None,
-            workspaces: BTreeMap::from([(
-                "default".to_owned(),
-                WorkspaceRegistration {
-                    path: root.join("workspaces/default"),
-                    daemon_path: root.join("workspaces/default"),
-                    environments: vec!["dev".to_owned()],
-                },
-            )]),
+            workspaces: if derived {
+                BTreeMap::new()
+            } else {
+                BTreeMap::from([(
+                    "default".to_owned(),
+                    WorkspaceRegistration {
+                        path: root.join("workspaces/default"),
+                        daemon_path: root.join("workspaces/default"),
+                        environments: vec!["dev".to_owned()],
+                    },
+                )])
+            },
+        };
+        let lookup: Option<std::sync::Arc<dyn WorkspaceLookup>> = if derived {
+            Some(std::sync::Arc::new(a_derived_registration::Everything {
+                root: root.clone(),
+            }))
+        } else {
+            None
         };
         let stop = token.clone();
         tokio::spawn(async move {
             tokio::select! {
-                result = serve(config) => {
+                result = serve_with(config, lookup) => {
                     if let Err(error) = result {
                         eprintln!("the service stopped: {}", error.message);
                     }
@@ -170,6 +192,94 @@ async fn refuses_a_workspace_it_was_never_told_about() {
         })
         .await;
     assert!(message(refusal).contains("not registered"));
+}
+
+/// A lookup answers for a workspace the configured map never named.
+///
+/// The embedded service registers nothing at boot and derives everything here,
+/// which is what lets a workspace or an environment created while the server
+/// runs be used without a restart. A deployed service supplies no lookup, and
+/// the two tests above are what say its allow-list is still the whole answer.
+mod a_derived_registration {
+    use super::*;
+
+    /// Grants whatever it is asked for, so the service's own checks are the
+    /// only thing left between a request and a placement.
+    pub(super) struct Everything {
+        pub(super) root: PathBuf,
+    }
+
+    impl WorkspaceLookup for Everything {
+        fn resolve(&self, workspace: &str) -> Option<WorkspaceRegistration> {
+            let path = if workspace == "sneaky" {
+                // A lookup that hands back the definitions themselves. The
+                // derived one cannot do this, but the service is what has to
+                // refuse it: a lookup is a claim, not a grant.
+                self.root.join("policy")
+            } else {
+                self.root.join("workspaces").join(workspace)
+            };
+            Some(WorkspaceRegistration {
+                daemon_path: path.clone(),
+                path,
+                environments: vec!["dev".to_owned()],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn answers_for_a_workspace_created_after_boot() {
+        let harness = Harness::start_with_lookup().await;
+        std::fs::create_dir_all(harness.root.join("workspaces/later")).unwrap();
+
+        let refusal = harness
+            .ask(SandboxRequest::Start {
+                environment: "dev".to_owned(),
+                workspace: "later".to_owned(),
+                agent: "scanner".to_owned(),
+                session: "s1".to_owned(),
+                network: no_network(),
+            })
+            .await;
+
+        // Past the gate and into the engine, which is a path that does not
+        // exist in this harness. Registration is what was under test.
+        let message = message(refusal);
+        assert!(!message.contains("not registered"), "{message}");
+        assert!(!message.contains("not authorized"), "{message}");
+    }
+
+    /// The checks the boot-time registrations get, on the path that skips them.
+    ///
+    /// Both branches, because a lookup is the one input to placement that is
+    /// not an operator's file: whatever it claims still has to survive the same
+    /// gate a hand-written registration does.
+    #[tokio::test]
+    async fn still_refuses_a_mount_that_overlaps_the_policy_directory() {
+        let harness = Harness::start_with_lookup().await;
+
+        let overlapping = harness
+            .ask(SandboxRequest::Start {
+                environment: "dev".to_owned(),
+                workspace: "sneaky".to_owned(),
+                agent: "scanner".to_owned(),
+                session: "s1".to_owned(),
+                network: no_network(),
+            })
+            .await;
+        assert!(message(overlapping).contains("must not overlap"));
+
+        let traversing = harness
+            .ask(SandboxRequest::Start {
+                environment: "dev".to_owned(),
+                workspace: "../policy".to_owned(),
+                agent: "scanner".to_owned(),
+                session: "s1".to_owned(),
+                network: no_network(),
+            })
+            .await;
+        assert!(message(traversing).contains("absolute non-root path"));
+    }
 }
 
 #[tokio::test]

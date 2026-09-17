@@ -48,6 +48,12 @@ fn options(home: &Path, args: ServeArgs) -> ServeOptions {
             // has. The case's own host wins, so a bad one reaches the parser.
             host: args.host.clone().or_else(|| Some("127.0.0.1".to_owned())),
             port: args.port.or(Some(0)),
+            // Named explicitly, or the workspaces would resolve under the home
+            // directory of whoever is running the tests.
+            workspaces: args
+                .workspaces
+                .clone()
+                .or_else(|| Some(home.join("workspaces").display().to_string())),
             ..args
         },
         globals: Globals {

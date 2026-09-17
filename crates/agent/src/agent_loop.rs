@@ -935,7 +935,10 @@ impl AgentLoop {
         Some(PromptTools {
             policy_prompt: agent.and_then(|a| a.tool_policy_prompt.clone()),
             platform_prompt: agent.and_then(|a| a.platform_prompt.clone()),
-            confined: placed.environment.confined(),
+            // Straight from the placement, not merged with anything: it is the
+            // built-in a containered turn inherits, and the agent's override of
+            // it is `platform_prompt` above.
+            environment_notes: placed.prompt.clone(),
         })
     }
 

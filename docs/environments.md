@@ -20,7 +20,7 @@ installed definitions and their hardening; the **Environments** tab in Settings 
 same list and is where one is authored, edited or removed. The environment service
 re-resolves a definition before use and stops work if it has drifted.
 
-The policy directory sits beside the workspace, never inside it, so nothing a tool can
+The policy directory sits outside every workspace, never inside one, so nothing a tool can
 write reaches a definition. Settings is a door for the operator, not for the agent, and a
 save there clears exactly the checks a hand-written file clears: an image that is not
 digest-pinned and a capability that is never grantable are refused either way.
@@ -38,6 +38,9 @@ schema: darkwire.environment/1
 kind: container
 name: dev
 image: sha256:…
+prompt: |
+  Alpine 3.23. git, util-linux and ca-certificates are installed.
+  The shell is ash, not bash: no arrays and no `[[ ]]`.
 limits:
   memoryMb: 512
   cpus: 1
@@ -77,10 +80,13 @@ gateway on the host to enforce anything, so a request there would mean nothing. 
 named environment, `open`, `none` and `allowlist` are available. An allow-list needs
 CIDRs, exact host names, and DNS resolver addresses.
 
-**A definition carries no prose.** What the model is told about where its commands run,
-and about what is installed there, is one section on the agent: `platformPrompt`. See
-[Prompts](prompts.md). A definition still setting `prompt` is reported on its row and read
-by nothing.
+**A definition says what its image holds.** `prompt` is plain prose with no heading and no
+placeholders: what is installed, which shell, what is missing. It **replaces** the default
+`## Running commands` wording for every agent running here, said once per image rather
+than once per agent that uses it. A definition that sets nothing leaves those agents on
+the default, which is the same one the host gets. An agent that edits its own
+`platformPrompt` starts from whichever applied and narrows it, leaving every other agent
+using the image as it was. See [Prompts](prompts.md).
 
 ## A delegated turn runs where its caller does
 

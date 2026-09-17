@@ -255,6 +255,55 @@ plain relative form — `notes/todo.md`.
 pub const PLATFORM_PROMPT_PLACEHOLDERS: &[&str] =
     &["runtime", "platform", "workspaceId", "shellPolicy"];
 
+/// The heading the command policy renders under.
+pub const COMMAND_POLICY_HEADING: &str = "## Running commands";
+
+/// What `## Running commands` says when nobody has said anything else.
+///
+/// **One template for every placement.** There used to be two, a host arm and a
+/// container arm, because the host arm named two things that are false in a
+/// container: that commands run on this machine, and that they are *not*
+/// confined to the workspace. Both are gone from this wording, so one text is
+/// true wherever the turn lands and the prompt no longer has to know.
+///
+/// **Plain text, no placeholders.** `{{runtime}}` and `{{shellPolicy}}` are
+/// still offered and still filled, because a stored template may name them, but
+/// the default names neither: the host label is a fact a model tends to act on
+/// wrongly in a container, and the generated shell paragraph said little on a
+/// POSIX box beyond "a shell exists".
+///
+/// "may be refused" rather than "is refused" because it depends on where the
+/// turn lands: the exec guard refuses an argument pointing out of the workspace
+/// on the host, and in a container there is nothing outside the workspace
+/// mounted to point at.
+pub const DEFAULT_PLATFORM_TEMPLATE: &str = "## Running commands
+
+`exec` runs with the workspace root as its working directory, so pass relative
+arguments. Paths outside the workspace may be refused.
+
+The file tools always act on the workspace on this machine, whatever `exec`
+does. Prefer them where they are simpler or more reliable than a command.";
+
+/// What `## Running commands` inherits, given what the environment definition
+/// says about its image.
+///
+/// Empty notes, which is every turn on the host and every container whose
+/// definition is silent, give [`DEFAULT_PLATFORM_TEMPLATE`]. Anything else is
+/// the definition's own words: only the image knows what it holds, and saying
+/// it once per image beats restating it on every agent that uses one.
+///
+/// The result carries the heading either way, because a built-in is the seed an
+/// operator's first edit is a diff against and a heading added later at render
+/// time would double the one they had already edited.
+#[must_use]
+pub fn platform_template(notes: &str) -> String {
+    let notes = js_trim(notes);
+    if notes.is_empty() {
+        return DEFAULT_PLATFORM_TEMPLATE.to_owned();
+    }
+    format!("{COMMAND_POLICY_HEADING}\n\n{notes}")
+}
+
 /// What a *tool-output policy* template may ask for.
 ///
 /// `tag` is what the envelopes actually carry; `nonce` is the random half of
@@ -270,26 +319,6 @@ pub const TOOL_POLICY_PLACEHOLDERS: &[&str] = &["nonce", "tag"];
 /// because they are not in this section — the model opens the one it wants.
 /// `count` is offered and unused by the default.
 pub const MEMORY_PROMPT_PLACEHOLDERS: &[&str] = &["path", "index", "count"];
-
-/// `{{platformPolicy}}` when `exec` runs on this machine.
-pub const DEFAULT_PLATFORM_HOST_TEMPLATE: &str = "## Running commands
-
-`exec` runs on this machine — {{runtime}} — as a real process on the real
-filesystem. Unlike the file tools it is therefore *not* confined to the workspace,
-which is why an argument pointing outside it (`/etc/passwd`, `../secrets`) is
-refused rather than resolved inside. Its working directory is already the
-workspace root, so pass relative arguments.{{shellPolicy}}";
-
-/// `{{platformPolicy}}` when `exec` runs in a selected container.
-pub const DEFAULT_PLATFORM_CONTAINER_TEMPLATE: &str = "## Running commands
-
-Commands you run with `exec` run inside a container, not on the host. What they
-can reach is fixed by the container definition and the agent's network policy.
-File tools act on the workspace on this machine; the same workspace is mounted
-inside the container.
-
-Assume nothing about what is installed beyond a base image. Check for a tool
-before relying on it.";
 
 /// The section that makes the tool-output delimiters mean something.
 ///

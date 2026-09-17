@@ -34,8 +34,10 @@ fn setup() -> Setup {
     let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(root.to_string_lossy().into_owned()),
         env: Some(std::collections::HashMap::new()),
+        // A fabricated home would send the workspaces tree at the developer's
+        // real one, so it is named explicitly under the temporary root.
         home: Some(PathBuf::from("/home/someone-else")),
-        workspace: None,
+        workspaces: Some(root.join("workspaces").to_string_lossy().into_owned()),
     })
     .unwrap();
     Setup {
@@ -77,21 +79,22 @@ fn builds_the_default_eagerly_so_an_unusable_workspace_fails_at_construction() {
 #[test]
 fn fails_from_the_constructor_when_the_workspace_root_cannot_be_used() {
     let s = setup();
-    // A file where the workspace root should be: the jail cannot create a
-    // directory over it, and the failure belongs to construction rather than to
-    // the first tool call of the next turn.
-    std::fs::create_dir_all(&s.root).unwrap();
-    std::fs::write(&s.paths.workspace, "not a directory").unwrap();
+    // A file where the default workspace's folder should be: the jail cannot
+    // create a directory over it, and the failure belongs to construction
+    // rather than to the first tool call of the next turn.
+    std::fs::create_dir_all(&s.paths.workspaces_dir).unwrap();
+    std::fs::write(s.paths.workspaces_dir.join("default"), "not a directory").unwrap();
     let error = common::err(JailCache::new(s.paths.clone()));
     assert_eq!(error.kind, ErrorKind::Config);
 }
 
 #[test]
-fn maps_the_default_to_the_workspace_root_and_a_named_workspace_beneath_it() {
+fn makes_a_named_workspace_a_sibling_of_the_default_rather_than_a_child() {
     let s = setup();
     let cache = s.cache(MAX_CACHED_JAILS);
     let named = cache.for_workspace_checked("research").unwrap();
-    assert!(named.root().starts_with(cache.default_jail().root()));
+    assert!(!named.root().starts_with(cache.default_jail().root()));
+    assert_eq!(named.root().parent(), cache.default_jail().root().parent());
     assert!(named.root().ends_with("research"));
 }
 
@@ -99,9 +102,9 @@ fn maps_the_default_to_the_workspace_root_and_a_named_workspace_beneath_it() {
 fn creates_a_named_workspace_directory_on_first_use() {
     let s = setup();
     let cache = s.cache(MAX_CACHED_JAILS);
-    assert!(!s.paths.workspace.join("research").exists());
+    assert!(!s.paths.workspaces_dir.join("research").exists());
     cache.for_workspace_checked("research").unwrap();
-    assert!(s.paths.workspace.join("research").is_dir());
+    assert!(s.paths.workspaces_dir.join("research").is_dir());
 }
 
 #[test]
@@ -222,11 +225,12 @@ fn keeps_two_workspaces_disjoint_and_neither_containing_the_other() {
 }
 
 #[test]
-fn puts_every_named_workspace_inside_the_default_which_is_the_chosen_layout() {
+fn puts_every_workspace_beside_the_default_which_is_the_chosen_layout() {
     let s = setup();
     let cache = s.cache(MAX_CACHED_JAILS);
     let named = cache.for_workspace_checked("one").unwrap();
-    assert!(named.root().starts_with(cache.default_jail().root()));
+    assert!(!named.root().starts_with(cache.default_jail().root()));
+    assert_eq!(named.root().parent(), cache.default_jail().root().parent());
     assert!(format!("{cache:?}").contains("JailCache"));
 }
 

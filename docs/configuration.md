@@ -24,24 +24,31 @@ Writes are atomic: validate, write `config.yaml.tmp` at mode `0600`, rename.
 
 ---
 
-## `workspace`
+## `workspaces`
 
-The folder every agent works in, as a single root-level string.
+The folder the workspaces live in, as a single root-level string.
 
 ```yaml
-{ 'workspace': 'projects/alpha' }
+{ 'workspaces': '/Users/you/DarkWire/workspaces' }
 ```
+
+Every workspace is one directory in here, the default included. They are siblings, so
+none of them can reach another's files.
 
 Root-level rather than on an agent, because an agent _works in_ a workspace and does not
 own one: the folder is a property of the session, and several agents with separate
 identities opening the same one is what the feature is built around. `agents.list.<id>`
 therefore has no such key.
 
-Empty means `<root>/workspace`, where the root is `DARKWIRE_HOME` or `~/.darkwire`.
-Deliberately not defaulted to the literal `~/.darkwire/workspace`: that string restates
-the default root, so an install relocated with `DARKWIRE_HOME` would keep its workspace
-back under the home directory. A relative path is resolved against the root, never
-against the process working directory. `--workspace` wins over this for one run.
+Empty means `~/DarkWire/workspaces`. Deliberately not defaulted to that literal string:
+writing one machine's home directory into the file makes the config non-portable and a
+container mount silently wrong. A relative path is resolved against the root, never
+against the process working directory.
+
+This tree does **not** follow `DARKWIRE_HOME`. That variable moves DarkWire's own state:
+the settings, the database, the vault and the logs. The files you work on are yours and
+stay where you put them. `DARKWIRE_WORKSPACES` is what moves them, and `--workspaces`
+wins over both for one run.
 
 ## `agents.list.<id>`
 
@@ -111,7 +118,7 @@ feature, and it is the one already in the permission map.
 Beside the settings above, an entry carries the keys below — what the agent _is_, rather
 than what a turn on it sends.
 
-`workspace` is not among them, and cannot be: the working folder is root-level and shared
+`workspaces` is not among them, and cannot be: the working folder is root-level and shared
 by every agent that opens it. See [`workspace`](#workspace).
 
 Entries are created two ways, and both land in the same shape: the web UI's agent
@@ -615,7 +622,7 @@ and works. See [Providers](providers.md).
 | --------------------------- | -------------------------------------------------------- |
 | `--home <dir>`              | The root. Same as `DARKWIRE_HOME`.                       |
 | `--host` / `--port`         | `server.host` / `server.port`.                           |
-| `--workspace <dir>`         | The workspace root — moves the whole tree.               |
+| `--workspaces <dir>`        | The folder the workspaces live in.                       |
 | `--workspace-id <id>`       | Which workspace new sessions land in. A different thing. |
 | `--model` / `--provider`    | Every agent's `model` / `provider`, for one invocation.  |
 | `--ui <dir>`                | Serve a UI built somewhere else.                         |

@@ -82,9 +82,9 @@ use chrono::{DateTime, TimeZone as _, Utc};
 use chrono_tz::Tz;
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{
-    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_PLATFORM_CONTAINER_TEMPLATE,
-    DEFAULT_PLATFORM_HOST_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE,
-    PromptMode, SECTION_SEPARATOR, render_prompt_template, render_wrap_up, tool_policy_uses_nonce,
+    DEFAULT_LIVE_STATE_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_WRAP_UP_TEMPLATE,
+    PromptMode, SECTION_SEPARATOR, platform_template, render_prompt_template, render_wrap_up,
+    tool_policy_uses_nonce,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_security::{tool_output_policy, tool_output_tag};
@@ -211,24 +211,25 @@ pub struct PromptAgent {
 /// removes the section, anything else replaces it. Those are decisions a person
 /// made about a section that exists. Whether it exists at all is this object.
 ///
-/// `confined` is the exception and the one boolean here. It is not wording: it
-/// says which built-in the command policy inherits *from*, and it has to be a
-/// per-turn input because a subagent runs where its caller's reference says it
-/// does. Deciding it when the loop was built, once per agent, told an
-/// inheriting subagent its commands run on this machine while they ran in a
-/// container.
+/// `environment_notes` is the exception and is not the operator's wording for a
+/// section: it is what the *definition* says about its image, and it has to be
+/// a per-turn input because a subagent runs where its caller's reference says
+/// it does. Resolving it when the loop was built, once per agent, would hand an
+/// inheriting subagent the wrong image's description.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PromptTools {
     /// Wording for the tool-output policy — what the delimiters around a result
     /// mean.
     pub policy_prompt: Option<String>,
-    /// Wording for the command policy — where `exec` lands, and what is
-    /// available there.
+    /// Wording for the command policy: where `exec` lands and what is there.
     pub platform_prompt: Option<String>,
-    /// Whether this turn's commands run away from this machine's filesystem,
-    /// which decides which built-in command policy an empty `platform_prompt`
-    /// inherits.
-    pub confined: bool,
+    /// What the environment definition says about its own image.
+    ///
+    /// Not an override and not an agent field: it is the *built-in* an empty
+    /// `platform_prompt` inherits, because only the image knows what it holds.
+    /// Empty on the host, which has no definition, and empty for a definition
+    /// that says nothing; both then inherit the default template.
+    pub environment_notes: String,
 }
 
 /// Which operating system a command would land on.
@@ -468,14 +469,13 @@ fn values(pairs: impl IntoIterator<Item = (&'static str, String)>) -> IndexMap<S
         .collect()
 }
 
-/// Where commands run, and what that place is like.
+/// Where commands run, and what is installed there.
 ///
 /// Its own section in template mode, and `{{platformPolicy}}` in raw mode. It
 /// is generated rather than written into the identity because it is the one
 /// part of the static half that depends on *placement*. The same agent text has
 /// to be true whether `exec` lands on the host or in a container, and those two
-/// are opposite on every point that matters: whether the workspace confines the
-/// command, whether a shell is available, and which OS's tools exist.
+/// are opposite on every point that matters.
 ///
 /// Getting that wrong is not cosmetic. The host wording sent to a containered
 /// agent tells it its commands run on macOS (they run in Alpine), that they are
@@ -484,11 +484,13 @@ fn values(pairs: impl IntoIterator<Item = (&'static str, String)>) -> IndexMap<S
 /// has them). A model resolving a contradiction between its prompt and its
 /// tools tends to resolve it by refusing.
 ///
-/// The **file tools are placement-independent** and that sentence is the one
-/// most worth its tokens: they always act on the workspace on this machine,
-/// through the jail, whatever `exec` does. Without it a model has no way to
-/// know that the file it wrote and the file a command sees are the same file
-/// under two names.
+/// **The container built-in is empty, and that is the point.** Everything it
+/// used to say was either unactionable or a repair of the confusion the rest of
+/// it caused. The host built-in stays because the exec guard there refuses an
+/// argument pointing outside the workspace, and a model not told that burns an
+/// iteration learning it; in a container that guard is off. What is left is the
+/// definition's own half, which is the only part neither this repo nor the
+/// model can work out.
 fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) -> String {
     // No tools, no commands, nothing to say about where they land. First,
     // because every line below describes running one — including the sentence
@@ -501,14 +503,10 @@ fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) 
     // not of the agent: an agent that names no environment of its own runs
     // where its caller does, so the same loop can be confined on one turn and
     // not on the next.
-    let stored = template_or(
-        tools.platform_prompt.as_deref(),
-        if tools.confined {
-            DEFAULT_PLATFORM_CONTAINER_TEMPLATE
-        } else {
-            DEFAULT_PLATFORM_HOST_TEMPLATE
-        },
-    );
+    // One built-in for every placement, so nothing here asks where the turn
+    // landed. The definition's own words replace it when the image has any.
+    let inherited = platform_template(&tools.environment_notes);
+    let stored = template_or(tools.platform_prompt.as_deref(), &inherited);
     if js_trim(stored).is_empty() {
         return String::new();
     }
@@ -539,6 +537,7 @@ fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) 
             ("shellPolicy", shell),
         ]),
     );
+
     js_trim(&rendered).to_owned()
 }
 

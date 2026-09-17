@@ -80,12 +80,15 @@ pub enum PromptMode {
 ///
 /// Root-level rather than on an agent, because an agent *works in* a workspace
 /// and does not own one: several agents with separate identities opening the
-/// same one is the thing this is built around. Empty means `<root>/workspace`,
-/// where the root is `DARKWIRE_HOME` or `~/.darkwire`; a literal default would
-/// restate the default root and strand an install that moved it. A relative
-/// path is resolved against the root, never against the working directory.
-/// Merged per field like every other root key, so an omitted key preserves it.
-pub type WorkspacePath = String;
+/// same one is the thing this is built around. Empty means
+/// `~/DarkWire/workspaces`; a literal default would write one machine's home
+/// directory into a file meant to be portable. A relative path is resolved
+/// against the root, never against the working directory. Merged per field
+/// like every other root key, so an omitted key preserves it.
+///
+/// `DARKWIRE_WORKSPACES` wins over whatever this says, so a container or a
+/// test can relocate the tree without editing the file it mounted.
+pub type WorkspacesPath = String;
 
 /// What one agent sends, and what it costs.
 ///
@@ -779,20 +782,30 @@ pub struct AgentEntry {
     /// outright, since a raw template names `{{time}}` and `{{wrapUp}}` itself.
     #[serde(default)]
     pub prompt_mode: PromptMode,
-    /// The `## Running commands` section. Empty means the built-in for this
-    /// agent's placement, host or environment, decided per turn because a
-    /// subagent runs where its caller's reference says. Editing it does not
-    /// widen anything:
-    /// where a command may reach is decided by the exec guard and the jail,
-    /// neither of which reads the prompt.
+    /// The `## Running commands` section: where commands run, and what is
+    /// there.
+    ///
+    /// **Empty inherits a built-in that depends on placement**, decided per
+    /// turn because a subagent runs where its caller's reference says. On the
+    /// host that is the rule the exec guard enforces. In a container it is the
+    /// environment definition's own `prompt`, because only the image knows what
+    /// it holds and saying it once per image beats restating it on every agent
+    /// that uses one; an image that says nothing places no section at all.
+    ///
+    /// One field rather than two, and the editor seeds the box with whichever
+    /// built-in applies, so an agent granted three of an image's ten tools
+    /// opens the box on the image's list and deletes seven.
+    ///
+    /// Editing it does not widen anything: where a command may reach is decided
+    /// by the exec guard and the jail, neither of which reads the prompt.
     #[serde(default)]
     pub platform_prompt: String,
-    /// Read by nothing. `## Running commands` is the one placement section now,
-    /// and `platform_prompt` above says both where commands run and what is
-    /// installed there.
+    /// Read by nothing. `platform_prompt` above is the one section about
+    /// placement, and in a container its built-in is already the definition's
+    /// own words.
     ///
-    /// Still parsed so an agent that set it can be told its wording is no
-    /// longer placed, rather than losing it in silence.
+    /// Still parsed so an agent that set it can be told its wording is not
+    /// placed, rather than losing it in silence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment_prompt: Option<String>,
     /// The `## Tool output policy` section. The envelopes are emitted and the
@@ -1059,9 +1072,9 @@ impl Default for UiConfig {
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct Config {
-    /// The folder every agent works in. See [`WorkspacePath`].
+    /// The folder the workspaces live in. See [`WorkspacesPath`].
     #[serde(default)]
-    pub workspace: WorkspacePath,
+    pub workspaces: WorkspacesPath,
     /// Every agent.
     #[serde(default)]
     #[schemars(transform = prefault)]
@@ -1646,11 +1659,12 @@ pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub ui: Option<UiConfigPatch>,
-    /// The working folder. Stripped of its default like everything else here:
-    /// a patch parsed from `{}` must not carry `workspace: ""`, or every
-    /// settings save would reset a configured root to "unset".
+    /// The folder the workspaces live in. Stripped of its default like
+    /// everything else here: a patch parsed from `{}` must not carry
+    /// `workspaces: ""`, or every settings save would reset a configured
+    /// folder to "unset".
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
+    pub workspaces: Option<String>,
 }
 
 // Editing one agent's model and sampling settings

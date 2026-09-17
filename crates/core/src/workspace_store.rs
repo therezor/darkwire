@@ -1,12 +1,13 @@
 //! The workspace registry.
 //!
 //! A workspace is a named folder the user owns: their files, their memories
-//! and their skills. `default` is the tree at `<root>/workspace` and is also
-//! the *parent* of every named workspace, so a turn in `default` reaches all
-//! of them and a turn in a named one reaches only itself. That asymmetry is
-//! the design, not an oversight: `default` is the broad view, and the jail
-//! keeps named workspaces isolated from each other because `../sibling`
-//! resolves outside their own root.
+//! and their skills. Each one is a directory under `workspaces_dir`, and
+//! `default` is one of them rather than the tree the others sit in. They are
+//! siblings and none can read another, because `../sibling` resolves outside
+//! the asking workspace's own jail root.
+//!
+//! `default` is still special in one way only: every install has it, it cannot
+//! be deleted, and it is what a session falls back to.
 //!
 //! **It lives in `darkwire-core`, not `darkwire-server`.** The runtime builds a
 //! jail from an id and the agent binds a turn to one, and neither may depend
@@ -21,7 +22,7 @@
 //! directories only" a convention rather than a fact, and the first API that
 //! accepted one would hand an authenticated caller the whole filesystem. The
 //! directory is derived from the id by [`workspace_dir_for`], which also means
-//! relocating `DARKWIRE_HOME` moves every workspace with it.
+//! pointing `workspaces_dir` somewhere else moves every workspace at once.
 
 use std::sync::Arc;
 
@@ -59,7 +60,7 @@ pub const SCHEMA: &[&str] = &[WORKSPACES_TABLE, WORKSPACES_DEFAULT_INDEX];
 /// One registered workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceRecord {
-    /// The slug, and the directory name under the default workspace.
+    /// The slug, and the name of its folder under `workspaces_dir`.
     pub id: String,
     /// The display name.
     pub name: String,
@@ -136,10 +137,15 @@ impl WorkspaceStore {
     /// `SessionStore::ensure_session` is: two processes opening the same file
     /// both end up with one row rather than one of them failing on the primary
     /// key.
+    ///
+    /// Its folder is created here, because `default` is a folder like any
+    /// other now and nothing else would make one. `create` does the same for
+    /// the workspaces it registers.
     pub fn new(db: Database, paths: WirePaths, clock: Arc<dyn Clock>) -> Result<WorkspaceStore> {
         for statement in SCHEMA {
             db.execute_batch(statement)?;
         }
+        ensure_dir(&workspace_dir_for(&paths, DEFAULT_WORKSPACE_ID)?)?;
         let now = clock.now_ms();
         db.lock().execute(
             "INSERT OR IGNORE INTO workspaces (id, name, created_at_ms, updated_at_ms, is_default)
@@ -169,12 +175,11 @@ impl WorkspaceStore {
 
     /// Registers a workspace and makes sure its directory exists.
     ///
-    /// Named workspaces are folders *inside* the default tree, so a slug can
-    /// collide with something the user or the agent already put there. An
-    /// existing directory is adopted rather than refused — that is what makes
-    /// "delete keeps the files, recreate with the same name" round-trip — but
-    /// an existing *file* is a refusal, because the alternative is a workspace
-    /// whose every operation fails with `ENOTDIR`.
+    /// A slug can collide with something already sitting in the workspaces
+    /// folder. An existing directory is adopted rather than refused, which is
+    /// what makes "delete keeps the files, recreate with the same name"
+    /// round-trip. An existing *file* is a refusal, because the alternative is
+    /// a workspace whose every operation fails with `ENOTDIR`.
     pub fn create(&self, options: CreateWorkspace) -> Result<WorkspaceRecord> {
         let name = options.name.trim();
         if name.is_empty() {
@@ -215,7 +220,7 @@ impl WorkspaceStore {
         {
             return Err(WireError::new(
                 ErrorKind::Conflict,
-                format!("\"{id}\" already exists in the default workspace and is not a folder"),
+                format!("\"{id}\" already exists in the workspaces folder and is not a folder"),
             )
             .with_detail("id", id));
         }
@@ -275,10 +280,10 @@ impl WorkspaceStore {
     /// Three things it refuses, each because the alternative is worse than a
     /// refusal:
     ///
-    ///  - **The default**, whose directory *is* the workspace root and is also
-    ///    the parent of every other workspace. There is no rename of it that
-    ///    does not mean relocating the entire tree, which is `DARKWIRE_HOME`'s
-    ///    job.
+    ///  - **The default**, whose id is fixed. Every install has a `default`,
+    ///    sessions fall back to it and the jail cache builds it by name, so an
+    ///    id that could move is an id none of them can rely on. Moving the
+    ///    whole tree is `DARKWIRE_WORKSPACES`'s job.
     ///  - **A folder something already occupies.** `rename(2)` onto an existing
     ///    empty directory succeeds on POSIX, which would silently swallow it.
     ///  - **A reserved or malformed id**, on the rules that guard every other
@@ -293,7 +298,7 @@ impl WorkspaceStore {
         if existing.is_default {
             return Err(WireError::new(
                 ErrorKind::Conflict,
-                "The default workspace is the folder that holds the others and cannot be moved",
+                "The default workspace's folder is named after its id, which is fixed",
             )
             .with_detail("id", id));
         }
@@ -330,7 +335,7 @@ impl WorkspaceStore {
         if std::fs::symlink_metadata(&to).is_ok() {
             return Err(WireError::new(
                 ErrorKind::Conflict,
-                format!("\"{folder}\" already exists in the default workspace"),
+                format!("\"{folder}\" already exists in the workspaces folder"),
             )
             .with_detail("id", folder));
         }

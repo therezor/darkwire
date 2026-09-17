@@ -1,7 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "workspace": {
+    "workspaces": {
       "default": "",
       "type": "string"
     },

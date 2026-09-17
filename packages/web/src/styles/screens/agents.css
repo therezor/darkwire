@@ -97,9 +97,9 @@
     padding-top: var(--space-3);
   }
 
-  /* Five templates under the disclosure, none of them a page of text — the
-     system prompt above is the only one that is. A uniform 20rem would make the
-     panel a scroll of mostly-empty boxes. */
+  /* Six templates under the disclosure, and none of them is a page of text.
+     The system prompt above is the only one that is, so a uniform 20rem would
+     make the panel a scroll of mostly-empty boxes. */
   .agent-editor__advanced-body
     .agent-editor__template
     + .agent-editor__template {

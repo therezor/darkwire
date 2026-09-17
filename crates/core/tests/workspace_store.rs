@@ -42,7 +42,7 @@ fn fixture() -> Fixture {
         ..ResolveWirePaths::default()
     })
     .unwrap();
-    std::fs::create_dir_all(&paths.workspace).unwrap();
+    std::fs::create_dir_all(&paths.workspaces_dir).unwrap();
     let db = Database::in_memory().unwrap();
     let clock = Arc::new(ManualClock::at(NOW));
     let store = WorkspaceStore::new(db.clone(), paths.clone(), clock.clone()).unwrap();
@@ -78,7 +78,7 @@ impl Fixture {
     }
 
     fn dir(&self, id: &str) -> PathBuf {
-        self.paths.workspace.join(id)
+        self.paths.workspaces_dir.join(id)
     }
 
     fn ids(&self) -> Vec<String> {
@@ -112,7 +112,7 @@ proptest! {
         .unwrap();
         let slug = derive_workspace_id(&name);
         prop_assert!(is_workspace_id(&slug));
-        prop_assert_eq!(workspace_dir_for(&paths, &slug).unwrap(), paths.workspace.join(&slug));
+        prop_assert_eq!(workspace_dir_for(&paths, &slug).unwrap(), paths.workspaces_dir.join(&slug));
     }
 }
 

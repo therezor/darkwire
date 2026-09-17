@@ -411,7 +411,7 @@ fn the_vault_sink_opens_nothing_until_something_is_written() {
     let home = tempfile::tempdir().unwrap();
     let paths = WirePaths::resolve(ResolveWirePaths {
         root: Some(home.path().to_string_lossy().into_owned()),
-        workspace: None,
+        workspaces: None,
         env: Some(std::collections::HashMap::new()),
         home: Some(home.path().to_path_buf()),
     })

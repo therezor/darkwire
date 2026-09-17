@@ -108,10 +108,14 @@ async fn a_bare_word_is_a_message_rather_than_a_command_nobody_defined() {
     // install having no provider, which is what proves the word was read as a
     // message rather than rejected as a command.
     let home = tempfile::tempdir().unwrap();
+    // `--home` moves DarkWire's state and `-w` the workspaces; a run that named
+    // only the first would build its default workspace in the real home.
     let ran = ran(
         &[
             "--home",
             &home.path().display().to_string(),
+            "-w",
+            &home.path().join("workspaces").display().to_string(),
             "nosuchcommand",
         ],
         &Env::empty(),
@@ -132,7 +136,8 @@ async fn darkwire_debug_adds_the_structured_detail_to_a_failure() {
     // travels all the way back out of `run` as a value rather than being
     // printed by the command that raised it.
     let home_path = home.path().display().to_string();
-    let argv = ["--home", &home_path, "hello"];
+    let workspaces = home.path().join("workspaces").display().to_string();
+    let argv = ["--home", &home_path, "-w", &workspaces, "hello"];
 
     let plain = ran(&argv, &Env::empty()).await;
     let debug = ran(&argv, &[("DARKWIRE_DEBUG", "1")].into_iter().collect()).await;

@@ -37,6 +37,7 @@ fn home() -> tempfile::TempDir {
 fn runtime(dir: &tempfile::TempDir, options: RuntimeOptions) -> Arc<darkwire_runtime::WireRuntime> {
     create_chat_runtime(RuntimeOptions {
         home: Some(dir.path().display().to_string()),
+        workspaces: Some(dir.path().join("workspaces").display().to_string()),
         vault: VaultChoice::None,
         env: Some(std::collections::HashMap::new()),
         ..options
@@ -52,16 +53,16 @@ fn load_options_carry_the_home_flag() {
     };
     let resolved: ResolveWirePaths = load_options(&globals, None, &Env::empty());
     assert_eq!(resolved.root.as_deref(), Some("/srv/ghost"));
-    assert_eq!(resolved.workspace, None);
+    assert_eq!(resolved.workspaces, None);
 }
 
 #[test]
 fn load_options_keep_the_two_workspace_ideas_apart() {
-    // `--workspace` is a *directory* and moves the whole tree; a workspace id
-    // is a registry row whose directory is derived. Only the first reaches the
-    // path resolution.
+    // `--workspaces` is a *directory* and names the folder they all live in; a
+    // workspace id is a registry row whose directory is derived. Only the first
+    // reaches the path resolution.
     let resolved = load_options(&Globals::default(), Some("/tmp/tree"), &Env::empty());
-    assert_eq!(resolved.workspace.as_deref(), Some("/tmp/tree"));
+    assert_eq!(resolved.workspaces.as_deref(), Some("/tmp/tree"));
 }
 
 #[test]

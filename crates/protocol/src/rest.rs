@@ -340,9 +340,9 @@ pub struct SettingsPatchRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub ui: Option<UiConfigPatch>,
-    /// See [`ConfigPatch::workspace`].
+    /// See [`ConfigPatch::workspaces`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
+    pub workspaces: Option<String>,
     /// Applied *before* the patch, so the patch addresses the new ids. A list,
     /// because there is no reason for the route to stop an operator renaming
     /// two agents in one save.
@@ -363,7 +363,7 @@ impl SettingsPatchRequest {
             scheduler: self.scheduler,
             extensions: self.extensions,
             ui: self.ui,
-            workspace: self.workspace,
+            workspaces: self.workspaces,
         };
         (patch, self.rename_agents.unwrap_or_default())
     }
@@ -1056,6 +1056,37 @@ pub enum SandboxRequest {
         /// Opaque instance ID.
         instance: String,
     },
+    /// Turn an image reference into the digest a definition may pin.
+    ///
+    /// A definition must name an image by digest, because a tag is a mutable
+    /// pointer and one repointed later would run code nobody chose. Finding
+    /// that digest by hand meant `docker pull` and `docker image inspect` in a
+    /// terminal, which is the step that made adding a container a research
+    /// project. The rule does not move: what comes back is still a digest, and
+    /// the operator no longer does the archaeology.
+    ///
+    /// Here rather than on the app because the app holds no engine handle. It
+    /// may pull, so it is the one operation that can take minutes.
+    #[serde(rename_all = "camelCase")]
+    ResolveImage {
+        /// A tag, a digest, or a local image ID. Whatever an operator typed.
+        reference: String,
+    },
+}
+
+/// What one image reference resolved to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ResolveImageResponse {
+    /// What was asked for, echoed so a slow answer can be matched to its box.
+    pub reference: String,
+    /// The digest-pinned form, ready to paste into a definition.
+    pub image: String,
+    /// Whether the engine had to fetch it first. Reported rather than inferred:
+    /// the difference between an instant answer and a two-minute one is worth a
+    /// sentence on the screen that waited.
+    pub pulled: bool,
 }
 
 // MCP servers
@@ -1529,8 +1560,8 @@ pub struct UpdateWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1, max = 60))]
     pub name: Option<String>,
-    /// The folder to move it to. Refused for the default workspace, whose
-    /// folder is the parent of every other one.
+    /// The folder to move it to. Refused for the default workspace, whose id
+    /// is what every session falls back to and so cannot change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1, max = 40))]
     pub id: Option<String>,
