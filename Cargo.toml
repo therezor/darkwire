@@ -146,6 +146,20 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 
+# Line tables only, for the workspace and for every dependency. A panic
+# still names the file and line, which is what a backtrace is read for; the
+# full DWARF that a step-through debugger wants was most of a multi-gigabyte
+# `target/` and a good share of every rebuild. Set `CARGO_PROFILE_DEV_DEBUG=2`
+# for the one session that needs to step through.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
