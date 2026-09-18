@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
 use darkwire_i18n::{args, keys};
+use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{
     ErrorCode, NestedAgentEvent, StopReason, SubagentEventBody, ToolRisk, TurnTiming, Usage,
     turn_rate,
@@ -65,6 +66,9 @@ pub const DEFAULT_TOOL_RESULT_LINES: usize = 6;
 
 /// How many characters a tool card's argument summary gets.
 pub const DEFAULT_ARG_SUMMARY_CHARS: usize = 96;
+
+/// The one tool this file renders specially. See [`task_lines`].
+const TODO_TOOL: &str = "todo";
 
 /// How many characters one *value* inside that summary gets.
 const VALUE_CHARS: usize = 44;
@@ -209,6 +213,43 @@ pub fn summarise_args(args: &Value, max: usize) -> String {
         }
         other => clip(&json_text(other), max),
     }
+}
+
+/// The task list a `todo` call carries, one line per task.
+///
+/// The only per-tool branch in this file, and it earns the exception the way the
+/// terminal-styled `exec` output does: the argument summary reads
+/// `tasks=[{"text":"Inspect auth",…}]` clipped at eighty characters, which is a
+/// tool card reporting its own encoding instead of the plan. A plan is the one
+/// argument anybody watching a turn actually wants to read.
+///
+/// Returns the rows as plain text with the markers in front. Colour is applied
+/// by the caller, which is what keeps this testable with `--no-color`'s
+/// behaviour and no palette at all.
+///
+/// An empty list, or arguments that are not a list of tasks, returns nothing —
+/// the caller then falls back to the ordinary summary rather than printing a
+/// heading over nothing.
+#[must_use]
+pub fn task_lines(args: &Value) -> Vec<(TaskStatus, String)> {
+    let Some(Value::Array(tasks)) = args.get("tasks") else {
+        return Vec::new();
+    };
+    tasks
+        .iter()
+        .filter_map(|task| {
+            let text = task.get("text").and_then(Value::as_str)?;
+            if text.is_empty() {
+                return None;
+            }
+            let status = task
+                .get("status")
+                .and_then(Value::as_str)
+                .and_then(TaskStatus::parse)
+                .unwrap_or_default();
+            Some((status, text.to_owned()))
+        })
+        .collect()
 }
 
 /// A duration, in the terminal's denser wording.
@@ -702,14 +743,57 @@ impl TurnRenderer {
         self.calls
             .insert(call_key(session_key, call_id), name.to_owned());
         let style = risk_style(&self.colors, risk);
-        let summary = summarise_args(args, DEFAULT_ARG_SUMMARY_CHARS);
         let head = format!("{} {}", style.apply("⚙"), style.apply(name));
+
+        let tasks = if name == TODO_TOOL {
+            task_lines(args)
+        } else {
+            Vec::new()
+        };
+        if !tasks.is_empty() {
+            self.line(&head);
+            for (status, text) in tasks {
+                self.line(&self.task_line(status, &text));
+            }
+            return;
+        }
+
+        let summary = summarise_args(args, DEFAULT_ARG_SUMMARY_CHARS);
         let line = if summary.is_empty() {
             head
         } else {
             format!("{head} {}", self.colors.dim.apply(&summary))
         };
         self.line(&line);
+    }
+
+    /// One task, marked and coloured by where it has got to.
+    ///
+    /// Done is struck through as well as ticked, because the list is read at a
+    /// glance and the eye should land on the one line that is in hand. Doing is
+    /// the only bold row for the same reason.
+    fn task_line(&self, status: TaskStatus, text: &str) -> String {
+        match status {
+            TaskStatus::Done => format!(
+                "  {} {}",
+                self.colors.green.apply("✓"),
+                self.colors
+                    .dim
+                    .apply(&self.colors.strikethrough.apply(text))
+            ),
+            TaskStatus::Doing => {
+                format!(
+                    "  {} {}",
+                    self.colors.cyan.apply("▸"),
+                    self.colors.bold.apply(text)
+                )
+            }
+            TaskStatus::Todo => format!(
+                "  {} {}",
+                self.colors.dim.apply("☐"),
+                self.colors.dim.apply(text)
+            ),
+        }
     }
 
     fn tool_result(&mut self, session_key: &str, result: &darkwire_protocol::ToolResult) {
@@ -724,7 +808,13 @@ impl TurnRenderer {
             format_duration(to_ms(result.duration_ms))
         ));
         self.line(&format!("  {mark} {timing}"));
-        self.calls.remove(&call_key(session_key, &result.call_id));
+        let was = self.calls.remove(&call_key(session_key, &result.call_id));
+
+        // The plan was printed as the call went out, and the result is a
+        // sentence counting what is already on screen.
+        if was.as_deref() == Some(TODO_TOOL) && result.ok {
+            return;
+        }
 
         if self.tool_result_lines == 0 || result.content.is_empty() {
             return;

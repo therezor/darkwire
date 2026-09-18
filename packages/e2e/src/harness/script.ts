@@ -135,6 +135,34 @@ export const ROUTES: readonly Route[] = [
     ],
   },
   {
+    // Two calls in two turns, so the panel is asserted on the state the second
+    // one settles into rather than on the first list flashing past.
+    match: /\bplan\b/i,
+    turns: [
+      {
+        toolCalls: [
+          toolCall('call-plan-1', 'todo', {
+            tasks: [
+              { text: 'Inspect auth', status: 'doing' },
+              { text: 'Add tests', status: 'todo' },
+            ],
+          }),
+        ],
+      },
+      {
+        toolCalls: [
+          toolCall('call-plan-2', 'todo', {
+            tasks: [
+              { text: 'Inspect auth', status: 'done' },
+              { text: 'Add tests', status: 'doing' },
+            ],
+          }),
+        ],
+      },
+      { text: 'That is the plan.' },
+    ],
+  },
+  {
     // In flight until Stop, or until the reload spec has finished reloading.
     match: /\bwait\b/i,
     turns: [

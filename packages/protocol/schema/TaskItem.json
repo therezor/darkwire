@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "todo",
+        "doing",
+        "done"
+      ]
+    }
+  },
+  "required": [
+    "text",
+    "status"
+  ]
+}

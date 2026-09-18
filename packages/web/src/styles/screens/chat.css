@@ -861,6 +861,91 @@
     text-align: center;
   }
 
+  /* ── Tasks ─────────────────────────────────────────────────── */
+
+  /* The plan, above the composer and inside the same measure. A `details` rather
+   * than a button and a piece of state: collapsing is what a native element
+   * already does, with the keyboard behaviour and the announcement included. */
+  .tasks {
+    margin-inline: var(--gutter);
+    margin-block-end: var(--space-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+  }
+
+  .tasks__summary {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
+    cursor: pointer;
+  }
+
+  .tasks__title {
+    font-family: var(--font-mono);
+    color: var(--fg-2);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
+
+  .tasks__count {
+    font-family: var(--font-mono);
+    color: var(--fg-2);
+  }
+
+  .tasks__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-3);
+    list-style: none;
+  }
+
+  .tasks__item {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+    color: var(--fg-2);
+  }
+
+  /* The one row in hand is the one the eye should land on, so it is the only
+   * full-strength line here. Everything else is secondary text by design rather
+   * than by fading, which would take the contrast with it. */
+  .tasks__item--doing {
+    color: var(--fg-1);
+  }
+
+  .tasks__item--done .tasks__text {
+    text-decoration: line-through;
+  }
+
+  .tasks__icon {
+    flex: none;
+    width: var(--size-icon-sm);
+    height: var(--size-icon-sm);
+  }
+
+  .tasks__item--doing .tasks__icon {
+    color: var(--accent-fg);
+  }
+
+  .tasks__item--done .tasks__icon {
+    color: var(--success-edge);
+  }
+
+  .tasks__actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
   /* ── Welcome ───────────────────────────────────────────────── */
 
   /* Left-aligned, not centred, and that is the density decision on this screen.

@@ -538,6 +538,10 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
     // neither until an operator grants it. See `docs/memory.md`.
     memory: 'allow',
     skill: 'allow',
+    // The plan a long turn runs on, and the switch for the Tasks section of the
+    // prompt. Seeded on: an agent that cannot say what it is doing is the thing
+    // this exists to fix.
+    todo: 'allow',
   });
 
 /**

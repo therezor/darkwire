@@ -53,6 +53,7 @@ use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, text_of};
 use darkwire_i18n::{args, format_number, keys};
 use darkwire_protocol::config::{AgentSettingsChange, agent_settings_patch};
+use darkwire_protocol::tasks::render_tasks;
 use darkwire_protocol::{
     DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, ModelsResponse, ReasoningEffort, ToolPermission,
     new_uuid,
@@ -267,6 +268,8 @@ fn help_layout() -> Vec<HelpSection> {
             heading: Some(keys::slash::sections::CONTEXT),
             rows: vec![
                 CommandRow::new("/context", keys::slash::help::CONTEXT),
+                CommandRow::new("/tasks", keys::slash::help::TASKS),
+                CommandRow::new("/tasks clear", keys::slash::help::TASKS_CLEAR),
                 CommandRow::new("/stats [n]", keys::slash::help::STATS),
             ],
         },
@@ -471,6 +474,7 @@ async fn dispatch(
 
         // ── Context and cost ──────────────────────────────────────
         "context" => context_command(ctx).await,
+        "tasks" => tasks_command(argv.first().map(String::as_str), ctx),
         "memory" => memory_command(argv, ctx),
         "skills" => skills_command(ctx),
         "stats" => stats_command(argv, ctx),
@@ -1638,6 +1642,37 @@ fn skills_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    };
+    ctx.renderer.note(&text);
+    Ok(SlashOutcome::Continue)
+}
+
+// Tasks
+
+/// `/tasks`, and `/tasks clear`.
+///
+/// The store directly, with no loop involved, for the reason `/context` reaches
+/// its primitive: the list is a property of the conversation, and a terminal
+/// asking what the plan is must not have to start a turn to find out.
+///
+/// The markers are the ones the prompt uses rather than the terminal's ticks,
+/// because this answers "what does the model see" and the answer should look
+/// like it.
+fn tasks_command(action: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    let store = ctx.runtime.store();
+
+    if action == Some("clear") {
+        store.set_tasks(ctx.session_key, &[])?;
+        let note = ctx.t.t(keys::slash::notes::TASKS_CLEARED);
+        ctx.renderer.note(&note);
+        return Ok(SlashOutcome::Continue);
+    }
+
+    let tasks = store.tasks(ctx.session_key)?;
+    let text = if tasks.is_empty() {
+        ctx.t.t(keys::slash::notes::TASKS_EMPTY)
+    } else {
+        render_tasks(&tasks)
     };
     ctx.renderer.note(&text);
     Ok(SlashOutcome::Continue)

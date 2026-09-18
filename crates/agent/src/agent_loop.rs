@@ -61,6 +61,7 @@ use darkwire_core::{
     text_of,
 };
 use darkwire_protocol::json::Object;
+use darkwire_protocol::tasks::TaskItem;
 use darkwire_protocol::{
     AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
@@ -71,7 +72,7 @@ use darkwire_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent,
 use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use darkwire_tools::{
     Activation, AutomationResolver, EnvironmentResolver, Placed, PlacementRequest,
-    TOOL_SEARCH_NAME, ToolContext, ToolDiscovery, ToolScope,
+    TOOL_SEARCH_NAME, TaskPort, ToolContext, ToolDiscovery, ToolScope,
 };
 use futures::{Stream, StreamExt as _};
 use indexmap::{IndexMap, IndexSet};
@@ -748,6 +749,23 @@ impl ToolDiscovery for SessionDiscovery {
     }
 }
 
+/// One turn's [`TaskPort`]: the store, bound to the session that asked.
+///
+/// The session key is closed over rather than taken, which is the whole guard:
+/// the tool runs on arguments a model wrote, and a model must not be able to
+/// write its plan onto another conversation. A subagent's turn gets one of these
+/// pointing at its own session, so a delegated run has its own list for nothing.
+struct SessionTasks {
+    store: Arc<SessionStore>,
+    session_key: String,
+}
+
+impl TaskPort for SessionTasks {
+    fn replace(&self, tasks: &[TaskItem]) -> Result<()> {
+        self.store.set_tasks(&self.session_key, tasks)
+    }
+}
+
 /// One agent's loop: a provider, a tool scope and a store, turned into turns.
 #[derive(Clone)]
 pub struct AgentLoop {
@@ -1419,6 +1437,13 @@ impl AgentLoop {
                 session_key: input.session_key.clone(),
             }) as Arc<dyn ToolDiscovery>
         });
+        // Bound to this session the same way, and unconditionally: `todo` is an
+        // ordinary tool an agent's permission map switches, so there is nothing
+        // here to gate it on.
+        tool_context.tasks = Some(Arc::new(SessionTasks {
+            store: Arc::clone(&inner.store),
+            session_key: input.session_key.clone(),
+        }) as Arc<dyn TaskPort>);
         tool_context.sandboxed = environment.confined();
         tool_context.runner = environment;
         // Deliberately left unset: `dispatch` is the one place a result is

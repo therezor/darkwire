@@ -30,6 +30,7 @@ use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
 use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{Database, Result};
 use darkwire_protocol::rest::{ModelInfo, ModelsResponse};
+use darkwire_protocol::tasks::{TaskItem, TaskStatus};
 use darkwire_protocol::{Config, ReasoningEffort, ToolPermission};
 use darkwire_protocol::{StopReason, Usage};
 use darkwire_runtime::{ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, create_runtime};
@@ -2240,4 +2241,83 @@ async fn context_breaks_the_window_down_by_where_the_tokens_went() {
         assert!(text.contains(label), "{label} is missing from {text}");
     }
     assert!(text.contains('%'), "the share of the window: {text}");
+}
+
+// /tasks
+
+#[tokio::test]
+async fn tasks_says_there_is_no_plan_when_nothing_has_written_one() {
+    let mut h = Harness::bare("cli:1");
+    h.run("/tasks").await;
+    assert!(h.text().contains("no plan"), "{}", h.text());
+}
+
+#[tokio::test]
+async fn tasks_prints_the_plan_in_the_markers_the_prompt_uses() {
+    let h = Harness::bare("cli:1");
+    h.runtime()
+        .store()
+        .set_tasks(
+            "cli:1",
+            &[
+                TaskItem {
+                    text: "Inspect auth".to_owned(),
+                    status: TaskStatus::Done,
+                },
+                TaskItem {
+                    text: "Update sessions".to_owned(),
+                    status: TaskStatus::Doing,
+                },
+            ],
+        )
+        .unwrap();
+
+    let mut h = h;
+    h.run("/tasks").await;
+
+    let text = h.text();
+    assert!(text.contains("[x] Inspect auth"), "{text}");
+    assert!(text.contains("[>] Update sessions"), "{text}");
+}
+
+#[tokio::test]
+async fn tasks_clear_empties_the_list() {
+    let h = Harness::bare("cli:1");
+    h.runtime()
+        .store()
+        .set_tasks(
+            "cli:1",
+            &[TaskItem {
+                text: "Add tests".to_owned(),
+                status: TaskStatus::Todo,
+            }],
+        )
+        .unwrap();
+
+    let mut h = h;
+    h.run("/tasks clear").await;
+
+    assert!(h.text().contains("cleared"), "{}", h.text());
+    assert_eq!(h.runtime().store().tasks("cli:1").unwrap(), Vec::new());
+}
+
+/// One session's plan is not another's, which is what keeps a subagent's list
+/// out of its parent's.
+#[tokio::test]
+async fn tasks_reads_the_session_the_prompt_is_attached_to() {
+    let h = Harness::bare("cli:1");
+    h.runtime()
+        .store()
+        .set_tasks(
+            "cli:2",
+            &[TaskItem {
+                text: "somebody else's".to_owned(),
+                status: TaskStatus::Todo,
+            }],
+        )
+        .unwrap();
+
+    let mut h = h;
+    h.run("/tasks").await;
+    assert!(h.text().contains("no plan"), "{}", h.text());
 }

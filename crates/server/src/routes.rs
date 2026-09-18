@@ -219,6 +219,8 @@ fn mount(
         RouteId::SessionsContext => handler!(sessions::context),
         RouteId::SessionsBranch => handler!(sessions::branch),
         RouteId::SessionsTurns => handler!(sessions::turns),
+        RouteId::SessionsTasks => handler!(sessions::tasks),
+        RouteId::SessionsTasksClear => handler!(sessions::clear_tasks),
 
         RouteId::AgentsList => handler!(agents::list),
         RouteId::ToolsList => handler!(tools::list),

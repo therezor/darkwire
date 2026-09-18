@@ -1,7 +1,7 @@
 # Tools and permissions
 
 What an agent can actually _do_, and who decided it could. Two halves: the tools
-themselves (eleven built in, plus whatever MCP servers and extensions contribute) and the
+themselves (twelve built in, plus whatever MCP servers and extensions contribute) and the
 `allow | ask | deny` map that gates every one of them, per agent.
 
 The short version, if you read one paragraph: **enablement and permission are the same
@@ -11,7 +11,7 @@ it to call and nothing to refuse.
 
 ## The built-ins
 
-Eleven. The test each one passes is that it is a capability the agent cannot obtain as
+Twelve. The test each one passes is that it is a capability the agent cannot obtain as
 cheaply any other way, which for most of them means `exec` cannot do the job: a command
 needs an approval nobody may be there to give, and it needs a binary the container image
 may not ship. A `move_file` tool would still be a worse `mv`, and there is no such thing.
@@ -22,12 +22,12 @@ bound their own output, and work in an image carrying neither `rg` nor `fd`. Sea
 is also what an agent does before almost every edit, so paying an approval for it once
 a turn is the difference between an agent that reads the code and one that guesses.
 
-Eight of them are capabilities the agent cannot get any other way. `memory` and `skill`
-are not, and are here for a second reason: a tool carries a per-agent permission, so
-being a tool is what makes each feature switchable without a config flag beside it that
-could disagree. Denying either removes its prompt section too. See [Memory](memory.md)
-and [Skills](skills.md). `tool_search` is the door to the other tools when
-[lazy discovery](#lazy-discovery) is on, and is registered only then.
+Eight of them are capabilities the agent cannot get any other way. `memory`, `skill` and
+`todo` are not, and are here for a second reason: a tool carries a per-agent permission,
+so being a tool is what makes each feature switchable without a config flag beside it
+that could disagree. Denying any of the three removes its prompt section too. See
+[Memory](memory.md) and [Skills](skills.md). `tool_search` is the door to the other tools
+when [lazy discovery](#lazy-discovery) is on, and is registered only then.
 
 | Tool          | Args                                                    | Risk band | Does                                                                                        |
 | ------------- | ------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
@@ -41,6 +41,7 @@ and [Skills](skills.md). `tool_search` is the door to the other tools when
 | `automation`  | `action`, plus a name, message and schedule             | `exec`    | Schedules a turn for later. See below.                                                      |
 | `memory`      | `action`, `key`, `content?`                             | `write`   | Reads, saves or deletes one [memory](memory.md). No path argument.                          |
 | `skill`       | `name`                                                  | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
+| `todo`        | `tasks: {text, status}[]`                               | `safe`    | Replaces the session's task list. See below.                                                |
 | `tool_search` | `query?`, `activate?: string[]`                         | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
@@ -56,6 +57,51 @@ There is no install-wide switch for `exec`. An agent that should not run command
 it. What `exec` may run, and for how long, is on the agent too (`agents.list.<id>.exec`).
 `automation` is the one built-in an install can switch off as a whole, against
 `scheduler.enabled`: with no scheduler there is nothing for it to write to.
+
+### `todo`
+
+The plan a long turn runs on. One call replaces the **whole** list — there is no add,
+no complete and no reorder — so the model sends what the list should now be and the last
+call wins. Ten tasks, a hundred characters each, at most one `doing`; the caps are in the
+schema, so an oversized call is refused before the tool runs.
+
+The list is stored on the session, in its metadata bag, and placed in the **runtime half**
+of the prompt, so it arrives on every iteration:
+
+```text
+## Tasks
+
+[x] Inspect auth
+[>] Update sessions
+[ ] Add tests
+```
+
+That is what it is for. A forty-step turn that wrote a plan at step three can read it
+back at step thirty, and an operator watching can see where it has got to without reading
+every tool call.
+
+**A subagent gets its own list.** A delegated run opens its own session, and the port the
+tool receives is bound to the session whose turn it is, so neither run can see or clear
+the other's plan.
+
+Reading it back from somewhere other than the prompt:
+
+- `/tasks`, and `/tasks clear`, at the terminal and in a Telegram chat.
+- `GET /api/sessions/{key}/tasks`, which the web UI's panel above the composer reads, and
+  `DELETE` on the same path, which its Clear button calls.
+
+**The list is stamped with the point in the conversation it was written at** — the seq the
+next message would have taken — and that is what makes re-running a turn forget its plan.
+`/edit` and `/regenerate` truncate, and a plan written during the turn they are re-running
+describes answers that have just been deleted; it is dropped by the same comparison the
+messages are cut by. A plan from an earlier turn stays, because it still describes work the
+transcript has a record of.
+
+`/clear` takes the plan with the history, for the same reason. `/branch` does not carry it
+into the fork: the stamp is in the source's sequence space and a fork reseats from 1, so
+the number would point at the wrong message.
+
+Emptying it by hand is `todo` with `tasks: []`, `/tasks clear`, or Clear on the panel.
 
 ### `automation`
 

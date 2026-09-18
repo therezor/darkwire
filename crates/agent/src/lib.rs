@@ -19,6 +19,7 @@ pub mod skills;
 pub mod skills_contributor;
 pub mod steering;
 pub mod subagent;
+pub mod tasks_contributor;
 pub mod text_tool_call;
 
 // `loop` is a keyword, so the module that holds the loop is spelled out.
@@ -67,6 +68,7 @@ pub use subagent::{
     DelegationRefusal, MAX_SUBAGENT_DEPTH, SubagentBinding, parse_task, refuse_delegation,
     refused_execution, subagent_definition, subagent_map, subagent_result,
 };
+pub use tasks_contributor::{TasksContributor, render_task_section};
 pub use text_tool_call::{text_tool_call_correction, text_tool_call_name};
 
 /// The separator between top-level sections of the assembled prompt.

@@ -123,13 +123,19 @@ cache, so what these drop is always a suffix — see
 
 **Context and cost**
 
-| Command      | What it does                                    |
-| ------------ | ----------------------------------------------- |
-| `/context`   | What the next turn would send to the model      |
-| `/stats [n]` | The last n turns: model, tokens, tokens/s, time |
+| Command        | What it does                                    |
+| -------------- | ----------------------------------------------- |
+| `/context`     | What the next turn would send to the model      |
+| `/tasks`       | The plan this session is running on             |
+| `/tasks clear` | Empties the list                                |
+| `/stats [n]`   | The last n turns: model, tokens, tokens/s, time |
 
 `/context` prints the same measurement the browser's context inspector draws and
 `GET /api/sessions/:key/context` returns, so all three agree.
+
+`/tasks` prints the list the agent's [`todo`](tools.md#todo) tool writes, in the markers
+the prompt uses, so what it shows is what the model reads. The list belongs to the
+session, so it survives `/clear` and a restart.
 
 The tokens/s figure divides by the time the model spent generating, not by the
 turn's wall clock — so a cold local model that spent thirty seconds loading its

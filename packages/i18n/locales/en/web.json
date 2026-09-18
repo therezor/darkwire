@@ -883,6 +883,11 @@
     "serverSilent": "The server did not answer.",
     "sidebar": "Sidebar"
   },
+  "tasks": {
+    "clear": "Clear",
+    "progress": "{{done}}/{{total}}",
+    "title": "Tasks"
+  },
   "time": {
     "daysAgo": "{{count}}d ago",
     "hoursAgo": "{{count}}h ago",

@@ -32,6 +32,7 @@ use darkwire_core::session_store::{
 use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_protocol::config::{AgentEntry, Config};
 use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
+use darkwire_protocol::tasks::{TaskItem, TaskStatus};
 use darkwire_server::cursor::{SessionListCursor, encode_session_cursor};
 use darkwire_server::runtime::ServerRuntime as _;
 use darkwire_server::testkit::{
@@ -1142,6 +1143,85 @@ async fn the_turns_of_a_session_that_is_not_there_are_a_not_found() {
     let test = server();
     assert_eq!(
         get(&test, "/api/sessions/nope/turns").await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+// Tasks
+
+#[tokio::test]
+async fn a_session_with_no_plan_answers_with_an_empty_list() {
+    let test = server();
+    seed_session(&test, "s-1", "Planning", 1);
+    let answer = get(&test, "/api/sessions/s-1/tasks").await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.json()["tasks"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn the_plan_comes_back_in_the_order_it_was_written() {
+    let test = server();
+    seed_session(&test, "s-1", "Planning", 1);
+    store(&test)
+        .set_tasks(
+            "s-1",
+            &[
+                TaskItem {
+                    text: "Inspect auth".to_owned(),
+                    status: TaskStatus::Done,
+                },
+                TaskItem {
+                    text: "Update sessions".to_owned(),
+                    status: TaskStatus::Doing,
+                },
+            ],
+        )
+        .unwrap();
+
+    let answer = get(&test, "/api/sessions/s-1/tasks").await;
+    assert_eq!(answer.json()["tasks"][0]["text"], "Inspect auth");
+    assert_eq!(answer.json()["tasks"][0]["status"], "done");
+    assert_eq!(answer.json()["tasks"][1]["status"], "doing");
+}
+
+#[tokio::test]
+async fn the_plan_can_be_emptied_by_hand() {
+    let test = server();
+    seed_session(&test, "s-1", "Planning", 1);
+    store(&test)
+        .set_tasks(
+            "s-1",
+            &[TaskItem {
+                text: "Add tests".to_owned(),
+                status: TaskStatus::Todo,
+            }],
+        )
+        .unwrap();
+
+    let answer = delete(&test, "/api/sessions/s-1/tasks").await;
+    assert_eq!(answer.status, StatusCode::NO_CONTENT);
+    assert_eq!(store(&test).tasks("s-1").unwrap(), Vec::new());
+}
+
+/// Emptying the plan is not emptying the conversation.
+#[tokio::test]
+async fn emptying_the_plan_leaves_the_messages_alone() {
+    let test = server();
+    seed_session(&test, "s-1", "Planning", 2);
+
+    delete(&test, "/api/sessions/s-1/tasks").await;
+
+    assert_eq!(store(&test).message_count("s-1").unwrap(), 2);
+}
+
+/// The same answer `context` gives, and for the same reason: a conversation
+/// nobody has started has no plan, and inventing an empty one would report a
+/// list for a session that does not exist.
+#[tokio::test]
+async fn the_plan_of_a_session_that_is_not_there_is_a_not_found() {
+    let test = server();
+    assert_eq!(
+        get(&test, "/api/sessions/nope/tasks").await.status,
         StatusCode::NOT_FOUND
     );
 }

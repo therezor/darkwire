@@ -225,6 +225,8 @@
       "sessions": "pick a session to continue, or list them",
       "skills": "the sheets this workspace holds",
       "stats": "the last n turns: model, tokens, tokens/s, time",
+      "tasks": "the plan this session is running on",
+      "tasksClear": "empties the list",
       "temperature": "the sampling temperature this session's agent sends, or default to say nothing",
       "workspace": "show or switch where new sessions land",
       "workspaceMove": "move sessions between workspaces",
@@ -267,6 +269,8 @@
       "skillsEmpty": "no skills yet. A folder with a SKILL.md in {{path}}/ becomes one",
       "skillsOff": "{{agent}} does not have the skill tool, so no catalogue reaches the prompt and it cannot open a sheet",
       "skillsScope": "for {{agents}} only, not this agent",
+      "tasksCleared": "task list cleared",
+      "tasksEmpty": "no plan on this session. The agent writes one with its todo tool when the work needs more than a step or two",
       "unknownCommand": "unknown command: /{{name}}",
       "willLandIn": "new sessions will land in {{workspace}}",
       "willRunOn": "the next session runs on {{agent}}"

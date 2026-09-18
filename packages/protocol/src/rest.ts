@@ -29,6 +29,7 @@ import {
   UsageSchema,
 } from './messages.js';
 import { SubagentRunRefSchema } from './subagent.js';
+import { TaskItemSchema } from './tasks.js';
 import { ToolDefinitionSchema } from './tools.js';
 import { AutomationJobSchema, AutomationRunSchema } from './automation.js';
 import { ExtensionContributionSchema } from './extension.js';
@@ -645,6 +646,19 @@ export const ToolListResponseSchema = z.object({
   tools: z.array(ToolDefinitionSchema),
 });
 export type ToolListResponse = z.infer<typeof ToolListResponseSchema>;
+
+// Tasks
+
+/**
+ * `GET /api/sessions/{key}/tasks`.
+ *
+ * Empty is the answer for a session with no plan, not an error — the panel that
+ * reads this renders nothing rather than an empty box.
+ */
+export const TasksResponseSchema = z.object({
+  tasks: z.array(TaskItemSchema),
+});
+export type TasksResponse = z.infer<typeof TasksResponseSchema>;
 
 /**
  * One granted operation, as the agent editor's permission row needs it.

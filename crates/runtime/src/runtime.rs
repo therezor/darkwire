@@ -53,7 +53,8 @@ use std::sync::{Arc, OnceLock, Weak};
 use darkwire_agent::approval::ApprovalGate;
 use darkwire_agent::{
     AgentLoop, AgentLoopOptions, ContextContributor, Host, LoopAgent, LoopResolver,
-    MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, subagent_map,
+    MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, TasksContributor,
+    subagent_map,
 };
 use darkwire_core::config::env_names_workspaces;
 use darkwire_core::paths::ResolveWirePaths;
@@ -1460,6 +1461,14 @@ impl WireRuntime {
             contributors.push(Arc::new(
                 MemoryContributor::new().with_template(agent.memory_prompt.clone()),
             ));
+        }
+        // After memory, and in the *runtime* half rather than the cached one: a
+        // plan changes while a turn runs, which is what the section is for.
+        // Gated on the tool for the reason memory is — denying `todo` has to
+        // take the section with it, or an agent that cannot write a plan still
+        // pays for one in every request.
+        if agent.settings.tools_enabled && granted(&agent.tools, "todo") {
+            contributors.push(Arc::new(TasksContributor::new(Arc::clone(&self.store))));
         }
         // Last, and ungated. Last for the reason memory follows skills: sections
         // append in order, so an extension loading or unloading moves only the

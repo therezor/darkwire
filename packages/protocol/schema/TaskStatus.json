@@ -1,0 +1,8 @@
+{
+  "type": "string",
+  "enum": [
+    "todo",
+    "doing",
+    "done"
+  ]
+}

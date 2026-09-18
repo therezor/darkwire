@@ -62,7 +62,8 @@
                 "edit": "allow",
                 "exec": "ask",
                 "memory": "allow",
-                "skill": "allow"
+                "skill": "allow",
+                "todo": "allow"
               },
               "environment": {
                 "name": "",
@@ -406,7 +407,8 @@
                 "edit": "allow",
                 "exec": "ask",
                 "memory": "allow",
-                "skill": "allow"
+                "skill": "allow",
+                "todo": "allow"
               },
               "environment": {
                 "name": "",
@@ -586,7 +588,8 @@
                 "edit": "allow",
                 "exec": "ask",
                 "memory": "allow",
-                "skill": "allow"
+                "skill": "allow",
+                "todo": "allow"
               },
               "environment": {
                 "name": "",

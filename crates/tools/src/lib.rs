@@ -35,6 +35,7 @@ pub mod registry;
 pub mod runner;
 pub mod scope;
 pub mod sink;
+pub mod tasks;
 pub mod tool;
 
 #[cfg(feature = "testkit")]
@@ -46,8 +47,8 @@ pub use builtin::{
     BuiltinOptions, FindRequest, GrepMode, GrepRequest, Hit, MAX_SEARCH_RESULTS, SearchResults,
     TOOL_SEARCH_NAME, automation_tool, builtin_tools, edit_tool, exec_tool, find_blocking,
     find_tool, format_bytes, grep_blocking, grep_tool, ls_tool, memory_tool, read_tool,
-    register_builtins, render_activation, render_search, search, skill_tool, tool_search_tool,
-    write_tool,
+    register_builtins, render_activation, render_search, search, skill_tool, todo_tool,
+    tool_search_tool, write_tool,
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,
@@ -64,6 +65,7 @@ pub use runner::{
 };
 pub use scope::{is_enabled, permission_for};
 pub use sink::ToolSink;
+pub use tasks::TaskPort;
 pub use tool::{
     AnyTool, ArgIssue, BoxFuture, Preprocess, TOOL_NAME_PATTERN, Tool, ToolContext, ToolExecution,
     ToolHandler, ToolOutput, ToolSpec, TypedTool, assert_not_aborted, default_tools_config,

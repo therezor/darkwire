@@ -105,6 +105,15 @@ export const queryKeys = {
   fileUrl: (workspace: string, path: string) =>
     ['file-url', workspace, path] as const,
   context: (key: string) => ['sessions', key, 'context'] as const,
+  /**
+   * The plan a conversation is running on.
+   *
+   * Under the `['sessions']` prefix like the rest, so the invalidation
+   * `use-connection.ts` fires on `turn.end` refreshes it without a second
+   * subscription. The panel invalidates it again mid-turn, when a `todo` call
+   * lands, because the list moves several times inside one turn.
+   */
+  tasks: (key: string) => ['sessions', key, 'tasks'] as const,
   automation: ['automation'] as const,
   automationJob: (id: string) => ['automation', id] as const,
   // Under the job's own key, so invalidating one job refreshes both the row and

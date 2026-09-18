@@ -29,6 +29,7 @@ fn registers_every_built_in_under_the_builtin_source() {
             "memory",
             "read",
             "skill",
+            "todo",
             "tool_search",
             "write"
         ]

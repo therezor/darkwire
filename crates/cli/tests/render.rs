@@ -303,6 +303,98 @@ fn labels_a_tool_call_with_its_arguments() {
     assert!(text.contains("⚙ read path=\"README.md\""));
 }
 
+/// The one tool with a renderer of its own. The argument summary would clip the
+/// plan to `tasks=[{"text":"Inspect auth",…` and report its encoding instead.
+#[test]
+fn draws_the_plan_a_todo_call_carries() {
+    let text = plain(&[
+        start(),
+        json!({
+            "type": "tool.call", "turnId": "t1", "callId": "c1", "name": "todo",
+            "risk": "safe",
+            "args": {"tasks": [
+                {"text": "Inspect auth", "status": "done"},
+                {"text": "Update sessions", "status": "doing"},
+                {"text": "Add tests", "status": "todo"},
+            ]},
+        }),
+    ]);
+
+    assert!(text.contains("⚙ todo\n"));
+    assert!(text.contains("  ✓ Inspect auth\n"));
+    assert!(text.contains("  ▸ Update sessions\n"));
+    assert!(text.contains("  ☐ Add tests\n"));
+    // The plan, not the JSON it arrived as.
+    assert!(!text.contains("tasks="));
+}
+
+/// The plan went out with the call, and the result is a sentence counting what
+/// is already on screen.
+#[test]
+fn does_not_repeat_a_todo_result_under_the_plan() {
+    let text = render(
+        &[
+            start(),
+            json!({
+                "type": "tool.call", "turnId": "t1", "callId": "c1", "name": "todo",
+                "risk": "safe",
+                "args": {"tasks": [{"text": "Add tests", "status": "todo"}]},
+            }),
+            json!({
+                "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": true,
+                "content": "1 tasks: 0 done, 0 doing, 1 to do.",
+                "truncated": false, "durationMs": 4,
+            }),
+        ],
+        |built| built.tool_result_lines = 4,
+    );
+
+    assert!(text.contains("✓ 4ms"));
+    assert!(!text.contains("0 doing"));
+}
+
+/// A failure still shows its reason: the checklist on screen is the list the
+/// call *asked* for, and the sentence is why it did not land.
+#[test]
+fn still_shows_why_a_todo_call_was_refused() {
+    let text = render(
+        &[
+            start(),
+            json!({
+                "type": "tool.call", "turnId": "t1", "callId": "c1", "name": "todo",
+                "risk": "safe",
+                "args": {"tasks": [
+                    {"text": "one", "status": "doing"},
+                    {"text": "two", "status": "doing"},
+                ]},
+            }),
+            json!({
+                "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": false,
+                "content": "2 tasks are doing. At most one may be.",
+                "truncated": false, "durationMs": 1,
+            }),
+        ],
+        |built| built.tool_result_lines = 4,
+    );
+
+    assert!(text.contains("At most one may be."));
+}
+
+/// Arguments that are not a plan fall back to the ordinary summary rather than
+/// printing a heading over nothing.
+#[test]
+fn falls_back_to_the_summary_when_a_todo_call_carries_no_tasks() {
+    let text = plain(&[
+        start(),
+        json!({
+            "type": "tool.call", "turnId": "t1", "callId": "c1", "name": "todo",
+            "risk": "safe", "args": {"tasks": []},
+        }),
+    ]);
+    assert!(text.contains("⚙ todo"));
+    assert!(text.contains("tasks="));
+}
+
 #[test]
 fn previews_a_tool_result_and_says_how_much_it_is_hiding() {
     let text = render(

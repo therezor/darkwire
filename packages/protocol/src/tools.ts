@@ -71,6 +71,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'automation',
   'memory',
   'skill',
+  'todo',
   'tool_search',
 ];
 

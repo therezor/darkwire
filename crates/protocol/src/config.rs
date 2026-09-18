@@ -620,6 +620,10 @@ pub const DEFAULT_AGENT_TOOLS: &[(&str, ToolPermission)] = &[
     ("exec", ToolPermission::Ask),
     ("memory", ToolPermission::Allow),
     ("skill", ToolPermission::Allow),
+    // The plan a long turn runs on, and the switch for the Tasks section of the
+    // prompt. Seeded on: an agent that cannot say what it is doing is the thing
+    // this exists to fix.
+    ("todo", ToolPermission::Allow),
 ];
 
 /// [`DEFAULT_AGENT_TOOLS`] as the map an entry holds.

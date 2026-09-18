@@ -466,6 +466,22 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         responses: &[(200, "TurnStatsResponse")],
     },
     RouteDoc {
+        id: RouteId::SessionsTasks,
+        summary: "The plan this conversation is running on",
+        body: None,
+        query: None,
+        params: Some(PathShape::SessionParams),
+        responses: &[(200, "TasksResponse")],
+    },
+    RouteDoc {
+        id: RouteId::SessionsTasksClear,
+        summary: "Empties the plan, leaving the session alone",
+        body: None,
+        query: None,
+        params: Some(PathShape::SessionParams),
+        responses: &[],
+    },
+    RouteDoc {
         id: RouteId::SettingsGet,
         summary: "The settings tree, with credentials replaced by presence flags",
         body: None,

@@ -19,5 +19,6 @@ mod memory;
 mod read;
 mod set;
 mod shared;
+mod todo;
 mod tool_search;
 mod write;

@@ -47,6 +47,7 @@ import { Composer } from '@/chat/composer.js';
 import { useCommands } from '@/chat/use-commands.js';
 import type { MessageAction } from '@/chat/message.js';
 import { ContextStrip } from '@/context/context-strip.js';
+import { TaskPanel } from '@/tasks/task-panel.js';
 import { TranscriptView } from '@/chat/transcript-view.js';
 import { Welcome } from '@/chat/welcome.js';
 
@@ -212,6 +213,10 @@ export function ChatRoute(): JSX.Element {
           onAction={runAction}
         />
       )}
+
+      {/* Above the composer, and above the setup pointer, because it is about
+          the turn that is running rather than about the install. */}
+      <TaskPanel sessionKey={sessionKey} />
 
       {/* Above the composer rather than inside it: the pointer is a link, and
           the composer is a leaf that is rendered outside a router by its own

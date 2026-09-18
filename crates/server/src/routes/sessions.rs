@@ -33,7 +33,8 @@ use darkwire_protocol::json::Object;
 use darkwire_protocol::messages::Usage;
 use darkwire_protocol::rest::{
     BranchSessionRequest, ContextResponse, CreateSessionRequest, SessionListResponse,
-    SessionMessagesResponse, SessionSummary, TurnStats, TurnStatsResponse, UpdateSessionRequest,
+    SessionMessagesResponse, SessionSummary, TasksResponse, TurnStats, TurnStatsResponse,
+    UpdateSessionRequest,
 };
 use darkwire_protocol::subagent::subagent_runs_of;
 use darkwire_protocol::uuid::new_uuid;
@@ -520,6 +521,42 @@ pub async fn branch(
         StatusCode::CREATED,
         Json(to_summary(&fork.session, fork.copied, total)),
     ))
+}
+
+/// `GET /api/sessions/:key/tasks` — the plan this conversation is running on.
+///
+/// Its own route rather than a field on the session body, because the two are
+/// read on different cadences: the list moves several times inside one turn,
+/// and the session carries a workspace, an agent and a subagent map that do
+/// not. A 404 for a session with no row is the same answer `context` gives, and
+/// for the same reason: a conversation nobody has started has no plan, and
+/// inventing an empty one would report a list for a session that does not
+/// exist.
+pub async fn tasks(
+    State(state): State<AppState>,
+    Path(params): Path<SessionParams>,
+) -> Result<Json<TasksResponse>, HttpError> {
+    let runtime = state.runtime.as_ref();
+    require_session(runtime, &params.key)?;
+
+    Ok(Json(TasksResponse {
+        tasks: runtime.store().tasks(&params.key)?,
+    }))
+}
+
+/// `DELETE /api/sessions/:key/tasks` — empties the plan by hand.
+///
+/// The browser's half of `/tasks clear`. It is a route rather than a `PATCH` on
+/// the session, because a plan is not one of the fields that body carries and
+/// emptying one must not be expressible as a side effect of renaming a session.
+pub async fn clear_tasks(
+    State(state): State<AppState>,
+    Path(params): Path<SessionParams>,
+) -> Result<StatusCode, HttpError> {
+    let runtime = state.runtime.as_ref();
+    require_session(runtime, &params.key)?;
+    runtime.store().set_tasks(&params.key, &[])?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// What each turn in this session cost.

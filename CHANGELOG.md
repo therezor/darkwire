@@ -38,6 +38,11 @@ browser UI compiled into it, pointed at a model on your own hardware.
 - **Skills and memory as files.** A skill is a folder in the workspace and costs about 20
   tokens to index; memory is one plain markdown file per topic, read, saved and deleted by
   key, committed beside the project.
+- **A task list per session.** The `todo` tool replaces the whole list on each call, the
+  list is read back into the prompt on every iteration, and it is drawn in the terminal,
+  above the composer in the browser and by `/tasks` in a Telegram chat. It is stamped with
+  the point in the conversation it was written at, so re-running the turn that wrote it
+  forgets it. A subagent runs on its own list.
 - **An OpenAPI 3.1 document** generated from the same schemas the server validates
   against, and a protocol drift gate that compares the zod and Rust JSON Schemas rather
   than trusting that both halves were edited together.

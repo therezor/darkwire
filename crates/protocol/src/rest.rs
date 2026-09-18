@@ -29,6 +29,7 @@ use crate::extension::ExtensionContribution;
 use crate::json::{MAX_SAFE_INTEGER, Nullable, True, positive, yes};
 use crate::messages::{StopReason, StoredMessage, Usage};
 use crate::subagent::SubagentRunRef;
+use crate::tasks::TaskItem;
 use crate::tools::ToolDefinition;
 use crate::ws::NotificationLevel;
 
@@ -903,6 +904,19 @@ pub struct ToolListResponse {
     /// Every registered tool.
     #[garde(dive)]
     pub tools: Vec<ToolDefinition>,
+}
+
+// Tasks
+
+/// `GET /api/sessions/{key}/tasks`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct TasksResponse {
+    /// The session's list, in the order the model wrote it. Empty is the answer
+    /// for a session that has no plan, not an error.
+    #[garde(dive)]
+    pub tasks: Vec<TaskItem>,
 }
 
 /// `GET /api/environments`.

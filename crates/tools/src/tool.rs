@@ -52,6 +52,7 @@ use tokio_util::sync::CancellationToken;
 use crate::automation::AutomationPort;
 use crate::discovery::ToolDiscovery;
 use crate::runner::{CommandRunner, LocalRunner};
+use crate::tasks::TaskPort;
 
 /// A boxed, sendable future borrowing its inputs for `'a`.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -126,6 +127,10 @@ pub struct ToolContext {
     /// agent and session. `None` is an install with lazy discovery off, where
     /// the tool is not registered and would refuse if it were.
     pub discovery: Option<Arc<dyn ToolDiscovery>>,
+    /// Where the `todo` tool writes, already scoped to this turn's session.
+    /// `None` is a call with no conversation behind it — a one-shot path or a
+    /// test — where the tool refuses rather than writing nowhere.
+    pub tasks: Option<Arc<dyn TaskPort>>,
     /// This turn's tool-output nonce. When present the registry fences every
     /// result in it; `None` is the bare registry — the CLI's one-shot paths and
     /// tests — where nothing is sent to a model.
@@ -148,6 +153,7 @@ impl ToolContext {
             placement: None,
             automation: None,
             discovery: None,
+            tasks: None,
             nonce: None,
         }
     }
@@ -175,6 +181,7 @@ impl std::fmt::Debug for ToolContext {
             .field("sandboxed", &self.sandboxed)
             .field("automation", &self.automation.is_some())
             .field("discovery", &self.discovery.is_some())
+            .field("tasks", &self.tasks.is_some())
             .field("nonce", &self.nonce.is_some())
             .finish_non_exhaustive()
     }

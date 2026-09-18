@@ -80,6 +80,7 @@ pub const BUILTIN_TOOL_NAMES: &[&str] = &[
     "automation",
     "memory",
     "skill",
+    "todo",
     "tool_search",
 ];
 

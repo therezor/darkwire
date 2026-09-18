@@ -2028,3 +2028,223 @@ fn debug_output_does_not_dump_the_connection() {
     let (store, _) = make_store();
     assert_eq!(format!("{store:?}"), "SessionStore { .. }");
 }
+
+// Tasks
+
+mod tasks {
+    use super::*;
+
+    use darkwire_protocol::tasks::{TaskItem, TaskStatus};
+
+    fn task(text: &str, status: TaskStatus) -> TaskItem {
+        TaskItem {
+            text: text.to_owned(),
+            status,
+        }
+    }
+
+    fn plan() -> Vec<TaskItem> {
+        vec![
+            task("Inspect auth", TaskStatus::Done),
+            task("Update sessions", TaskStatus::Doing),
+        ]
+    }
+
+    #[test]
+    fn a_session_with_no_plan_has_no_tasks() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+        assert_eq!(store.tasks("a").unwrap(), Vec::new());
+    }
+
+    /// A conversation nobody has started reads the same as one with no plan, so
+    /// nothing that draws this has to tell the two apart.
+    #[test]
+    fn a_session_that_does_not_exist_has_no_tasks() {
+        let (store, _) = make_store();
+        assert_eq!(store.tasks("nowhere").unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn writes_a_list_and_reads_it_back() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+
+        store.set_tasks("a", &plan()).unwrap();
+        assert_eq!(store.tasks("a").unwrap(), plan());
+    }
+
+    #[test]
+    fn replaces_rather_than_appends() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+
+        store.set_tasks("a", &plan()).unwrap();
+        store
+            .set_tasks("a", &[task("Ship it", TaskStatus::Todo)])
+            .unwrap();
+
+        assert_eq!(
+            store.tasks("a").unwrap(),
+            vec![task("Ship it", TaskStatus::Todo)]
+        );
+    }
+
+    #[test]
+    fn an_empty_list_clears_it() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+
+        store.set_tasks("a", &plan()).unwrap();
+        store.set_tasks("a", &[]).unwrap();
+
+        assert_eq!(store.tasks("a").unwrap(), Vec::new());
+    }
+
+    /// The reason this does not go through `update_session`: that takes a whole
+    /// metadata bag, so the lineage a delegation had just written would be
+    /// replaced by whatever the caller read a moment earlier.
+    #[test]
+    fn leaves_every_other_metadata_key_alone() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+        store
+            .update_session(
+                "a",
+                UpdateSession {
+                    metadata: Some(metadata(&[(
+                        "subagentRuns",
+                        json!({ "call_1": { "sessionKey": "child", "agentId": "r", "label": "R" } }),
+                    )])),
+                    ..UpdateSession::default()
+                },
+            )
+            .unwrap();
+
+        store.set_tasks("a", &plan()).unwrap();
+
+        let session = store.get_session("a").unwrap().unwrap();
+        assert!(session.metadata.contains_key("subagentRuns"));
+        assert_eq!(store.tasks("a").unwrap(), plan());
+    }
+
+    /// A list written from a chat command on a conversation the socket minted
+    /// but nobody has spoken in must not fail for want of a row.
+    #[test]
+    fn creates_the_session_row_when_there_is_none() {
+        let (store, _) = make_store();
+        store.set_tasks("fresh", &plan()).unwrap();
+        assert_eq!(store.tasks("fresh").unwrap(), plan());
+    }
+
+    /// The plan is a plan for a conversation. Left behind by `/clear`, the next
+    /// turn opens with a half-ticked list over an empty transcript.
+    #[test]
+    fn clearing_the_history_clears_the_plan() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+        store.set_tasks("a", &plan()).unwrap();
+
+        store.clear_messages("a").unwrap();
+
+        assert_eq!(store.tasks("a").unwrap(), Vec::new());
+    }
+
+    /// Lineage is not a plan: a delegated run still happened, and its transcript
+    /// is still the thing anyone debugging the answer has to read.
+    #[test]
+    fn clearing_the_history_leaves_the_lineage_alone() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+        store
+            .update_session(
+                "a",
+                UpdateSession {
+                    metadata: Some(metadata(&[(
+                        "subagentRuns",
+                        json!({ "call_1": { "sessionKey": "child", "agentId": "r", "label": "R" } }),
+                    )])),
+                    ..UpdateSession::default()
+                },
+            )
+            .unwrap();
+
+        store.clear_messages("a").unwrap();
+
+        let session = store.get_session("a").unwrap().unwrap();
+        assert!(session.metadata.contains_key("subagentRuns"));
+    }
+
+    /// The case this exists for: `/regenerate` and `/edit` both truncate, and a
+    /// plan written during the turn they are re-running describes answers that
+    /// have just been deleted.
+    #[test]
+    fn regenerating_the_turn_that_wrote_the_plan_drops_it() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("do the thing"));
+        // The plan is written mid-turn, before the turn appends anything.
+        store.set_tasks("a", &plan()).unwrap();
+        append(&store, "a", assistant_message("working on it", vec![]));
+
+        // Re-run from the user message: everything after seq 1 goes.
+        store.truncate_after("a", 1).unwrap();
+
+        assert_eq!(store.tasks("a").unwrap(), Vec::new());
+    }
+
+    /// A plan from an earlier turn still describes work the transcript has a
+    /// record of, so a later truncation leaves it alone.
+    #[test]
+    fn truncating_a_later_turn_leaves_an_earlier_plan_alone() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("first"));
+        store.set_tasks("a", &plan()).unwrap();
+        append(&store, "a", assistant_message("first answer", vec![]));
+        let second = append(&store, "a", user_message("second"));
+        append(&store, "a", assistant_message("second answer", vec![]));
+
+        store.truncate_after("a", second).unwrap();
+
+        assert_eq!(store.tasks("a").unwrap(), plan());
+    }
+
+    /// A truncation that deletes nothing must not delete a plan either.
+    #[test]
+    fn a_no_op_truncation_leaves_the_plan_alone() {
+        let (store, _) = make_store();
+        let last = append(&store, "a", user_message("hello"));
+        store.set_tasks("a", &plan()).unwrap();
+
+        store.truncate_after("a", last + 100).unwrap();
+
+        assert_eq!(store.tasks("a").unwrap(), plan());
+    }
+
+    /// The seq is in the source's sequence space and a fork reseats from 1, so
+    /// carrying it over would point the next truncation at the wrong message.
+    #[test]
+    fn a_fork_does_not_inherit_the_plan() {
+        let (store, _) = make_store();
+        let first = append(&store, "a", user_message("hello"));
+        append(&store, "a", assistant_message("hi", vec![]));
+        store.set_tasks("a", &plan()).unwrap();
+
+        let fork = store
+            .fork_session("a", first, ForkSession::default())
+            .unwrap();
+
+        assert_eq!(store.tasks(&fork.session.key).unwrap(), Vec::new());
+        // The source keeps its own.
+        assert_eq!(store.tasks("a").unwrap(), plan());
+    }
+
+    #[test]
+    fn deleting_a_session_takes_its_plan_with_it() {
+        let (store, _) = make_store();
+        append(&store, "a", user_message("hello"));
+        store.set_tasks("a", &plan()).unwrap();
+
+        assert!(store.delete_session("a").unwrap());
+        assert_eq!(store.tasks("a").unwrap(), Vec::new());
+    }
+}

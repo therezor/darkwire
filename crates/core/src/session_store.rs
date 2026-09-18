@@ -28,6 +28,7 @@ use std::sync::Arc;
 use darkwire_protocol::json::Object;
 use darkwire_protocol::messages::{ChatMessage, StopReason, StoredMessage, Usage};
 use darkwire_protocol::subagent::subagent_runs_of;
+use darkwire_protocol::tasks::{TASKS_METADATA_KEY, TaskItem, TaskList, task_list_of, with_tasks};
 use garde::Validate as _;
 use indexmap::IndexMap;
 use rusqlite::types::Value as SqlValue;
@@ -1126,6 +1127,66 @@ impl SessionStore {
         Ok(next)
     }
 
+    /// The metadata bag as the protocol's helpers want it.
+    ///
+    /// Two map types for one JSON object: the store reads rows with
+    /// `serde_json`, and `darkwire-protocol` keys its bag by insertion order so
+    /// a round trip through it does not reshuffle what an operator wrote.
+    fn as_object(metadata: &Map<String, Value>) -> Object {
+        metadata
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    /// The session's task list. Empty for a session that has no plan, and for
+    /// one that does not exist: a list nobody has written and a conversation
+    /// nobody has started read the same to everything that draws this.
+    pub fn tasks(&self, session_key: &str) -> Result<Vec<TaskItem>> {
+        Ok(self.task_list(session_key)?.items)
+    }
+
+    /// The same, with the point in the conversation it was written at.
+    pub fn task_list(&self, session_key: &str) -> Result<TaskList> {
+        Ok(self
+            .get_session(session_key)?
+            .map(|session| task_list_of(&Self::as_object(&session.metadata)))
+            .unwrap_or_default())
+    }
+
+    /// Replaces the session's task list, leaving the rest of the bag alone.
+    ///
+    /// Not routed through [`update_session`](Self::update_session), which takes
+    /// a whole metadata bag and would therefore have to be handed one read a
+    /// moment earlier. Subagent lineage is written into the same bag by the
+    /// loop, so two writers reading and replacing it independently lose
+    /// whichever landed first. The read and the write are one transaction here,
+    /// which is the only spelling that cannot.
+    ///
+    /// The list is stamped with the session's current `next_seq`, which places
+    /// it immediately before everything the turn writing it goes on to append.
+    /// That is what lets [`truncate_after`](Self::truncate_after) drop a plan
+    /// for messages it has just deleted. Read inside the same transaction, so
+    /// the number cannot be one a concurrent append has already taken.
+    pub fn set_tasks(&self, session_key: &str, tasks: &[TaskItem]) -> Result<()> {
+        self.ensure_session(session_key, CreateSession::default())?;
+        let now = self.clock.now_ms();
+        self.db.transaction(|conn| {
+            let (raw, next_seq): (String, i64) = conn.query_row(
+                "SELECT metadata_json, next_seq FROM sessions WHERE key = ?",
+                params![session_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            let next = with_tasks(&Self::as_object(&parse_metadata(&raw)), next_seq, tasks);
+            let encoded: Map<String, Value> = next.into_iter().collect();
+            conn.execute(
+                "UPDATE sessions SET metadata_json = ?, updated_at_ms = ? WHERE key = ?",
+                params![Value::Object(encoded).to_string(), now, session_key],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Re-points every conversation bound to one agent id at another.
     ///
     /// For renaming an agent, and only for that. A rename is the *same* agent
@@ -1194,6 +1255,13 @@ impl SessionStore {
                 .execute([session_key])?;
             conn.prepare_cached("UPDATE sessions SET updated_at_ms = ? WHERE key = ?")?
                 .execute(params![self.clock.now_ms(), session_key])?;
+            // The plan goes with the history it was a plan for. It is the one
+            // piece of metadata that describes the conversation rather than the
+            // session: left behind, the next turn opens with a half-ticked list
+            // over an empty transcript, and the panel draws it above a screen
+            // that says nothing has been said yet. Lineage is not touched,
+            // because a delegated run still happened.
+            self.set_tasks(session_key, &[])?;
             Ok(())
         })
     }
@@ -1270,6 +1338,15 @@ impl SessionStore {
                     .execute(params![self.clock.now_ms(), session_key])?;
             }
 
+            // A plan written after the cut described the messages that have
+            // just gone. Compared by the same number the messages were cut by,
+            // so the two cannot disagree about which side of the cut anything
+            // is on. A plan from an earlier turn stays: it still describes work
+            // the transcript has a record of.
+            if self.task_list(session_key)?.seq > cut {
+                self.set_tasks(session_key, &[])?;
+            }
+
             Ok(TruncateResult { seq: cut, deleted })
         })
     }
@@ -1344,6 +1421,13 @@ impl SessionStore {
                 "forkedFrom".to_owned(),
                 json!({ "key": source_key, "seq": cut, "atMs": now }),
             );
+            // The plan does not come across. It is stamped with a seq in the
+            // *source's* sequence space, and a fork reseats densely from 1 — so
+            // the number would point at a message that is not the one it was
+            // written beside, and the next truncation here would cut on it.
+            // Reseating it correctly would mean ranking it among the copied
+            // rows for a marker nobody has asked to survive a branch.
+            metadata.shift_remove(TASKS_METADATA_KEY);
 
             conn.prepare_cached(
                 "INSERT INTO sessions
@@ -1538,12 +1622,7 @@ impl SessionStore {
                 return Ok(false);
             };
 
-            let metadata: Object = session
-                .metadata
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            for run in subagent_runs_of(&metadata).values() {
+            for run in subagent_runs_of(&Self::as_object(&session.metadata)).values() {
                 // Not guarded on existence: a child that is already gone is
                 // the normal case for a session deleted twice, and is not
                 // worth distinguishing.

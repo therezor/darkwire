@@ -89,6 +89,7 @@ the schema, and changing either revokes every other session.
 | GET / DELETE         | `/api/sessions/:key/messages` | `required` |                                                                                             |
 | GET                  | `/api/sessions/:key/context`  | `required` | What would be sent to the model, and the token breakdown.                                   |
 | GET                  | `/api/sessions/:key/turns`    | `required` | Per-turn stats: model, provider, iterations, stop reason, tokens.                           |
+| GET / DELETE         | `/api/sessions/:key/tasks`    | `required` | The plan the session is running on, as the `todo` tool left it. `DELETE` empties it.        |
 | POST                 | `/api/sessions/:key/branch`   | `required` | Forks the session at a message.                                                             |
 
 ### Agents, tools, environments

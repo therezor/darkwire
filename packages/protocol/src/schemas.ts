@@ -21,6 +21,7 @@ import * as environment from './environment.js';
 import * as rest from './rest.js';
 import * as tools from './tools.js';
 import * as subagent from './subagent.js';
+import * as tasks from './tasks.js';
 import * as ws from './ws.js';
 
 export const PROTOCOL_SCHEMAS = {
@@ -71,6 +72,10 @@ export const PROTOCOL_SCHEMAS = {
   AgentEnvironment: config.AgentEnvironmentSchema,
   SubagentRef: config.SubagentRefSchema,
   SubagentRunRef: subagent.SubagentRunRefSchema,
+
+  // tasks
+  TaskStatus: tasks.TaskStatusSchema,
+  TaskItem: tasks.TaskItemSchema,
   AgentEntry: config.AgentEntrySchema,
   SchedulerConfig: config.SchedulerConfigSchema,
   ChannelsConfig: config.ChannelsConfigSchema,
@@ -184,6 +189,7 @@ export const PROTOCOL_SCHEMAS = {
   AgentSummary: rest.AgentSummarySchema,
   AgentListResponse: rest.AgentListResponseSchema,
   ToolListResponse: rest.ToolListResponseSchema,
+  TasksResponse: rest.TasksResponseSchema,
   EnvironmentSummary: rest.EnvironmentSummarySchema,
   EnvironmentListResponse: rest.EnvironmentListResponseSchema,
   SandboxInstanceSummary: rest.SandboxInstanceSummarySchema,
@@ -242,6 +248,7 @@ export const SCHEMA_MODULES = {
   messages,
   rest,
   subagent,
+  tasks,
   tools,
   ws,
 };

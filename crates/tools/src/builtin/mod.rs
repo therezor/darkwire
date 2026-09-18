@@ -1,6 +1,6 @@
 //! The built-in tool set.
 //!
-//! Eleven tools. The test each one passes is that it is a capability the agent
+//! Twelve tools. The test each one passes is that it is a capability the agent
 //! cannot obtain as cheaply any other way, and for most of them that means
 //! `exec` cannot do the job: a command needs an approval an operator may not be
 //! there to give, and it needs a binary the container image may not ship.
@@ -42,6 +42,7 @@ pub mod memory;
 pub mod read;
 pub mod shared;
 pub mod skill;
+pub mod todo;
 pub mod tool_search;
 pub mod walk;
 pub mod write;
@@ -61,6 +62,7 @@ pub use memory::memory_tool;
 pub use read::read_tool;
 pub use shared::format_bytes;
 pub use skill::skill_tool;
+pub use todo::todo_tool;
 pub use tool_search::{
     Hit, MAX_SEARCH_RESULTS, SearchResults, TOOL_SEARCH_NAME, render_activation, render_search,
     search, tool_search_tool,
@@ -92,6 +94,7 @@ pub fn all_builtin_tools() -> Vec<AnyTool> {
         automation_tool(),
         memory_tool(),
         skill_tool(),
+        todo_tool(),
         tool_search_tool(),
     ]
 }

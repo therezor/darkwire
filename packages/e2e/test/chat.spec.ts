@@ -324,6 +324,55 @@ test.describe('reworking a turn', () => {
   });
 });
 
+test.describe('the task panel', () => {
+  test('shows the plan the turn settled on, and survives a reload', async ({
+    app,
+  }) => {
+    await expect(app.getByText('Tasks')).toHaveCount(0);
+
+    await app.getByRole('textbox', { name: 'Message' }).fill('make a plan');
+    await app.getByRole('button', { name: 'Send' }).click();
+
+    // The turn writes the list twice. Asserted on the state the second call
+    // settles into — the first list is only visible if the machine is slow.
+    await expect(
+      app.getByTestId('transcript').getByText('That is the plan.'),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const panel = app.locator('.tasks');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText('1/2')).toBeVisible();
+    await expect(panel.locator('.tasks__item--done')).toHaveText(
+      'Inspect auth',
+    );
+    await expect(panel.locator('.tasks__item--doing')).toHaveText('Add tests');
+
+    // The list is in the store, not in the transcript, so a reload that rebuilds
+    // the transcript from history reads the same plan back.
+    await app.reload();
+    await expect(app.locator('.tasks').getByText('1/2')).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test('Clear empties the plan and leaves the transcript alone', async ({
+    app,
+  }) => {
+    await app.getByRole('textbox', { name: 'Message' }).fill('make a plan');
+    await app.getByRole('button', { name: 'Send' }).click();
+
+    const transcript = app.getByTestId('transcript');
+    await expect(transcript.getByText('That is the plan.')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await app.locator('.tasks').getByRole('button', { name: 'Clear' }).click();
+
+    await expect(app.locator('.tasks')).toBeHidden();
+    await expect(transcript.getByText('That is the plan.')).toBeVisible();
+  });
+});
+
 /** The smallest valid PNG, so the fixture is bytes rather than a file on disk. */
 function onePixelPng(): Buffer {
   return Buffer.from(

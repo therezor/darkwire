@@ -161,6 +161,10 @@ pub enum RouteId {
     SessionsBranch,
     /// `GET /api/sessions/:key/turns`
     SessionsTurns,
+    /// `GET /api/sessions/:key/tasks`
+    SessionsTasks,
+    /// `DELETE /api/sessions/:key/tasks`
+    SessionsTasksClear,
     /// `GET /api/agents`
     AgentsList,
     /// `GET /api/tools`
@@ -295,6 +299,8 @@ impl RouteId {
             RouteId::SessionsContext => "sessions.context",
             RouteId::SessionsBranch => "sessions.branch",
             RouteId::SessionsTurns => "sessions.turns",
+            RouteId::SessionsTasks => "sessions.tasks",
+            RouteId::SessionsTasksClear => "sessions.tasks.clear",
             RouteId::AgentsList => "agents.list",
             RouteId::ToolsList => "tools.list",
             RouteId::EnvironmentsList => "environments.list",
@@ -349,7 +355,7 @@ impl RouteId {
 }
 
 /// The routes every build serves.
-const BASE: [Route; 67] = [
+const BASE: [Route; 69] = [
     // Status and health
     Route {
         id: RouteId::SystemHealth,
@@ -540,6 +546,22 @@ const BASE: [Route; 67] = [
         id: RouteId::SessionsTurns,
         method: RouteMethod::GET,
         path: "/api/sessions/:key/turns",
+        auth: RouteAuth::Required,
+    },
+    // The plan the conversation is running on. Its own route rather than a
+    // field on the session, because the browser polls it on its own cadence —
+    // the list moves several times inside one turn, and the session body
+    // carries a workspace, an agent and a subagent map that do not.
+    Route {
+        id: RouteId::SessionsTasks,
+        method: RouteMethod::GET,
+        path: "/api/sessions/:key/tasks",
+        auth: RouteAuth::Required,
+    },
+    Route {
+        id: RouteId::SessionsTasksClear,
+        method: RouteMethod::DELETE,
+        path: "/api/sessions/:key/tasks",
         auth: RouteAuth::Required,
     },
     // Agents and tools. Both read-only: an agent is a subtree of the settings
@@ -850,8 +872,8 @@ const HOOKS: [Route; 5] = [
 
 /// `BASE` followed by `HOOKS`, in const so the manifest stays a `&[Route]`.
 #[cfg(feature = "test-hooks")]
-const fn with_hooks(base: &[Route; 67], hooks: &[Route; 5]) -> [Route; 72] {
-    let mut all = [base[0]; 72];
+const fn with_hooks(base: &[Route; 69], hooks: &[Route; 5]) -> [Route; 74] {
+    let mut all = [base[0]; 74];
     let mut i = 0;
     while i < base.len() {
         all[i] = base[i];
@@ -866,7 +888,7 @@ const fn with_hooks(base: &[Route; 67], hooks: &[Route; 5]) -> [Route; 72] {
 }
 
 #[cfg(feature = "test-hooks")]
-const ALL: [Route; 72] = with_hooks(&BASE, &HOOKS);
+const ALL: [Route; 74] = with_hooks(&BASE, &HOOKS);
 
 /// Every route this build serves, and the only path to one.
 #[cfg(not(feature = "test-hooks"))]

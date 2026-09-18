@@ -14,6 +14,7 @@ use darkwire_channels::telegram::menus::{CallbackLookup, CallbackPayload, Callba
 use darkwire_core::clock::Clock;
 use darkwire_core::messages::{AssistantOptions, assistant_message, text_part, user_message};
 use darkwire_core::session_store::{AppendOptions, CreateSession, TurnStatsRecord};
+use darkwire_protocol::tasks::{TaskItem, TaskStatus};
 use darkwire_protocol::{ChatMessage, ContextResponse, StopReason, Usage};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -1302,4 +1303,85 @@ async fn nothing_a_command_returns_has_been_sent() {
     assert!(!result.text.is_empty());
     assert!(result.keyboard.is_none());
     assert_eq!(text_part("x"), text_part("x"));
+}
+
+// /tasks
+
+#[tokio::test]
+async fn tasks_says_there_is_no_plan_when_nothing_has_written_one() {
+    let harness = harness();
+    let result = run(&harness, "/tasks").await;
+    assert!(result.text.contains("No plan"), "{}", result.text);
+}
+
+#[tokio::test]
+async fn tasks_prints_the_plan_in_the_markers_the_prompt_uses() {
+    let harness = harness();
+    harness
+        .console
+        .store()
+        .set_tasks(
+            SESSION,
+            &[
+                TaskItem {
+                    text: "Inspect auth".to_owned(),
+                    status: TaskStatus::Done,
+                },
+                TaskItem {
+                    text: "Add tests".to_owned(),
+                    status: TaskStatus::Todo,
+                },
+            ],
+        )
+        .expect("the store writes");
+
+    let result = run(&harness, "/tasks").await;
+    assert_eq!(result.text, "[x] Inspect auth\n[ ] Add tests");
+}
+
+#[tokio::test]
+async fn tasks_clear_empties_the_list() {
+    let harness = harness();
+    harness
+        .console
+        .store()
+        .set_tasks(
+            SESSION,
+            &[TaskItem {
+                text: "Add tests".to_owned(),
+                status: TaskStatus::Todo,
+            }],
+        )
+        .expect("the store writes");
+
+    let result = run(&harness, "/tasks clear").await;
+
+    assert!(result.text.contains("cleared"), "{}", result.text);
+    assert_eq!(
+        harness.console.store().tasks(SESSION).expect("a read"),
+        Vec::new()
+    );
+}
+
+/// Reading a plan reaches no further than the chat's own session, so it is not
+/// one of the admin-gated verbs.
+#[tokio::test]
+async fn tasks_is_not_admin_gated() {
+    let mut harness = harness();
+    harness.is_admin = false;
+    let result = run(&harness, "/tasks").await;
+    assert!(result.text.contains("No plan"), "{}", result.text);
+}
+
+/// One table, three readers: `setMyCommands` registers what `/help` renders and
+/// what dispatch knows, so a row missing here is a command Telegram offers and
+/// nothing answers.
+#[test]
+fn tasks_is_registered_with_telegram_and_listed_in_help() {
+    assert!(
+        bot_commands()
+            .iter()
+            .any(|command| command.command == "tasks")
+    );
+    assert!(help_text(false).contains("/tasks"));
 }

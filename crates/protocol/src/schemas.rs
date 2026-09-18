@@ -24,7 +24,9 @@ use schemars::transform::{Transform, transform_subschemas};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::Value;
 
-use crate::{automation, config, environment, extension, messages, rest, subagent, tools, ws};
+use crate::{
+    automation, config, environment, extension, messages, rest, subagent, tasks, tools, ws,
+};
 
 /// One published schema: the name the browser's registry uses, and how to
 /// generate it.
@@ -332,6 +334,14 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "SubagentRunRef",
         schema: schema_for::<subagent::SubagentRunRef>,
+    },
+    RegisteredSchema {
+        name: "TaskStatus",
+        schema: schema_for::<tasks::TaskStatus>,
+    },
+    RegisteredSchema {
+        name: "TaskItem",
+        schema: schema_for::<tasks::TaskItem>,
     },
     RegisteredSchema {
         name: "AgentEntry",
@@ -745,6 +755,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "ToolListResponse",
         schema: schema_for::<rest::ToolListResponse>,
+    },
+    RegisteredSchema {
+        name: "TasksResponse",
+        schema: schema_for::<rest::TasksResponse>,
     },
     RegisteredSchema {
         name: "EnvironmentSummary",

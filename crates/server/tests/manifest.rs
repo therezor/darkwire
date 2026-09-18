@@ -19,7 +19,7 @@ use darkwire_server::manifest::{ROUTE_MANIFEST, RouteAuth, RouteId, RouteMethod}
 
 /// The routes every build serves. The `test-hooks` entries are extra, and the
 /// feature is on for this test binary, so the base set is what is filtered for.
-const BASE_ROUTES: usize = 67;
+const BASE_ROUTES: usize = 69;
 
 fn base() -> Vec<&'static darkwire_server::manifest::Route> {
     ROUTE_MANIFEST
@@ -29,7 +29,7 @@ fn base() -> Vec<&'static darkwire_server::manifest::Route> {
 }
 
 #[test]
-fn the_manifest_carries_sixty_seven_routes() {
+fn the_manifest_carries_sixty_nine_routes() {
     assert_eq!(base().len(), BASE_ROUTES);
 }
 

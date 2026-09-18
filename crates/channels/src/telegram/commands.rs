@@ -22,6 +22,7 @@ use darkwire_core::session_store::{
 };
 use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{ErrorKind, Result, SessionStore, WireError};
+use darkwire_protocol::tasks::render_tasks;
 use darkwire_protocol::{
     EditMessage, EditTag, RegenerateMessage, RegenerateTag, StopTurnMessage, StopTurnTag,
 };
@@ -359,6 +360,22 @@ sync_command!(run_clear, |input| {
 // Not "exit": there is no process to leave. Detaching is the analogous act —
 // the next message starts somewhere fresh — and it keeps the command in
 // Telegram's menu doing something rather than nothing.
+// The plan, in the markers the prompt uses rather than a second spelling of
+// them. `clear` is the one argument, matching the terminal, because emptying a
+// stale list is the only edit anybody wants from a chat app.
+sync_command!(run_tasks, |input| {
+    if input.arg(0) == Some("clear") {
+        input.store().set_tasks(input.session_key(), &[])?;
+        return Ok(CommandResult::say("Task list cleared."));
+    }
+    let tasks = input.store().tasks(input.session_key())?;
+    Ok(CommandResult::say(if tasks.is_empty() {
+        "No plan on this conversation yet.".to_owned()
+    } else {
+        render_tasks(&tasks)
+    }))
+});
+
 sync_command!(run_exit, |input| {
     input.menus.forget(input.chat_id);
     (input.attach)(&default_session_key(&input.channel_id, input.chat_id));
@@ -931,6 +948,14 @@ static COMMANDS: &[TelegramCommand] = &[
         admin: false,
         aliases: &[],
         run: run_skills,
+    },
+    TelegramCommand {
+        name: "tasks",
+        usage: "[clear]",
+        description: "The plan this conversation is running on",
+        admin: false,
+        aliases: &[],
+        run: run_tasks,
     },
     TelegramCommand {
         name: "stats",

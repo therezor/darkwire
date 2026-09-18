@@ -34,7 +34,8 @@
           "edit": "allow",
           "exec": "ask",
           "memory": "allow",
-          "skill": "allow"
+          "skill": "allow",
+          "todo": "allow"
         },
         "toolbox": {
           "name": "",

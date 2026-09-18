@@ -49,6 +49,7 @@ import {
   SessionMessagesResponseSchema,
   SessionSummarySchema,
   TurnStatsResponseSchema,
+  TasksResponseSchema,
   SettingsResponseSchema,
   SetupStatusResponseSchema,
   MoveSessionsResponseSchema,
@@ -88,6 +89,7 @@ import {
   type SessionMessagesResponse,
   type SessionSummary,
   type TurnStatsResponse,
+  type TasksResponse,
   type SetCredentialRequest,
   type SettingsResponse,
   type SetupStatusResponse,
@@ -729,6 +731,22 @@ export const api = {
    */
   refreshModels: (): Promise<ModelsResponse> =>
     request('/api/models/refresh', ModelsResponseSchema, { method: 'POST' }),
+
+  /** Empties the plan by hand, the browser's half of `/tasks clear`. */
+  clearTasks: (key: string): Promise<void> =>
+    requestVoid(`/api/sessions/${encodeURIComponent(key)}/tasks`, {
+      method: 'DELETE',
+    }),
+
+  /** The plan this conversation is running on, for the task panel. */
+  tasks: (key: string, signal?: AbortSignal): Promise<TasksResponse> =>
+    request(
+      `/api/sessions/${encodeURIComponent(key)}/tasks`,
+      TasksResponseSchema,
+      {
+        ...(signal ? { signal } : {}),
+      },
+    ),
 
   /** What a turn on this session would actually send, for the context inspector. */
   context: (key: string, signal?: AbortSignal): Promise<ContextResponse> =>
