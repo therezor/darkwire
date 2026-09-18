@@ -55,14 +55,15 @@ import type { WebKey } from '@/i18n/keys.js';
 import { usePageTitleStore } from './page-title.js';
 
 /**
- * The tab title for each section, keyed by the path prefix that opens it.
+ * The section each path prefix belongs to, for the tab title.
  *
- * A section and everything under it share one title: the agent editor is an
- * Agents tab, and a tab strip full of "DarkWire" tells nobody which one to
- * click. The root is the bare name, because it is the app rather than a
- * section of it.
+ * The title is a chain: the page, its section, the app. An agent editor reads
+ * "Reviewer · Agents · DarkWire", and a tab strip full of "DarkWire" tells
+ * nobody which one to click. The root is a session nobody has spoken in, so
+ * it sits under Sessions like any other.
  */
 const PAGE_TITLES: ReadonlyArray<readonly [string, WebKey]> = [
+  ['/', 'nav.sessions'],
   ['/sessions', 'nav.sessions'],
   ['/agents', 'nav.agents'],
   ['/files', 'nav.files'],
@@ -88,9 +89,15 @@ function useDocumentTitle(): void {
   const claimed = usePageTitleStore((state) => state.title);
   useEffect(() => {
     const key = pageTitleKey(pathname);
-    const page = claimed ?? (key === undefined ? undefined : t(key));
+    const section = key === undefined ? undefined : t(key);
+    // A list page claims its section's own name, and once is enough.
+    const chain = [claimed, claimed === section ? undefined : section].filter(
+      (part): part is string => part !== undefined,
+    );
     document.title =
-      page === undefined ? t('shell.appName') : t('shell.pageTitle', { page });
+      chain.length === 0
+        ? t('shell.appName')
+        : t('shell.pageTitle', { page: chain.join(' · ') });
   }, [claimed, pathname, t]);
 }
 

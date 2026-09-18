@@ -160,17 +160,17 @@ describe('the shell', () => {
     });
   });
 
-  it('names a page under a section after the page, not the section', async () => {
+  it('chains the page, its section and the app', async () => {
     renderApp('/tokens');
     await waitFor(() => {
-      expect(document.title).toBe('Tokens and primitives · DarkWire');
+      expect(document.title).toBe('Tokens and primitives · Tokens · DarkWire');
     });
   });
 
   it('calls a session nobody has spoken in a new one, in the tab title', async () => {
     renderApp('/');
     await waitFor(() => {
-      expect(document.title).toBe('New session · DarkWire');
+      expect(document.title).toBe('New session · Sessions · DarkWire');
     });
   });
 
@@ -520,7 +520,7 @@ describe('the shell', () => {
     renderApp('/sessions/web%3A7');
 
     await waitFor(() => {
-      expect(document.title).toBe('the seventh · DarkWire');
+      expect(document.title).toBe('the seventh · Sessions · DarkWire');
     });
   });
 
