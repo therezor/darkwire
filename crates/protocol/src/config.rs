@@ -1080,6 +1080,16 @@ pub struct UiConfig {
     /// written either way, so there is no third thing for "off" to mean.
     #[serde(default)]
     pub expand_tool_output: bool,
+    /// Whether the terminal shows what a turn cost as it finishes.
+    ///
+    /// Worth having, and not worth a row under every answer. A switch for the
+    /// same reason as `expand_tool_output`: the line is written either way and
+    /// a keystroke reveals it, so there is no third thing for "off" to mean.
+    ///
+    /// The terminal only. The browser puts the same figures in a turn-info
+    /// popover, which is already out of the way.
+    #[serde(default)]
+    pub expand_turn_stats: bool,
     /// The one zone this install reads and writes clock times in.
     ///
     /// Everything is *stored* in UTC, so this is not a storage format; it is
@@ -1107,6 +1117,10 @@ impl Default for UiConfig {
             locale: default_locale(),
             reasoning: ReasoningDisplay::default(),
             expand_tool_output: false,
+            // Spelled out rather than left to the derive, which is not used
+            // here, and `false` is the wanted answer either way: a turn's cost
+            // arrives folded.
+            expand_turn_stats: false,
             timezone: default_timezone(),
         }
     }
@@ -1671,6 +1685,9 @@ pub struct UiConfigPatch {
     /// See [`UiConfig::expand_tool_output`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expand_tool_output: Option<bool>,
+    /// See [`UiConfig::expand_turn_stats`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expand_turn_stats: Option<bool>,
     /// See [`UiConfig::timezone`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]

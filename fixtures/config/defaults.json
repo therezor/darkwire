@@ -106,6 +106,7 @@
     "locale": "en",
     "reasoning": "collapsed",
     "expandToolOutput": false,
+    "expandTurnStats": false,
     "timezone": "UTC"
   }
 }

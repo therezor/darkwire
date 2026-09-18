@@ -141,6 +141,21 @@ impl Transcript {
         self.blocks.push(Block::folding(tag, summary, collapsed));
     }
 
+    /// Starts a run that shows nothing at all while it is folded.
+    ///
+    /// For the one row somebody asks for after the fact rather than during. It
+    /// is a block and not prose for the same reason a summarised run is: a key
+    /// that reveals it has to reach every one of them, and
+    /// [`Transcript::set_collapsed`] finds them by tag.
+    pub fn hide_block(&mut self, tag: &'static str, collapsed: bool) {
+        // The same preamble `open_block` gives, and for the same reason.
+        if let Some(tail) = self.blocks.last_mut() {
+            tail.trim_open_line();
+        }
+        self.drop_empty_tail();
+        self.blocks.push(Block::hiding(tag, collapsed));
+    }
+
     /// Ends the open run. Prose written after this lands in a block of its own.
     ///
     /// A run that said nothing goes rather than closing: a provider that opens

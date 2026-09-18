@@ -653,6 +653,7 @@ async fn turn_once(
             session.colors
         },
         show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
+        show_stats: session.runtime.config().ui.expand_turn_stats,
         t: Translations::new(session.t.locale()),
         ..TurnRendererOptions::new(Box::new(std::io::sink()))
     });
@@ -730,6 +731,19 @@ pub enum FrameEvent {
     Tasks(Vec<(TaskStatus, String)>),
     /// Reasoning has been switched on or off for the rest of the session.
     ReasoningShown(bool),
+    /// What the turn cost, and whether a target that only writes prints it.
+    ///
+    /// The flag travels with the row because the two consumers ask different
+    /// questions of it. A pipe asks whether to write it at all. A frame keeps
+    /// it either way and asks its own fold, so a key can reveal it later.
+    TurnStats {
+        /// The row itself, ready to draw.
+        line: String,
+        /// Whether a target that only writes bytes prints it.
+        shown: bool,
+    },
+    /// The turn's cost has been switched on or off for the rest of the session.
+    StatsShown(bool),
 }
 
 impl FrameEvent {
@@ -742,11 +756,21 @@ impl FrameEvent {
     pub fn as_text(&self) -> &str {
         match self {
             FrameEvent::Text(text) | FrameEvent::ToolBodyStart(text) => text,
+            // The switch decides here rather than at the source, so a frame can
+            // hold a row a pipe never prints.
+            FrameEvent::TurnStats { line, shown } => {
+                if *shown {
+                    line
+                } else {
+                    ""
+                }
+            }
             FrameEvent::ReasoningStart
             | FrameEvent::ReasoningEnd
             | FrameEvent::ToolBodyEnd
             | FrameEvent::Tasks(_)
-            | FrameEvent::ReasoningShown(_) => "",
+            | FrameEvent::ReasoningShown(_)
+            | FrameEvent::StatsShown(_) => "",
         }
     }
 }
@@ -793,6 +817,17 @@ impl crate::render::RenderTarget for ChunkSink {
 
     fn reasoning_shown(&mut self, shown: bool) {
         self.send(FrameEvent::ReasoningShown(shown));
+    }
+
+    fn turn_stats(&mut self, line: &str, shown: bool) {
+        self.send(FrameEvent::TurnStats {
+            line: line.to_owned(),
+            shown,
+        });
+    }
+
+    fn stats_shown(&mut self, shown: bool) {
+        self.send(FrameEvent::StatsShown(shown));
     }
 }
 
@@ -879,6 +914,16 @@ pub trait Surface {
     /// prompt is next redrawn.
     fn refresh<'a>(&'a mut self, view: &'a HeaderView) -> BoxFut<'a, ()>;
 
+    /// What a key did to `/output stats` since this was last asked.
+    ///
+    /// The frame owns that switch while a key is pressed, because only it can
+    /// fold rows already drawn, and the renderer owns it the rest of the time,
+    /// because only it decides whether a pipe sees the row. A surface with no
+    /// keyboard answers `None` and nothing changes.
+    fn take_stats_shown(&mut self) -> BoxFut<'_, Option<bool>> {
+        Box::pin(std::future::ready(None))
+    }
+
     /// Puts the terminal back.
     fn close(&mut self) -> BoxFut<'_, ()>;
 }
@@ -908,6 +953,7 @@ pub async fn drive_prompt(
         out: Box::new(surface.sink()),
         colors: session.colors,
         show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
+        show_stats: session.runtime.config().ui.expand_turn_stats,
         t: Translations::new(session.t.locale()),
         ..TurnRendererOptions::new(Box::new(std::io::sink()))
     });
@@ -917,6 +963,13 @@ pub async fn drive_prompt(
             surface.close().await;
             return Ok(0);
         };
+        // Before the slash dispatch, so `/output` typed straight after Ctrl-Y
+        // prints the truth. The frame has already folded what is on screen;
+        // this is the half that decides whether a pipe sees the next one.
+        if let Some(shown) = surface.take_stats_shown().await {
+            renderer.set_stats_shown(shown);
+        }
+
         let typed = line.trim().to_owned();
         if typed.is_empty() {
             continue;
@@ -1209,6 +1262,11 @@ pub struct Frame {
     folds: FoldDefaults,
     /// Ticks since the open reasoning run started, for a summary that moves.
     reasoning_since: Option<i64>,
+    /// What a key last did to the row saying what a turn cost, until taken.
+    ///
+    /// The switch has two owners and this is the wire between them. See
+    /// [`Frame::take_stats_toggle`].
+    stats_toggled: Option<bool>,
     /// The plan the agent is running on, as rows above the input.
     ///
     /// Frame state, not transcript: it is rewritten rather than appended, so a
@@ -1260,15 +1318,18 @@ pub struct FoldDefaults {
     pub reasoning: ReasoningDisplay,
     /// Whether a tool's output arrives folded.
     pub tools: bool,
+    /// Whether what the turn cost arrives folded.
+    pub stats: bool,
 }
 
 impl Default for FoldDefaults {
-    /// Both folded. Spelled out rather than derived, because `false` is the
-    /// derived answer for `tools` and it is the wrong one.
+    /// All three folded. Spelled out rather than derived, because `false` is
+    /// the derived answer for the two switches and it is the wrong one.
     fn default() -> Self {
         Self {
             reasoning: ReasoningDisplay::Collapsed,
             tools: true,
+            stats: true,
         }
     }
 }
@@ -1280,6 +1341,7 @@ impl FoldDefaults {
         FoldDefaults {
             reasoning: ui.reasoning,
             tools: !ui.expand_tool_output,
+            stats: !ui.expand_turn_stats,
         }
     }
 }
@@ -1306,6 +1368,8 @@ fn task_row(theme: &Theme, status: TaskStatus, text: &str) -> String {
 const REASONING_FOLD: &str = "reasoning";
 /// The tag a tool's output carries.
 const TOOL_FOLD: &str = "tool";
+/// The tag the row saying what a turn cost carries.
+const STATS_FOLD: &str = "stats";
 
 impl std::fmt::Debug for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1333,6 +1397,7 @@ impl Frame {
             status: Vec::new(),
             folds: FoldDefaults::default(),
             reasoning_since: None,
+            stats_toggled: None,
             tasks: Vec::new(),
             labels,
         }
@@ -1387,6 +1452,21 @@ impl Frame {
                 } else {
                     ReasoningDisplay::Hidden
                 };
+            }
+            // Written whatever the switch says, into a run that shows nothing
+            // while it is folded. Opened, written and closed in one step: a run
+            // left open holds the live region, and one that said nothing is
+            // dropped rather than kept as a fold onto an empty body.
+            FrameEvent::TurnStats { line, .. } => {
+                self.transcript.hide_block(STATS_FOLD, self.folds.stats);
+                self.transcript.write(line);
+                self.transcript.close_block();
+            }
+            // Set rather than flipped: this is the command's half of one switch
+            // arriving, and a flip here would undo what was asked for.
+            FrameEvent::StatsShown(shown) => {
+                self.folds.stats = !*shown;
+                self.transcript.set_collapsed(STATS_FOLD, self.folds.stats);
             }
         }
     }
@@ -1557,12 +1637,36 @@ impl Frame {
                 ReasoningDisplay::Collapsed
             };
             self.folds.reasoning == ReasoningDisplay::Collapsed
+        } else if tag == STATS_FOLD {
+            self.folds.stats = !self.folds.stats;
+            // The other owner of this switch is the renderer, which decides
+            // whether a pipe ever sees the row. `/output stats` reaches the
+            // frame the other way, through `StatsShown`.
+            self.stats_toggled = Some(!self.folds.stats);
+            self.folds.stats
         } else {
             self.folds.tools = !self.folds.tools;
             self.folds.tools
         };
         self.transcript.set_collapsed(tag, collapsed);
         Some(collapsed)
+    }
+
+    /// Whether the row saying what a turn cost is showing.
+    #[must_use]
+    pub fn stats_shown(&self) -> bool {
+        !self.folds.stats
+    }
+
+    /// What a key last did to that row, answered once.
+    ///
+    /// One switch with two owners. The frame owns it while a key is pressed,
+    /// because only the frame can fold what is already drawn; the renderer owns
+    /// it while `/output` is typed, because only the renderer decides whether a
+    /// pipe sees the row at all. This is how the key's half reaches the other.
+    #[must_use]
+    pub fn take_stats_toggle(&mut self) -> Option<bool> {
+        self.stats_toggled.take()
     }
 
     /// What is on the editor line right now.
@@ -1709,6 +1813,8 @@ pub enum Typed {
     FoldReasoning,
     /// Fold or unfold what tools printed.
     FoldTools,
+    /// Fold or unfold the row saying what the turn cost.
+    FoldStats,
 }
 
 /// The screen, the editor and the keyboard, shared with the menu.
@@ -1947,6 +2053,7 @@ impl FramedSurface {
             status: status_bar(&session.view(), width, &session.theme),
             folds: FoldDefaults::from(&session.runtime.config().ui),
             reasoning_since: None,
+            stats_toggled: None,
             tasks: Vec::new(),
             labels: FoldLabels::from(&session.t),
         };
@@ -2005,6 +2112,10 @@ impl Surface for FramedSurface {
         &self.menu
     }
 
+    fn take_stats_shown(&mut self) -> BoxFut<'_, Option<bool>> {
+        Box::pin(async move { self.state.lock().await.frame.take_stats_toggle() })
+    }
+
     fn sink(&self) -> ChunkSink {
         self.sink.clone()
     }
@@ -2047,7 +2158,11 @@ impl Surface for FramedSurface {
                     Typed::Interrupt | Typed::Leave => return None,
                     Typed::Palette => self.open_palette().await,
                     Typed::Complete => self.complete().await,
-                    Typed::Redraw | Typed::Reset | Typed::FoldReasoning | Typed::FoldTools => {}
+                    Typed::Redraw
+                    | Typed::Reset
+                    | Typed::FoldReasoning
+                    | Typed::FoldTools
+                    | Typed::FoldStats => {}
                 }
             }
         })
@@ -2186,7 +2301,8 @@ impl FramedSurface {
                         | Typed::Redraw
                         | Typed::Reset
                         | Typed::FoldReasoning
-                        | Typed::FoldTools => {}
+                        | Typed::FoldTools
+                        | Typed::FoldStats => {}
                     }
                     if reset {
                         state.redraw();
@@ -2389,6 +2505,14 @@ pub fn handle_key_with(frame: &mut Frame, key: &Key, rows: usize) -> Typed {
     if is_ctrl(key, 'o') {
         frame.toggle_fold(TOOL_FOLD);
         return Typed::FoldTools;
+    }
+
+    // The third fold, and the one that starts hidden. Ctrl-Y is free here:
+    // there is no kill ring for it to yank from, and readline's meaning would
+    // have nothing to paste.
+    if is_ctrl(key, 'y') {
+        frame.toggle_fold(STATS_FOLD);
+        return Typed::FoldStats;
     }
 
     // Ctrl-L is what it is in every shell: the screen is wrong, draw it again.

@@ -171,8 +171,16 @@ it streams, and `hidden` stops it reaching the terminal at all. `--no-reasoning`
 means `hidden` for one run. `ui.expandToolOutput` is the switch for the other
 half, and it is a switch because tool output is written either way.
 
+What a turn cost is the third of these, and it arrives hidden rather than
+summarised. `· 2 steps · 3.9k in / 134 out · 2.5s · 68.9 tok/s` is worth having
+and is not worth a row under every answer, and unlike the other two there is
+nothing to promise: it is on screen or it is not. `ctrl-y` shows it, and so does
+`/output stats on`, which is the same switch spelled twice. `ui.expandTurnStats`
+is where the choice lives across runs.
+
 On a pipe, on a dumb terminal or under `--json` there is nothing to fold, so
-`collapsed` prints as it always did and only `hidden` silences anything.
+`collapsed` prints as it always did, only `hidden` silences anything, and a
+turn's cost prints when `ui.expandTurnStats` is on.
 
 **Keys**
 
@@ -184,6 +192,7 @@ On a pipe, on a dumb terminal or under `--json` there is nothing to fold, so
 | `return`                     | Run the highlighted command                     |
 | `ctrl-t`                     | Fold or unfold the reasoning                    |
 | `ctrl-o`                     | Fold or unfold what tools printed               |
+| `ctrl-y`                     | Show or hide what the turn cost                 |
 | `ctrl-l`                     | Draw the screen again                           |
 | `ctrl-c`                     | Stop the turn, or leave                         |
 | `ctrl-d`                     | Leave                                           |

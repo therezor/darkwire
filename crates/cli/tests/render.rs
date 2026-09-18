@@ -503,6 +503,25 @@ fn prints_an_error_with_its_code_and_whether_retrying_is_worth_it() {
 
 #[test]
 fn explains_a_turn_that_hit_a_cap() {
+    // Stats switched on, because the row arrives folded now. The stop reason
+    // above it is not part of that fold: it says something went differently,
+    // not what the turn cost.
+    let text = render(
+        &[
+            start(),
+            json!({
+                "type": "turn.end", "turnId": "t1",
+                "stopReason": "max_iterations", "iterations": 40,
+            }),
+        ],
+        |built| built.show_stats = true,
+    );
+    assert!(text.contains("stopped at the tool-iteration cap"));
+    assert!(text.contains("40 steps"));
+}
+
+#[test]
+fn the_stop_reason_is_said_even_with_the_cost_switched_off() {
     let text = plain(&[
         start(),
         json!({
@@ -511,21 +530,24 @@ fn explains_a_turn_that_hit_a_cap() {
         }),
     ]);
     assert!(text.contains("stopped at the tool-iteration cap"));
-    assert!(text.contains("40 steps"));
+    assert!(!text.contains("40 steps"));
 }
 
 #[test]
 fn reports_usage_when_the_provider_sent_any() {
-    let text = plain(&[
-        start(),
-        json!({
-            "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 1,
-            "usage": {
-                "promptTokens": 1204, "completionTokens": 88, "totalTokens": 1292,
-                "cachedTokens": 1000, "reasoningTokens": 40,
-            },
-        }),
-    ]);
+    let text = render(
+        &[
+            start(),
+            json!({
+                "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 1,
+                "usage": {
+                    "promptTokens": 1204, "completionTokens": 88, "totalTokens": 1292,
+                    "cachedTokens": 1000, "reasoningTokens": 40,
+                },
+            }),
+        ],
+        |built| built.show_stats = true,
+    );
     assert!(text.contains("1 step"));
     assert!(text.contains("1.2k in / 88 out / 1.0k cached / 40 reasoning"));
 }
@@ -1123,4 +1145,75 @@ fn the_break_between_reasoning_and_the_answer_is_one_row() {
         json!({"type": "assistant.delta", "turnId": "t1", "text": "\n\nHello."}),
     ]);
     assert!(text.contains("a thought\nHello."));
+}
+
+#[test]
+fn a_surface_that_can_fold_is_handed_the_row_even_when_it_is_off() {
+    // The whole design. A row that was never built is a row no key can reveal,
+    // so it is always built and the switch travels with it.
+    #[derive(Clone, Default)]
+    struct Folding(Arc<Mutex<Vec<(String, bool)>>>);
+    impl RenderTarget for Folding {
+        fn write(&mut self, _text: &str) {}
+        fn turn_stats(&mut self, line: &str, shown: bool) {
+            self.0.lock().unwrap().push((line.to_owned(), shown));
+        }
+    }
+
+    let seen = Folding::default();
+    let mut renderer = TurnRenderer::new(TurnRendererOptions {
+        colors: Some(false),
+        t: Translations::default(),
+        ..TurnRendererOptions::new(Box::new(seen.clone()))
+    });
+    renderer.handle(&event(start()));
+    renderer.handle(&event(json!({
+        "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 2,
+    })));
+    renderer.finish();
+
+    let calls = seen.0.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].0.contains("2 steps"), "{}", calls[0].0);
+    assert!(!calls[0].1, "the switch is off by default");
+}
+
+#[test]
+fn a_pipe_prints_the_row_only_when_it_is_on() {
+    // The default target has nowhere to keep a row it is not showing, so the
+    // switch decides whether it is written at all. Byte for byte what a pipe
+    // did before any of this existed.
+    let events = [
+        start(),
+        json!({
+            "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 2,
+        }),
+    ];
+    assert!(!plain(&events).contains("2 steps"));
+    assert!(render(&events, |built| built.show_stats = true).contains("2 steps"));
+}
+
+#[test]
+fn switching_it_on_tells_the_surface_so() {
+    // `/output stats on` has to reach the rows already drawn, and only the
+    // surface holding them can unfold those.
+    #[derive(Clone, Default)]
+    struct Switches(Arc<Mutex<Vec<bool>>>);
+    impl RenderTarget for Switches {
+        fn write(&mut self, _text: &str) {}
+        fn stats_shown(&mut self, shown: bool) {
+            self.0.lock().unwrap().push(shown);
+        }
+    }
+
+    let seen = Switches::default();
+    let mut renderer = TurnRenderer::new(TurnRendererOptions {
+        colors: Some(false),
+        t: Translations::default(),
+        ..TurnRendererOptions::new(Box::new(seen.clone()))
+    });
+    renderer.set_stats_shown(true);
+    renderer.set_stats_shown(false);
+
+    assert_eq!(*seen.0.lock().unwrap(), [true, false]);
 }

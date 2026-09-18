@@ -809,6 +809,7 @@ fn ctrl_t_on_a_session_with_reasoning_off_says_where_the_switch_is() {
     let mut frame = frame_with(FoldDefaults {
         reasoning: ReasoningDisplay::Hidden,
         tools: true,
+        stats: true,
     });
     handle_key(&mut frame, &key("\u{14}"));
     assert!(has(&mut frame, "reasoning is off"));
@@ -824,14 +825,17 @@ fn the_install_settings_decide_how_a_run_arrives() {
     let folds = FoldDefaults::from(&UiConfig::default());
     assert_eq!(folds.reasoning, ReasoningDisplay::Collapsed);
     assert!(folds.tools, "tool output is folded by default");
+    assert!(folds.stats, "what a turn cost is folded by default");
 
     let opened = FoldDefaults::from(&UiConfig {
         reasoning: ReasoningDisplay::Expanded,
         expand_tool_output: true,
+        expand_turn_stats: true,
         ..UiConfig::default()
     });
     assert_eq!(opened.reasoning, ReasoningDisplay::Expanded);
     assert!(!opened.tools);
+    assert!(!opened.stats);
 }
 
 #[test]
@@ -865,6 +869,7 @@ fn tool_output_arrives_open_when_the_install_asked_for_that() {
     let mut frame = frame_with(FoldDefaults {
         reasoning: ReasoningDisplay::Collapsed,
         tools: false,
+        stats: true,
     });
     frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
     frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
@@ -877,6 +882,7 @@ fn reasoning_arrives_open_when_the_install_asked_for_that() {
     let mut frame = frame_with(FoldDefaults {
         reasoning: ReasoningDisplay::Expanded,
         tools: true,
+        stats: true,
     });
     frame.absorb(&FrameEvent::ReasoningStart);
     frame.absorb(&FrameEvent::Text("a thought\n".to_owned()));
@@ -1070,4 +1076,94 @@ fn the_spinner_sits_one_row_under_the_message() {
         .position(|row| row.contains("generating"))
         .unwrap();
     assert_eq!(spinner, message + 2);
+}
+
+#[test]
+fn what_the_turn_cost_arrives_folded_away() {
+    // A turn is read for its answer. The figures are worth having and are not
+    // worth a row under every one of them.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Text("the answer\n".to_owned()));
+    frame.absorb(&FrameEvent::TurnStats {
+        line: "  · 2 steps · 26ms\n".to_owned(),
+        shown: false,
+    });
+
+    assert!(!has(&mut frame, "2 steps"));
+    assert!(has(&mut frame, "the answer"));
+    // Folded away to nothing, not to a summary row: there is no row left
+    // behind, so the answer above it does not grow a blank under it.
+    assert!(!frame.stats_shown());
+}
+
+#[test]
+fn ctrl_y_shows_what_a_turn_that_has_already_run_cost() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::TurnStats {
+        line: "  · 2 steps · 26ms\n".to_owned(),
+        shown: false,
+    });
+    assert!(!has(&mut frame, "2 steps"));
+
+    assert_eq!(handle_key(&mut frame, &key("\u{19}")), Typed::FoldStats);
+    assert!(has(&mut frame, "2 steps"));
+
+    handle_key(&mut frame, &key("\u{19}"));
+    assert!(!has(&mut frame, "2 steps"));
+}
+
+#[test]
+fn ctrl_y_also_says_how_the_next_turn_arrives() {
+    // The half that keeps working once the screen has filled: a row already in
+    // the scrollback cannot be rewritten, so the key sets the default too.
+    let mut frame = frame();
+    handle_key(&mut frame, &key("\u{19}"));
+    frame.absorb(&FrameEvent::TurnStats {
+        line: "  · 2 steps · 26ms\n".to_owned(),
+        shown: true,
+    });
+
+    assert!(has(&mut frame, "2 steps"));
+}
+
+#[test]
+fn ctrl_y_leaves_the_other_two_folds_alone() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
+    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
+    frame.absorb(&FrameEvent::ToolBodyEnd);
+
+    handle_key(&mut frame, &key("\u{19}"));
+    assert!(!has(&mut frame, "a private thought"));
+    assert!(!has(&mut frame, "a line of output"));
+}
+
+#[test]
+fn the_command_and_the_key_are_one_switch() {
+    // `/output stats on` reaches the frame through this, and it sets rather
+    // than flips: a flip would undo what the command asked for.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::TurnStats {
+        line: "  · 2 steps · 26ms\n".to_owned(),
+        shown: false,
+    });
+    frame.absorb(&FrameEvent::StatsShown(true));
+
+    assert!(has(&mut frame, "2 steps"));
+    // The command's half arriving must not bounce back to the renderer.
+    assert_eq!(frame.take_stats_toggle(), None);
+}
+
+#[test]
+fn the_key_hands_its_answer_to_whoever_prints_output() {
+    // One switch with two owners. The frame folds what is drawn; the renderer
+    // decides whether a pipe ever sees the next one.
+    let mut frame = frame();
+    handle_key(&mut frame, &key("\u{19}"));
+
+    assert_eq!(frame.take_stats_toggle(), Some(true));
+    assert_eq!(frame.take_stats_toggle(), None);
 }

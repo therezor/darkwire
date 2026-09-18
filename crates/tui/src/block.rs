@@ -8,10 +8,11 @@
 //! it.
 //!
 //! What a block is, deliberately, is structure and nothing else. It has a `tag`
-//! the caller chooses and this crate never reads, a summary row, a body, and a
-//! flag saying which of the two is showing. It does not know what reasoning is,
-//! or a tool, or an answer. Those are the caller's words, and keeping them out
-//! is what lets this crate stay free of anything domain-shaped.
+//! the caller chooses and this crate never reads, whatever stands in for the
+//! body while it is folded, a body, and a flag saying which is showing. It does
+//! not know what reasoning is, or a tool, or an answer. Those are the caller's
+//! words, and keeping them out is what lets this crate stay free of anything
+//! domain-shaped.
 //!
 //! Three things worth knowing before changing it:
 //!
@@ -23,20 +24,40 @@
 //!    re-open on the next row, because the row above has already been drawn. The
 //!    state that tracks it belongs to the block, so a reasoning run's dim cannot
 //!    leak into whatever is written after it closes.
-//!  - **A summary is what a collapsed block shows**, and a block with no summary
-//!    cannot collapse at all. That is the difference between prose and a fold,
-//!    stated once, in the type.
+//!  - **What a collapsed block shows is in the type**, and there are three
+//!    answers: prose shows its body and cannot collapse at all, a folding block
+//!    shows a summary row, and a hiding block shows nothing. The last is for a
+//!    run with nothing worth promising, one row that is either on screen or is
+//!    not.
 
 use crate::text::{STYLE_RESET, carry_styles, wrap_to_width};
+
+/// What stands in for a block's body while it is folded.
+///
+/// Three kinds and not two. A summary is a promise that there is something
+/// under the row, and some runs have nothing to promise: a line that is either
+/// on screen or is not, with no row left behind to say it exists. A summary of
+/// `""` would have said the same thing and said it by accident, and the rule
+/// would then have to be repeated as an implicit string check everywhere the
+/// summary is read.
+#[derive(Debug, Default)]
+enum Folded {
+    /// Nothing stands in for it, so it cannot fold at all. Prose.
+    #[default]
+    Never,
+    /// One row, shown in place of the body while it is hidden.
+    Summary(String),
+    /// Nothing at all. Folded, the block is off the screen entirely.
+    Away,
+}
 
 /// A run of text, with the rows it wraps to at the width last asked for.
 #[derive(Debug, Default)]
 pub struct Block {
     /// The caller's word for what this is. Compared, never interpreted.
     tag: Option<&'static str>,
-    /// The single row shown in place of the body. `None` means prose, which
-    /// has no summary and never folds.
-    summary: Option<String>,
+    /// What is shown in place of the body when this is folded.
+    folded: Folded,
     /// Logical lines, unwrapped. The wrap is layout and happens at render.
     lines: Vec<String>,
     collapsed: bool,
@@ -69,7 +90,21 @@ impl Block {
     pub fn folding(tag: &'static str, summary: &str, collapsed: bool) -> Self {
         Self {
             tag: Some(tag),
-            summary: Some(summary.to_owned()),
+            folded: Folded::Summary(summary.to_owned()),
+            collapsed,
+            ..Self::default()
+        }
+    }
+
+    /// A block that shows nothing at all when it is folded.
+    ///
+    /// For a run with no summary worth writing: one row that is either on
+    /// screen or is not. It is still a block rather than prose because a key
+    /// that reveals it has to find every one of them, and that is done by tag.
+    pub fn hiding(tag: &'static str, collapsed: bool) -> Self {
+        Self {
+            tag: Some(tag),
+            folded: Folded::Away,
             collapsed,
             ..Self::default()
         }
@@ -85,23 +120,26 @@ impl Block {
         self.collapsed
     }
 
-    /// Whether this block can fold at all, which is whether it has a summary.
+    /// Whether this block can fold at all.
     pub fn folds(&self) -> bool {
-        self.summary.is_some()
+        !matches!(self.folded, Folded::Never)
     }
 
-    /// Shows or hides the body. A block with no summary ignores it: there would
-    /// be nothing left on screen to say the text was ever there.
+    /// Shows or hides the body. Prose ignores it: there would be nothing left
+    /// on screen to say the text was ever there.
     pub fn set_collapsed(&mut self, collapsed: bool) {
-        if self.summary.is_some() {
+        if self.folds() {
             self.collapsed = collapsed;
         }
     }
 
     /// Replaces the row shown when folded, for a summary that counts up.
+    ///
+    /// Ignored by prose and by a block that folds away to nothing, both of
+    /// which have no row for it to replace.
     pub fn set_summary(&mut self, summary: &str) {
-        if self.summary.is_some() {
-            self.summary = Some(summary.to_owned());
+        if matches!(self.folded, Folded::Summary(_)) {
+            self.folded = Folded::Summary(summary.to_owned());
         }
     }
 
@@ -197,18 +235,21 @@ impl Block {
         usize::from(self.at_line_start() && !self.lines.is_empty())
     }
 
+    /// The row standing in for the body, if there is one, at `width`.
+    fn head(&self, width: usize) -> usize {
+        match &self.folded {
+            Folded::Summary(summary) => wrap_to_width(summary, width).len(),
+            Folded::Never | Folded::Away => 0,
+        }
+    }
+
     /// How many rows it draws at `width`, without building them a second time.
     pub fn height(&mut self, width: usize) -> usize {
-        if self.collapsed
-            && let Some(summary) = self.summary.as_ref()
-        {
-            return wrap_to_width(summary, width).len();
+        if self.collapsed && self.folds() {
+            return self.head(width);
         }
         let open = self.open_row();
-        let head = self
-            .summary
-            .as_ref()
-            .map_or(0, |summary| wrap_to_width(summary, width).len());
+        let head = self.head(width);
         head + self.body(width).len().saturating_sub(open)
     }
 
@@ -219,13 +260,20 @@ impl Block {
     /// is what the reader chose to see, and the history is what was on screen.
     pub fn take(&mut self) -> Vec<String> {
         let mut out = Vec::new();
-        if let Some(summary) = self.summary.take() {
+        let folded = std::mem::take(&mut self.folded);
+        let folds = !matches!(folded, Folded::Never);
+        if let Folded::Summary(summary) = folded {
             out.push(summary);
-            if self.collapsed {
-                self.lines.clear();
-                self.invalidate();
-                return out;
-            }
+        }
+        // Folded, so what was on screen is the summary alone, and for a block
+        // that folds away to nothing it is nothing at all. Handing the body
+        // over would put in the history precisely what the reader asked not to
+        // see; handing a blank row over would put in the history a row the
+        // screen never drew, and neither can be rewritten once it is there.
+        if self.collapsed && folds {
+            self.lines.clear();
+            self.invalidate();
+            return out;
         }
         out.append(&mut self.lines);
         self.invalidate();
@@ -246,16 +294,17 @@ impl Block {
     /// a block that has not changed clones the same `Vec` it cloned last time,
     /// which is a memcpy of a screenful and not a re-wrap of a session.
     pub fn render(&mut self, width: usize) -> Vec<String> {
-        if let Some(summary) = self.summary.as_ref()
-            && self.collapsed
-        {
-            return wrap_to_width(summary, width);
+        if self.collapsed && self.folds() {
+            return match &self.folded {
+                Folded::Summary(summary) => wrap_to_width(summary, width),
+                Folded::Never | Folded::Away => Vec::new(),
+            };
         }
         // Before `body`, which borrows mutably.
         let open = self.open_row();
-        let mut out = match self.summary.as_ref() {
-            Some(summary) => wrap_to_width(summary, width),
-            None => Vec::new(),
+        let mut out = match &self.folded {
+            Folded::Summary(summary) => wrap_to_width(summary, width),
+            Folded::Never | Folded::Away => Vec::new(),
         };
         let body = self.body(width);
         out.extend(body[..body.len().saturating_sub(open)].iter().cloned());

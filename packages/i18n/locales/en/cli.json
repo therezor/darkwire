@@ -251,9 +251,10 @@
       "kill": "clear the line, clear to the end, delete a word",
       "leave": "leave",
       "palette": "every command, searchable",
-      "redraw": "draw the screen again",
       "reasoning": "fold or unfold the reasoning",
+      "redraw": "draw the screen again",
       "run": "run the highlighted command",
+      "stats": "show or hide what the turn cost",
       "tools": "fold or unfold what tools printed"
     },
     "notes": {

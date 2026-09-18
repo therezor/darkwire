@@ -248,6 +248,7 @@ fn key_layout() -> Vec<(&'static str, &'static str)> {
         ("return", keys::slash::keys::RUN),
         ("ctrl-t", keys::slash::keys::REASONING),
         ("ctrl-o", keys::slash::keys::TOOLS),
+        ("ctrl-y", keys::slash::keys::STATS),
         ("ctrl-l", keys::slash::keys::REDRAW),
         ("ctrl-c", keys::slash::keys::CANCEL),
         ("ctrl-d", keys::slash::keys::LEAVE),

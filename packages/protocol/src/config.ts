@@ -970,6 +970,18 @@ export const UiConfigSchema = z.object({
    */
   expandToolOutput: z.boolean().default(false),
   /**
+   * Whether the terminal shows what a turn cost as it finishes.
+   *
+   * `· 2 steps · 3.9k in / 134 out · 2.5s · 68.9 tok/s`, which is worth having
+   * and is not worth a row under every answer. A switch for the same reason as
+   * `expandToolOutput`: the line is written either way and `ctrl-y` reveals it,
+   * so there is no third thing for "off" to mean.
+   *
+   * The terminal only. The browser puts the same figures in a turn-info
+   * popover, which is already out of the way.
+   */
+  expandTurnStats: z.boolean().default(false),
+  /**
    * The one zone this install reads and writes clock times in.
    *
    * Everything is *stored* in UTC — every persisted instant is epoch

@@ -18,6 +18,10 @@
       "default": false,
       "type": "boolean"
     },
+    "expandTurnStats": {
+      "default": false,
+      "type": "boolean"
+    },
     "timezone": {
       "default": "UTC",
       "type": "string",

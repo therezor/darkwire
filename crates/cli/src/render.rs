@@ -87,6 +87,29 @@ pub trait RenderTarget: Send {
         let _ = shown;
     }
 
+    /// What the turn cost, as the row that says so.
+    ///
+    /// A signal rather than prose because it is the one row somebody asks for
+    /// after a turn rather than during it. A target that only writes bytes has
+    /// nowhere to keep a row it is not showing, so the default writes it when
+    /// the switch is on and drops it when it is off, which is what this line
+    /// has always done on a pipe. A frame keeps it either way and lets a key
+    /// decide, because a row that was never sent is a row no key can reveal.
+    fn turn_stats(&mut self, line: &str, shown: bool) {
+        if shown {
+            self.write(line);
+        }
+    }
+
+    /// The turn's cost has been switched on or off for this session.
+    ///
+    /// The counterpart of [`RenderTarget::reasoning_shown`], and it is here for
+    /// the same reason: `/output stats on` has to reach the rows already drawn,
+    /// and only the surface holding them can unfold those.
+    fn stats_shown(&mut self, shown: bool) {
+        let _ = shown;
+    }
+
     /// The agent is asking for a new plan; `card` is the rows that say so.
     ///
     /// Announced, not settled: a call can still be refused or fail. A stream
@@ -142,9 +165,12 @@ pub struct TurnRendererOptions {
     /// The dim token and timing line after a turn.
     ///
     /// Called stats rather than usage, which is what it was: `Usage` is the
-    /// token record the protocol carries, and this is the *line* — which nobody
-    /// at a prompt calls usage. `/output stats off` is how it is turned off,
-    /// and one word for one thing is worth the rename.
+    /// token record the protocol carries, and this is the *line*, which nobody
+    /// at a prompt calls usage. `/output stats` and `ctrl-y` are how it is
+    /// turned on, and one word for one thing is worth the rename.
+    ///
+    /// It decides whether a target that only writes bytes prints the row. The
+    /// row is built either way, so a frame can hold one it is not showing.
     pub show_stats: bool,
     /// Lines of a tool result to preview. `0` prints none.
     pub tool_result_lines: usize,
@@ -153,15 +179,20 @@ pub struct TurnRendererOptions {
 }
 
 impl TurnRendererOptions {
-    /// The options a plain terminal turn wants: colour detected, reasoning and
-    /// stats shown, six lines of every tool result, English.
+    /// The options a plain terminal turn wants: colour detected, reasoning
+    /// shown, what the turn cost folded away, six lines of every tool result,
+    /// English.
+    ///
+    /// `show_stats` is `false` here because it is `false` in the product, and a
+    /// constructor that disagreed with the shipped default would be a second
+    /// answer to the same question.
     #[must_use]
     pub fn new(out: Box<dyn RenderTarget>) -> TurnRendererOptions {
         TurnRendererOptions {
             out,
             colors: None,
             show_reasoning: true,
-            show_stats: true,
+            show_stats: false,
             tool_result_lines: DEFAULT_TOOL_RESULT_LINES,
             t: Translations::default(),
         }
@@ -753,6 +784,7 @@ impl TurnRenderer {
     /// Shows or hides the token and timing line from here on.
     pub fn set_stats_shown(&mut self, shown: bool) {
         self.show_stats = shown;
+        self.out.stats_shown(shown);
     }
 
     /// What past turns cost, one line each.
@@ -991,10 +1023,6 @@ impl TurnRenderer {
             let text = self.colors.yellow.apply(&format!("  {}", self.t.t(key)));
             self.line(&text);
         }
-        if !self.show_stats {
-            return;
-        }
-
         let steps = i64::try_from(iterations).unwrap_or(i64::MAX);
         let mut parts = vec![self.t.tr(keys::render::STEPS, args!["count" => steps])];
         if let Some(usage) = usage.filter(|usage| usage.total_tokens > 0) {
@@ -1006,8 +1034,12 @@ impl TurnRenderer {
         if let Some(rate) = usage.and_then(|usage| format_rate(usage, timing)) {
             parts.push(rate);
         }
-        let line = self.colors.dim.apply(&format!("  · {}", parts.join(" · ")));
-        self.line(&line);
+        // Built whatever the switch says, and handed over with it. A surface
+        // that can fold keeps the row and hides it; one that only writes bytes
+        // drops it. A line that was never built is a line no key can reveal.
+        let line = self.indent_line(&self.colors.dim.apply(&format!("  · {}", parts.join(" · "))));
+        self.out.turn_stats(&line, self.show_stats);
+        self.at_line_start = true;
     }
 
     fn line(&mut self, text: &str) {

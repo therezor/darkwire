@@ -669,3 +669,37 @@ fn the_live_region_is_the_same_height_whether_or_not_the_last_write_ended_a_line
     assert_eq!(mid_line.height(40), ended.height(40));
     assert_eq!(mid_line.render(40), ended.render(40));
 }
+
+#[test]
+fn a_run_that_shows_nothing_does_not_pin_the_live_region() {
+    // It is opened, written and closed in one step, so the block behind it is
+    // prose again and the commit has something it may take. A run left open
+    // would hold the live region for the rest of the session.
+    let mut transcript = Transcript::new();
+    transcript.write("the answer\n");
+    transcript.hide_block("stats", true);
+    transcript.write("  · 2 steps · 26ms\n");
+    transcript.close_block();
+    for at in 0..40 {
+        transcript.write(&format!("line {at}\n"));
+    }
+
+    let committed = transcript.take_committable(2, 40);
+    assert!(!committed.is_empty());
+    assert!(!committed.iter().any(|line| line.contains("2 steps")));
+    assert!(!committed.iter().any(String::is_empty));
+}
+
+#[test]
+fn the_key_reaches_a_run_that_shows_nothing() {
+    // The whole reason it is a block rather than prose written conditionally:
+    // what is already on screen has to follow the switch.
+    let mut transcript = Transcript::new();
+    transcript.hide_block("stats", true);
+    transcript.write("  · 2 steps · 26ms\n");
+    transcript.close_block();
+    assert!(transcript.render(40).is_empty());
+
+    transcript.set_collapsed("stats", false);
+    assert_eq!(transcript.render(40), ["  · 2 steps · 26ms"]);
+}

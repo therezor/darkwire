@@ -806,7 +806,9 @@ async fn output_lists_every_switch_and_its_state_when_asked_for_nothing() {
     h.run("/output").await;
 
     assert!(h.text().contains("reasoning  shown"), "{}", h.text());
-    assert!(h.text().contains("stats      shown"), "{}", h.text());
+    // Hidden, which is how a turn's cost arrives now: worth having, and not
+    // worth a row under every answer.
+    assert!(h.text().contains("stats      hidden"), "{}", h.text());
 }
 
 #[tokio::test]
@@ -857,14 +859,14 @@ async fn output_refuses_a_field_it_has_never_heard_of() {
 
     assert!(h.text().contains("colours"));
     assert!(h.renderer.reasoning_shown());
-    assert!(h.renderer.stats_shown());
+    assert!(!h.renderer.stats_shown());
 }
 
 #[tokio::test]
 async fn output_treats_a_word_it_does_not_know_as_a_flip() {
     let mut h = Harness::bare("cli:1");
     h.run("/output stats yes-please").await;
-    assert!(!h.renderer.stats_shown());
+    assert!(h.renderer.stats_shown());
 }
 
 // /model

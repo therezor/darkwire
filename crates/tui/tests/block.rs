@@ -164,3 +164,47 @@ fn a_collapsed_block_still_shows_its_summary() {
     assert_eq!(block.render(40), ["thought for 4s"]);
     assert_eq!(block.height(40), 1);
 }
+
+#[test]
+fn a_block_that_folds_away_shows_nothing_at_all() {
+    // The difference from a summary: there is no row left behind to say the
+    // text exists. It is on screen or it is not.
+    let mut block = Block::hiding("stats", true);
+    block.write("  · 2 steps · 26ms\n");
+    assert!(block.render(40).is_empty());
+    assert_eq!(block.height(40), 0);
+
+    block.set_collapsed(false);
+    assert_eq!(block.render(40), ["  · 2 steps · 26ms"]);
+    assert_eq!(block.height(40), 1);
+}
+
+#[test]
+fn a_block_folded_away_takes_nothing_to_the_scrollback() {
+    // The history is what was on screen, and nothing was. A blank row here is
+    // one per turn, growing a long session apart for a reason nobody would
+    // connect to a fold, and committed text cannot be rewritten.
+    let mut block = Block::hiding("stats", true);
+    block.write("  · 2 steps · 26ms\n");
+    assert!(block.take().is_empty());
+}
+
+#[test]
+fn an_open_one_takes_its_body() {
+    // The open line goes with it, as it does for every other kind: the
+    // transcript trims that at the block boundary, before anything is handed
+    // over. What matters here is that the text itself is not dropped.
+    let mut block = Block::hiding("stats", false);
+    block.write("  · 2 steps · 26ms\n");
+    block.trim_open_line();
+    assert_eq!(block.take(), ["  · 2 steps · 26ms"]);
+}
+
+#[test]
+fn a_block_that_folds_away_has_no_summary_to_replace() {
+    // Like prose, and for the same reason: there is no row for one to go on.
+    let mut block = Block::hiding("stats", true);
+    block.set_summary("this is not shown anywhere");
+    block.write("  · 2 steps\n");
+    assert!(block.render(40).is_empty());
+}
