@@ -293,6 +293,17 @@ impl Transcript {
         out
     }
 
+    /// Whether anything has gone to the terminal's own scrollback yet.
+    ///
+    /// The question a caller asks to know whether the screen above the frame is
+    /// its own conversation or is still whatever the shell left there. While
+    /// this is false the frame is the only thing the program has drawn, so it
+    /// is free to pad itself to the window; once it is true the terminal has
+    /// scrolled and padding would push real conversation off the top.
+    pub fn committed_anything(&self) -> bool {
+        !self.ring.is_empty()
+    }
+
     /// The most recently committed lines that fill `rows`, oldest first.
     ///
     /// What a resize reprints above the frame. Erasing the screen takes with it

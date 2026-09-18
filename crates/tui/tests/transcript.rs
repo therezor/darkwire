@@ -703,3 +703,21 @@ fn the_key_reaches_a_run_that_shows_nothing() {
     transcript.set_collapsed("stats", false);
     assert_eq!(transcript.render(40), ["  · 2 steps · 26ms"]);
 }
+
+#[test]
+fn says_whether_anything_has_gone_to_the_scrollback() {
+    // What a frame asks to know whether the screen above it holds its own
+    // conversation or is still whatever the shell left there.
+    let mut transcript = Transcript::new();
+    transcript.write("one\ntwo\n");
+    assert!(!transcript.committed_anything());
+
+    for at in 0..60 {
+        transcript.write(&format!("line {at}\n"));
+    }
+    assert!(!transcript.take_committable(4, 40).is_empty());
+    assert!(transcript.committed_anything());
+
+    transcript.clear();
+    assert!(!transcript.committed_anything());
+}

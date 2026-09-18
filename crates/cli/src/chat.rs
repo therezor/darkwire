@@ -1251,7 +1251,13 @@ pub struct Frame {
     thinking: Option<i64>,
     theme: Theme,
     generating: String,
-    status: Vec<String>,
+    /// What the bar at the bottom says, as the record rather than the rows.
+    ///
+    /// Drawn at render time, not kept as strings. The rows are justified to the
+    /// window, so a copy built at one width is wrong at every other: a narrower
+    /// window has the renderer cut the row, and what it cuts is the right-hand
+    /// side, which is the half naming the model. A resize used to lose it.
+    view: HeaderView,
     /// How a *new* run of each kind arrives, and what Ctrl-T and Ctrl-O set.
     ///
     /// Held apart from each block's own state, and that is the whole of what
@@ -1260,6 +1266,12 @@ pub struct Frame {
     /// working the moment the screen filled. This is the half that keeps
     /// working: press it once and every run after it arrives the way you asked.
     folds: FoldDefaults,
+    /// How tall the window the frame is drawn in is, or zero when unknown.
+    ///
+    /// A component is asked for rows at a width and never told the height, so
+    /// whoever owns the renderer sets it. It is what lets the composer sit at
+    /// the bottom of a window rather than under the last thing said.
+    viewport_rows: usize,
     /// Ticks since the open reasoning run started, for a summary that moves.
     reasoning_since: Option<i64>,
     /// What a key last did to the row saying what a turn cost, until taken.
@@ -1394,8 +1406,9 @@ impl Frame {
             thinking: None,
             theme,
             generating: generating.to_owned(),
-            status: Vec::new(),
+            view: HeaderView::default(),
             folds: FoldDefaults::default(),
+            viewport_rows: 0,
             reasoning_since: None,
             stats_toggled: None,
             tasks: Vec::new(),
@@ -1711,6 +1724,35 @@ impl Frame {
         rows
     }
 
+    /// Replaces what the bar at the bottom says.
+    pub fn set_view(&mut self, view: HeaderView) {
+        self.view = view;
+    }
+
+    /// Tells the frame how tall the window is, so it can reach the bottom of it.
+    pub fn set_viewport_rows(&mut self, rows: usize) {
+        self.viewport_rows = rows;
+    }
+
+    /// Blank rows that push the composer down to the bottom of the window.
+    ///
+    /// Only while nothing has gone to the scrollback yet. Until then the frame
+    /// is the whole of what this program has drawn and it starts at the top of
+    /// a cleared screen, so a short conversation leaves the box you type into
+    /// floating in the middle of the window. Once anything has been committed
+    /// the terminal has scrolled, the frame is already against the bottom, and
+    /// padding would push real conversation off the top instead.
+    fn bottom_padding(&mut self, width: usize, used: usize) -> Vec<String> {
+        if self.viewport_rows == 0 || self.transcript.committed_anything() {
+            return Vec::new();
+        }
+        let below = self.chrome_rows(width).saturating_sub(1);
+        let short = self
+            .viewport_rows
+            .saturating_sub(used.saturating_add(below));
+        vec![String::new(); short]
+    }
+
     /// How many rows the conversation itself takes.
     ///
     /// The other half of the frame's height, so a test can add the two up and
@@ -1753,7 +1795,9 @@ impl Frame {
             rows += popup.render(width, &self.theme).len();
         }
         rows += self.task_rows(width).len();
-        rows + 1 + self.editor.render(width).len() + self.status.len()
+        rows + 1
+            + self.editor.render(width).len()
+            + status_bar(&self.view, width, &self.theme).len()
     }
 }
 
@@ -1764,6 +1808,7 @@ impl Component for Frame {
         // because the transcript no longer draws the line a write left open,
         // so its last row is text whether or not that write ended a line.
         rows.push(String::new());
+        rows.extend(self.bottom_padding(width, rows.len()));
 
         if let Some(overlay) = self.overlay.as_mut() {
             rows.extend(overlay.render(width));
@@ -1783,7 +1828,7 @@ impl Component for Frame {
         rows.extend(self.task_rows(width));
         rows.push(input_rule(width, &self.theme));
         rows.extend(self.editor.render(width));
-        rows.extend(self.status.clone());
+        rows.extend(status_bar(&self.view, width, &self.theme));
         rows
     }
 }
@@ -1849,6 +1894,9 @@ impl FrameState {
     /// short session.
     fn draw(&mut self) {
         let width = self.renderer.columns();
+        // Before anything measures the frame: the padding that puts the
+        // composer against the bottom of the window is sized from this.
+        self.frame.set_viewport_rows(self.renderer.rows());
         let cap = self
             .renderer
             .rows()
@@ -1880,6 +1928,7 @@ impl FrameState {
     /// screen that is already wrong.
     fn redraw(&mut self) {
         self.renderer.invalidate();
+        self.frame.set_viewport_rows(self.renderer.rows());
         // Erasing the screen takes the committed rows that were on it. Those
         // are not in the terminal's history, where only what has scrolled past
         // lives, so they are reprinted above the frame.
@@ -2013,7 +2062,6 @@ pub struct FramedSurface {
     chunks: mpsc::UnboundedReceiver<FrameEvent>,
     /// Lines typed while a turn was running, in the order they were submitted.
     queued: std::collections::VecDeque<String>,
-    theme: Theme,
     t: Translations,
     rows: Vec<crate::pickers::palette::PaletteRow>,
     /// Whether this process is the one that put the terminal into raw mode.
@@ -2050,8 +2098,9 @@ impl FramedSurface {
             thinking: None,
             theme: session.theme,
             generating: session.t.t(keys::chat::GENERATING),
-            status: status_bar(&session.view(), width, &session.theme),
+            view: session.view(),
             folds: FoldDefaults::from(&session.runtime.config().ui),
+            viewport_rows: 0,
             reasoning_since: None,
             stats_toggled: None,
             tasks: Vec::new(),
@@ -2079,6 +2128,10 @@ impl FramedSurface {
             &session.t,
             true,
         ));
+        // The very first frame, before the loop that otherwise sets it: without
+        // this the banner would be drawn against the top and jump to the bottom
+        // on the first keystroke.
+        frame.set_viewport_rows(renderer.rows());
         renderer.render(&mut frame);
 
         // Asked before the reader starts, because from then on the thread is
@@ -2100,7 +2153,6 @@ impl FramedSurface {
             chunks,
             queued: std::collections::VecDeque::new(),
             owns_raw,
-            theme: session.theme,
             t: Translations::new(session.t.locale()),
             rows: crate::commands::palette_rows(&session.runtime),
         }
@@ -2208,8 +2260,7 @@ impl Surface for FramedSurface {
             while let Ok(event) = self.chunks.try_recv() {
                 state.absorb(&event);
             }
-            let width = state.renderer.columns();
-            state.frame.status = status_bar(view, width, &self.theme);
+            state.frame.set_view(view.clone());
             state.draw();
         })
     }

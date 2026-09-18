@@ -1167,3 +1167,70 @@ fn the_key_hands_its_answer_to_whoever_prints_output() {
     assert_eq!(frame.take_stats_toggle(), Some(true));
     assert_eq!(frame.take_stats_toggle(), None);
 }
+
+#[test]
+fn the_bar_at_the_bottom_is_drawn_at_the_width_it_is_asked_for() {
+    // It used to be built once and kept as rows. The rows are justified to the
+    // window, so a copy built at one width is wrong at every other: a narrower
+    // window had the renderer cut the row, and what it cut was the right-hand
+    // side, which is the half naming the model.
+    let mut frame = frame();
+    frame.set_view(darkwire::header::HeaderView {
+        agent: "default".to_owned(),
+        model: "qwen3:8b".to_owned(),
+        provider: "Custom".to_owned(),
+        workspace_name: "Default".to_owned(),
+        ..darkwire::header::HeaderView::default()
+    });
+
+    for width in [92_usize, 56, 40] {
+        let rows = darkwire_tui::Component::render(&mut frame, width);
+        let last = rows.last().unwrap();
+        assert!(
+            darkwire_tui::visible_width(last) <= width,
+            "at {width}: {last}"
+        );
+        assert!(last.contains("qwen3:8b"), "at {width}: {last}");
+    }
+}
+
+#[test]
+fn the_composer_sits_at_the_bottom_of_the_window() {
+    // A short conversation used to leave the box you type into floating in the
+    // middle of a cleared screen, because the frame was drawn from the top and
+    // simply stopped when it ran out of things to say.
+    let mut frame = frame();
+    frame.set_viewport_rows(30);
+    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+
+    assert_eq!(shown(&mut frame).len(), 30);
+}
+
+#[test]
+fn a_conversation_taller_than_the_window_is_not_padded() {
+    // The padding is slack, never a push: a frame one row taller than the
+    // window scrolls, and what scrolls off is stranded above it.
+    let mut frame = frame();
+    frame.set_viewport_rows(12);
+    for at in 0..40 {
+        frame.absorb(&FrameEvent::Text(format!("line {at}\n")));
+    }
+
+    let rows = shown(&mut frame);
+    assert!(rows.len() > 12);
+    // Exactly the conversation plus the chrome, so nothing was padded in.
+    assert_eq!(
+        rows.len(),
+        frame.conversation_rows(80) + frame.chrome_rows(80)
+    );
+}
+
+#[test]
+fn a_frame_told_nothing_about_the_window_does_not_pad() {
+    // Which is every test that drives the frame with no terminal, and the
+    // one-shot path that draws a frame before a size is known.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+
+    assert!(shown(&mut frame).len() < 30);
+}
