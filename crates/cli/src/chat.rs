@@ -1266,12 +1266,6 @@ pub struct Frame {
     /// working the moment the screen filled. This is the half that keeps
     /// working: press it once and every run after it arrives the way you asked.
     folds: FoldDefaults,
-    /// How tall the window the frame is drawn in is, or zero when unknown.
-    ///
-    /// A component is asked for rows at a width and never told the height, so
-    /// whoever owns the renderer sets it. It is what lets the composer sit at
-    /// the bottom of a window rather than under the last thing said.
-    viewport_rows: usize,
     /// Ticks since the open reasoning run started, for a summary that moves.
     reasoning_since: Option<i64>,
     /// What a key last did to the row saying what a turn cost, until taken.
@@ -1408,7 +1402,6 @@ impl Frame {
             generating: generating.to_owned(),
             view: HeaderView::default(),
             folds: FoldDefaults::default(),
-            viewport_rows: 0,
             reasoning_since: None,
             stats_toggled: None,
             tasks: Vec::new(),
@@ -1729,30 +1722,6 @@ impl Frame {
         self.view = view;
     }
 
-    /// Tells the frame how tall the window is, so it can reach the bottom of it.
-    pub fn set_viewport_rows(&mut self, rows: usize) {
-        self.viewport_rows = rows;
-    }
-
-    /// Blank rows that push the composer down to the bottom of the window.
-    ///
-    /// Only while nothing has gone to the scrollback yet. Until then the frame
-    /// is the whole of what this program has drawn and it starts at the top of
-    /// a cleared screen, so a short conversation leaves the box you type into
-    /// floating in the middle of the window. Once anything has been committed
-    /// the terminal has scrolled, the frame is already against the bottom, and
-    /// padding would push real conversation off the top instead.
-    fn bottom_padding(&mut self, width: usize, used: usize) -> Vec<String> {
-        if self.viewport_rows == 0 || self.transcript.committed_anything() {
-            return Vec::new();
-        }
-        let below = self.chrome_rows(width).saturating_sub(1);
-        let short = self
-            .viewport_rows
-            .saturating_sub(used.saturating_add(below));
-        vec![String::new(); short]
-    }
-
     /// How many rows the conversation itself takes.
     ///
     /// The other half of the frame's height, so a test can add the two up and
@@ -1808,7 +1777,6 @@ impl Component for Frame {
         // because the transcript no longer draws the line a write left open,
         // so its last row is text whether or not that write ended a line.
         rows.push(String::new());
-        rows.extend(self.bottom_padding(width, rows.len()));
 
         if let Some(overlay) = self.overlay.as_mut() {
             rows.extend(overlay.render(width));
@@ -1894,9 +1862,6 @@ impl FrameState {
     /// short session.
     fn draw(&mut self) {
         let width = self.renderer.columns();
-        // Before anything measures the frame: the padding that puts the
-        // composer against the bottom of the window is sized from this.
-        self.frame.set_viewport_rows(self.renderer.rows());
         let cap = self
             .renderer
             .rows()
@@ -1928,7 +1893,6 @@ impl FrameState {
     /// screen that is already wrong.
     fn redraw(&mut self) {
         self.renderer.invalidate();
-        self.frame.set_viewport_rows(self.renderer.rows());
         // Erasing the screen takes the committed rows that were on it. Those
         // are not in the terminal's history, where only what has scrolled past
         // lives, so they are reprinted above the frame.
@@ -2100,7 +2064,6 @@ impl FramedSurface {
             generating: session.t.t(keys::chat::GENERATING),
             view: session.view(),
             folds: FoldDefaults::from(&session.runtime.config().ui),
-            viewport_rows: 0,
             reasoning_since: None,
             stats_toggled: None,
             tasks: Vec::new(),
@@ -2128,10 +2091,6 @@ impl FramedSurface {
             &session.t,
             true,
         ));
-        // The very first frame, before the loop that otherwise sets it: without
-        // this the banner would be drawn against the top and jump to the bottom
-        // on the first keystroke.
-        frame.set_viewport_rows(renderer.rows());
         renderer.render(&mut frame);
 
         // Asked before the reader starts, because from then on the thread is
