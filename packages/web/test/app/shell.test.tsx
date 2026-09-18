@@ -142,6 +142,23 @@ describe('the shell', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('names the section in the tab title, and only the app at the root', async () => {
+    renderApp('/agents');
+    await waitFor(() => {
+      expect(document.title).toBe('Agents · DarkWire');
+    });
+
+    renderApp('/settings/providers/new');
+    await waitFor(() => {
+      expect(document.title).toBe('Settings · DarkWire');
+    });
+
+    renderApp('/');
+    await waitFor(() => {
+      expect(document.title).toBe('DarkWire');
+    });
+  });
+
   it('lists sessions in the sidebar and unread notifications in the header', async () => {
     renderApp();
 

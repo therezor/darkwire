@@ -1395,7 +1395,7 @@ pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -
         ),
         (
             t.t(keys::serve::WORKSPACES),
-            running.runtime.jail().root().display().to_string(),
+            running.runtime.paths().workspaces_dir.display().to_string(),
         ),
         (
             t.t(keys::serve::UI),

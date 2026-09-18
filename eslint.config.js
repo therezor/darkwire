@@ -203,6 +203,10 @@ export default tseslint.config(
       // objects would cost more than it checks.
       'i18next-parser.*.js',
       'i18next-parser.base.js',
+      // The pre-paint script. Plain ES5 that Vite ships as-is from `public/`,
+      // so it is in no tsconfig, and `theme.test.ts` runs the file itself,
+      // which is a stronger check than a lint pass over it.
+      'packages/web/public/boot.js',
     ],
   },
   js.configs.recommended,

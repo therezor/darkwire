@@ -22,9 +22,9 @@
  * which would drop the turn the user went to Settings to reconfigure.
  */
 
-import { useSearch } from '@tanstack/react-router';
+import { useRouterState, useSearch } from '@tanstack/react-router';
 import { Menu, RotateCw } from 'lucide-react';
-import { useState, type JSX, type ReactNode } from 'react';
+import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
@@ -51,6 +51,47 @@ import { NotificationBell } from '@/notifications/notification-bell.js';
 import { ThemeSwitcher } from '@/components/theme-switcher.js';
 import { Wordmark } from '@/components/wordmark.js';
 import { Sidebar } from './sidebar.js';
+import type { WebKey } from '@/i18n/keys.js';
+
+/**
+ * The tab title for each section, keyed by the path prefix that opens it.
+ *
+ * A section and everything under it share one title: the agent editor is an
+ * Agents tab, and a tab strip full of "DarkWire" tells nobody which one to
+ * click. The root is the bare name, because it is the app rather than a
+ * section of it.
+ */
+const PAGE_TITLES: ReadonlyArray<readonly [string, WebKey]> = [
+  ['/sessions', 'nav.sessions'],
+  ['/agents', 'nav.agents'],
+  ['/files', 'nav.files'],
+  ['/workspaces', 'nav.workspaces'],
+  ['/notifications', 'notifications.title'],
+  ['/automation', 'nav.automation'],
+  ['/settings', 'nav.settings'],
+  ['/tokens', 'nav.tokens'],
+];
+
+/** The section of `pathname`, or `undefined` at the root and on an unknown path. */
+export function pageTitleKey(pathname: string): WebKey | undefined {
+  return PAGE_TITLES.find(
+    ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )?.[1];
+}
+
+function usePageTitle(): void {
+  const { t } = useTranslation();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  useEffect(() => {
+    const key = pageTitleKey(pathname);
+    document.title =
+      key === undefined
+        ? t('shell.appName')
+        : t('shell.pageTitle', { page: t(key) });
+  }, [pathname, t]);
+}
 
 export function Shell({
   children,
@@ -59,6 +100,7 @@ export function Shell({
 }): JSX.Element {
   const { t } = useTranslation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  usePageTitle();
 
   // `strict: false` because the shell is above every route and only one of them
   // has a `session` parameter — on the others the answer is legitimately

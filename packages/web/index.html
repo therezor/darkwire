@@ -8,88 +8,8 @@
     />
     <meta name="color-scheme" content="dark light" />
     <title>DarkWire</title>
-
-    <!--
-      Same-origin and shipped in the tarball, like the fonts. An SVG rather than
-      an `.ico`: one file, sharp at every size, and no build step to generate
-      the four raster sizes a tab, a bookmark and a pinned shortcut each want.
-    -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-
-    <!--
-      The pre-paint stamp. Blocking and inline on purpose: it has to run before
-      the first paint, and anything deferred, bundled or async paints the
-      default theme first and corrects it a frame later — which is the flash.
-
-      It duplicates `src/theme/theme.ts` in about ten lines because it cannot
-      import it: a module script is deferred by definition. `theme.test.ts`
-      extracts this script, runs it, and asserts it agrees with the module on
-      every combination of stored preference and OS setting, so the duplication
-      cannot drift silently.
-
-      The locale is stamped here for the same reason and pays for itself twice:
-      `lang` is what a screen reader picks its voice from, so correcting it a
-      frame later means the first announcement is in the wrong one — and `dir`
-      is layout, so a late correction is a visible reflow rather than a flash.
-      It duplicates `src/i18n/locale-preference.ts`, and `theme.test.ts` holds
-      the same agreement assertion over it.
-    -->
-    <script>
-      (function () {
-        var storage = null;
-        try {
-          storage = localStorage;
-        } catch (error) {
-          /* Storage is unreachable in a cross-origin iframe. Fall back to the OS. */
-        }
-
-        var read = function (key) {
-          try {
-            return storage && storage.getItem(key);
-          } catch (error) {
-            return null;
-          }
-        };
-
-        var stored = read('darkwire.theme');
-        var light =
-          stored === 'light' ||
-          (stored !== 'dark' &&
-            window.matchMedia('(prefers-color-scheme: light)').matches);
-
-        document.documentElement.dataset.theme = light ? 'light' : 'dark';
-
-        /* `system`, or absent, means "ask the browser" — the same three-state
-           preference the theme has, resolved the same way. Only the language
-           subtag is compared, so `de-AT` matches a `de` bundle. */
-        var locale = read('darkwire.locale');
-        var supported = ['en'];
-        var wanted =
-          locale && locale !== 'system'
-            ? [locale]
-            : (navigator.languages || []).slice();
-
-        var resolved = 'en';
-        for (var i = 0; i < wanted.length; i += 1) {
-          var tag = String(wanted[i]).toLowerCase().replace(/_/g, '-');
-          for (var j = 0; j < supported.length; j += 1) {
-            if (tag === supported[j] || tag.indexOf(supported[j] + '-') === 0) {
-              resolved = supported[j];
-              i = wanted.length;
-              break;
-            }
-          }
-        }
-
-        document.documentElement.lang = resolved;
-        document.documentElement.dir =
-          ['ar', 'fa', 'he', 'ps', 'ur', 'yi'].indexOf(
-            resolved.split('-')[0],
-          ) === -1
-            ? 'ltr'
-            : 'rtl';
-      })();
-    </script>
+    <script src="/boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -6,8 +6,8 @@
  * The locale, and the two attributes it stamps.
  *
  * Same shape as `theme.test.ts`, and for the same reason: the pre-paint script
- * lives as inline text in `index.html`, so nothing typechecks it, nothing
- * bundles it, and nothing would notice it going stale. This extracts it from
+ * ships as `public/boot.js`, so nothing typechecks it, nothing
+ * bundles it, and nothing would notice it going stale. This reads it from
  * the real file, runs it against a stubbed DOM, and asserts it agrees with
  * `locale-preference.ts`. Two implementations of one rule are fine; two that
  * can disagree without a test failing are how a page announces itself in the
@@ -31,8 +31,8 @@ import {
 } from '@/i18n/locale-preference.js';
 import { PACKAGE_ROOT } from '@testkit/paths.js';
 
-const INDEX_HTML = join(PACKAGE_ROOT, 'index.html');
-const html = readFileSync(INDEX_HTML, 'utf8');
+const BOOT_SCRIPT = join(PACKAGE_ROOT, 'public', 'boot.js');
+const script = readFileSync(BOOT_SCRIPT, 'utf8');
 
 /** See the note in `theme.test.ts`: node's own inert global shadows jsdom's. */
 function memoryStorage(): Storage {
@@ -181,9 +181,7 @@ describe('applyLocale', () => {
   });
 });
 
-describe('the pre-paint script in index.html', () => {
-  const script = extractInlineScript(html);
-
+describe('the pre-paint script, public/boot.js', () => {
   it('reads the same storage key the module writes', () => {
     expect(script).toContain(LOCALE_STORAGE_KEY);
   });
@@ -268,12 +266,4 @@ describe('the pre-paint script in index.html', () => {
 function runScript(source: string): void {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
   new Function(source)();
-}
-
-function extractInlineScript(source: string): string {
-  const match = /<script>([\s\S]*?)<\/script>/.exec(source);
-  if (match?.[1] === undefined) {
-    throw new Error('No inline script in index.html');
-  }
-  return match[1];
 }

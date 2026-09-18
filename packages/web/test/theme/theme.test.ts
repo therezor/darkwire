@@ -5,10 +5,10 @@
 /**
  * The theme, and the flash.
  *
- * The interesting half of this file is the pre-paint script: it lives as inline
- * text in `index.html`, so nothing typechecks it, nothing bundles it, and
- * nothing would notice it going stale. So the test extracts it from the real
- * `index.html`, runs it against a stubbed DOM, and asserts it agrees with
+ * The interesting half of this file is the pre-paint script: it ships as
+ * `public/boot.js`, so nothing typechecks it, nothing bundles it, and nothing
+ * would notice it going stale. So the test reads the real file, runs it
+ * against a stubbed DOM, and asserts it agrees with
  * `theme.ts` on all six combinations of stored preference and OS setting. Two
  * implementations of one rule are fine; two implementations that can disagree
  * without a test failing are how a page flashes white on every load.
@@ -34,7 +34,9 @@ import {
 import { PACKAGE_ROOT } from '@testkit/paths.js';
 
 const INDEX_HTML = join(PACKAGE_ROOT, 'index.html');
+const BOOT_SCRIPT = join(PACKAGE_ROOT, 'public', 'boot.js');
 const html = readFileSync(INDEX_HTML, 'utf8');
+const script = readFileSync(BOOT_SCRIPT, 'utf8');
 
 /** Every listener the current `matchMedia` stub handed out, so a test can fire one. */
 let listeners: Array<(event: MediaQueryListEvent) => void> = [];
@@ -42,7 +44,7 @@ let listeners: Array<(event: MediaQueryListEvent) => void> = [];
 /**
  * A real `Storage`, stubbed in rather than taken from the environment: jsdom's
  * `localStorage` is shadowed by node 26's own experimental global, which is
- * inert without `--localstorage-file`. Both the module and the inline script
+ * inert without `--localstorage-file`. Both the module and the boot script
  * read the global, so stubbing it is what tests them on the same footing.
  */
 function memoryStorage(): Storage {
@@ -103,15 +105,6 @@ afterEach(() => {
 function runScript(source: string): void {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
   new Function(source)();
-}
-
-/** The inline script, taken from the file that ships rather than a copy of it. */
-function extractInlineScript(source: string): string {
-  const match = /<script>([\s\S]*?)<\/script>/.exec(source);
-  if (match?.[1] === undefined) {
-    throw new Error('No inline script in index.html');
-  }
-  return match[1];
 }
 
 describe('resolveTheme', () => {
@@ -208,18 +201,21 @@ describe('watchSystemTheme', () => {
   });
 });
 
-describe('the pre-paint script in index.html', () => {
-  /** The inline script, extracted from the real file. */
-  const script = extractInlineScript(html);
-
-  it('is inline, blocking, and ahead of the module script', () => {
-    // Anything `defer`, `async`, `type="module"` or external paints the default
-    // theme first and corrects it a frame later. That frame is the flash.
-    expect(script).not.toContain('src=');
-    expect(html.indexOf('<script>')).toBeLessThan(
+describe('the pre-paint script, public/boot.js', () => {
+  it('is a blocking classic script in the head, ahead of the module script', () => {
+    // Anything `defer`, `async` or `type="module"` paints the default theme
+    // first and corrects it a frame later. That frame is the flash.
+    const tag = /<script[^>]*src="\/boot\.js"[^>]*><\/script>/.exec(html)?.[0];
+    expect(tag).toBeDefined();
+    expect(tag).not.toMatch(/defer|async|type=/);
+    expect(html.indexOf('/boot.js')).toBeLessThan(
       html.indexOf('type="module"'),
     );
-    expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('</head>'));
+    expect(html.indexOf('/boot.js')).toBeLessThan(html.indexOf('</head>'));
+  });
+
+  it('ships no HTML comments in the shell', () => {
+    expect(html).not.toContain('<!--');
   });
 
   it('reads the same storage key the module writes', () => {

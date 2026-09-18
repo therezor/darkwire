@@ -488,6 +488,7 @@
     "files": "Files",
     "sessions": "Sessions",
     "settings": "Settings",
+    "tokens": "Tokens",
     "workspaces": "Workspaces"
   },
   "notifications": {
@@ -873,7 +874,9 @@
     "usernameHint": "Signing in takes this and the password below."
   },
   "shell": {
+    "appName": "DarkWire",
     "openMenu": "Open menu",
+    "pageTitle": "{{page}} · DarkWire",
     "reload": "Reload app",
     "reloadFailed": "Could not reload",
     "sections": "Sections",
