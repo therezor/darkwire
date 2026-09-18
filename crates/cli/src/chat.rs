@@ -1607,6 +1607,15 @@ impl Frame {
         rows
     }
 
+    /// How many rows the conversation itself takes.
+    ///
+    /// The other half of the frame's height, so a test can add the two up and
+    /// compare the total against what was drawn.
+    #[must_use]
+    pub fn conversation_rows(&mut self, width: usize) -> usize {
+        self.transcript.height(width)
+    }
+
     /// How many rows everything below the conversation takes.
     ///
     /// Measured rather than counted, because the editor grows with what is
@@ -1619,16 +1628,17 @@ impl Frame {
     /// chrome is a couple of dozen rows whatever the session has said, which is
     /// the whole property this arrangement exists to buy. Counting instead would
     /// mean a second description of the layout, kept in step by hand.
-    fn chrome_rows(&mut self, width: usize) -> usize {
-        // The gap above the frame: one row always, and a second closing the
-        // conversation's last line when it did not close itself. Counted the
-        // same way `render` writes it, because a chrome measured one row too
-        // tall commits a row of conversation that would have fitted.
-        let mut rows = if self.transcript.at_line_start() {
-            1
-        } else {
-            2
-        };
+    ///
+    /// Public so a test can assert it against what [`Component::render`] drew.
+    /// The two are one description of the layout written twice, and the bug
+    /// they produce when they disagree is silent: a row of conversation goes to
+    /// the scrollback that would have fitted on screen.
+    pub fn chrome_rows(&mut self, width: usize) -> usize {
+        // The gap above the frame, counted the same way `render` writes it: a
+        // chrome measured one row too tall commits a row of conversation that
+        // would have fitted. One row and no condition, which is the point of
+        // the transcript not drawing the line a write left open.
+        let mut rows = 1;
         if let Some(overlay) = self.overlay.as_mut() {
             return rows + overlay.render(width).len();
         }
@@ -1646,11 +1656,9 @@ impl Frame {
 impl Component for Frame {
     fn render(&mut self, width: usize) -> Vec<String> {
         let mut rows = self.transcript.render(width);
-        // One blank row between the conversation and the frame, always — the
-        // transcript's last line may or may not have ended in a newline.
-        if !self.transcript.at_line_start() {
-            rows.push(String::new());
-        }
+        // One blank row between the conversation and the frame. Unconditional,
+        // because the transcript no longer draws the line a write left open,
+        // so its last row is text whether or not that write ended a line.
         rows.push(String::new());
 
         if let Some(overlay) = self.overlay.as_mut() {

@@ -1072,3 +1072,55 @@ fn a_plan_that_was_only_asked_for_never_reaches_the_surface() {
     ]);
     assert!(failed.is_empty(), "a refused call painted {failed:?}");
 }
+
+#[test]
+fn the_newlines_a_provider_opens_with_are_not_blank_rows() {
+    // A provider routinely opens a channel with "\n\nLet me think". The mode
+    // change has already put the cursor at the start of a line, so those are
+    // blank rows between a message and the answer to it, and with reasoning
+    // hidden nothing later collapses them.
+    let text = plain(&[
+        start(),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\n\nHello."}),
+    ]);
+    assert!(text.starts_with("Hello."));
+}
+
+#[test]
+fn a_break_inside_the_answer_survives() {
+    // The trim is at a run's start and only there. A blank line in the middle
+    // is a paragraph somebody wrote.
+    let text = plain(&[
+        start(),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "one\n"}),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\ntwo"}),
+    ]);
+    assert!(text.contains("one\n\ntwo"));
+}
+
+#[test]
+fn a_chunk_that_was_only_newlines_leaves_the_cursor_at_a_line_start() {
+    // Trimmed to nothing, so nothing is written. A style applied to an empty
+    // string is still an opener and a closer, and writing that would have read
+    // as a chunk that finished mid-line, which puts the tool card below it on
+    // the end of a sentence.
+    let text = plain(&[
+        start(),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\n\n"}),
+        json!({
+            "type": "tool.call", "turnId": "t1", "callId": "c1",
+            "name": "ls", "args": {}, "risk": "safe",
+        }),
+    ]);
+    assert!(text.starts_with("⚙ ls"));
+}
+
+#[test]
+fn the_break_between_reasoning_and_the_answer_is_one_row() {
+    let text = plain(&[
+        start(),
+        json!({"type": "reasoning.delta", "turnId": "t1", "text": "a thought"}),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\n\nHello."}),
+    ]);
+    assert!(text.contains("a thought\nHello."));
+}

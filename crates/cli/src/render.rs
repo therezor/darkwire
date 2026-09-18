@@ -813,8 +813,27 @@ impl TurnRenderer {
 
     /// Assistant text and reasoning, told apart by the break between them.
     fn stream(&mut self, mode: Mode, text: &str) {
+        let opening = self.mode != mode;
         self.set_mode(mode);
+        // A provider routinely opens a channel with `"\n\nLet me think"`. The
+        // mode change above already put the cursor at the start of a line, so
+        // those newlines are blank rows between a message and the answer to it,
+        // and with reasoning hidden nothing later collapses them. Only at the
+        // start of a run: a break inside one is a paragraph somebody wrote.
+        let text = if opening {
+            text.trim_start_matches('\n')
+        } else {
+            text
+        };
+        // A chunk that was nothing but newlines. Returning here rather than
+        // falling through, because a style applied to an empty string is still
+        // an opener and a closer, and `write` would read that as a chunk that
+        // finished mid-line.
+        if text.is_empty() {
+            return;
+        }
         if mode == Mode::Reasoning {
+            // After the trim, or the escape prefix defeats it.
             let dimmed = self.colors.dim.apply(text);
             self.write(&dimmed);
         } else {

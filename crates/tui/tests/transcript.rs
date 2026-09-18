@@ -42,11 +42,8 @@ fn refolds_at_the_width_it_is_asked_for_rather_than_the_one_it_took() {
     let mut transcript = Transcript::new();
     transcript.write("one two three four five six\n");
 
-    assert_eq!(transcript.render(40), ["one two three four five six", ""]);
-    assert_eq!(
-        transcript.render(12),
-        ["one two", "three four", "five six", ""]
-    );
+    assert_eq!(transcript.render(40), ["one two three four five six"]);
+    assert_eq!(transcript.render(12), ["one two", "three four", "five six"]);
 }
 
 #[test]
@@ -68,7 +65,7 @@ fn rebuilds_after_a_write() {
     transcript.write("second\n");
 
     assert_ne!(transcript.render(40), before);
-    assert_eq!(transcript.render(40), ["first", "second", ""]);
+    assert_eq!(transcript.render(40), ["first", "second"]);
 }
 
 #[test]
@@ -143,7 +140,7 @@ fn prose_with_no_blocks_reads_exactly_as_it_used_to() {
     // a list of lines did.
     let mut transcript = Transcript::new();
     transcript.write("the answer\ncontinues\n");
-    assert_eq!(transcript.render(40), ["the answer", "continues", ""]);
+    assert_eq!(transcript.render(40), ["the answer", "continues"]);
 }
 
 #[test]
@@ -161,7 +158,7 @@ fn a_run_opened_and_closed_keeps_what_came_after_it_out() {
     // No blank row between `before` and the fold. The line the last write left
     // open is where the next thing goes, and the next thing is the block.
     transcript.set_collapsed("reasoning", true);
-    assert_eq!(transcript.render(40), ["before", "thought", "after", ""]);
+    assert_eq!(transcript.render(40), ["before", "thought", "after"]);
 }
 
 #[test]
@@ -233,7 +230,7 @@ fn clearing_leaves_somewhere_to_write() {
     transcript.clear();
     transcript.write("fresh\n");
 
-    assert_eq!(transcript.render(40), ["fresh", ""]);
+    assert_eq!(transcript.render(40), ["fresh"]);
 }
 
 #[test]
@@ -434,7 +431,7 @@ fn a_frame_that_fits_commits_nothing() {
     let mut transcript = Transcript::new();
     transcript.write("one\ntwo\n");
     assert!(transcript.take_committable(20, 40).is_empty());
-    assert_eq!(transcript.render(40), ["one", "two", ""]);
+    assert_eq!(transcript.render(40), ["one", "two"]);
 }
 
 #[test]
@@ -500,7 +497,7 @@ fn a_folded_run_commits_the_row_that_was_showing_and_not_the_body() {
     transcript.close_block();
     transcript.write("the answer\n");
 
-    let committed = transcript.take_committable(2, 40);
+    let committed = transcript.take_committable(1, 40);
     assert!(committed.iter().any(|line| line == "thought for 4s"));
     assert!(!committed.iter().any(|line| line.starts_with("secret")));
 }
@@ -655,4 +652,20 @@ fn a_write_after_a_run_that_said_nothing_also_starts_its_own_line() {
         !rows.iter().any(|row| row.contains("beforeafter")),
         "{rows:?}"
     );
+}
+
+#[test]
+fn the_live_region_is_the_same_height_whether_or_not_the_last_write_ended_a_line() {
+    // What the frame above the editor rests on. The predicate that used to
+    // decide the gap could not tell a block holding an open line from one
+    // holding nothing, and the two drew a different number of rows, so the gap
+    // was two rows about as often as it was one.
+    let mut mid_line = Transcript::new();
+    mid_line.write("hi");
+
+    let mut ended = Transcript::new();
+    ended.write("hi\n");
+
+    assert_eq!(mid_line.height(40), ended.height(40));
+    assert_eq!(mid_line.render(40), ended.render(40));
 }

@@ -181,6 +181,22 @@ impl Block {
         self.invalidate();
     }
 
+    /// One when the last line is only waiting for the next write, else zero.
+    ///
+    /// That line is not text. It holds the styles still open and nothing else,
+    /// it exists because the last write ended on a newline, and it is where the
+    /// next chunk lands. Its visible width is zero, so it wraps to exactly one
+    /// row, and drawing it puts a blank row under every message that whatever
+    /// sits below the transcript then has to reason about.
+    ///
+    /// [`Block::trim_open_line`] drops it for good at a block boundary. This
+    /// keeps it out of the picture while the block is still being written to,
+    /// and both [`Block::height`] and [`Block::render`] go through here so the
+    /// two cannot disagree about how tall the block is.
+    fn open_row(&self) -> usize {
+        usize::from(self.at_line_start() && !self.lines.is_empty())
+    }
+
     /// How many rows it draws at `width`, without building them a second time.
     pub fn height(&mut self, width: usize) -> usize {
         if self.collapsed
@@ -188,11 +204,12 @@ impl Block {
         {
             return wrap_to_width(summary, width).len();
         }
+        let open = self.open_row();
         let head = self
             .summary
             .as_ref()
             .map_or(0, |summary| wrap_to_width(summary, width).len());
-        head + self.body(width).len()
+        head + self.body(width).len().saturating_sub(open)
     }
 
     /// Everything this block would draw, as logical lines, leaving it empty.
@@ -234,11 +251,14 @@ impl Block {
         {
             return wrap_to_width(summary, width);
         }
+        // Before `body`, which borrows mutably.
+        let open = self.open_row();
         let mut out = match self.summary.as_ref() {
             Some(summary) => wrap_to_width(summary, width),
             None => Vec::new(),
         };
-        out.extend(self.body(width).iter().cloned());
+        let body = self.body(width);
+        out.extend(body[..body.len().saturating_sub(open)].iter().cloned());
         out
     }
 

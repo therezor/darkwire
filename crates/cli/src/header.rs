@@ -123,10 +123,12 @@ pub fn startup_header(
         width,
         ELLIPSIS,
     ));
-    // A trailing blank, which the frame's own gap above the editor then
-    // doubles: the welcome is a block about the install rather than part of the
-    // conversation, and one line of gap reads as though it were the first
-    // message.
+    // Two trailing blanks, and the second is not a typo: the welcome is a block
+    // about the install rather than part of the conversation, and one line of
+    // gap reads as though it were the first message. Both are written here
+    // because the frame's own gap above the editor is one row now, whatever the
+    // conversation's last write did.
+    lines.push(String::new());
     lines.push(String::new());
 
     lines.join("\n")

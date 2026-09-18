@@ -1016,3 +1016,58 @@ async fn a_write_after_the_drain_is_gone_is_dropped_rather_than_fatal() {
     drop(rx);
     sink.write("nobody is listening");
 }
+
+#[test]
+fn the_chrome_it_measures_is_the_chrome_it_draws() {
+    // One description of the layout written twice, and they disagreed: the gap
+    // above the frame was counted with a predicate that could not tell a
+    // transcript holding an open line from one holding nothing. When these two
+    // drift, a row of conversation goes to the scrollback that would have
+    // fitted, and nothing says so.
+    let mut frame = frame();
+    assert_eq!(frame.chrome_rows(80), shown(&mut frame).len());
+
+    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+    assert_eq!(
+        frame.chrome_rows(80) + frame.conversation_rows(80),
+        shown(&mut frame).len(),
+    );
+
+    // And mid-line, which used to be the other way the count went wrong.
+    frame.absorb(&FrameEvent::Text("half a sen".to_owned()));
+    assert_eq!(
+        frame.chrome_rows(80) + frame.conversation_rows(80),
+        shown(&mut frame).len(),
+    );
+}
+
+#[test]
+fn one_blank_row_between_the_message_and_the_frame() {
+    // What `FramedSurface::echo` writes, and the gap under it. Two rows sat
+    // here for the whole of the provider's latency, and with reasoning hidden
+    // no fold ever opened to collapse them.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+
+    let rows = shown(&mut frame);
+    let at = rows.iter().position(|row| row.contains("› hi")).unwrap();
+    assert_eq!(rows[at + 1], "");
+    assert_ne!(rows[at + 2], "");
+}
+
+#[test]
+fn the_spinner_sits_one_row_under_the_message() {
+    // The shape somebody actually sees: a message, a gap, and the thing that
+    // says the model is working.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+    frame.start_turn();
+
+    let rows = shown(&mut frame);
+    let message = rows.iter().position(|row| row.contains("› hi")).unwrap();
+    let spinner = rows
+        .iter()
+        .position(|row| row.contains("generating"))
+        .unwrap();
+    assert_eq!(spinner, message + 2);
+}

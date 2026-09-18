@@ -15,7 +15,7 @@ fn prose_has_no_summary_and_cannot_fold() {
 
     block.set_collapsed(true);
     assert!(!block.collapsed());
-    assert_eq!(block.render(40), ["the answer", ""]);
+    assert_eq!(block.render(40), ["the answer"]);
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn prose_ignores_a_summary_it_was_never_given() {
     let mut block = Block::prose();
     block.set_summary("this is not shown anywhere");
     block.write("the answer\n");
-    assert_eq!(block.render(40), ["the answer", ""]);
+    assert_eq!(block.render(40), ["the answer"]);
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn a_style_left_open_does_not_escape_the_block_that_opened_it() {
 
     let mut answer = Block::prose();
     answer.write("plain\n");
-    assert_eq!(answer.render(40), ["plain", ""]);
+    assert_eq!(answer.render(40), ["plain"]);
 }
 
 #[test]
@@ -109,4 +109,58 @@ fn draining_the_front_leaves_the_rest_where_it_was() {
     block.render(40);
     block.drain_front(2);
     assert_eq!(block.render(40), ["three", "four"]);
+}
+
+#[test]
+fn the_line_a_write_left_open_is_not_a_row() {
+    // It holds the styles still open and nothing else, and it is where the next
+    // chunk lands. Drawing it put a blank row under every message, which
+    // whatever sits below the transcript then had to reason about.
+    let mut block = Block::prose();
+    block.write("the answer\n");
+    assert_eq!(block.render(40), ["the answer"]);
+
+    // Still there, still taking the next write.
+    block.write("half");
+    assert_eq!(block.render(40), ["the answer", "half"]);
+}
+
+#[test]
+fn a_blank_line_inside_the_text_is_still_a_row() {
+    // The paragraph break a model asked for. Only the line left open at the
+    // bottom is not text; a blank between two lines is.
+    let mut block = Block::prose();
+    block.write("one\n\ntwo\n");
+    assert_eq!(block.render(40), ["one", "", "two"]);
+}
+
+#[test]
+fn the_height_is_the_number_of_rows_it_draws() {
+    // The renderer addresses one row per entry and the transcript's cap is
+    // measured in rows, so a height that disagreed with the drawing would
+    // commit a line of conversation that had fitted.
+    let mut mid_line = Block::prose();
+    mid_line.write("half");
+
+    let mut open_line = Block::prose();
+    open_line.write("done\n");
+
+    let mut styled_open = Block::prose();
+    styled_open.write(&format!("{DIM}done\n"));
+
+    let empty = Block::prose();
+
+    for mut block in [mid_line, open_line, styled_open, empty] {
+        assert_eq!(block.height(40), block.render(40).len());
+    }
+}
+
+#[test]
+fn a_collapsed_block_still_shows_its_summary() {
+    // The open line is dropped from the body, never from the row standing in
+    // for it.
+    let mut block = Block::folding("reasoning", "thought for 4s", true);
+    block.write("a thought\n");
+    assert_eq!(block.render(40), ["thought for 4s"]);
+    assert_eq!(block.height(40), 1);
 }
