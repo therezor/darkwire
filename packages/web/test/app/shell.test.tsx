@@ -66,6 +66,7 @@ function renderApp(
 ): {
   readonly user: ReturnType<typeof userEvent.setup>;
   readonly calls: RecordedRequest[];
+  readonly router: ReturnType<typeof createAppRouter>;
 } {
   // `stubApi` rather than `stubFetch` for its request log: "New session writes
   // nothing" is an assertion about what was *not* sent.
@@ -93,6 +94,16 @@ function renderApp(
       },
     ],
     '/api/sessions/web%3A7/messages': [200, MESSAGES],
+    '/api/sessions/web%3A7': [
+      200,
+      {
+        key: 'web:7',
+        title: 'the seventh',
+        messageCount: 1,
+        createdAtMs: 0,
+        updatedAtMs: 0,
+      },
+    ],
     'POST /api/settings/reload': [200, SETTINGS],
     ...overrides,
   });
@@ -108,7 +119,7 @@ function renderApp(
     </Providers>,
   );
 
-  return { user: userEvent.setup(), calls };
+  return { user: userEvent.setup(), calls, router };
 }
 
 describe('the shell', () => {
@@ -142,20 +153,24 @@ describe('the shell', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('names the section in the tab title, and only the app at the root', async () => {
+  it('names the section in the tab title', async () => {
     renderApp('/agents');
     await waitFor(() => {
       expect(document.title).toBe('Agents · DarkWire');
     });
+  });
 
-    renderApp('/settings/providers/new');
+  it('names a page under a section after the page, not the section', async () => {
+    renderApp('/tokens');
     await waitFor(() => {
-      expect(document.title).toBe('Settings · DarkWire');
+      expect(document.title).toBe('Tokens and primitives · DarkWire');
     });
+  });
 
+  it('calls a session nobody has spoken in a new one, in the tab title', async () => {
     renderApp('/');
     await waitFor(() => {
-      expect(document.title).toBe('DarkWire');
+      expect(document.title).toBe('New session · DarkWire');
     });
   });
 
@@ -485,12 +500,28 @@ describe('the shell', () => {
     ).toBeInTheDocument();
   });
 
-  it('validates ?session= rather than handing a component whatever was in the URL', async () => {
-    renderApp('/?session=web%3A7');
+  it('decodes the key in /sessions/:key rather than handing a component the raw segment', async () => {
+    renderApp('/sessions/web%3A7');
 
     // The decoded key reached the history fetch, which is the only thing that
-    // proves the router parsed it rather than passing the raw parameter along.
+    // proves the router parsed it rather than passing the raw segment along.
     expect(await screen.findByText('a stored question')).toBeInTheDocument();
+  });
+
+  it('forwards the old ?session= address to /sessions/:key', async () => {
+    const { router } = renderApp('/?session=web%3A7');
+
+    expect(await screen.findByText('a stored question')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/sessions/web%3A7');
+    expect(router.state.location.searchStr).toBe('');
+  });
+
+  it('names the open session in the tab title', async () => {
+    renderApp('/sessions/web%3A7');
+
+    await waitFor(() => {
+      expect(document.title).toBe('the seventh · DarkWire');
+    });
   });
 
   /**
@@ -505,7 +536,7 @@ describe('the shell', () => {
    * without a subagent — a stored session this list does not carry.
    */
   it('does not call a stored conversation a new one, just because the column omits it', async () => {
-    renderApp('/?session=web%3A7');
+    renderApp('/sessions/web%3A7');
 
     expect(await screen.findByText('a stored question')).toBeInTheDocument();
     expect(

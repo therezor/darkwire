@@ -99,7 +99,7 @@ function mount(): void {
   const router = createAppRouter();
   router.update({
     history: createMemoryHistory({
-      initialEntries: [`/?session=${encodeURIComponent(SESSION)}`],
+      initialEntries: [`/sessions/${encodeURIComponent(SESSION)}`],
     }),
   });
   render(

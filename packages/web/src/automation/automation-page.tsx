@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { AutomationJob, RunStatus } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
@@ -290,6 +291,7 @@ export function AutomationRoute(): JSX.Element {
   return (
     <div className="stack page page--wide">
       <div className="cluster page__header">
+        <PageTitle title={t('automation.title')} />
         <h1 className="page__title">{t('automation.title')}</h1>
         <span className="spacer" />
         {/* A link, not a dialog: creating a job is the same form as editing

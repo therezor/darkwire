@@ -7,7 +7,7 @@
  * nobody opens while developing.
  *
  * **New session replaced a "Chat" nav link, and the link was not merely
- * redundant.** `<Link to="/">` drops `?session=`, but the chat route renders
+ * redundant.** `<Link to="/">` drops the session key, but the chat route renders
  * from the turn store rather than from the URL and the socket only switches on
  * a defined key — so clicking it cleared neither the transcript nor the
  * attachment, and the first message put the old key straight back in the URL.
@@ -172,7 +172,10 @@ export function Sidebar({
     const key = newSession(workspaceId, agentId);
     setStartedKey(key);
     onNavigate?.();
-    void navigate({ to: '/', search: { session: key } });
+    void navigate({
+      to: '/sessions/$sessionKey',
+      params: { sessionKey: key },
+    });
   }
 
   // Every conversation, whatever workspace it is in. Scoping the column to a
@@ -234,7 +237,7 @@ export function Sidebar({
    * that nothing minted.
    */
   const inNewSession =
-    pathname === '/' &&
+    (pathname === '/' || pathname.startsWith('/sessions/')) &&
     sessions.isSuccess &&
     (attached === undefined ||
       (attached === startedKey &&
@@ -275,6 +278,10 @@ export function Sidebar({
             key={to}
             to={to}
             onClick={onNavigate}
+            // The router marks a prefix match current too, so without this the
+            // Sessions row would claim `/sessions/<key>` alongside the session's
+            // own row below. See `isActive`.
+            activeOptions={{ exact: to === '/sessions' }}
             // `aria-current` is the accessible half of the same statement the
             // surface change makes visually.
             className={cn(
@@ -349,8 +356,8 @@ export function Sidebar({
               return (
                 <li key={session.key} className="sidebar__session-row">
                   <Link
-                    to="/"
-                    search={{ session: session.key }}
+                    to="/sessions/$sessionKey"
+                    params={{ sessionKey: session.key }}
                     onClick={onNavigate}
                     className={cn(
                       'sidebar__session',
@@ -447,8 +454,18 @@ function titleOf(
 }
 
 /** `/` is only active when it is the whole path; everything else matches its prefix. */
+/**
+ * Whether a nav row is the page on screen.
+ *
+ * A prefix match, so the agent editor lights Agents. The one exception is a
+ * session: `/sessions/<key>` is a conversation, and the row for it is in the
+ * list below, so the Sessions row stays dark rather than marking two things
+ * current at once.
+ */
 function isActive(pathname: string, to: string): boolean {
-  return to === '/' ? pathname === '/' : pathname.startsWith(to);
+  if (to === '/') return pathname === '/';
+  if (to === '/sessions') return pathname === '/sessions';
+  return pathname.startsWith(to);
 }
 
 function Section({

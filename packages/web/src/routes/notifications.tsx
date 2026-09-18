@@ -34,6 +34,7 @@ import type {
   NotificationListResponse,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
 import { useFormat } from '@/lib/use-format.js';
@@ -128,6 +129,7 @@ export function NotificationsRoute(): JSX.Element {
           works at every width, and on a phone it pushed the controls onto a
           ragged second row. */}
       <div className="cluster page__header">
+        <PageTitle title={t('notifications.title')} />
         <h1 className="page__title">{t('notifications.title')}</h1>
         <span className="spacer" />
         <Button
@@ -280,8 +282,8 @@ function NotificationRow({
         <div className="cluster notification__actions">
           {notification.sessionKey !== undefined && (
             <Link
-              to="/"
-              search={{ session: notification.sessionKey }}
+              to="/sessions/$sessionKey"
+              params={{ sessionKey: notification.sessionKey }}
               className="notification__link"
             >
               {t('notifications.openSession')}

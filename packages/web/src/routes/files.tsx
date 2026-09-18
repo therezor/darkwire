@@ -73,6 +73,7 @@ import {
   type FileEntry,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
 import { formatBytes } from '@/lib/format.js';
@@ -376,6 +377,7 @@ export function FilesRoute(): JSX.Element {
   return (
     <div className="stack page page--wide">
       <div className="cluster page__header">
+        <PageTitle title={t('files.title')} />
         <h1 className="page__title">{t('files.title')}</h1>
         <span className="spacer" />
         {/* One trigger rather than two buttons, and the phone is what decided

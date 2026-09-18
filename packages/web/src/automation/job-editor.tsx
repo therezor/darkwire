@@ -32,6 +32,7 @@ import {
   type RunStatus,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Pagination } from '@/components/crud/pagination.js';
 import { usePagination } from '@/components/crud/use-pagination.js';
 import { Badge } from '@/components/ui/badge.js';
@@ -293,6 +294,7 @@ function Editor({ job }: { readonly job?: AutomationJob }): JSX.Element {
         )}
       </div>
 
+      <PageTitle title={job?.name ?? t('automation.newTitle')} />
       <h2 className="page__title">{job?.name ?? t('automation.newTitle')}</h2>
 
       <Section title={t('automation.identityTitle')}>
@@ -632,8 +634,8 @@ function RunItem({ run }: { readonly run: AutomationRun }): JSX.Element {
           session is not something anyone can guess the key of. */}
       {run.sessionKey !== undefined && run.sessionKey !== '' && (
         <Link
-          to="/"
-          search={{ session: run.sessionKey }}
+          to="/sessions/$sessionKey"
+          params={{ sessionKey: run.sessionKey }}
           className="settings-divided-list__detail settings-divided-list__detail--link"
         >
           {t('automation.openSession')}

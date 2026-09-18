@@ -43,6 +43,7 @@ import {
   type AgentEntry,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
@@ -276,6 +277,7 @@ export function AgentsRoute(): JSX.Element {
   return (
     <div className="stack page page--wide">
       <div className="cluster page__header">
+        <PageTitle title={t('agents.title')} />
         <h1 className="page__title">{t('agents.title')}</h1>
         <span className="spacer" />
         {/* A link, not a dialog: creating an agent is the same form as editing

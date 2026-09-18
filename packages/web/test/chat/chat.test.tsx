@@ -115,7 +115,7 @@ async function connect(lastSeq = 0): Promise<void> {
 }
 
 function mount(
-  initial = `/?session=${encodeURIComponent(SESSION)}`,
+  initial = `/sessions/${encodeURIComponent(SESSION)}`,
   client = testQueryClient(),
 ): void {
   const router = createAppRouter();
@@ -652,7 +652,7 @@ describe('a message that storage catches up with', () => {
       ],
     });
 
-    // No `?session=`, so the route navigates to the key the server minted —
+    // No key in the URL, so the route navigates to the key the server minted —
     // which is what enables the fetch mid-turn.
     mount('/');
     await connect();
@@ -838,7 +838,7 @@ describe('switching to a session whose history is already cached', () => {
       ],
     });
 
-    mount(`/?session=${encodeURIComponent(SESSION)}`, client);
+    mount(`/sessions/${encodeURIComponent(SESSION)}`, client);
     await connect();
     expect(await screen.findByText('the first session')).toBeInTheDocument();
 

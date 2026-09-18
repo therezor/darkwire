@@ -9,12 +9,14 @@ import { Link } from '@tanstack/react-router';
 import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PageTitle } from '@/app/page-title.js';
 import { buttonVariants } from '@/components/ui/button.js';
 
 export function NotFoundRoute(): JSX.Element {
   const { t } = useTranslation();
   return (
     <div className="stack page page--reading">
+      <PageTitle title={t('common.notFound')} />
       <h1 className="page__title">{t('common.notFound')}</h1>
       <p className="page__note">{t('common.notFoundBody')}</p>
       <Link to="/" className={buttonVariants({ variant: 'secondary' })}>

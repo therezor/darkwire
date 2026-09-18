@@ -29,6 +29,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs.js';
+import { PageTitle } from '@/app/page-title.js';
 import { AppearancePanel } from '@/settings/appearance-panel.js';
 import { EnvironmentsPanel } from '@/settings/environments-panel.js';
 import { AccountPanel } from '@/settings/account-panel.js';
@@ -50,6 +51,7 @@ export function SettingsRoute(): JSX.Element {
   return (
     <div className="stack page page--wide">
       <div className="stack page__heading">
+        <PageTitle title={t(panel.label)} />
         <h1 className="page__title">{t('settings.title')}</h1>
         <p className="page__note">{t(panel.summary)}</p>
       </div>

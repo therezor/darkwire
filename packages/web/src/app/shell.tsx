@@ -22,7 +22,7 @@
  * which would drop the turn the user went to Settings to reconfigure.
  */
 
-import { useRouterState, useSearch } from '@tanstack/react-router';
+import { useParams, useRouterState } from '@tanstack/react-router';
 import { Menu, RotateCw } from 'lucide-react';
 import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import type { TFunction } from 'i18next';
@@ -52,6 +52,7 @@ import { ThemeSwitcher } from '@/components/theme-switcher.js';
 import { Wordmark } from '@/components/wordmark.js';
 import { Sidebar } from './sidebar.js';
 import type { WebKey } from '@/i18n/keys.js';
+import { usePageTitleStore } from './page-title.js';
 
 /**
  * The tab title for each section, keyed by the path prefix that opens it.
@@ -79,18 +80,18 @@ export function pageTitleKey(pathname: string): WebKey | undefined {
   )?.[1];
 }
 
-function usePageTitle(): void {
+function useDocumentTitle(): void {
   const { t } = useTranslation();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const claimed = usePageTitleStore((state) => state.title);
   useEffect(() => {
     const key = pageTitleKey(pathname);
+    const page = claimed ?? (key === undefined ? undefined : t(key));
     document.title =
-      key === undefined
-        ? t('shell.appName')
-        : t('shell.pageTitle', { page: t(key) });
-  }, [pathname, t]);
+      page === undefined ? t('shell.appName') : t('shell.pageTitle', { page });
+  }, [claimed, pathname, t]);
 }
 
 export function Shell({
@@ -100,13 +101,13 @@ export function Shell({
 }): JSX.Element {
   const { t } = useTranslation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  usePageTitle();
+  useDocumentTitle();
 
   // `strict: false` because the shell is above every route and only one of them
-  // has a `session` parameter — on the others the answer is legitimately
+  // has a `sessionKey` parameter. On the others the answer is legitimately
   // `undefined`, which is a request to keep the socket where it is.
-  const search: { session?: string } = useSearch({ strict: false });
-  useConnection(search.session);
+  const params: { sessionKey?: string } = useParams({ strict: false });
+  useConnection(params.sessionKey);
 
   return (
     <div className="shell">

@@ -15,6 +15,7 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
   type Router,
 } from '@tanstack/react-router';
 import type { JSX } from 'react';
@@ -57,16 +58,41 @@ const rootRoute = createRootRoute({
 });
 
 /**
- * `?session=` is validated, not read raw. The value ends up in a request path
- * and in a socket frame, and a router that hands components an unchecked
- * `string | string[] | undefined` is how one of those ends up with an array.
+ * The root is a session nobody has spoken in yet. Once the server names it,
+ * the URL becomes `/sessions/<key>`.
+ *
+ * `?session=` is the address this route used to carry. A bookmark or a shared
+ * link still lands here, so it is validated and forwarded rather than ignored.
  */
-const chatSearchSchema = z.object({ session: z.string().min(1).optional() });
+const legacySessionSearch = z.object({
+  session: z.string().min(1).optional(),
+});
 
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  validateSearch: chatSearchSchema,
+  validateSearch: legacySessionSearch,
+  beforeLoad: ({ search }) => {
+    if (search.session !== undefined) {
+      redirect({
+        to: '/sessions/$sessionKey',
+        params: { sessionKey: search.session },
+        replace: true,
+        throw: true,
+      });
+    }
+  },
+  component: ChatRoute,
+});
+
+/**
+ * One session. The key is a path segment rather than a query parameter, so
+ * the address reads as the thing it names and a tab, a bookmark and a link
+ * all carry it the way they carry an agent's or a workspace's id.
+ */
+const sessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sessions/$sessionKey',
   component: ChatRoute,
 });
 
@@ -255,6 +281,7 @@ const tokensRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   chatRoute,
+  sessionRoute,
   agentsRoute,
   agentCreateRoute,
   agentEditorRoute,

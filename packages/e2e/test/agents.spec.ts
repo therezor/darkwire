@@ -716,7 +716,7 @@ test.describe('agents', () => {
     });
     expect(deleted.ok()).toBe(true);
 
-    await app.goto(`${harness.url}/?session=web-orphan`);
+    await app.goto(`${harness.url}/sessions/web-orphan`);
     await app
       .getByRole('textbox', { name: 'Message' })
       .fill('stream a long answer');

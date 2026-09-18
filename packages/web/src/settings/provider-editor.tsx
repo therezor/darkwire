@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { ProviderInstanceInfo } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
@@ -137,6 +138,7 @@ export function ProviderCreateRoute(): JSX.Element {
             {t('providers.backToProviders')}
           </Link>
         </div>
+        <PageTitle title={t('providers.newTitle')} />
         <h2 className="page__title">{t('providers.newTitle')}</h2>
         <Section
           title={t('providers.identity')}
@@ -370,6 +372,9 @@ function Editor({
         </Link>
 
         <div className="cluster editor__title">
+          <PageTitle
+            title={form.label === '' ? instance.displayName : form.label}
+          />
           <h1 className="page__title">
             {form.label === '' ? instance.displayName : form.label}
           </h1>

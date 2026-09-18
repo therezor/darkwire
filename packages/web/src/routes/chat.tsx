@@ -23,10 +23,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useEffect, type JSX } from 'react';
 
 import { api } from '@/lib/api.js';
+import { usePageTitle } from '@/app/page-title.js';
 import {
   approveTool,
   editMessage,
@@ -51,7 +52,11 @@ import { Welcome } from '@/chat/welcome.js';
 
 export function ChatRoute(): JSX.Element {
   const { t } = useTranslation();
-  const { session } = useSearch({ from: '/' });
+  // `strict: false`: this component serves both `/` and `/sessions/$sessionKey`,
+  // and at the root there is no key yet.
+  const { sessionKey: session }: { sessionKey?: string } = useParams({
+    strict: false,
+  });
   const navigate = useNavigate();
   // What the picker in the composer is showing. Carried on the message so a
   // conversation that has no row yet is created bound to it.
@@ -68,6 +73,21 @@ export function ChatRoute(): JSX.Element {
   const agentChoice = useAgentChoice(sessionKey);
 
   const queryClient = useQueryClient();
+
+  // The tab is named after the stored row. A session nobody has spoken in has
+  // no row yet, so the 404 means "new", not "failed". The same query the agent
+  // picker runs, so it costs nothing extra.
+  const stored = useQuery({
+    queryKey: queryKeys.session(session ?? ''),
+    queryFn: ({ signal }) => api.session(session ?? '', signal),
+    enabled: session !== undefined,
+    retry: false,
+  });
+  usePageTitle(
+    session === undefined || stored.isError || stored.data?.title === ''
+      ? t('sessions.untitled')
+      : stored.data?.title,
+  );
 
   // The composer's slash commands. Assembled here rather than in the composer
   // because every one of them needs the router, the query cache or the socket,
@@ -87,7 +107,10 @@ export function ChatRoute(): JSX.Element {
       api.branchSession(key, seq),
     onSuccess: (fork) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() });
-      void navigate({ to: '/', search: { session: fork.key } });
+      void navigate({
+        to: '/sessions/$sessionKey',
+        params: { sessionKey: fork.key },
+      });
     },
     onError: (error: Error) => {
       toast.error('Could not branch the session', error.message);
@@ -261,8 +284,8 @@ export function ChatRoute(): JSX.Element {
           // sending a message is not a navigation the back button should undo.
           if (session === undefined && sessionKey !== undefined) {
             void navigate({
-              to: '/',
-              search: { session: sessionKey },
+              to: '/sessions/$sessionKey',
+              params: { sessionKey },
               replace: true,
             });
           }

@@ -266,7 +266,8 @@ test.describe('workspaces', () => {
       app.getByRole('region', { name: 'Tool call: list_dir' }),
     ).toBeVisible();
 
-    const key = new URL(app.url()).searchParams.get('session') ?? '';
+    const key =
+      /\/sessions\/([^/?]+)/u.exec(new URL(app.url()).pathname)?.[1] ?? '';
     expect(key).not.toBe('');
 
     await app

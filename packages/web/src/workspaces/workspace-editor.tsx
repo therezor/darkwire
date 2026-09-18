@@ -45,6 +45,7 @@ import {
   type WorkspaceSummary,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { toast } from '@/components/ui/toast.js';
@@ -251,6 +252,7 @@ function Editor({
         </Link>
 
         <div className="cluster editor__title">
+          <PageTitle title={workspace?.name ?? t('workspaces.newTitle')} />
           <h1 className="page__title">
             {workspace?.name ?? t('workspaces.newTitle')}
           </h1>

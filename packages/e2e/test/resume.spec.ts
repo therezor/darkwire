@@ -26,7 +26,7 @@ test('a reload rebuilds an in-flight turn from the replay buffer', async ({
 
   // The URL caught up with the session the server minted, which is what makes
   // the reload land on the same session rather than on a fresh one.
-  await expect(app).toHaveURL(/session=/);
+  await expect(app).toHaveURL(/\/sessions\/[^/?]+$/u);
 
   await app.reload();
 
@@ -100,7 +100,7 @@ test.describe('a completed session', () => {
     app,
     harness,
   }) => {
-    await app.goto(`${harness.url}/?session=seeded`);
+    await app.goto(`${harness.url}/sessions/seeded`);
 
     await expect(
       app.getByTestId('transcript').getByText('What did we decide?'),

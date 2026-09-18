@@ -18,6 +18,7 @@ import type { CSSProperties, JSX, ReactNode } from 'react';
 
 import type { NoticeKind } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Notice } from '@/chat/notice.js';
 import { ToolCard } from '@/chat/tool-card.js';
 import type { ToolPart } from '@/state/transcript.js';
@@ -81,6 +82,7 @@ export function TokensRoute(): JSX.Element {
   return (
     <div className="stack style-guide">
       <header className="style-guide__header">
+        <PageTitle title="Tokens and primitives" />
         <h1 className="style-guide__title">Tokens and primitives</h1>
         <p className="style-guide__lede">
           The living style guide. Flip the theme in the header and everything

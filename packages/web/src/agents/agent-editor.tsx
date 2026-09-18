@@ -60,6 +60,7 @@ import {
   namesDelimiter,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { NoticeBlock } from '@/components/ui/notice.js';
 import { Button } from '@/components/ui/button.js';
@@ -994,6 +995,7 @@ function Editor({
         </Link>
 
         <div className="cluster editor__title">
+          <PageTitle title={name} />
           <h1 className="page__title">{name}</h1>
           {isDefault && <Badge>default</Badge>}
           <span className="spacer" />

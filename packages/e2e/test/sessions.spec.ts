@@ -2,7 +2,7 @@
  * Starting, naming and forking a session.
  *
  * The web UI had no way to start one. What looked like the control — a "Chat"
- * nav link — dropped `?session=` from a route that reads the store rather than
+ * nav link — dropped the session key from a route that reads the store rather than
  * the URL, so it cleared nothing and the first message put the key straight
  * back. These four cases are the replacement, driven through the real server:
  * a session is created, it names itself after what was said in it, picking
@@ -27,7 +27,7 @@ test.describe('sessions', () => {
     await sidebar.getByRole('button', { name: 'New session' }).click();
     // The key comes back from `POST /api/sessions`, which is why the button is
     // REST rather than the socket's `session.new`: the navigation needs it.
-    await expect(app).toHaveURL(/\?session=/u);
+    await expect(app).toHaveURL(/\/sessions\/[^/?]+$/u);
 
     await app
       .getByRole('textbox', { name: 'Message' })

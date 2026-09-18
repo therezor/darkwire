@@ -35,6 +35,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { SessionSummary } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
 import { DataList, DataListRow } from '@/components/crud/data-list.js';
 import { ListSort } from '@/components/crud/list-sort.js';
@@ -121,12 +122,16 @@ export function SessionsRoute(): JSX.Element {
     // Nothing is written until the first message lands — the same as the
     // sidebar's New session, and for the same reason.
     const key = newSession(workspaceId, agentId);
-    void navigate({ to: '/', search: { session: key } });
+    void navigate({
+      to: '/sessions/$sessionKey',
+      params: { sessionKey: key },
+    });
   }
 
   return (
     <div className="stack page page--wide">
       <div className="cluster page__header">
+        <PageTitle title={t('sessions.title')} />
         <h1 className="page__title">{t('sessions.title')}</h1>
         <span className="spacer" />
         {/* A button rather than a link, because there is no address to go to
@@ -180,8 +185,8 @@ export function SessionsRoute(): JSX.Element {
                 key={session.key}
                 primary={
                   <Link
-                    to="/"
-                    search={{ session: session.key }}
+                    to="/sessions/$sessionKey"
+                    params={{ sessionKey: session.key }}
                     className="data-list__open"
                     aria-label={t('sessions.open', { title: title(session) })}
                   >

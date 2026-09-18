@@ -131,7 +131,10 @@ export function useCommands(): RunCommand {
           ).models,
         newSession: () => newSession(workspaceId, agentId),
         openSession: (target) => {
-          void navigate({ to: '/', search: { session: target } });
+          void navigate({
+            to: '/sessions/$sessionKey',
+            params: { sessionKey: target },
+          });
         },
         rename: async (title) => {
           await api.renameSession(key, title);

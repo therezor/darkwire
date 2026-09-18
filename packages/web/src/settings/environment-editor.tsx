@@ -34,6 +34,7 @@ import type {
   ResolveImageResponse,
 } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
@@ -245,6 +246,13 @@ function Editor({
         <BackLink />
 
         <div className="cluster editor__title">
+          <PageTitle
+            title={
+              form.name === ''
+                ? t('settings.environments.newEnvironment')
+                : form.name
+            }
+          />
           <h1 className="page__title">
             {form.name === ''
               ? t('settings.environments.newEnvironment')

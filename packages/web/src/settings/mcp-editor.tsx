@@ -27,6 +27,7 @@ import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { McpServerStatus, McpTransport } from '@darkwire/protocol';
 
+import { PageTitle } from '@/app/page-title.js';
 import { Badge } from '@/components/ui/badge.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
@@ -221,6 +222,7 @@ function Editor({
       </div>
 
       <div className="row page__heading">
+        <PageTitle title={creating ? t('settings.mcp.newTitle') : serverId} />
         <h2 className="page__title">
           {creating ? t('settings.mcp.newTitle') : serverId}
         </h2>

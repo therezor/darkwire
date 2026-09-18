@@ -224,8 +224,8 @@ function NotificationRow({
 
   return (
     <Link
-      to="/"
-      search={{ session: notification.sessionKey }}
+      to="/sessions/$sessionKey"
+      params={{ sessionKey: notification.sessionKey }}
       className={cn(className, 'notification-mini--link')}
       onClick={onOpen}
     >

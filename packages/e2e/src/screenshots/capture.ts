@@ -256,7 +256,7 @@ const SCREENS: readonly Screen[] = [
     // Pinned to a seeded session rather than the one a fresh tab mints, because
     // this is the only screen that prints the session key — and a minted key is
     // a UUID, which would make this file differ from itself on every run.
-    route: '/?session=web:default',
+    route: '/sessions/web:default',
     settle: async (page) => {
       await ask(page, PROMPTS.answer);
       // The strip's accessible name is the figure it shows — "1,024 of 65,536 ·

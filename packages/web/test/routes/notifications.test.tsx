@@ -106,7 +106,7 @@ describe('the notification centre', () => {
     const link = within(row).getByRole('link', { name: 'Open session' });
     expect(link).toHaveAttribute(
       'href',
-      expect.stringContaining('session=web%3A9'),
+      expect.stringContaining('/sessions/web%3A9'),
     );
   });
 

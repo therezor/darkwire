@@ -27,7 +27,8 @@ origin blocked. See [Security](security.md#privacy).
 
 | Route                             | What it is                                                           |
 | --------------------------------- | -------------------------------------------------------------------- |
-| `/`                               | Chat. `?session=` picks the session.                                 |
+| `/`                               | A session nobody has spoken in yet.                                  |
+| `/sessions`, `/sessions/:key`     | Session list, and one session. `/?session=` still forwards here.     |
 | `/agents`, `/agents/:id`          | Agent list and editor.                                               |
 | `/workspaces`, `/workspaces/:id`  | Workspace list and editor.                                           |
 | `/files`                          | File browser. Without `?workspace=` it opens at the workspaces tree. |
