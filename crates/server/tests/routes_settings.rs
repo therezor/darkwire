@@ -214,7 +214,7 @@ async fn an_agents_tool_settings_round_trip_and_its_pin_list_is_replaced_whole()
         "/api/settings",
         Some(json!({"agents": {"list": {"default": {
             "lazyDiscovery": true,
-            "pinnedTools": ["read_file", "memory"],
+            "pinnedTools": ["read", "memory"],
             "approvalTimeoutMs": 60000,
             "maxOutputChars": 4096,
             "exec": {"timeoutMs": 5000},
@@ -223,7 +223,7 @@ async fn an_agents_tool_settings_round_trip_and_its_pin_list_is_replaced_whole()
     .await;
     let agent = get(&test).await["config"]["agents"]["list"]["default"].clone();
     assert_eq!(agent["lazyDiscovery"], true);
-    assert_eq!(agent["pinnedTools"], json!(["read_file", "memory"]));
+    assert_eq!(agent["pinnedTools"], json!(["read", "memory"]));
     assert_eq!(agent["approvalTimeoutMs"], 60000);
     assert_eq!(agent["maxOutputChars"], 4096);
     assert_eq!(agent["exec"]["timeoutMs"], 5000);

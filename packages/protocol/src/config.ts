@@ -230,7 +230,7 @@ export const AgentSettingsSchema = z.object({
    * Whether attached images are sent to the model as images.
    *
    * Off, an attachment still reaches the model — as the path line it always
-   * carries, which `read_file` and the rest resolve — but never as an `image`
+   * carries, which `read` and the rest resolve — but never as an `image`
    * part. That is the difference between a text-only model answering "I cannot
    * see it, let me open it" and the request being rejected outright.
    *
@@ -277,7 +277,7 @@ export const AgentSettingsSchema = z.object({
    * Head+tail truncation budget for a single tool result.
    *
    * **`.positive()`, and 0 does not mean "no limit" here.** This is also an
-   * *allocation* bound: `read_file` sizes its read from it, so 0 would make it
+   * *allocation* bound: `read` sizes its read from it, so 0 would make it
    * read one byte of every file. An operator who wants effectively no cap sets
    * a large number, which is bounded and says what it means.
    */
@@ -522,10 +522,14 @@ export type AgentTools = ToolPermissions;
  */
 export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
   Object.freeze({
-    read_file: 'allow',
-    list_dir: 'allow',
-    write_file: 'allow',
-    edit_file: 'allow',
+    read: 'allow',
+    ls: 'allow',
+    // Searching is what an agent does before almost every edit, and both of
+    // these are confined to the workspace, so they are seeded on.
+    grep: 'allow',
+    find: 'allow',
+    write: 'allow',
+    edit: 'allow',
     exec: 'ask',
     // These two are the switches for memory and skills — denying the tool also
     // removes the prompt section it feeds. Seeded on, because an agent that

@@ -620,7 +620,7 @@ async fn generates_a_tool_call_id_when_the_provider_omits_one() {
                 "message": {
                     "role": "assistant",
                     "content": null,
-                    "tool_calls": [{"type": "function", "function": {"name": "list_dir", "arguments": "{}"}}],
+                    "tool_calls": [{"type": "function", "function": {"name": "ls", "arguments": "{}"}}],
                 },
                 "finish_reason": "tool_calls",
             }]
@@ -636,7 +636,7 @@ async fn generates_a_tool_call_id_when_the_provider_omits_one() {
     let expected = tool_call_id(&FixedRandom::constant(0xab));
     assert_eq!(expected, "call_abababababab4bab");
     assert_eq!(result.message.tool_calls[0].id, expected);
-    assert_eq!(result.message.tool_calls[0].name, "list_dir");
+    assert_eq!(result.message.tool_calls[0].name, "ls");
     // A v4 UUID's version nibble, whatever the bytes.
     assert_eq!(&tool_call_id(&FixedRandom::constant(0xff))[17..18], "4");
 }
@@ -653,7 +653,7 @@ async fn re_serialises_tool_arguments_a_provider_sent_as_an_object() {
                     "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
                     "reasoning": "hmm",
                     "tool_calls": [
-                        {"id": "c1", "function": {"name": "read_file", "arguments": {"path": "a.txt"}}},
+                        {"id": "c1", "function": {"name": "read", "arguments": {"path": "a.txt"}}},
                         {"id": "c2", "function": {"name": "no_args"}},
                         {"id": "c3", "function": {}},
                     ],
@@ -879,7 +879,7 @@ async fn opens_a_window_for_a_reply_that_is_nothing_but_a_tool_call() {
     // *exists*.
     let result = drain(
         &[
-            tool_call_chunk(0, Some("c1"), Some("read_file"), None),
+            tool_call_chunk(0, Some("c1"), Some("read"), None),
             tool_call_chunk(0, None, None, Some("{\"path\":\"a\"}")),
             finish_chunk("tool_calls"),
             usage(10, 12),

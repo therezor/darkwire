@@ -221,12 +221,12 @@
               "toolCalls": [
                 {
                   "id": "call_1",
-                  "name": "read_file",
+                  "name": "read",
                   "argumentsJson": "{\"path\":\"a.txt\"}"
                 },
                 {
                   "id": "call_2",
-                  "name": "read_file",
+                  "name": "read",
                   "argumentsJson": "{not json"
                 }
               ],
@@ -235,7 +235,7 @@
             {
               "role": "tool",
               "toolCallId": "call_1",
-              "name": "read_file",
+              "name": "read",
               "content": "contents of a",
               "isError": false,
               "truncated": false
@@ -243,7 +243,7 @@
             {
               "role": "tool",
               "toolCallId": "call_2",
-              "name": "read_file",
+              "name": "read",
               "content": "malformed arguments",
               "isError": true,
               "truncated": false
@@ -276,7 +276,7 @@
                 "id": "call_1",
                 "type": "function",
                 "function": {
-                  "name": "read_file",
+                  "name": "read",
                   "arguments": "{\"path\":\"a.txt\"}"
                 }
               },
@@ -284,7 +284,7 @@
                 "id": "call_2",
                 "type": "function",
                 "function": {
-                  "name": "read_file",
+                  "name": "read",
                   "arguments": "{not json"
                 }
               }
@@ -421,7 +421,7 @@
           ],
           "tools": [
             {
-              "name": "read_file",
+              "name": "read",
               "description": "Reads a file",
               "parameters": {
                 "type": "object",
@@ -453,7 +453,7 @@
           {
             "type": "function",
             "function": {
-              "name": "read_file",
+              "name": "read",
               "description": "Reads a file",
               "parameters": {
                 "type": "object",
@@ -840,7 +840,7 @@
           ],
           "tools": [
             {
-              "name": "read_file",
+              "name": "read",
               "description": "Reads a file",
               "parameters": {
                 "type": "object",
@@ -871,7 +871,7 @@
           {
             "type": "function",
             "function": {
-              "name": "read_file",
+              "name": "read",
               "description": "Reads a file",
               "parameters": {
                 "type": "object",

@@ -45,7 +45,7 @@ use std::sync::Mutex;
 
 use darkwire_agent::skills::{SKILLS_DIRNAME, read_skills};
 use darkwire_agent::{PromptPreviewInput, describe_context};
-use darkwire_core::memory::{MEMORY_DIRNAME, read_memories};
+use darkwire_core::memory::{MEMORY_DIRNAME, index_line, read_memories};
 use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, UpdateSession,
 };
@@ -1507,7 +1507,7 @@ fn memory_status(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     } else {
         let index = memories
             .iter()
-            .map(|memory| memory.description.as_str())
+            .map(index_line)
             .collect::<Vec<_>>()
             .join("\n");
         let tokens = format_number(

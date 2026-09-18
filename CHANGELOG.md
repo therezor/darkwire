@@ -36,7 +36,8 @@ browser UI compiled into it, pointed at a model on your own hardware.
 - **Scheduled jobs.** Cron and one-shot, with a heartbeat as an ordinary job rather than a
   second system.
 - **Skills and memory as files.** A skill is a folder in the workspace and costs about 20
-  tokens to index; memory is one markdown file per fact, committed beside the project.
+  tokens to index; memory is one plain markdown file per topic, read, saved and deleted by
+  key, committed beside the project.
 - **An OpenAPI 3.1 document** generated from the same schemas the server validates
   against, and a protocol drift gate that compares the zod and Rust JSON Schemas rather
   than trusting that both halves were edited together.

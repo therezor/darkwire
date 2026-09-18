@@ -22,7 +22,7 @@
           "toolCalls": [
             {
               "id": "call_1",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]

@@ -99,7 +99,7 @@ fn normalise(path: &Path) -> PathBuf {
 ///
 /// Memory and skills are the deliberate exception. They live *inside* a
 /// workspace, because each is meant to be read, corrected and committed beside
-/// the project it describes; the mitigation is `write_file: ask`.
+/// the project it describes; the mitigation is `write: ask`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WirePaths {
     /// `~/.darkwire` unless overridden. DarkWire's own state, and never a jail

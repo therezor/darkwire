@@ -59,8 +59,8 @@ fn corpus() -> Vec<ToolDefinition> {
         ..ToolAnnotations::default()
     });
     vec![
-        tool("read_file", "Read a file from the workspace."),
-        tool("write_file", "Write a file into the workspace."),
+        tool("read", "Read a file from the workspace."),
+        tool("write", "Write a file into the workspace."),
         issue,
         clock,
         tool("exec", "Run a command."),
@@ -73,23 +73,23 @@ fn names(results: &darkwire_tools::SearchResults) -> Vec<&str> {
 
 #[test]
 fn an_exact_name_outranks_a_name_that_contains_the_query_which_outranks_prose() {
-    let results = search(&corpus(), "read_file");
-    assert_eq!(results.hits[0].name, "read_file");
+    let results = search(&corpus(), "read");
+    assert_eq!(results.hits[0].name, "read");
     assert_eq!(results.hits[0].score, 100);
 
-    let results = search(&corpus(), "file");
-    assert_eq!(names(&results), vec!["read_file", "write_file"]);
+    let results = search(&corpus(), "create");
+    assert_eq!(names(&results), vec!["mcp_github_create_issue"]);
     assert!(results.hits.iter().all(|hit| hit.score == 50));
 
     let results = search(&corpus(), "workspace");
-    assert_eq!(names(&results), vec!["read_file", "write_file"]);
+    assert_eq!(names(&results), vec!["read", "write"]);
     assert!(results.hits.iter().all(|hit| hit.score == 10));
 }
 
 #[test]
 fn every_query_word_found_scores_and_ties_break_by_name() {
     let results = search(&corpus(), "workspace read");
-    assert_eq!(names(&results), vec!["read_file", "write_file"]);
+    assert_eq!(names(&results), vec!["read", "write"]);
     assert_eq!(results.hits[0].score, 20);
     assert_eq!(results.hits[1].score, 10);
 }
@@ -149,9 +149,9 @@ fn a_hit_carries_one_shortened_line_and_never_a_schema() {
 #[test]
 fn a_search_marks_the_tools_already_in_the_list_and_says_how_to_activate() {
     let results = search(&corpus(), "file");
-    let text = render_search("file", &results, &["read_file".to_owned()]);
-    assert!(text.contains("- read_file (already in your tool list): Read a file"));
-    assert!(text.contains("- write_file: Write a file"));
+    let text = render_search("file", &results, &["read".to_owned()]);
+    assert!(text.contains("- read (already in your tool list): Read a file"));
+    assert!(text.contains("- write: Write a file"));
     assert!(text.contains("activate"));
 
     let text = render_search("zzz", &search(&corpus(), "zzz"), &[]);
@@ -162,7 +162,7 @@ fn a_search_marks_the_tools_already_in_the_list_and_says_how_to_activate() {
 fn an_activation_names_what_changed_and_carries_no_schema() {
     let outcome = Activation {
         activated: vec!["mcp_github_create_issue".to_owned()],
-        already_visible: vec!["read_file".to_owned()],
+        already_visible: vec!["read".to_owned()],
         unknown: vec![],
     };
     let output = render_activation(&outcome, &corpus());
@@ -172,11 +172,7 @@ fn an_activation_names_what_changed_and_carries_no_schema() {
             .content
             .contains("Activated: mcp_github_create_issue.")
     );
-    assert!(
-        output
-            .content
-            .contains("Already in your tool list: read_file.")
-    );
+    assert!(output.content.contains("Already in your tool list: read."));
     assert!(!output.content.contains("properties"));
 }
 
@@ -264,7 +260,7 @@ async fn refuses_when_the_install_has_no_discovery_port() {
 async fn searches_the_port_corpus_and_marks_what_is_visible() {
     let ws = TestWorkspace::new();
     let stub = Arc::new(Stub {
-        visible: vec!["read_file".to_owned()],
+        visible: vec!["read".to_owned()],
         ..Stub::default()
     });
     let execution = run(&with_port(&ws, stub), json!({"query": "file"})).await;
@@ -272,9 +268,9 @@ async fn searches_the_port_corpus_and_marks_what_is_visible() {
     assert!(
         execution
             .content
-            .contains("read_file (already in your tool list)")
+            .contains("read (already in your tool list)")
     );
-    assert!(execution.content.contains("- write_file"));
+    assert!(execution.content.contains("- write"));
     assert_eq!(execution.details.get("matched"), Some(&json!(2)));
 }
 
@@ -284,19 +280,19 @@ async fn activates_trimmed_distinct_names_and_activate_wins_over_query() {
     let stub = Arc::new(Stub::default());
     let execution = run(
         &with_port(&ws, Arc::clone(&stub)),
-        json!({"query": "file", "activate": [" exec ", "exec", "", "read_file"]}),
+        json!({"query": "file", "activate": [" exec ", "exec", "", "read"]}),
     )
     .await;
     assert!(!execution.is_error);
     assert_eq!(
         stub.activated.lock().as_slice(),
-        &[vec!["exec".to_owned(), "read_file".to_owned()]]
+        &[vec!["exec".to_owned(), "read".to_owned()]]
     );
-    assert!(execution.content.starts_with("Activated: exec, read_file."));
+    assert!(execution.content.starts_with("Activated: exec, read."));
     assert!(!execution.content.contains("Tools matching"));
     assert_eq!(
         execution.details.get("activated"),
-        Some(&json!(["exec", "read_file"]))
+        Some(&json!(["exec", "read"]))
     );
 }
 

@@ -236,7 +236,7 @@ async fn it_advertises_one_tool_per_subagent_after_the_registrys_own() {
     // order the operator configured, so a reader of the tool list sees the roster
     // they wrote rather than a re-sorted one.
     let harness = Harness::build(Setup {
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         subagents: vec![binding("writer"), binding("reviewer")],
         ..Setup::default()
     });
@@ -247,7 +247,7 @@ async fn it_advertises_one_tool_per_subagent_after_the_registrys_own() {
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
-    assert_eq!(names, vec!["read_file", "ask_writer", "ask_reviewer"]);
+    assert_eq!(names, vec!["read", "ask_writer", "ask_reviewer"]);
 }
 
 #[tokio::test]

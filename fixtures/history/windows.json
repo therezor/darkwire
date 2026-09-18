@@ -285,7 +285,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -293,7 +293,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -313,7 +313,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -321,7 +321,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "x",
           "isError": false,
           "truncated": false
@@ -391,7 +391,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "contents",
             "isError": false,
             "truncated": false
@@ -429,7 +429,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -445,7 +445,7 @@
             "toolCalls": [
               {
                 "id": "b",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -453,7 +453,7 @@
           {
             "role": "tool",
             "toolCallId": "b",
-            "name": "read_file",
+            "name": "read",
             "content": "y",
             "isError": false,
             "truncated": false
@@ -473,7 +473,7 @@
           "toolCalls": [
             {
               "id": "b",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -481,7 +481,7 @@
         {
           "role": "tool",
           "toolCallId": "b",
-          "name": "read_file",
+          "name": "read",
           "content": "y",
           "isError": false,
           "truncated": false
@@ -512,17 +512,17 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               },
               {
                 "id": "b",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               },
               {
                 "id": "c",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -530,7 +530,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -538,7 +538,7 @@
           {
             "role": "tool",
             "toolCallId": "b",
-            "name": "read_file",
+            "name": "read",
             "content": "y",
             "isError": false,
             "truncated": false
@@ -546,7 +546,7 @@
           {
             "role": "tool",
             "toolCallId": "c",
-            "name": "read_file",
+            "name": "read",
             "content": "z",
             "isError": false,
             "truncated": false
@@ -575,17 +575,17 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             },
             {
               "id": "b",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             },
             {
               "id": "c",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -593,7 +593,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "x",
           "isError": false,
           "truncated": false
@@ -601,7 +601,7 @@
         {
           "role": "tool",
           "toolCallId": "b",
-          "name": "read_file",
+          "name": "read",
           "content": "y",
           "isError": false,
           "truncated": false
@@ -609,7 +609,7 @@
         {
           "role": "tool",
           "toolCallId": "c",
-          "name": "read_file",
+          "name": "read",
           "content": "z",
           "isError": false,
           "truncated": false
@@ -631,7 +631,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -639,7 +639,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -647,7 +647,7 @@
           {
             "role": "tool",
             "toolCallId": "b",
-            "name": "read_file",
+            "name": "read",
             "content": "y",
             "isError": false,
             "truncated": false
@@ -672,7 +672,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -680,7 +680,7 @@
           {
             "role": "tool",
             "toolCallId": "b",
-            "name": "read_file",
+            "name": "read",
             "content": "orphan",
             "isError": false,
             "truncated": false
@@ -688,7 +688,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "now also orphaned",
             "isError": false,
             "truncated": false
@@ -705,7 +705,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -721,7 +721,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -741,7 +741,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -763,7 +763,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -780,7 +780,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "stranded",
             "isError": false,
             "truncated": false
@@ -833,7 +833,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -841,7 +841,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -906,7 +906,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -914,7 +914,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "x",
             "isError": false,
             "truncated": false
@@ -971,7 +971,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -979,7 +979,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "abcdefghijklmnopqrstuvwxyz",
             "isError": false,
             "truncated": false
@@ -1010,7 +1010,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1018,7 +1018,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "abcde\n\n… [16 characters truncated] …\n\nvwxyz",
           "isError": false,
           "truncated": true
@@ -1049,7 +1049,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1057,7 +1057,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "abcdefghijklmnopqrstuvwxyz",
             "isError": false,
             "truncated": false
@@ -1088,7 +1088,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1096,7 +1096,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "abc\n\n… [21 characters truncated] …\n\nyz",
           "isError": false,
           "truncated": true
@@ -1127,7 +1127,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1135,7 +1135,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "abcdef",
             "isError": false,
             "truncated": false
@@ -1166,7 +1166,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1174,7 +1174,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "a\n\n… [5 characters truncated] …\n\n",
           "isError": false,
           "truncated": true
@@ -1205,7 +1205,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1213,7 +1213,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "abcde",
             "isError": false,
             "truncated": false
@@ -1244,7 +1244,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1252,7 +1252,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "abcde",
           "isError": false,
           "truncated": false
@@ -1283,7 +1283,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1291,7 +1291,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
             "isError": false,
             "truncated": false
@@ -1322,7 +1322,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1330,7 +1330,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
           "isError": false,
           "truncated": false
@@ -1361,7 +1361,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1369,7 +1369,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "🐕🐕🐕🐕🐕🐕",
             "isError": false,
             "truncated": false
@@ -1400,7 +1400,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1408,7 +1408,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "🐕\ud83d\n\n… [6 characters truncated] …\n\n\udc15🐕",
           "isError": false,
           "truncated": true
@@ -1439,7 +1439,7 @@
             "toolCalls": [
               {
                 "id": "a",
-                "name": "read_file",
+                "name": "read",
                 "argumentsJson": "{\"path\":\"a.txt\"}"
               }
             ]
@@ -1447,7 +1447,7 @@
           {
             "role": "tool",
             "toolCallId": "a",
-            "name": "read_file",
+            "name": "read",
             "content": "abcdefghijklmnop",
             "isError": true,
             "truncated": true
@@ -1478,7 +1478,7 @@
           "toolCalls": [
             {
               "id": "a",
-              "name": "read_file",
+              "name": "read",
               "argumentsJson": "{\"path\":\"a.txt\"}"
             }
           ]
@@ -1486,7 +1486,7 @@
         {
           "role": "tool",
           "toolCallId": "a",
-          "name": "read_file",
+          "name": "read",
           "content": "ab\n\n… [12 characters truncated] …\n\nop",
           "isError": true,
           "truncated": true

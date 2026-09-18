@@ -1,10 +1,16 @@
 //! The built-in tool set.
 //!
-//! Nine tools, and the reason there are only nine is that every one of them
-//! is a capability the agent cannot obtain any other way. Anything expressible
-//! as a command — `grep`, `find`, `git` — is `exec`'s job, and adding a tool
-//! per command would spend context on definitions the model already knows how
-//! to write in argv form.
+//! Eleven tools. The test each one passes is that it is a capability the agent
+//! cannot obtain as cheaply any other way, and for most of them that means
+//! `exec` cannot do the job: a command needs an approval an operator may not be
+//! there to give, and it needs a binary the container image may not ship.
+//!
+//! `grep` and `find` are the two that look like commands and are not. Both are
+//! ripgrep compiled in rather than spawned, so they hold inside the workspace
+//! jail by construction, bound their own output, and work in an image with no
+//! `rg` and no `fd`. Searching is also the thing an agent does before almost
+//! every edit, so paying an approval for it once per turn is the difference
+//! between an agent that reads the code and one that guesses.
 //!
 //! `memory` and `skill` are the two that do not quite fit that test, and they
 //! are here for a second reason: a tool carries a per-agent permission, so
@@ -27,15 +33,18 @@
 //! made here.
 
 pub mod automation;
-pub mod edit_file;
+pub mod edit;
 pub mod exec;
-pub mod list_dir;
+pub mod find;
+pub mod grep;
+pub mod ls;
 pub mod memory;
-pub mod read_file;
+pub mod read;
 pub mod shared;
 pub mod skill;
 pub mod tool_search;
-pub mod write_file;
+pub mod walk;
+pub mod write;
 
 use std::sync::Arc;
 
@@ -43,18 +52,20 @@ use darkwire_core::Result;
 use darkwire_protocol::ToolSource;
 
 pub use automation::automation_tool;
-pub use edit_file::edit_file_tool;
+pub use edit::edit_tool;
 pub use exec::{exec_tool, render_run};
-pub use list_dir::list_dir_tool;
+pub use find::{FindRequest, find_blocking, find_tool};
+pub use grep::{GrepMode, GrepRequest, grep_blocking, grep_tool};
+pub use ls::ls_tool;
 pub use memory::memory_tool;
-pub use read_file::read_file_tool;
+pub use read::read_tool;
 pub use shared::format_bytes;
 pub use skill::skill_tool;
 pub use tool_search::{
     Hit, MAX_SEARCH_RESULTS, SearchResults, TOOL_SEARCH_NAME, render_activation, render_search,
     search, tool_search_tool,
 };
-pub use write_file::write_file_tool;
+pub use write::write_tool;
 
 use crate::registry::ToolRegistry;
 use crate::tool::{AnyTool, ToolHandler, TypedTool};
@@ -71,10 +82,12 @@ pub(crate) fn built<H: ToolHandler>(tool: Result<TypedTool<H>>) -> AnyTool {
 /// Every built-in, including `exec` and `automation`, in registration order.
 pub fn all_builtin_tools() -> Vec<AnyTool> {
     vec![
-        read_file_tool(),
-        write_file_tool(),
-        edit_file_tool(),
-        list_dir_tool(),
+        read_tool(),
+        write_tool(),
+        edit_tool(),
+        ls_tool(),
+        grep_tool(),
+        find_tool(),
         exec_tool(),
         automation_tool(),
         memory_tool(),

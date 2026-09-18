@@ -49,9 +49,9 @@ test.describe('a turn', () => {
       .fill('list the workspace');
     await app.getByRole('button', { name: 'Send' }).click();
 
-    const card = app.getByRole('region', { name: 'Tool call: list_dir' });
+    const card = app.getByRole('region', { name: 'Tool call: ls' });
     await expect(card).toBeVisible();
-    // `list_dir` is in the `safe` band, so nothing stood between the call and
+    // `ls` is in the `safe` band, so nothing stood between the call and
     // its execution.
     await expect(card.getByText('needs approval to run')).toHaveCount(0);
 
@@ -267,7 +267,7 @@ test.describe('reworking a turn', () => {
     // so its tool card is proof the edit reached the model rather than only the
     // transcript.
     await expect(
-      app.getByRole('region', { name: 'Tool call: list_dir' }),
+      app.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible({
       timeout: 15_000,
     });

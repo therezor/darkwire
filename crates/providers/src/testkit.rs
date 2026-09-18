@@ -860,8 +860,8 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
             200,
             &completion(CompletionOptions {
                 tool_calls: vec![
-                    FixtureToolCall::new("call_1", "read_file", "{\"path\":\"a.txt\"}"),
-                    FixtureToolCall::new("call_2", "list_dir", "{\"path\": "),
+                    FixtureToolCall::new("call_1", "read", "{\"path\":\"a.txt\"}"),
+                    FixtureToolCall::new("call_2", "ls", "{\"path\": "),
                 ],
                 ..CompletionOptions::default()
             }),
@@ -876,12 +876,12 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
             vec![
                 ToolCall {
                     id: "call_1".into(),
-                    name: "read_file".into(),
+                    name: "read".into(),
                     arguments_json: "{\"path\":\"a.txt\"}".into(),
                 },
                 ToolCall {
                     id: "call_2".into(),
-                    name: "list_dir".into(),
+                    name: "ls".into(),
                     arguments_json: "{\"path\": ".into(),
                 },
             ]
@@ -895,7 +895,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
             200,
             &completion(CompletionOptions {
                 finish_reason: Some("stop".into()),
-                tool_calls: vec![FixtureToolCall::new("call_1", "list_dir", "{}")],
+                tool_calls: vec![FixtureToolCall::new("call_1", "ls", "{}")],
                 ..CompletionOptions::default()
             }),
         ));
@@ -938,9 +938,9 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
         let server = ScriptedServer::start().await;
         server.push(ScriptedResponse::sse(
             &[
-                tool_call_chunk(0, Some("call_a"), Some("read_file"), None),
+                tool_call_chunk(0, Some("call_a"), Some("read"), None),
                 tool_call_chunk(0, None, None, Some("{\"path\":")),
-                tool_call_chunk(1, Some("call_b"), Some("list_dir"), Some("{}")),
+                tool_call_chunk(1, Some("call_b"), Some("ls"), Some("{}")),
                 tool_call_chunk(0, None, None, Some("\"a.txt\"}")),
                 finish_chunk("tool_calls"),
             ],
@@ -955,12 +955,12 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
             vec![
                 ToolCall {
                     id: "call_a".into(),
-                    name: "read_file".into(),
+                    name: "read".into(),
                     arguments_json: "{\"path\":\"a.txt\"}".into(),
                 },
                 ToolCall {
                     id: "call_b".into(),
-                    name: "list_dir".into(),
+                    name: "ls".into(),
                     arguments_json: "{}".into(),
                 },
             ]
@@ -1198,7 +1198,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                             AssistantOptions {
                                 tool_calls: vec![ToolCall {
                                     id: "call_1".into(),
-                                    name: "read_file".into(),
+                                    name: "read".into(),
                                     arguments_json: "{}".into(),
                                 }],
                                 reasoning: None,
@@ -1206,7 +1206,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                         )),
                         ChatMessage::Tool(tool_message(
                             "call_1",
-                            "read_file",
+                            "read",
                             "hi",
                             ToolOptions::default(),
                         )),

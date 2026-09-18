@@ -9,7 +9,7 @@ use darkwire_agent::text_tool_call::{text_tool_call_correction, text_tool_call_n
 fn known() -> Vec<String> {
     vec![
         "fetch".to_owned(),
-        "read_file".to_owned(),
+        "read".to_owned(),
         "web.search".to_owned(),
     ]
 }
@@ -54,17 +54,14 @@ fn it_reads_every_wrapper_models_reach_for() {
 #[test]
 fn it_reads_a_fenced_block_and_a_bare_object() {
     let fenced =
-        "Here goes:\n\n```json\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"}}\n```";
+        "Here goes:\n\n```json\n{\"name\": \"read\", \"arguments\": {\"path\": \"a\"}}\n```";
     assert_eq!(
         text_tool_call_name(fenced, &known()),
-        Some("read_file".to_owned())
+        Some("read".to_owned())
     );
 
-    let bare = "I'll do {\"name\": \"read_file\", \"arguments\": {}} now.";
-    assert_eq!(
-        text_tool_call_name(bare, &known()),
-        Some("read_file".to_owned())
-    );
+    let bare = "I'll do {\"name\": \"read\", \"arguments\": {}} now.";
+    assert_eq!(text_tool_call_name(bare, &known()), Some("read".to_owned()));
 }
 
 #[test]
@@ -81,7 +78,7 @@ fn prose_about_tools_is_left_alone() {
     // The correction is worthless when the model was only explaining itself.
     let cases = [
         "You would call fetch with a URL.",
-        "The `read_file` tool takes a path.",
+        "The `read` tool takes a path.",
         "",
         "Nothing structured at all.",
         // A name that matches no registered tool.
@@ -103,10 +100,10 @@ fn nothing_is_found_when_there_are_no_tools_to_find() {
 #[test]
 fn the_first_known_name_in_the_text_wins() {
     let written = "<tool_call>{\"name\": \"unknown_one\"}</tool_call>\n\
-                   <tool_call>{\"name\": \"read_file\"}</tool_call>";
+                   <tool_call>{\"name\": \"read\"}</tool_call>";
     assert_eq!(
         text_tool_call_name(written, &known()),
-        Some("read_file".to_owned())
+        Some("read".to_owned())
     );
 }
 

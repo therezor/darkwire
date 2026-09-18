@@ -10,7 +10,7 @@
  *
  * The three tools are chosen for their risk bands, not their usefulness:
  *
- *  - `list_dir` is `safe`, so it runs unattended and produces a tool card with
+ *  - `ls` is `safe`, so it runs unattended and produces a tool card with
  *    nothing in front of it.
  *  - `exec` is `ask`, so it produces the approval prompt. Both the approve and
  *    the deny path continue into the same second turn.
@@ -113,10 +113,10 @@ export const ROUTES: readonly Route[] = [
     ],
   },
   {
-    // `list_dir` is `safe`, so the card appears with no prompt in front of it.
+    // `ls` is `safe`, so the card appears with no prompt in front of it.
     match: /\blist\b/i,
     turns: [
-      { toolCalls: [toolCall('call-list', 'list_dir', { path: '.' })] },
+      { toolCalls: [toolCall('call-list', 'ls', { path: '.' })] },
       { text: 'The workspace holds `notes.md`.' },
     ],
   },
@@ -166,11 +166,11 @@ export const ROUTES: readonly Route[] = [
     // The subagent's half, and it needs no new harness concept: a subagent's
     // first user message *is* the task string, so it routes here exactly as the
     // caller's message routes above. The word is chosen not to collide with any
-    // route before it — a task containing "list" would take the `list_dir`
+    // route before it — a task containing "list" would take the `ls`
     // route and the delegation would silently test something else.
     match: /\bfind\b/i,
     turns: [
-      { toolCalls: [toolCall('call-nested', 'list_dir', { path: '.' })] },
+      { toolCalls: [toolCall('call-nested', 'ls', { path: '.' })] },
       { text: 'There is one file: `notes.md`.' },
     ],
   },
@@ -196,7 +196,7 @@ export const ROUTES: readonly Route[] = [
     // before it.
     match: /\binspect\b/i,
     turns: [
-      { toolCalls: [toolCall('call-held-list', 'list_dir', { path: '.' })] },
+      { toolCalls: [toolCall('call-held-list', 'ls', { path: '.' })] },
       {
         text: 'I checked the folder.',
         toolCalls: [toolCall('call-held-wait', 'e2e_wait', { ms: 60_000 })],

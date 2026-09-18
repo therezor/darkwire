@@ -352,7 +352,7 @@ async fn names_the_transcript_when_a_truncated_run_kept_one() {
             .content
             .contains("/run/darkwire-runs/c/r1/stdout.log")
     );
-    assert!(result.content.contains("read_file cannot"));
+    assert!(result.content.contains("read cannot"));
     assert_eq!(
         result.details.get("transcriptDir"),
         Some(&json!("/run/darkwire-runs/c/r1"))

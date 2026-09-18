@@ -410,7 +410,7 @@ async fn withholds_progress_from_a_channel_that_did_not_ask_for_it() {
     let connection = hub.only();
     connection.emit(common::turn_start());
     connection.emit(common::delta("so far"));
-    connection.emit(common::tool_call("c1", "read_file"));
+    connection.emit(common::tool_call("c1", "read"));
     connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
     flush().await;
     flush().await;
@@ -443,7 +443,7 @@ async fn delivers_progress_to_a_channel_that_renders_it() {
     let connection = hub.only();
     connection.emit(common::turn_start());
     connection.emit(common::delta("so far"));
-    connection.emit(common::tool_call("c1", "read_file"));
+    connection.emit(common::tool_call("c1", "read"));
     connection.emit(common::turn_end(darkwire_protocol::StopReason::Complete));
     flush().await;
     flush().await;
@@ -705,12 +705,12 @@ async fn reads_the_projection_flags_off_the_channels_config() {
     let connection = hub.only();
     connection.emit(common::turn_start());
     connection.emit(common::delta("so far"));
-    connection.emit(common::tool_call("c1", "read_file"));
+    connection.emit(common::tool_call("c1", "read"));
     flush().await;
     flush().await;
 
     // Hints on, progress off.
-    assert_eq!(channel.sent_texts(), vec!["Running read_file…"]);
+    assert_eq!(channel.sent_texts(), vec!["Running read…"]);
     manager.stop().await;
 }
 

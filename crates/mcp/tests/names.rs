@@ -96,11 +96,11 @@ fn keeps_both_tools_when_two_upstream_names_flatten_to_one() {
     let flattened = flatten_tool_names(
         MCP_TOOL_PREFIX,
         "files",
-        &["read file".to_owned(), "read_file".to_owned()],
+        &["open file".to_owned(), "open_file".to_owned()],
     );
-    assert_eq!(flattened.names["read file"], "mcp_files_read-file");
-    assert_eq!(flattened.names["read_file"], "mcp_files_read-file_2");
-    assert_eq!(flattened.collisions, ["read_file"]);
+    assert_eq!(flattened.names["open file"], "mcp_files_open-file");
+    assert_eq!(flattened.names["open_file"], "mcp_files_open-file_2");
+    assert_eq!(flattened.collisions, ["open_file"]);
 }
 
 #[test]
@@ -108,10 +108,10 @@ fn gives_the_plain_name_to_whichever_the_server_advertised_first() {
     let flattened = flatten_tool_names(
         MCP_TOOL_PREFIX,
         "files",
-        &["read_file".to_owned(), "read file".to_owned()],
+        &["open_file".to_owned(), "open file".to_owned()],
     );
-    assert_eq!(flattened.names["read_file"], "mcp_files_read-file");
-    assert_eq!(flattened.names["read file"], "mcp_files_read-file_2");
+    assert_eq!(flattened.names["open_file"], "mcp_files_open-file");
+    assert_eq!(flattened.names["open file"], "mcp_files_open-file_2");
 }
 
 #[test]

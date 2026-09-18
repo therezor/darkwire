@@ -5,7 +5,7 @@
     "seq": 60,
     "tools": [
       {
-        "name": "read_file",
+        "name": "read",
         "description": "Reads a file.",
         "parameters": {
           "type": "object"

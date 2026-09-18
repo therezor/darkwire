@@ -160,7 +160,7 @@ mod resolve_wire_paths {
     #[test]
     fn keeps_the_policy_directory_out_of_what_the_file_tools_can_write() {
         // A definition names what a container may do, so one writable through
-        // `write_file` would let prompt injection widen the box it runs in.
+        // `write` would let prompt injection widen the box it runs in.
         let paths = default_paths();
         assert!(!paths.policy_dir.starts_with(&paths.workspaces_dir));
     }

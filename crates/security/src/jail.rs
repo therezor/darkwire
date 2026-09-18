@@ -397,7 +397,7 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
 /// Canonical form of the deepest ancestor that exists, with the missing tail
 /// re-appended.
 ///
-/// `write_file` legitimately targets a path that does not exist yet, and plain
+/// `write` legitimately targets a path that does not exist yet, and plain
 /// canonicalisation fails on it — so a jail built on canonicalisation alone
 /// could only ever validate reads. Re-appending is safe because the missing
 /// segments cannot be symlinks: they do not exist. Every segment that *does*
@@ -619,8 +619,8 @@ impl WorkspaceJail {
     /// Clamping treats a leading `/` as the root, which is right for `/notes/x` and
     /// silently wrong for the absolute path of the root itself: `<root>/notes/x`
     /// clamped segment by segment lands on `<root>/Users/you/project/notes/x` — a
-    /// real directory tree of junk, created without an error by `write_file` and
-    /// reported as "not found" by `read_file` for a file that exists.
+    /// real directory tree of junk, created without an error by `write` and
+    /// reported as "not found" by `read` for a file that exists.
     ///
     /// Nothing legitimate is lost. Addressing a directory *inside* the workspace
     /// whose path spells out the workspace's own absolute path is not a thing anyone

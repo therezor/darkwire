@@ -438,7 +438,7 @@ const TOOL_CARDS: readonly ToolPart[] = [
   {
     kind: 'tool',
     id: 'guide-ok',
-    name: 'read_file',
+    name: 'read',
     args: { path: 'package.json' },
     risk: 'safe',
     status: 'ok',

@@ -110,7 +110,7 @@ async fn the_tools_are_returned_as_well_as_measured() {
     // The breakdown says a number and the only follow-up question anyone has is
     // *which* tools.
     let harness = Harness::build(Setup {
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
     let _ = harness.say("web:1", "hello").await;
@@ -136,10 +136,10 @@ async fn the_tools_are_returned_as_well_as_measured() {
 async fn every_window_entry_is_matched_back_to_the_row_it_came_from() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "contents")],
+        tools: vec![FakeTool::reading("read", "contents")],
         ..Setup::default()
     });
     let _ = harness.say("web:1", "go").await;
@@ -174,7 +174,7 @@ async fn a_window_the_walker_trims_keeps_the_rows_it_kept() {
             vec![
                 ChatMessage::Tool(tool_message(
                     "orphan",
-                    "read_file",
+                    "read",
                     "no call made this",
                     darkwire_core::messages::ToolOptions::default(),
                 )),

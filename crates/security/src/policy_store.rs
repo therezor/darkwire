@@ -5,7 +5,7 @@
 //! artefact recording that somebody consented to these bytes. What keeps that
 //! honest is where the directory sits rather than what is in it — the policy
 //! root is **beside** the workspace, never inside it. The jail root *is* the
-//! workspace, so a definition kept in there would be writable by `write_file`,
+//! workspace, so a definition kept in there would be writable by `write`,
 //! and prompt injection would become a way to rewrite the policy the agent runs
 //! under.
 //!

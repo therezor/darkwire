@@ -1,4 +1,4 @@
-//! `list_dir` — what is in a workspace directory.
+//! `ls` — what is in a workspace directory.
 //!
 //! No filtering. The obvious temptation is to hide `node_modules`, `.git` and
 //! dotfiles, and it is the wrong call for an agent tool: the model asked what
@@ -108,7 +108,7 @@ impl ToolHandler for ListDir {
         ctx: &'a ToolContext,
     ) -> BoxFuture<'a, Result<ToolOutput>> {
         Box::pin(async move {
-            assert_not_aborted(&ctx.token, "list_dir")?;
+            assert_not_aborted(&ctx.token, "ls")?;
             let accepted = ctx.jail.accept(&args.path)?;
             let where_ = if accepted.relative.is_empty() {
                 "."
@@ -122,7 +122,7 @@ impl ToolHandler for ListDir {
             let shown = usize::try_from(args.max_entries).unwrap_or(usize::MAX);
             let mut lines: Vec<String> = Vec::new();
             for entry in sorted.iter().take(shown) {
-                assert_not_aborted(&ctx.token, "list_dir")?;
+                assert_not_aborted(&ctx.token, "ls")?;
                 if entry.is_directory {
                     lines.push(format!("{}/", entry.name));
                     continue;
@@ -148,18 +148,18 @@ impl ToolHandler for ListDir {
                 ));
             }
             if !note.is_empty() {
-                lines.push(format!("[list_dir:{note}]"));
+                lines.push(format!("[ls:{note}]"));
             }
             Ok(ToolOutput::text(lines.join("\n")))
         })
     }
 }
 
-/// The `list_dir` tool.
-pub fn list_dir_tool() -> AnyTool {
+/// The `ls` tool.
+pub fn ls_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
-            "list_dir",
+            "ls",
             "List the contents of a workspace directory. The workspace is the root: \"/x\" and \"../x\" both resolve inside it, never outside. Directories are marked with a trailing slash and files show their size. Nothing is hidden; use maxEntries to bound a large tree.",
         )
         .risk(ToolRisk::Safe)

@@ -260,7 +260,7 @@ async fn scopes_memory_by_tool_name_so_another_tool_still_asks() {
         &gate,
         approval_request(RequestOptions {
             call_id: Some("b"),
-            name: Some("write_file"),
+            name: Some("write"),
             ..RequestOptions::default()
         }),
     );

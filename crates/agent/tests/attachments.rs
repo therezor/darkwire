@@ -399,7 +399,7 @@ fn a_tool_result_is_never_materialised() {
     let fixture = Fixture::new();
     let tool = ChatMessage::Tool(darkwire_core::messages::tool_message(
         "c1",
-        "read_file",
+        "read",
         "contents",
         darkwire_core::messages::ToolOptions::default(),
     ));

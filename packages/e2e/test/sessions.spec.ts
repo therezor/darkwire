@@ -76,7 +76,7 @@ test.describe('sessions', () => {
     await message.fill('list the workspace');
     await message.press('Enter');
     await expect(
-      app.getByRole('region', { name: 'Tool call: list_dir' }),
+      app.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible({
       timeout: 15_000,
     });
@@ -89,7 +89,7 @@ test.describe('sessions', () => {
 
     await sidebar.getByRole('link', { name: /list the workspace/u }).click();
     await expect(
-      app.getByRole('region', { name: 'Tool call: list_dir' }),
+      app.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible({
       timeout: 15_000,
     });

@@ -24,7 +24,7 @@ use darkwire_agent::read_skills;
 use darkwire_channels::telegram::channel::NewId;
 use darkwire_channels::telegram::{MemoryState, SkillSummary, SkillsState, TelegramConsole};
 use darkwire_channels::{BoxFuture, ChannelFactory, TelegramChannelOptions, telegram_channel};
-use darkwire_core::memory::read_memories;
+use darkwire_core::memory::{index_line, read_memories};
 use darkwire_core::{Result, SessionRecord, SessionStore, WirePaths, WorkspaceStore};
 use darkwire_protocol::config::{
     AgentEntryPatch, AgentSettingsPatch, AgentsConfigPatch, Config, ConfigPatch,
@@ -419,14 +419,14 @@ impl TelegramConsole for RuntimeConsole {
 
             let index = memories
                 .iter()
-                .map(|memory| memory.description.as_str())
+                .map(index_line)
                 .collect::<Vec<_>>()
                 .join("\n");
             Ok(MemoryState {
                 granted,
                 count: memories.len(),
                 // What the *index* costs, which is what reaches the prompt. The
-                // bodies are on disk until something opens one.
+                // contents stay on disk until the tool opens one.
                 tokens: estimate_tokens(&index) as u64,
             })
         })

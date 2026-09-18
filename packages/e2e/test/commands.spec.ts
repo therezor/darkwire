@@ -111,7 +111,7 @@ test.describe('/model on a session bound to an agent of its own', () => {
               provider: 'ollama',
               model: 'llama3',
               systemPrompt: 'You write code.',
-              tools: { read_file: 'allow' },
+              tools: { read: 'allow' },
             },
           },
         },
@@ -190,7 +190,7 @@ test.describe('/model on a session bound to an agent of its own', () => {
     expect(config.config.agents.list.coder).toMatchObject({
       label: 'Coder',
       systemPrompt: 'You write code.',
-      tools: { read_file: 'allow' },
+      tools: { read: 'allow' },
     });
 
     // And the turn that follows runs on it. `turn.start` carries the model the

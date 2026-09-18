@@ -3,7 +3,7 @@
 //! One directory per skill, each holding a `SKILL.md` whose frontmatter carries
 //! a description and whose body is the instructions. The directory may hold
 //! whatever else the skill needs — a checklist, a template, a script — and the
-//! model reaches those with `read_file` like any other workspace file. That is
+//! model reaches those with `read` like any other workspace file. That is
 //! the whole reason a skill is a directory rather than a file.
 //!
 //! This module is the disk half and nothing else: bytes to a list of [`Skill`].
@@ -15,7 +15,7 @@
 //! An `agents:` line in the frontmatter narrows a sheet to the agents it names;
 //! without one it is every agent's, which is what every sheet written before
 //! this existed keeps doing. Scope is a property of the *catalogue* — it
-//! decides what an agent is told about, not what it may read, and `read_file`
+//! decides what an agent is told about, not what it may read, and `read`
 //! and the `skill` tool will still open a sheet that was not advertised.
 //!
 //! **The directory name is the skill's id.** Not the frontmatter `name` — the
@@ -30,7 +30,7 @@
 //!
 //! ## Where these live, and what it costs
 //!
-//! In the workspace, which is inside the jail, which means `write_file` and
+//! In the workspace, which is inside the jail, which means `write` and
 //! `exec` can both edit them. An agent's own directory sits *beside* the
 //! workspace for exactly this reason, and the tradeoff is deliberate rather
 //! than overlooked: a skill folder is meant to be committed beside the project
@@ -56,7 +56,7 @@ pub const SKILL_FILENAME: &str = "SKILL.md";
 /// The most of one skill's body that reaches the prompt.
 ///
 /// 12 KB is roughly three thousand tokens. The bound exists because a body the
-/// model opens with `read_file` lands in the transcript and is re-sent on every
+/// model opens with `read` lands in the transcript and is re-sent on every
 /// later iteration of that turn at full price, so its size is a decision rather
 /// than an accident.
 pub const SKILL_MAX_BYTES: usize = 12 * 1024;
@@ -83,7 +83,7 @@ pub struct Skill {
     /// Everything after the frontmatter, already bounded by
     /// [`SKILL_MAX_BYTES`].
     pub body: String,
-    /// Workspace-relative, as the model would pass it to `read_file`.
+    /// Workspace-relative, as the model would pass it to `read`.
     pub path: String,
     /// The agents whose catalogue advertises this sheet. Empty means every
     /// agent, which is both the default and what a malformed `agents:` falls
@@ -175,7 +175,7 @@ fn read_skill(dir: &Path, name: &str) -> Option<Skill> {
         description: truncate_chars(&description, MAX_DESCRIPTION_CHARS),
         body: truncate_bytes(&parsed.body, SKILL_MAX_BYTES),
         // Built with `/` rather than the host separator, because this string is
-        // handed to the model to pass back to `read_file`, which takes POSIX
+        // handed to the model to pass back to `read`, which takes POSIX
         // separators on every host.
         path: format!("{SKILLS_DIRNAME}/{name}/{SKILL_FILENAME}"),
     })

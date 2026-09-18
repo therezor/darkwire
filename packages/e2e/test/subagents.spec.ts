@@ -68,7 +68,7 @@ test.use({
             label: 'Researcher',
             provider: 'ollama',
             model: 'qwen3',
-            tools: { list_dir: 'allow', read_file: 'allow' },
+            tools: { ls: 'allow', read: 'allow' },
           },
           default: {
             // `permission` is spelled out because `ConfigPatch` is the schema's
@@ -131,7 +131,7 @@ test.describe('a delegating agent', () => {
 
     // The subagent's own tool call, as a card of its own inside the run — the
     // same landmark and the same status label a top-level call gets.
-    const nested = run.getByRole('region', { name: 'Tool call: list_dir' });
+    const nested = run.getByRole('region', { name: 'Tool call: ls' });
     await expect(nested).toBeVisible();
     await expect(nested.getByLabel('Succeeded')).toBeVisible();
     await expect(run.getByText('There is one file: notes.md.')).toBeVisible();
@@ -155,7 +155,7 @@ test.describe('a delegating agent', () => {
     const run = card.getByRole('region', { name: 'Subagent run: Researcher' });
     await expect(run).toBeVisible();
     await expect(
-      run.getByRole('region', { name: 'Tool call: list_dir' }),
+      run.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible();
     await expect(run.getByText('There is one file: notes.md.')).toBeVisible();
   });
@@ -228,8 +228,8 @@ test.describe('reloading mid-delegation', () => {
               provider: 'ollama',
               model: 'qwen3',
               tools: {
-                list_dir: 'allow',
-                read_file: 'allow',
+                ls: 'allow',
+                read: 'allow',
                 e2e_wait: 'allow',
               },
             },
@@ -264,7 +264,7 @@ test.describe('reloading mid-delegation', () => {
     // The run is now held open by a tool that does not return, so both of these
     // stay on screen for as long as this test takes.
     await expect(
-      beforeRun.getByRole('region', { name: 'Tool call: list_dir' }),
+      beforeRun.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible();
     await expect(beforeRun.getByText('I checked the folder.')).toBeVisible();
 
@@ -276,7 +276,7 @@ test.describe('reloading mid-delegation', () => {
     await expand(header);
     const run = card.getByRole('region', { name: 'Subagent run: Researcher' });
     await expect(
-      run.getByRole('region', { name: 'Tool call: list_dir' }),
+      run.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible();
     await expect(run.getByText('I checked the folder.')).toBeVisible();
   });

@@ -79,7 +79,7 @@ A tool card, expanded to show what the call returned:
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="screenshots/chat-tool-call.light.png">
-  <img alt="A list_dir tool card, expanded to show the files it returned." src="screenshots/chat-tool-call.dark.png">
+  <img alt="A ls tool card, expanded to show the files it returned." src="screenshots/chat-tool-call.dark.png">
 </picture>
 
 An approval prompt. The turn is parked here — the arguments are on screen and nothing has

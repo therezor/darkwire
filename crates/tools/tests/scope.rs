@@ -53,8 +53,8 @@ fn perms(entries: &[(&str, ToolPermission)]) -> ToolPermissions {
 /// Everything the fixture registry holds, at `allow`.
 fn all() -> ToolPermissions {
     perms(&[
-        ("read_file", ToolPermission::Allow),
-        ("write_file", ToolPermission::Allow),
+        ("read", ToolPermission::Allow),
+        ("write", ToolPermission::Allow),
         ("exec", ToolPermission::Allow),
     ])
 }
@@ -63,7 +63,7 @@ fn registry() -> Arc<ToolRegistry> {
     let registry = Arc::new(ToolRegistry::new());
     registry
         .register_all(
-            [tool("read_file"), tool("write_file"), tool("exec")],
+            [tool("read"), tool("write"), tool("exec")],
             ToolSource::Builtin,
         )
         .unwrap();
@@ -81,19 +81,13 @@ fn names(scope: &dyn ToolScope) -> Vec<String> {
 #[test]
 fn permission_for_reads_back_what_the_map_says() {
     let map = perms(&[
-        ("read_file", ToolPermission::Allow),
+        ("read", ToolPermission::Allow),
         ("exec", ToolPermission::Ask),
-        ("write_file", ToolPermission::Deny),
+        ("write", ToolPermission::Deny),
     ]);
-    assert_eq!(
-        permission_for(Some(&map), "read_file"),
-        ToolPermission::Allow
-    );
+    assert_eq!(permission_for(Some(&map), "read"), ToolPermission::Allow);
     assert_eq!(permission_for(Some(&map), "exec"), ToolPermission::Ask);
-    assert_eq!(
-        permission_for(Some(&map), "write_file"),
-        ToolPermission::Deny
-    );
+    assert_eq!(permission_for(Some(&map), "write"), ToolPermission::Deny);
 }
 
 #[test]
@@ -120,10 +114,7 @@ fn permission_for_denies_a_tool_the_map_does_not_mention() {
         ToolPermission::Deny
     );
     assert_eq!(
-        permission_for(
-            Some(&perms(&[("read_file", ToolPermission::Allow)])),
-            "exec"
-        ),
+        permission_for(Some(&perms(&[("read", ToolPermission::Allow)])), "exec"),
         ToolPermission::Deny
     );
 }
@@ -163,7 +154,7 @@ fn select_hides_a_denied_tool_from_the_definitions() {
     let mut map = all();
     map.insert("exec".to_owned(), ToolPermission::Deny);
     let scope = registry.select(map);
-    assert_eq!(names(scope.as_ref()), vec!["read_file", "write_file"]);
+    assert_eq!(names(scope.as_ref()), vec!["read", "write"]);
     assert_eq!(registry.definitions().len(), 3);
 }
 
@@ -171,12 +162,12 @@ fn select_hides_a_denied_tool_from_the_definitions() {
 fn select_offers_a_tool_set_to_ask() {
     let registry = registry();
     let scope = registry.select(perms(&[
-        ("read_file", ToolPermission::Allow),
+        ("read", ToolPermission::Allow),
         ("exec", ToolPermission::Ask),
     ]));
-    assert_eq!(names(scope.as_ref()), vec!["exec", "read_file"]);
+    assert_eq!(names(scope.as_ref()), vec!["exec", "read"]);
     assert_eq!(scope.permission_for("exec"), ToolPermission::Ask);
-    assert_eq!(scope.permission_for("write_file"), ToolPermission::Deny);
+    assert_eq!(scope.permission_for("write"), ToolPermission::Deny);
 }
 
 #[test]
@@ -195,10 +186,7 @@ fn select_reports_a_hidden_tool_as_absent_rather_than_forbidden() {
     map.insert("exec".to_owned(), ToolPermission::Deny);
     let scope = registry.select(map);
     assert!(scope.get("exec").is_none());
-    assert_eq!(
-        scope.get("read_file").unwrap().definition().name,
-        "read_file"
-    );
+    assert_eq!(scope.get("read").unwrap().definition().name, "read");
     // The registry still has it — this is a view, not a removal.
     assert!(registry.get("exec").is_some());
 }
@@ -215,7 +203,7 @@ async fn select_refuses_to_execute_a_hidden_tool_without_admitting_it_exists() {
         .await;
     assert!(result.is_error);
     assert_eq!(result.kind, Some(ErrorKind::NotFound));
-    assert!(result.content.contains("read_file, write_file"));
+    assert!(result.content.contains("read, write"));
     assert!(!result.content.to_lowercase().contains("denied"));
 }
 
@@ -223,12 +211,12 @@ async fn select_refuses_to_execute_a_hidden_tool_without_admitting_it_exists() {
 async fn select_still_executes_a_tool_the_map_admits() {
     let ws = TestWorkspace::new();
     let registry = registry();
-    let scope = registry.select(perms(&[("read_file", ToolPermission::Allow)]));
+    let scope = registry.select(perms(&[("read", ToolPermission::Allow)]));
     let result = scope
-        .execute(&ToolInvocation::named("read_file"), ws.context())
+        .execute(&ToolInvocation::named("read"), ws.context())
         .await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "read_file");
+    assert_eq!(result.content, "read");
 }
 
 #[tokio::test]
@@ -239,19 +227,16 @@ async fn select_sees_a_tool_registered_after_the_scope_was_built() {
     let registry = registry();
     let mut map = all();
     map.insert("exec".to_owned(), ToolPermission::Deny);
-    map.insert("list_dir".to_owned(), ToolPermission::Allow);
+    map.insert("ls".to_owned(), ToolPermission::Allow);
     let scope = registry.select(map);
     assert_eq!(scope.definitions().len(), 2);
 
     registry
-        .register(tool("list_dir"), ToolSource::Extension)
+        .register(tool("ls"), ToolSource::Extension)
         .unwrap();
-    assert_eq!(
-        names(scope.as_ref()),
-        vec!["list_dir", "read_file", "write_file"]
-    );
+    assert_eq!(names(scope.as_ref()), vec!["ls", "read", "write"]);
     let result = scope
-        .execute(&ToolInvocation::named("list_dir"), ws.context())
+        .execute(&ToolInvocation::named("ls"), ws.context())
         .await;
     assert!(!result.is_error);
 }
@@ -263,9 +248,9 @@ fn select_does_not_admit_a_late_registered_tool_the_agent_never_enabled() {
     map.insert("exec".to_owned(), ToolPermission::Deny);
     let scope = registry.select(map);
     registry
-        .register(tool("list_dir"), ToolSource::Extension)
+        .register(tool("ls"), ToolSource::Extension)
         .unwrap();
-    assert_eq!(names(scope.as_ref()), vec!["read_file", "write_file"]);
+    assert_eq!(names(scope.as_ref()), vec!["read", "write"]);
 }
 
 #[test]
@@ -275,21 +260,19 @@ fn select_drops_a_tool_the_registry_unregisters() {
     map.insert("exec".to_owned(), ToolPermission::Deny);
     let scope = registry.select(map);
     assert_eq!(scope.definitions().len(), 2);
-    registry.unregister("write_file");
-    assert_eq!(names(scope.as_ref()), vec!["read_file"]);
+    registry.unregister("write");
+    assert_eq!(names(scope.as_ref()), vec!["read"]);
 }
 
 #[test]
 fn select_reuses_the_memo_while_nothing_has_changed_and_rebuilds_when_it_does() {
     let registry = registry();
     let mut map = all();
-    map.insert("list_dir".to_owned(), ToolPermission::Allow);
+    map.insert("ls".to_owned(), ToolPermission::Allow);
     let scope = registry.select(map);
     let first = scope.definitions();
     assert!(Arc::ptr_eq(&scope.definitions(), &first));
-    registry
-        .register(tool("list_dir"), ToolSource::Builtin)
-        .unwrap();
+    registry.register(tool("ls"), ToolSource::Builtin).unwrap();
     let second = scope.definitions();
     assert!(!Arc::ptr_eq(&second, &first));
     assert!(Arc::ptr_eq(&scope.definitions(), &second));
@@ -298,7 +281,7 @@ fn select_reuses_the_memo_while_nothing_has_changed_and_rebuilds_when_it_does() 
 #[test]
 fn select_gives_two_agents_independent_views_of_one_registry() {
     let registry = registry();
-    let reviewer = registry.select(perms(&[("read_file", ToolPermission::Allow)]));
+    let reviewer = registry.select(perms(&[("read", ToolPermission::Allow)]));
     let mut map = all();
     map.insert("exec".to_owned(), ToolPermission::Deny);
     let writer = registry.select(map);

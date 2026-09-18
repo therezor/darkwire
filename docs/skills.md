@@ -6,7 +6,7 @@ something an install carries in its settings.
 
 Every skill's name and description reach the prompt on every turn — about twenty tokens
 each. The instructions themselves stay on disk until the agent decides the skill applies
-and opens the file with `read_file`.
+and opens the file with `read`.
 
 ## The folder
 
@@ -76,7 +76,7 @@ agents: coder, team-lead
 Scope is declared in the file rather than by where the file sits, so a sheet stays in
 `skills/` beside the others and stays something a person can list, read and commit. It is
 a property of the **catalogue**: it decides which sheets an agent is _told about_, not
-which it may open. `read_file` and the `skill` tool will still open a sheet that was never
+which it may open. `read` and the `skill` tool will still open a sheet that was never
 advertised, and that is not a hole — a skill is prose, and the jail and the exec guard have
 never read a word of the prompt.
 
@@ -102,7 +102,7 @@ In the **static** half — the part a provider caches for the life of a session:
 ## Skills
 
 Instruction sheets kept in this workspace under `skills/`. A line below is a
-summary, not the skill — open the file with `read_file` before acting on what it names.
+summary, not the skill — open the file with `read` before acting on what it names.
 
 - `skills/code-review/SKILL.md` — **code-review**: Review a diff for correctness, then style.
 - `skills/release-notes/SKILL.md` — **release-notes**: Draft release notes from a git range.
@@ -130,7 +130,7 @@ There **is** a `skill` tool, and it exists for a reason the argument against it 
 addressed.
 
 The argument against was good, and it was about reading: a tool whose whole job is to
-return the bytes of a workspace file is a worse `read_file` — one more name in every
+return the bytes of a workspace file is a worse `read` — one more name in every
 agent's permission map and one more schema in every request, to reach a file the agent can
 already open. That is still true, and it is still what [Tools](tools.md) opens by saying.
 
@@ -148,11 +148,11 @@ see [Memory](memory.md).
 Two consequences worth knowing. **On an existing install nothing is indexed until the tool
 is granted** — `DEFAULT_AGENT_TOOLS` seeds a newly created agent, so a config that predates
 this has no `skill` key, and an absent tool is a denied one. And the model can still reach
-a sheet with `read_file`: the tool is the intended path, not the only one.
+a sheet with `read`: the tool is the intended path, not the only one.
 
 The tool does **not** enforce `agents:`, and that follows from the same sentence. Scope
 decides what an agent is told about; a second copy of the rule inside the tool would gate
-one door while `read_file` walks past the other, which buys nothing and gives two rules the
+one door while `read` walks past the other, which buys nothing and gives two rules the
 chance to disagree.
 
 ### Seeing what a workspace holds
@@ -185,7 +185,7 @@ does not vary by install the way a taste for long prompts does.
 
 ## Where these live, and what it costs
 
-They are in the workspace, which is inside the jail, which means `write_file` and `exec`
+They are in the workspace, which is inside the jail, which means `write` and `exec`
 can both edit them. That is worth stating plainly rather than leaving to be discovered,
 because there is a real argument for the opposite: a directory _beside_ the workspace
 would be one prompt injection could not reach, and so could not use to rewrite what an
@@ -219,7 +219,7 @@ What follows from the placement, in code:
 - **Nothing is written.** The loader only reads.
 
 If you want the injection-proof arrangement instead, keep the workspace's `skills/` out of
-the agent's write permissions: an agent whose `write_file` is `deny` or `ask` reads its
+the agent's write permissions: an agent whose `write` is `deny` or `ask` reads its
 skills and cannot author them.
 
 ## The section is a template you own
@@ -230,7 +230,7 @@ section, anything else is this agent's own. It is edited under **Advanced prompt
 settings** in the agent editor. See [Prompts](prompts.md).
 
 What stays in code is the _shape_ of the index line, because that is what the catalogue and
-`read_file` agree on, not prose. `{{index}}` carries its own leading blank line, so a
+`read` agree on, not prose. `{{index}}` carries its own leading blank line, so a
 template that places it straight after its prose leaves no gap when there is nothing to
 list.
 
@@ -241,7 +241,7 @@ Whether the section is placed at all is the `skill` tool's permission, not this 
 Denying it removes both.
 
 So does `toolsEnabled: false`, which is broader: with no tool list advertised there is
-nothing to open a sheet _with_, and a catalogue of paths plus prose naming `read_file` is
+nothing to open a sheet _with_, and a catalogue of paths plus prose naming `read` is
 cost the model cannot act on. Half a section whose own wording points at a tool that is not
 there is worse than no section, and an agent with no tools and a fixed instruction sheet is
 what `systemPrompt` is for.

@@ -8,10 +8,16 @@
 )]
 
 mod automation;
+mod common;
 mod conformance;
+mod edit;
 mod exec;
-mod fs;
+mod find;
+mod grep;
+mod ls;
 mod memory;
+mod read;
 mod set;
 mod shared;
 mod tool_search;
+mod write;

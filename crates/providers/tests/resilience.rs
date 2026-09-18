@@ -549,8 +549,8 @@ fn truncate_keeps_the_question_and_the_trailing_runtime_turn() {
 fn truncate_never_leaves_a_tool_result_without_its_assistant() {
     let messages = vec![
         long("old"),
-        common::assistant_with("", vec![common::call("c1", "read_file", "{}")], None),
-        common::tool("c1", "read_file", &"x".repeat(400)),
+        common::assistant_with("", vec![common::call("c1", "read", "{}")], None),
+        common::tool("c1", "read", &"x".repeat(400)),
         long("newer"),
         long("newest"),
     ];
@@ -576,8 +576,8 @@ fn truncate_declines_when_there_is_nothing_to_drop() {
     assert!(
         truncate_oldest_turns(&[
             common::user(&"x".repeat(500)),
-            common::tool("orphan", "read_file", &"y".repeat(500)),
-            common::tool("orphan2", "read_file", &"z".repeat(500)),
+            common::tool("orphan", "read", &"y".repeat(500)),
+            common::tool("orphan2", "read", &"z".repeat(500)),
         ])
         .is_none()
     );
@@ -840,7 +840,7 @@ fn synthesise_stream_replays_a_result_as_events() {
     );
 
     let tool_only = ChatResult {
-        message: match common::assistant_with("", vec![common::call("c", "list_dir", "{}")], None) {
+        message: match common::assistant_with("", vec![common::call("c", "ls", "{}")], None) {
             ChatMessage::Assistant(message) => message,
             other => panic!("{other:?}"),
         },

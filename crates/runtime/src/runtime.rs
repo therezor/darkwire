@@ -1446,7 +1446,7 @@ impl WireRuntime {
         // two conditions: off, the request advertises no tools at all, so there
         // is nothing to open a memory or a skill *with*. Both sections are an
         // index of paths plus prose telling the model to read one — handed to a
-        // model that cannot call `read_file`, the index is unusable and the prose
+        // model that cannot call `read`, the index is unusable and the prose
         // is false.
         let mut contributors: Vec<Arc<dyn ContextContributor>> = Vec::new();
         if agent.settings.tools_enabled && granted(&agent.tools, "skill") {

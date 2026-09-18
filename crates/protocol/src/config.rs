@@ -182,7 +182,7 @@ pub struct AgentSettings {
     /// Head+tail truncation budget for a single tool result.
     ///
     /// **Positive, and 0 does not mean "no limit" here**, unlike every
-    /// duration in this tree. This is also an *allocation* bound: `read_file`
+    /// duration in this tree. This is also an *allocation* bound: `read`
     /// sizes its read from it, so 0 would make it read one byte of every file,
     /// and lifting that would remove the only thing stopping one call from
     /// allocating a multi-gigabyte buffer. An operator who wants effectively no
@@ -611,10 +611,12 @@ pub struct ToolsConfig {
 /// than as unconfigured; an install that predates them has neither until an
 /// operator grants it.
 pub const DEFAULT_AGENT_TOOLS: &[(&str, ToolPermission)] = &[
-    ("read_file", ToolPermission::Allow),
-    ("list_dir", ToolPermission::Allow),
-    ("write_file", ToolPermission::Allow),
-    ("edit_file", ToolPermission::Allow),
+    ("read", ToolPermission::Allow),
+    ("ls", ToolPermission::Allow),
+    ("grep", ToolPermission::Allow),
+    ("find", ToolPermission::Allow),
+    ("write", ToolPermission::Allow),
+    ("edit", ToolPermission::Allow),
     ("exec", ToolPermission::Ask),
     ("memory", ToolPermission::Allow),
     ("skill", ToolPermission::Allow),

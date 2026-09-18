@@ -101,14 +101,14 @@ describe('toAgentEntryForm', () => {
   it('carries the tool permissions across as stored', () => {
     const shown = toAgentEntryForm(
       AgentEntrySchema.parse({
-        tools: { read_file: 'allow', exec: 'ask', write_file: 'deny' },
+        tools: { read: 'allow', exec: 'ask', write: 'deny' },
       }),
     );
 
     expect(shown.tools).toEqual({
-      read_file: 'allow',
+      read: 'allow',
       exec: 'ask',
-      write_file: 'deny',
+      write: 'deny',
     });
   });
 
@@ -472,12 +472,12 @@ describe('toAgentEntryPatch', () => {
     const entry = parsed(
       toAgentEntryPatch(
         'reviewer',
-        form({ tools: { read_file: 'allow' } }),
+        form({ tools: { read: 'allow' } }),
         EMPTY,
         t,
       ),
     );
-    expect(entry).toMatchObject({ tools: { read_file: 'allow' } });
+    expect(entry).toMatchObject({ tools: { read: 'allow' } });
     expect(
       (entry as { tools: Record<string, unknown> }).tools,
     ).not.toHaveProperty('exec');
@@ -525,7 +525,7 @@ describe('toNewAgentPatch', () => {
     maxTokens: 4096,
     toolTimeoutMs: 20_000,
     systemPrompt: 'House style: be terse.',
-    tools: { read_file: 'allow', exec: 'deny' },
+    tools: { read: 'allow', exec: 'deny' },
   });
 
   it('copies the model and budget the template would have run on', () => {
@@ -549,7 +549,7 @@ describe('toNewAgentPatch', () => {
 
     expect(patch.agents?.list?.reviewer).toMatchObject({
       systemPrompt: 'House style: be terse.',
-      tools: { read_file: 'allow', exec: 'deny' },
+      tools: { read: 'allow', exec: 'deny' },
     });
     expect(ConfigPatchSchema.safeParse(patch).success).toBe(true);
   });
@@ -662,7 +662,7 @@ describe('the templates an agent owns', () => {
         'reviewer',
         form({
           toolPrompts: {
-            read_file: { description: '', fields: { path: '' } },
+            read: { description: '', fields: { path: '' } },
             exec: {
               description: 'Run a program.',
               fields: { argv: '', timeoutMs: 'In ms.' },
@@ -683,7 +683,7 @@ describe('the templates an agent owns', () => {
       },
     });
     expect(
-      (patch as { toolPrompts: Record<string, unknown> }).toolPrompts.read_file,
+      (patch as { toolPrompts: Record<string, unknown> }).toolPrompts.read,
     ).toBeUndefined();
   });
 
@@ -700,7 +700,7 @@ describe('toAgentEnabledPatch', () => {
   const entry = AgentEntrySchema.parse({
     label: 'Reviewer',
     systemPrompt: 'Only ever read.',
-    tools: { read_file: 'allow', exec: 'deny' },
+    tools: { read: 'allow', exec: 'deny' },
   });
 
   it('carries the whole agent, because the patch replaces it wholesale', () => {
@@ -712,7 +712,7 @@ describe('toAgentEnabledPatch', () => {
     expect(patch.agents?.list?.reviewer).toMatchObject({
       enabled: false,
       systemPrompt: 'Only ever read.',
-      tools: { read_file: 'allow', exec: 'deny' },
+      tools: { read: 'allow', exec: 'deny' },
     });
     expect(ConfigPatchSchema.safeParse(patch).success).toBe(true);
   });
@@ -874,7 +874,7 @@ describe('memory and skills', () => {
     const granted = AgentEntrySchema.parse({
       tools: { memory: 'allow', skill: 'allow' },
     });
-    const absent = AgentEntrySchema.parse({ tools: { read_file: 'allow' } });
+    const absent = AgentEntrySchema.parse({ tools: { read: 'allow' } });
 
     expect(toAgentEntryForm(granted).tools).toMatchObject({
       memory: 'allow',
@@ -890,7 +890,7 @@ describe('memory and skills', () => {
     const stored = AgentEntrySchema.parse({
       provider: 'ollama',
       model: 'llama3',
-      tools: { read_file: 'allow', memory: 'allow', skill: 'allow' },
+      tools: { read: 'allow', memory: 'allow', skill: 'allow' },
     });
 
     const patch = parsed(
@@ -898,7 +898,7 @@ describe('memory and skills', () => {
         'reviewer',
         {
           ...toAgentEntryForm(stored),
-          tools: { read_file: 'allow', memory: 'deny', skill: 'deny' },
+          tools: { read: 'allow', memory: 'deny', skill: 'deny' },
         },
         stored,
         t,
@@ -906,7 +906,7 @@ describe('memory and skills', () => {
     );
 
     expect(patch).toMatchObject({
-      tools: { read_file: 'allow', memory: 'deny', skill: 'deny' },
+      tools: { read: 'allow', memory: 'deny', skill: 'deny' },
     });
     expect(patch).not.toHaveProperty('memoryEnabled');
     expect(patch).not.toHaveProperty('skillsEnabled');
@@ -937,7 +937,7 @@ describe('memory and skills', () => {
       provider: 'ollama',
       model: 'llama3',
       label: 'Reviewer',
-      tools: { read_file: 'allow', memory: 'deny' },
+      tools: { read: 'allow', memory: 'deny' },
       enabled: false,
     });
 
@@ -957,7 +957,7 @@ describe('memory and skills', () => {
       memoryPrompt: '## What I know\n\n{{index}}',
       label: 'Reviewer',
       enabled: false,
-      tools: { read_file: 'allow', memory: 'deny' },
+      tools: { read: 'allow', memory: 'deny' },
     });
   });
 });

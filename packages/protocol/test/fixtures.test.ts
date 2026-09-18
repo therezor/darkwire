@@ -111,7 +111,7 @@ const USAGE: Usage = {
 };
 
 const DEFINITION: ToolDefinition = {
-  name: 'read_file',
+  name: 'read',
   description: 'Reads a file in the workspace.',
   risk: 'safe',
   source: 'builtin',
@@ -135,7 +135,7 @@ const CODER_CONFIG = {
         model: 'llama3',
         provider: 'ollama',
         temperature: 0.7,
-        tools: { read_file: 'allow' },
+        tools: { read: 'allow' },
       },
     },
   },
@@ -260,8 +260,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           template: DEFAULT_MEMORY_TEMPLATE,
           values: {
-            path: 'memory/',
-            index: '- memory/deploy.md — deploy: how the site ships.',
+            index: 'deploy: How the site ships',
             count: '1',
           },
         },
@@ -935,7 +934,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: {
+            read: {
               description: 'Read a file. Prefer this over `cat`.',
               fields: {},
             },
@@ -946,14 +945,14 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         name: 'empty inherits the built-in description',
         input: {
           definitions: [DEFINITION],
-          overrides: { read_file: { description: '', fields: {} } },
+          overrides: { read: { description: '', fields: {} } },
         },
       },
       {
         name: 'a single space deletes the description',
         input: {
           definitions: [DEFINITION],
-          overrides: { read_file: { description: ' ', fields: {} } },
+          overrides: { read: { description: ' ', fields: {} } },
         },
       },
       {
@@ -961,7 +960,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: { description: '  Padded. \r\n', fields: {} },
+            read: { description: '  Padded. \r\n', fields: {} },
           },
         },
       },
@@ -970,7 +969,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: {
+            read: {
               description: '',
               fields: { path: 'Relative to the workspace root.' },
             },
@@ -982,7 +981,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: {
+            read: {
               description: '',
               fields: { limit: 'Maximum lines to return.' },
             },
@@ -1001,7 +1000,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: { description: '', fields: { pat: 'A typo.' } },
+            read: { description: '', fields: { pat: 'A typo.' } },
           },
         },
       },
@@ -1032,14 +1031,14 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
               parameters: { type: 'object', properties: { path: 'string' } },
             },
           ],
-          overrides: { read_file: { description: '', fields: { path: 'x' } } },
+          overrides: { read: { description: '', fields: { path: 'x' } } },
         },
       },
       {
         name: 'leaves other definitions untouched',
         input: {
           definitions: [DEFINITION, { ...DEFINITION, name: 'exec' }],
-          overrides: { read_file: { description: 'Changed.', fields: {} } },
+          overrides: { read: { description: 'Changed.', fields: {} } },
         },
       },
       {
@@ -1047,7 +1046,7 @@ const FIXTURES: Readonly<Record<string, Fixture>> = {
         input: {
           definitions: [DEFINITION],
           overrides: {
-            read_file: {
+            read: {
               description: '😀 Read 𝔞 file.',
               fields: { path: '🚀' },
             },
@@ -1147,7 +1146,7 @@ const STORED_MESSAGE = {
     role: 'assistant',
     content: [{ type: 'text', text: 'calling' }],
     toolCalls: [
-      { id: 'call_1', name: 'read_file', argumentsJson: '{"path":"a.txt"}' },
+      { id: 'call_1', name: 'read', argumentsJson: '{"path":"a.txt"}' },
     ],
   },
 };
@@ -1360,7 +1359,7 @@ const SERVER_FRAMES: readonly Json[] = [
     seq: 60,
     tools: [
       {
-        name: 'read_file',
+        name: 'read',
         description: 'Reads a file.',
         parameters: { type: 'object' },
         risk: 'safe',

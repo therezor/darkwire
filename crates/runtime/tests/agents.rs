@@ -81,20 +81,16 @@ mod resolve_agent {
 
     #[test]
     fn replaces_the_tool_map_rather_than_merging_into_the_seed() {
-        let tree = json!({"agents": {"list": {"reader": {"tools": {"read_file": "allow"}}}}});
+        let tree = json!({"agents": {"list": {"reader": {"tools": {"read": "allow"}}}}});
         let agent = resolved(&tree, Some("reader"));
         assert_eq!(agent.tools.len(), 1);
-        assert_eq!(agent.tools["read_file"], ToolPermission::Allow);
+        assert_eq!(agent.tools["read"], ToolPermission::Allow);
     }
 
     #[test]
     fn seeds_the_built_ins_for_an_agent_that_names_no_tools() {
         let tree = json!({"agents": {"list": {"plain": {}}}});
-        assert!(
-            resolved(&tree, Some("plain"))
-                .tools
-                .contains_key("read_file")
-        );
+        assert!(resolved(&tree, Some("plain")).tools.contains_key("read"));
     }
 
     #[test]
@@ -536,7 +532,7 @@ mod templates {
             "systemPrompt": "S", "livePrompt": "L", "wrapUpPrompt": "W",
             "platformPrompt": "P", "toolPolicyPrompt": "{{tag}}",
             "memoryPrompt": "M", "skillsPrompt": "K", "promptMode": "raw",
-            "toolPrompts": {"read_file": {"description": "mine"}},
+            "toolPrompts": {"read": {"description": "mine"}},
         }}}});
         let agent = resolved(&tree, Some("custom"));
         assert_eq!(agent.system_prompt, "S");
@@ -546,7 +542,7 @@ mod templates {
         assert_eq!(agent.memory_prompt, "M");
         assert_eq!(agent.skills_prompt, "K");
         assert_eq!(agent.prompt_mode, PromptMode::Raw);
-        assert!(agent.tool_prompts.contains_key("read_file"));
+        assert!(agent.tool_prompts.contains_key("read"));
     }
 
     #[test]
@@ -608,7 +604,7 @@ mod tool_prompts {
             "toolPrompts": {"nmap": {"description": "scan"}},
         }}}});
         let agent = resolved(&tree, Some("a"));
-        let warnings = tool_prompt_warnings(&agent, &["read_file".to_owned()]);
+        let warnings = tool_prompt_warnings(&agent, &["read".to_owned()]);
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].code, AgentWarningCode::UnknownToolPrompt);
         assert_eq!(warnings[0].subject.as_deref(), Some("nmap"));

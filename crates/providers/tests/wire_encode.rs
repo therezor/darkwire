@@ -86,7 +86,7 @@ fn parts_encode_to_the_wire_shapes() {
 fn messages_and_tools_drop_what_the_wire_does_not_carry() {
     let assistant = encode_message(&common::assistant_with(
         "",
-        vec![common::call("c1", "read_file", "{not json")],
+        vec![common::call("c1", "read", "{not json")],
         Some("never sent"),
     ));
     let json = serde_json::to_value(&assistant).unwrap();
@@ -97,7 +97,7 @@ fn messages_and_tools_drop_what_the_wire_does_not_carry() {
     );
     assert!(json.get("reasoning").is_none());
 
-    let tool = encode_message(&common::tool("c1", "read_file", "hi"));
+    let tool = encode_message(&common::tool("c1", "read", "hi"));
     assert_eq!(tool.tool_call_id.as_deref(), Some("c1"));
     assert_eq!(tool.role, "tool");
 

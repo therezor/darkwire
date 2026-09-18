@@ -457,11 +457,10 @@ export const TOOL_POLICY_PLACEHOLDERS = ['nonce', 'tag'] as const;
 /**
  * What a *memory* template may ask for.
  *
- * `index` is the whole of what memory contributes: one line per memory, each
- * naming the file to open and what it is about. The bodies are not offered,
- * because they are not in this section — the model opens the one it wants. That
- * is the difference between this and the section it replaces, which inlined
- * everything a workspace had ever learned on every request.
+ * `index` is the whole of what memory contributes: one line per memory, its key
+ * and its title. The contents are not offered, because they are not in this
+ * section. The model reads the one it wants through the `memory` tool, which
+ * takes the key and nothing else, so the folder is not offered either.
  *
  * `count` is offered and unused by the default, the same way `{{workspaceRoot}}`
  * and `{{runtime}}` are in the identity half: a custom template may reasonably
@@ -469,9 +468,7 @@ export const TOOL_POLICY_PLACEHOLDERS = ['nonce', 'tag'] as const;
  * changes every stored template that used it.
  */
 export const MEMORY_PROMPT_PLACEHOLDERS = [
-  /** The folder, workspace-relative and POSIX: `memory/`. */
-  'path',
-  /** One line per memory. Already bounded by the agent's token budget. */
+  /** One line per memory, `key: title`. */
   'index',
   /** How many memories the index carries, as a decimal string. */
   'count',
@@ -542,7 +539,7 @@ export const SKILLS_PROMPT_PLACEHOLDERS = [
 /**
  * The skills section: a catalogue, and what to do with it.
  *
- * It names `read_file` for the reason the memory template does — a list of paths
+ * It names `read` for the reason the memory template does — a list of paths
  * with no instruction to open them reads as a list of things that exist rather
  * than a list of things to consult.
  *
@@ -554,38 +551,20 @@ export const SKILLS_PROMPT_PLACEHOLDERS = [
 export const DEFAULT_SKILLS_TEMPLATE = `## Skills
 
 Instruction sheets kept in this workspace under \`{{path}}/\`. A line below is a
-summary, not the skill. Open the file with \`read_file\` before acting on what it
+summary, not the skill. Open the file with \`read\` before acting on what it
 names.{{index}}`;
 
 /**
- * The memory section: an index, and what to do with it.
+ * The memory section: the index, and the one rule the data cannot carry.
  *
- * **It advertises files rather than carrying their contents**, which is the
- * whole shape of the feature. A workspace has many memories and needs at most a
- * few per turn, so an index earns its keep the way a compact tool catalogue's
- * tool list does — where inlining a memory whole would pay for it on every
- * request whether or not a word of it bore on the question.
- *
- * Two sentences that are doing work and should survive a rewrite:
- *
- *  - **It names `read_file`.** A list of paths with no instruction to open them
- *    reads as a list of things that exist, not as a list of things to consult.
- *    compact tool catalogues and the skills index both learned this.
- *  - **It says a repeated name replaces.** Without it a model that learns it was
- *    wrong writes a second memory contradicting the first, and the index then
- *    carries both with nothing to say which is current.
+ * Almost data-only. This is paid for on every request, so every rule that can
+ * sit in the tool description instead does. What is left is that the keys are
+ * exact: a small model inventing `auth-session` for a listed `auth-sessions`
+ * spends a turn on the error.
  */
 export const DEFAULT_MEMORY_TEMPLATE = `## Memory
 
-What you have learned about this workspace, kept as one file per fact under
-\`{{path}}\`. Each line below is one memory: the file to open, its name, and
-what it is about. The bodies are not here: open one with \`read_file\` when its
-line bears on what you are doing.
-
-To record something durable, call the \`memory\` tool with a short name, a
-one-line description, a type and the fact itself. Writing a name that already
-exists replaces it, so something you got wrong is corrected rather than left
-standing beside its correction.
+Use exact keys with the \`memory\` tool. Do not guess a key.
 
 {{index}}`;
 

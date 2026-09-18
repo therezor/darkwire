@@ -236,10 +236,12 @@
               },
               "tools": {
                 "default": {
-                  "read_file": "allow",
-                  "list_dir": "allow",
-                  "write_file": "allow",
-                  "edit_file": "allow",
+                  "read": "allow",
+                  "ls": "allow",
+                  "grep": "allow",
+                  "find": "allow",
+                  "write": "allow",
+                  "edit": "allow",
                   "exec": "ask",
                   "memory": "allow",
                   "skill": "allow"

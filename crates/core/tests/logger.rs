@@ -73,10 +73,10 @@ mod lines {
     #[test]
     fn emits_structured_json() {
         let line = one_line(LogLevel::Info, || {
-            tracing::info!(tool = "read_file", "executing");
+            tracing::info!(tool = "read", "executing");
         });
         assert_eq!(line["msg"], "executing");
-        assert_eq!(line["tool"], "read_file");
+        assert_eq!(line["tool"], "read");
         assert_eq!(line["level"], 30);
     }
 

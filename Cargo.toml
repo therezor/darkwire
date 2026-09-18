@@ -109,6 +109,16 @@ oauth2 = { version = "=5.0.0", default-features = false }
 jsonschema = { version = "=0.56.0", default-features = false }
 nix = { version = "=0.31.3", features = ["signal", "fs", "process"] }
 walkdir = "=2.5.0"
+# ripgrep as a library, for the `grep` and `find` tools. In-process rather than
+# a child `rg`, because the file tools must hold inside the workspace jail and
+# must work in a container image that ships no search binary.
+grep-searcher = "=0.1.17"
+grep-regex = "=0.1.14"
+grep-matcher = "=0.1.9"
+ignore = "=0.4.33"
+globset = "=0.4.20"
+# Already under the crates above; named here because `read` counts newlines.
+memchr = "=2.8.3"
 lru = "=0.18.4"
 dashmap = "=6.2.1"
 

@@ -11,4 +11,4 @@ line
 
 ## Correction
 
-Call `read_file` now.
+Call `read` now.

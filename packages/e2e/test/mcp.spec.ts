@@ -122,12 +122,12 @@ test.describe('MCP servers', () => {
     await app.goto(`${harness.url}/settings/mcp/files`);
 
     await expect(app.getByLabel('Command')).toHaveValue('not-a-real-command');
-    await app.getByLabel('Enabled tools').fill('read_file');
+    await app.getByLabel('Enabled tools').fill('read');
     await app.getByRole('button', { name: 'Save changes' }).click();
 
     await expect
       .poll(async () => (await serversOf(app, harness.url)).files?.enabledTools)
-      .toEqual(['read_file']);
+      .toEqual(['read']);
   });
 
   test('switching the transport clears the half that no longer applies', async ({

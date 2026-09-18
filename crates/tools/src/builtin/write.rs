@@ -1,6 +1,6 @@
-//! `write_file` — create or replace a workspace file.
+//! `write` — create or replace a workspace file.
 //!
-//! Whole-file replacement, not append and not patch. `edit_file` is the tool
+//! Whole-file replacement, not append and not patch. `edit` is the tool
 //! for a change to an existing file, and keeping the two separate is what
 //! makes the approval prompt meaningful: "replace 4 kB of `src/index.ts`" and
 //! "swap one string in `src/index.ts`" are different decisions, and a single
@@ -46,7 +46,7 @@ impl ToolHandler for WriteFile {
         ctx: &'a ToolContext,
     ) -> BoxFuture<'a, Result<ToolOutput>> {
         Box::pin(async move {
-            assert_not_aborted(&ctx.token, "write_file")?;
+            assert_not_aborted(&ctx.token, "write")?;
             let accepted = ctx.jail.accept(&args.path)?;
             let where_ = accepted.relative.as_str();
             let note = clamp_note(&args.path, &accepted);
@@ -57,7 +57,7 @@ impl ToolHandler for WriteFile {
                     .await
                     .map_err(|error| fs_failure(&error, where_, &note))?;
             }
-            assert_not_aborted(&ctx.token, "write_file")?;
+            assert_not_aborted(&ctx.token, "write")?;
             tokio::fs::write(&accepted.path, args.content.as_bytes())
                 .await
                 .map_err(|error| fs_failure(&error, where_, &note))?;
@@ -71,12 +71,12 @@ impl ToolHandler for WriteFile {
     }
 }
 
-/// The `write_file` tool.
-pub fn write_file_tool() -> AnyTool {
+/// The `write` tool.
+pub fn write_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
-            "write_file",
-            "Write a UTF-8 text file in the workspace, replacing it if it exists. The workspace is the root: \"/x\" and \"../x\" both resolve inside it, never outside. Use edit_file to change part of an existing file.",
+            "write",
+            "Write a UTF-8 text file in the workspace, replacing it if it exists. The workspace is the root: \"/x\" and \"../x\" both resolve inside it, never outside. Use edit to change part of an existing file.",
         )
         .risk(ToolRisk::Write)
         .annotations(ToolAnnotations {

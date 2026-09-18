@@ -99,7 +99,7 @@
     "promptLive": "Live state",
     "promptLiveHint": "Rebuilt every request and never cached, so every line here is paid for five or ten times a turn.",
     "promptMemory": "Memory",
-    "promptMemoryHint": "The section that lists what this agent has learned. {{index}} is the generated list. A template without it advertises the folder and names nothing in it.",
+    "promptMemoryHint": "The section that lists what this agent has learned. {{index}} is the generated list. A template without it announces the memory tool and names nothing to use it on.",
     "promptNotPlacedNoMemory": "This agent does not have the memory tool, so the section is not placed. Grant it under Tools.",
     "promptNotPlacedNoSkills": "This agent does not have the skill tool, so the section is not placed. Grant it under Tools.",
     "promptNotPlacedNoTools": "This section isn’t sent to the model. Turn it back on and your wording applies again.",

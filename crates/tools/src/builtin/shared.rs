@@ -95,7 +95,7 @@ pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> WireError {
 /// Bytes as something readable in a directory listing.
 ///
 /// The agent loop formats attachment sizes with it as well, and the model
-/// reads both those strings and `list_dir`'s in the same context window — two
+/// reads both those strings and `ls`'s in the same context window — two
 /// spellings of "4.2 KB" is a difference it would be entitled to read meaning
 /// into.
 pub fn format_bytes(bytes: u64) -> String {

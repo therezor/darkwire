@@ -4,7 +4,7 @@
 //! not Markdown: eighteen characters are reserved *everywhere*, so an unescaped
 //! `.` or `-` — a full stop, a bullet — is a `can't parse entities` 400 that
 //! loses the whole message. And a message is capped at 4096 characters, which a
-//! `read_file` answer passes without trying.
+//! `read` answer passes without trying.
 //!
 //! The shape here is a deliberate middle. A full Markdown→MarkdownV2
 //! translation would be a parser, and every gap in it is a lost message;

@@ -151,7 +151,7 @@ fn an_install_with_no_policy_directory_lists_nothing() {
 ///
 /// The policy directory sits beside the workspace rather than inside it, so no
 /// tool can reach these files; an authenticated operator is a different actor
-/// from a prompt-injected `write_file`, and this is their door. What must not
+/// from a prompt-injected `write`, and this is their door. What must not
 /// change is the validation: a definition saved here clears exactly the checks
 /// a hand-written one does.
 mod saving {

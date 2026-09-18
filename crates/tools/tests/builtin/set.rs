@@ -21,14 +21,16 @@ fn registers_every_built_in_under_the_builtin_source() {
         registry.names(),
         vec![
             "automation",
-            "edit_file",
+            "edit",
             "exec",
-            "list_dir",
+            "find",
+            "grep",
+            "ls",
             "memory",
-            "read_file",
+            "read",
             "skill",
             "tool_search",
-            "write_file"
+            "write"
         ]
     );
     assert_eq!(registry.source_of("exec"), Some(ToolSource::Builtin));

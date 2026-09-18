@@ -264,13 +264,13 @@ describe('session replay', () => {
       role: 'assistant',
       content: [{ type: 'text', text: 'calling' }],
       toolCalls: [
-        { id: 'call_1', name: 'read_file', argumentsJson: '{"path":"a.txt"}' },
+        { id: 'call_1', name: 'read', argumentsJson: '{"path":"a.txt"}' },
       ],
     });
     const tool = ChatMessageSchema.parse({
       role: 'tool',
       toolCallId: 'call_1',
-      name: 'read_file',
+      name: 'read',
       content: 'contents',
     });
 

@@ -76,7 +76,7 @@ rules.
 | `subagentTimeoutMs`   | int ≥ 0                                  | `0`       | Applies to delegations _this_ agent makes.                                                                                                    |
 | `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_   | Absent sends nothing, which is not the same as `off`. See below.                                                                              |
 | `approvalTimeoutMs`   | int > 0                                  | 5 min     | How long an `ask` prompt stays open before it counts as denied. `0` is refused: an approval that never expires holds the turn open forever.   |
-| `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result. `0` is refused: `read_file` sizes its buffer from this, so `0` would read one byte of every file.       |
+| `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result. `0` is refused: `read` sizes its buffer from this, so `0` would read one byte of every file.            |
 | `exec`                | object                                   | see below | What the `exec` tool may run for this agent. Whether it has `exec` at all is the `tools` map below.                                           |
 | `lazyDiscovery`       | boolean                                  | `false`   | Send `tool_search` plus the pinned tools instead of every permitted tool. See [Lazy discovery](tools.md#lazy-discovery).                      |
 | `pinnedTools`         | string[]                                 | `[]`      | Tools that stay in the list while `lazyDiscovery` is on. Names, not permissions. Replaced whole on a save.                                    |
@@ -111,8 +111,8 @@ the upgrade path — a declared key nothing reads is worse than a missing one, b
 reads as a setting that does nothing and the file gives no way to find that out.
 
 How much memory costs in the prompt is **not** here either: it is bounded by a count of
-files rather than a token budget, and none of the bounds is configurable. See
-[Memory](memory.md).
+files and a short derived title rather than a token budget, and none of the bounds is
+configurable. See [Memory](memory.md).
 
 Whether an agent may remember at all is **not** here: it is the `memory` tool's permission
 in `agents.list.<id>.tools`. Skills work the same way through `skill`. One switch per
@@ -172,10 +172,10 @@ A new agent is seeded with:
 
 ```yaml
 {
-  'read_file': 'allow',
-  'list_dir': 'allow',
-  'write_file': 'allow',
-  'edit_file': 'allow',
+  'read': 'allow',
+  'ls': 'allow',
+  'write': 'allow',
+  'edit': 'allow',
   'exec': 'ask',
   'memory': 'allow',
   'skill': 'allow',

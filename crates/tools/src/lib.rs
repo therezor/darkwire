@@ -15,9 +15,10 @@
 //!    definitions for the prompt, exact teardown by source for extension
 //!    unload, and an `execute` that validates, bounds, fences and reports
 //!    without ever failing.
-//!  - The eight built-ins, every one of which routes its filesystem access
+//!  - The eleven built-ins, every one of which routes its filesystem access
 //!    through the workspace jail and, for `exec`, an argv guard rather than a
-//!    shell.
+//!    shell. `grep` and `find` are ripgrep compiled in, not spawned, so they
+//!    hold inside the jail and need no search binary on the host.
 //!  - Two command runners behind one seam: a local process and a container.
 //!    Neither ever builds a shell string. A failed sandbox start is a refusal,
 //!    never a downgrade to the host.
@@ -42,10 +43,11 @@ pub mod testkit;
 pub use argv::coerce_argv;
 pub use automation::{AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver};
 pub use builtin::{
-    BuiltinOptions, Hit, MAX_SEARCH_RESULTS, SearchResults, TOOL_SEARCH_NAME, automation_tool,
-    builtin_tools, edit_file_tool, exec_tool, format_bytes, list_dir_tool, memory_tool,
-    read_file_tool, register_builtins, render_activation, render_search, search, skill_tool,
-    tool_search_tool, write_file_tool,
+    BuiltinOptions, FindRequest, GrepMode, GrepRequest, Hit, MAX_SEARCH_RESULTS, SearchResults,
+    TOOL_SEARCH_NAME, automation_tool, builtin_tools, edit_tool, exec_tool, find_blocking,
+    find_tool, format_bytes, grep_blocking, grep_tool, ls_tool, memory_tool, read_tool,
+    register_builtins, render_activation, render_search, search, skill_tool, tool_search_tool,
+    write_tool,
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,

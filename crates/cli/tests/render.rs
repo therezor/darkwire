@@ -271,11 +271,11 @@ fn breaks_the_line_before_a_tool_card_when_text_did_not_end_on_one() {
         json!({"type": "assistant.delta", "turnId": "t1", "text": "Let me look"}),
         json!({
             "type": "tool.call", "turnId": "t1", "callId": "c1",
-            "name": "list_dir", "args": {}, "risk": "safe",
+            "name": "ls", "args": {}, "risk": "safe",
         }),
     ]);
     assert!(text.contains("Let me look\n"));
-    assert!(text.contains("\n⚙ list_dir"));
+    assert!(text.contains("\n⚙ ls"));
 }
 
 #[test]
@@ -297,10 +297,10 @@ fn labels_a_tool_call_with_its_arguments() {
         start(),
         json!({
             "type": "tool.call", "turnId": "t1", "callId": "c1",
-            "name": "read_file", "args": {"path": "README.md"}, "risk": "safe",
+            "name": "read", "args": {"path": "README.md"}, "risk": "safe",
         }),
     ]);
-    assert!(text.contains("⚙ read_file path=\"README.md\""));
+    assert!(text.contains("⚙ read path=\"README.md\""));
 }
 
 #[test]
@@ -720,7 +720,7 @@ fn indents_the_subagents_work_under_the_call_that_started_it() {
         nested(
             &json!({
                 "type": "tool.call", "turnId": "t2", "callId": "n1",
-                "name": "list_dir", "args": {"path": "src"}, "risk": "safe",
+                "name": "ls", "args": {"path": "src"}, "risk": "safe",
             }),
             1,
         ),
@@ -733,9 +733,9 @@ fn indents_the_subagents_work_under_the_call_that_started_it() {
         ),
     ]);
 
-    assert!(text.contains("  ⚙ list_dir"));
+    assert!(text.contains("  ⚙ ls"));
     // The caller's own tool line has no indent, so the two are distinguishable.
-    assert!(!text.contains("\n⚙ list_dir"));
+    assert!(!text.contains("\n⚙ ls"));
 }
 
 #[test]
@@ -765,13 +765,13 @@ fn goes_one_level_further_in_for_a_subagent_of_a_subagent() {
         nested(
             &json!({
                 "type": "tool.call", "turnId": "t3", "callId": "g1",
-                "name": "read_file", "args": {}, "risk": "safe",
+                "name": "read", "args": {}, "risk": "safe",
             }),
             2,
         ),
     ]);
 
-    assert!(text.contains("    ⚙ read_file"));
+    assert!(text.contains("    ⚙ read"));
 }
 
 #[test]

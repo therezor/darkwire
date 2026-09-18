@@ -36,7 +36,7 @@ fn shape(value: &impl serde::Serialize) -> Value {
 fn call() -> ToolCall {
     ToolCall {
         id: "a".to_owned(),
-        name: "read_file".to_owned(),
+        name: "read".to_owned(),
         arguments_json: "{}".to_owned(),
     }
 }
@@ -168,14 +168,14 @@ mod constructors {
         assert_eq!(
             shape(&tool_message(
                 "a",
-                "read_file",
+                "read",
                 "contents",
                 ToolOptions::default()
             )),
             json!({
                 "role": "tool",
                 "toolCallId": "a",
-                "name": "read_file",
+                "name": "read",
                 "content": "contents",
                 "isError": false,
                 "truncated": false

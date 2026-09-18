@@ -15,7 +15,7 @@ import { applyToolPrompts, type ToolDefinition } from '#src/tools.js';
 /** Shaped like a real one: frozen, and `additionalProperties: false`. */
 function definition(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
   return {
-    name: 'read_file',
+    name: 'read',
     description: 'Reads a file in the workspace.',
     risk: 'safe',
     source: 'builtin',
@@ -48,7 +48,7 @@ describe('applyToolPrompts', () => {
 
   it('replaces a description', () => {
     const applied = applyToolPrompts([definition()], {
-      read_file: {
+      read: {
         description: 'Read a file. Prefer this over `cat`.',
         fields: {},
       },
@@ -61,7 +61,7 @@ describe('applyToolPrompts', () => {
 
   it('inherits the built-in description when the override is empty', () => {
     const applied = applyToolPrompts([definition()], {
-      read_file: { description: '', fields: {} },
+      read: { description: '', fields: {} },
     });
 
     expect(applied.definitions[0]?.description).toBe(
@@ -73,7 +73,7 @@ describe('applyToolPrompts', () => {
     // The same "empty inherits, whitespace deletes" rule the prompt templates
     // use. Rarely wanted, and the only way to say it.
     const applied = applyToolPrompts([definition()], {
-      read_file: { description: ' ', fields: {} },
+      read: { description: ' ', fields: {} },
     });
 
     expect(applied.definitions[0]?.description).toBe('');
@@ -81,7 +81,7 @@ describe('applyToolPrompts', () => {
 
   it('replaces a field description without touching its type', () => {
     const applied = applyToolPrompts([definition()], {
-      read_file: {
+      read: {
         description: '',
         fields: { path: 'Relative to the workspace root.' },
       },
@@ -103,7 +103,7 @@ describe('applyToolPrompts', () => {
 
   it('adds a description to a field that had none', () => {
     const applied = applyToolPrompts([definition()], {
-      read_file: {
+      read: {
         description: '',
         fields: { limit: 'Maximum lines to return.' },
       },
@@ -127,7 +127,7 @@ describe('applyToolPrompts', () => {
     const before = JSON.stringify(original);
 
     applyToolPrompts([original], {
-      read_file: {
+      read: {
         description: 'Different.',
         fields: { path: 'Different too.' },
       },
@@ -151,7 +151,7 @@ describe('applyToolPrompts', () => {
     // Inventing it would advertise an argument the model then passes and the
     // tool's own Zod schema then rejects, on every call, with nothing saying why.
     const applied = applyToolPrompts([definition()], {
-      read_file: { description: '', fields: { pat: 'A typo.' } },
+      read: { description: '', fields: { pat: 'A typo.' } },
     });
 
     const properties = applied.definitions[0]?.parameters.properties as Record<
@@ -159,7 +159,7 @@ describe('applyToolPrompts', () => {
       unknown
     >;
     expect(properties.pat).toBeUndefined();
-    expect(applied.unknownFields).toEqual(['read_file.pat']);
+    expect(applied.unknownFields).toEqual(['read.pat']);
   });
 
   it('reports every field of a tool whose schema has no properties', () => {
@@ -180,7 +180,7 @@ describe('applyToolPrompts', () => {
     const untouched = definition({ name: 'exec' });
 
     const applied = applyToolPrompts([definition(), untouched], {
-      read_file: { description: 'Changed.', fields: {} },
+      read: { description: 'Changed.', fields: {} },
     });
 
     expect(applied.definitions[1]).toBe(untouched);

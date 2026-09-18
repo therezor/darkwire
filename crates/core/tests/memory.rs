@@ -1,4 +1,4 @@
-//! The memory store: slugs, rendering, reading and the atomic save.
+//! The memory store: slugs, titles, reading, the atomic save and delete.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -13,11 +13,10 @@ use std::path::Path;
 
 use capture::{Captured, capturing};
 use darkwire_core::ErrorKind;
-use darkwire_core::frontmatter::parse_frontmatter;
 use darkwire_core::logger::LogLevel;
 use darkwire_core::memory::{
-    MAX_MEMORIES, MEMORY_MAX_BYTES, MEMORY_TYPES, Memory, MemoryInput, MemoryType, memory_slug,
-    read_memories, render_index, render_memory, save_memory,
+    MAX_MEMORIES, MAX_MEMORY_TITLE_CHARS, MEMORY_MAX_BYTES, Memory, delete_memory, derive_title,
+    index_line, memory_slug, read_memories, read_memory, render_memory, save_memory,
 };
 use tempfile::TempDir;
 
@@ -25,31 +24,17 @@ fn workspace() -> TempDir {
     tempfile::tempdir().unwrap()
 }
 
-/// Writes one file into `memory/` verbatim, frontmatter and all.
+/// Writes one file into `memory/` verbatim.
 fn install(root: &Path, name: &str, contents: &str) {
     fs::create_dir_all(root.join("memory")).unwrap();
     fs::write(root.join("memory").join(name), contents).unwrap();
 }
 
-fn fixture() -> MemoryInput {
-    MemoryInput {
-        name: "ui-stack-preferences".to_owned(),
-        description: "no shadcn/ui; Tailwind in rem, not px".to_owned(),
-        memory_type: MemoryType::User,
-        body: "The user wants an explicit design token layer.".to_owned(),
-    }
+fn stored(root: &Path, key: &str) -> String {
+    fs::read_to_string(root.join("memory").join(format!("{key}.md"))).unwrap()
 }
 
-fn named(name: &str) -> MemoryInput {
-    MemoryInput {
-        name: name.to_owned(),
-        ..fixture()
-    }
-}
-
-fn index_of(root: &Path) -> String {
-    fs::read_to_string(root.join("memory").join("MEMORY.md")).unwrap()
-}
+const FIXTURE: &str = "# PostgreSQL-backed sessions\n\nSessions expire after 30 days.";
 
 /// Runs `work` with warnings captured, returning its result and the messages.
 fn warnings<T>(work: impl FnOnce() -> T) -> (T, Vec<String>) {
@@ -62,7 +47,7 @@ mod slug {
     use super::*;
 
     #[test]
-    fn passes_a_name_that_is_already_one_through() {
+    fn passes_a_key_that_is_already_one_through() {
         assert_eq!(
             memory_slug("run-full-ci-gate").as_deref(),
             Some("run-full-ci-gate")
@@ -70,7 +55,7 @@ mod slug {
     }
 
     #[test]
-    fn slugs_a_name_a_person_would_type() {
+    fn slugs_a_key_a_person_would_type() {
         assert_eq!(
             memory_slug("UI Stack Preferences").as_deref(),
             Some("ui-stack-preferences")
@@ -78,7 +63,7 @@ mod slug {
     }
 
     #[test]
-    fn cannot_produce_a_name_that_leaves_the_folder() {
+    fn cannot_produce_a_key_that_leaves_the_folder() {
         assert_eq!(
             memory_slug("../../etc/passwd").as_deref(),
             Some("etc-passwd")
@@ -94,28 +79,82 @@ mod slug {
     }
 
     #[test]
-    fn refuses_the_index_whatever_case_it_is_asked_for_in() {
-        assert_eq!(memory_slug("memory"), None);
-        assert_eq!(memory_slug("MEMORY"), None);
-    }
-
-    #[test]
-    fn does_not_end_a_name_on_the_separator_the_cap_landed_on() {
+    fn does_not_end_a_key_on_the_separator_the_cap_landed_on() {
         let long = format!("{} tail", "a".repeat(63));
         assert_eq!(memory_slug(&long).as_deref(), Some("a".repeat(63).as_str()));
     }
 }
 
-mod types {
+mod title {
     use super::*;
 
     #[test]
-    fn spell_and_parse_every_kind() {
-        for kind in MEMORY_TYPES {
-            assert_eq!(MemoryType::parse(kind.as_str()), Some(kind));
-            assert_eq!(kind.to_string(), kind.as_str());
-        }
-        assert_eq!(MemoryType::parse("nonsense"), None);
+    fn takes_the_first_h1() {
+        assert_eq!(derive_title("# Use Bun\n\nNot npm.", "pm"), "Use Bun");
+    }
+
+    #[test]
+    fn prefers_an_h1_to_a_line_above_it() {
+        // A memory that opens with a note still gets the heading its author
+        // wrote rather than whatever happened to be on line one.
+        assert_eq!(
+            derive_title("Draft, tidy later\n\n# Use Bun", "pm"),
+            "Use Bun"
+        );
+    }
+
+    #[test]
+    fn ignores_a_deeper_heading_as_an_h1() {
+        assert_eq!(derive_title("## Sub\n\nbody", "pm"), "Sub");
+    }
+
+    #[test]
+    fn falls_back_to_the_first_line_with_anything_on_it() {
+        assert_eq!(
+            derive_title("\n\n  Sessions use Redis.\n", "pm"),
+            "Sessions use Redis."
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_key_when_there_is_nothing_to_read() {
+        assert_eq!(derive_title("", "auth-sessions"), "auth-sessions");
+        assert_eq!(derive_title("   \n\n", "auth-sessions"), "auth-sessions");
+        assert_eq!(derive_title("# ###", "auth-sessions"), "auth-sessions");
+    }
+
+    #[test]
+    fn collapses_whitespace_so_one_memory_is_one_line() {
+        assert_eq!(derive_title("#   Use\tBun   now  ", "pm"), "Use Bun now");
+    }
+
+    #[test]
+    fn strips_the_markdown_a_title_does_not_need() {
+        assert_eq!(derive_title("- **Bun**, not `npm`", "pm"), "Bun, not npm");
+        assert_eq!(derive_title("> *Redis* sessions", "pm"), "Redis sessions");
+        assert_eq!(derive_title("1. ~~Old~~ new", "pm"), "Old new");
+        assert_eq!(
+            derive_title("# See [the RFC](https://example.com/rfc)", "pm"),
+            "See the RFC"
+        );
+    }
+
+    #[test]
+    fn keeps_underscores_because_a_title_is_often_code() {
+        // Stripping `_italic_` would cost `snake_case_names`, and the second is
+        // far commoner in a title than the first.
+        assert_eq!(
+            derive_title("# snake_case_names stay", "pm"),
+            "snake_case_names stay"
+        );
+        assert_eq!(derive_title("# _as written_", "pm"), "_as written_");
+    }
+
+    #[test]
+    fn cuts_a_long_title_without_splitting_a_character() {
+        let title = derive_title(&format!("# {}", "é".repeat(200)), "pm");
+        assert_eq!(title.chars().count(), MAX_MEMORY_TITLE_CHARS);
+        assert!(title.chars().all(|c| c == 'é'));
     }
 }
 
@@ -123,55 +162,13 @@ mod render {
     use super::*;
 
     #[test]
-    fn round_trips_through_the_frontmatter_parser() {
-        // The file is written with a *nested* `metadata.type` and read back
-        // through a parser that flattens it to a dotted key.
-        let parsed = parse_frontmatter(&render_memory(&fixture()));
-        assert_eq!(parsed.fields["name"], "ui-stack-preferences");
-        assert_eq!(
-            parsed.fields["description"],
-            "no shadcn/ui; Tailwind in rem, not px"
-        );
-        assert_eq!(parsed.fields["metadata.type"], "user");
-        assert_eq!(
-            parsed.body,
-            "The user wants an explicit design token layer."
-        );
+    fn writes_the_content_and_nothing_else() {
+        assert_eq!(render_memory("# Title\n\nBody."), "# Title\n\nBody.\n");
     }
 
     #[test]
-    fn collapses_a_description_that_arrived_on_two_lines() {
-        let text = render_memory(&MemoryInput {
-            description: "one\n  two".to_owned(),
-            ..fixture()
-        });
-        assert!(text.contains("description: one two"));
-    }
-
-    #[test]
-    fn the_index_links_each_memory_relatively_with_its_kind() {
-        let root = workspace();
-        save_memory(root.path(), &fixture()).unwrap();
-        assert!(index_of(root.path()).contains(
-            "- [ui-stack-preferences](ui-stack-preferences.md) _(user)_: no shadcn/ui; Tailwind in rem, not px",
-        ));
-    }
-
-    #[test]
-    fn the_index_says_so_when_there_is_nothing() {
-        assert!(render_index(&[]).contains("_Nothing recorded yet._"));
-    }
-
-    #[test]
-    fn the_index_lists_a_memory_by_hand_too() {
-        let memory = Memory {
-            name: "alpha".to_owned(),
-            description: "a".to_owned(),
-            memory_type: MemoryType::Reference,
-            body: String::new(),
-            path: "memory/alpha.md".to_owned(),
-        };
-        assert!(render_index(&[memory]).contains("- [alpha](alpha.md) _(reference)_: a"));
+    fn trims_and_ends_on_exactly_one_newline() {
+        assert_eq!(render_memory("\n\n  Body.  \n\n\n"), "Body.\n");
     }
 }
 
@@ -179,181 +176,133 @@ mod reading {
     use super::*;
 
     #[test]
-    fn is_empty_for_a_workspace_that_has_none() {
-        assert!(read_memories(workspace().path()).is_empty());
+    fn a_workspace_with_no_folder_has_no_memories() {
+        assert_eq!(read_memories(workspace().path()), Vec::new());
     }
 
     #[test]
-    fn says_nothing_about_a_workspace_that_simply_has_no_memory() {
+    fn reads_a_file_whole_with_its_derived_title() {
         let root = workspace();
-        let (_, messages) = warnings(|| read_memories(root.path()));
-        assert!(messages.is_empty());
-    }
-
-    #[test]
-    fn sorts_by_name() {
-        let root = workspace();
-        save_memory(root.path(), &named("zeta")).unwrap();
-        save_memory(root.path(), &named("alpha")).unwrap();
-        let names: Vec<String> = read_memories(root.path())
-            .into_iter()
-            .map(|memory| memory.name)
-            .collect();
-        assert_eq!(names, ["alpha", "zeta"]);
-    }
-
-    #[test]
-    fn carries_the_path_the_model_hands_to_read_file() {
-        let root = workspace();
-        save_memory(root.path(), &named("alpha")).unwrap();
-        assert_eq!(read_memories(root.path())[0].path, "memory/alpha.md");
-    }
-
-    #[test]
-    fn skips_the_generated_index_rather_than_advertising_it() {
-        let root = workspace();
-        save_memory(root.path(), &fixture()).unwrap();
-        let memories = read_memories(root.path());
-        assert_eq!(memories.len(), 1);
-        assert_eq!(memories[0].name, "ui-stack-preferences");
-    }
-
-    #[test]
-    fn skips_a_lowercase_memory_md_left_by_the_old_format_silently() {
-        let root = workspace();
-        install(
-            root.path(),
-            "memory.md",
-            "Always deploy with `make release`.\n",
+        install(root.path(), "auth-sessions.md", FIXTURE);
+        assert_eq!(
+            read_memories(root.path()),
+            vec![Memory {
+                key: "auth-sessions".to_owned(),
+                title: "PostgreSQL-backed sessions".to_owned(),
+                content: FIXTURE.to_owned(),
+            }]
         );
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        assert!(memories.is_empty());
-        assert!(messages.is_empty());
     }
 
     #[test]
-    fn ignores_a_file_that_is_not_markdown() {
+    fn sorts_by_key_so_the_cached_prefix_does_not_move() {
         let root = workspace();
+        install(root.path(), "zeta.md", "# Z");
+        install(root.path(), "alpha.md", "# A");
+        install(root.path(), "mid.md", "# M");
+        let keys: Vec<String> = read_memories(root.path())
+            .into_iter()
+            .map(|memory| memory.key)
+            .collect();
+        assert_eq!(keys, ["alpha", "mid", "zeta"]);
+    }
+
+    #[test]
+    fn ignores_everything_that_is_not_a_markdown_file() {
+        let root = workspace();
+        install(root.path(), "real.md", "# Real");
         install(root.path(), "notes.txt", "not a memory");
-        assert!(read_memories(root.path()).is_empty());
-    }
-
-    #[test]
-    fn skips_a_memory_with_no_description_and_says_why() {
-        let root = workspace();
-        install(
-            root.path(),
-            "broken.md",
-            "---\nname: broken\n---\n\nA body.\n",
-        );
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        assert!(memories.is_empty());
-        assert_eq!(messages, ["memory has no description; skipped"]);
-    }
-
-    #[test]
-    fn reads_an_unrecognised_kind_as_project_and_warns() {
-        let root = workspace();
-        install(
-            root.path(),
-            "odd.md",
-            "---\ndescription: something\nmetadata:\n  type: nonsense\n---\n\nBody.\n",
-        );
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        assert_eq!(memories[0].memory_type, MemoryType::Project);
-        assert_eq!(
-            messages,
-            ["memory has an unrecognised metadata.type; read as project"]
-        );
-    }
-
-    #[test]
-    fn reads_a_hand_written_memory_with_no_kind_as_project_silently() {
-        let root = workspace();
-        install(
-            root.path(),
-            "handwritten.md",
-            "---\ndescription: typed by hand\n---\n\nB.\n",
-        );
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        assert_eq!(memories[0].memory_type, MemoryType::Project);
-        assert!(messages.is_empty());
-    }
-
-    #[test]
-    fn bounds_what_it_reads_on_a_character_boundary() {
-        let root = workspace();
-        let head = "---\ndescription: big\n---\n\n";
-        install(
-            root.path(),
-            "big.md",
-            &format!("{head}{}", "é".repeat(MEMORY_MAX_BYTES)),
-        );
-        let memory = read_memories(root.path()).remove(0);
-        assert!(memory.body.len() <= MEMORY_MAX_BYTES);
-        assert!(memory.body.chars().all(|c| c == 'é'));
-    }
-
-    #[test]
-    fn bounds_the_description_it_advertises() {
-        let root = workspace();
-        install(
-            root.path(),
-            "wordy.md",
-            &format!("---\ndescription: {}\n---\n\nB.\n", "d".repeat(300)),
-        );
-        assert_eq!(read_memories(root.path())[0].description.len(), 200);
-    }
-
-    #[test]
-    fn caps_how_many_it_advertises_and_says_so() {
-        let root = workspace();
-        for n in 0..=MAX_MEMORIES {
-            install(
-                root.path(),
-                &format!("m{n:04}.md"),
-                "---\ndescription: one\nmetadata:\n  type: project\n---\n\nB.\n",
-            );
-        }
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        assert_eq!(memories.len(), MAX_MEMORIES);
-        assert_eq!(
-            messages,
-            ["more memory files than the cap; the rest are not advertised"]
-        );
-    }
-
-    #[test]
-    fn skips_a_directory_named_like_a_memory() {
-        let root = workspace();
-        save_memory(root.path(), &named("good")).unwrap();
-        fs::create_dir(root.path().join("memory").join("a-directory.md")).unwrap();
-        let names: Vec<String> = read_memories(root.path())
+        fs::create_dir_all(root.path().join("memory").join("folder.md")).unwrap();
+        let keys: Vec<String> = read_memories(root.path())
             .into_iter()
-            .map(|memory| memory.name)
+            .map(|memory| memory.key)
             .collect();
-        assert_eq!(names, ["good"]);
+        assert_eq!(keys, ["real"]);
     }
 
-    #[cfg(unix)]
     #[test]
-    fn costs_one_memory_when_a_file_cannot_be_read_not_the_call() {
-        use std::os::unix::fs::PermissionsExt as _;
+    fn skips_a_filename_that_is_not_a_usable_key_and_says_which() {
+        // The key is the whole address, so a file no key can name would be a
+        // line in every prompt that `read` answers "no memory" for, with no way
+        // to remove it from inside the session.
         let root = workspace();
-        save_memory(root.path(), &named("good")).unwrap();
-        save_memory(root.path(), &named("sealed")).unwrap();
-        let sealed = root.path().join("memory").join("sealed.md");
-        fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
-        if fs::read_to_string(&sealed).is_ok() {
-            // Running as a user permissions do not bind; nothing to test.
-            return;
-        }
+        install(root.path(), "good.md", "# Good");
+        install(root.path(), "Auth Sessions.md", "# Hand written");
+        install(root.path(), "Ünits.md", "# Also hand written");
+        let (memories, logged) = warnings(|| read_memories(root.path()));
+        let keys: Vec<&str> = memories.iter().map(|memory| memory.key.as_str()).collect();
+        assert_eq!(keys, ["good"]);
+        assert_eq!(
+            logged
+                .iter()
+                .filter(|line| line.contains("not a usable key"))
+                .count(),
+            2
+        );
+    }
 
-        let (memories, messages) = warnings(|| read_memories(root.path()));
-        let names: Vec<&str> = memories.iter().map(|memory| memory.name.as_str()).collect();
-        assert_eq!(names, ["good"]);
-        assert_eq!(messages, ["memory could not be read"]);
-        fs::set_permissions(&sealed, fs::Permissions::from_mode(0o600)).unwrap();
+    #[test]
+    fn stops_at_the_cap_and_says_so() {
+        let root = workspace();
+        for index in 0..=MAX_MEMORIES {
+            install(root.path(), &format!("m{index:04}.md"), "# One");
+        }
+        let (memories, logged) = warnings(|| read_memories(root.path()));
+        assert_eq!(memories.len(), MAX_MEMORIES);
+        assert!(logged.iter().any(|line| line.contains("more memory files")));
+    }
+
+    #[test]
+    fn reads_at_most_the_byte_cap_of_one_file() {
+        let root = workspace();
+        install(root.path(), "big.md", &"x".repeat(MEMORY_MAX_BYTES * 2));
+        let memories = read_memories(root.path());
+        assert_eq!(memories[0].content.len(), MEMORY_MAX_BYTES);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_costs_that_memory_and_not_the_turn() {
+        let root = workspace();
+        install(root.path(), "good.md", "# Good");
+        // Invalid UTF-8 is the readable-but-not-a-string case.
+        fs::write(root.path().join("memory").join("bad.md"), [0xff, 0xfe]).unwrap();
+        let (memories, logged) = warnings(|| read_memories(root.path()));
+        let keys: Vec<&str> = memories.iter().map(|memory| memory.key.as_str()).collect();
+        assert_eq!(keys, ["good"]);
+        assert!(logged.iter().any(|line| line.contains("could not be read")));
+    }
+}
+
+mod reading_one {
+    use super::*;
+
+    #[test]
+    fn opens_the_file_the_key_names() {
+        let root = workspace();
+        install(root.path(), "auth-sessions.md", FIXTURE);
+        let memory = read_memory(root.path(), "auth-sessions").unwrap();
+        assert_eq!(memory.content, FIXTURE);
+        assert_eq!(memory.title, "PostgreSQL-backed sessions");
+    }
+
+    #[test]
+    fn slugs_the_key_it_is_handed() {
+        let root = workspace();
+        install(root.path(), "auth-sessions.md", FIXTURE);
+        assert!(read_memory(root.path(), "Auth Sessions").is_some());
+    }
+
+    #[test]
+    fn is_none_for_a_key_with_nothing_under_it() {
+        let root = workspace();
+        install(root.path(), "auth-sessions.md", FIXTURE);
+        let (found, _) = warnings(|| read_memory(root.path(), "missing"));
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn is_none_for_a_key_that_is_not_usable_as_a_filename() {
+        assert_eq!(read_memory(workspace().path(), "???"), None);
     }
 }
 
@@ -361,131 +310,70 @@ mod saving {
     use super::*;
 
     #[test]
-    fn creates_the_folder_and_writes_a_memory_the_reader_can_load_back() {
+    fn writes_the_content_verbatim_under_the_key() {
         let root = workspace();
-        let result = save_memory(root.path(), &fixture()).unwrap();
-        assert_eq!(result.name, "ui-stack-preferences");
-        assert_eq!(result.path, "memory/ui-stack-preferences.md");
-        assert!(!result.replaced);
-        assert_eq!(result.total, 1);
-        let memory = read_memories(root.path()).remove(0);
-        assert_eq!(memory.description, "no shadcn/ui; Tailwind in rem, not px");
-        assert_eq!(memory.memory_type, MemoryType::User);
+        let saved = save_memory(root.path(), "auth-sessions", FIXTURE).unwrap();
+        assert_eq!(saved.key, "auth-sessions");
+        assert!(!saved.replaced);
+        assert_eq!(saved.total, 1);
+        assert_eq!(stored(root.path(), "auth-sessions"), format!("{FIXTURE}\n"));
     }
 
     #[test]
-    fn replaces_a_memory_of_the_same_name_rather_than_adding_a_second() {
+    fn creates_the_folder_on_the_first_save() {
         let root = workspace();
-        save_memory(
-            root.path(),
-            &MemoryInput {
-                body: "The old answer.".to_owned(),
-                ..fixture()
-            },
-        )
-        .unwrap();
-        let result = save_memory(
-            root.path(),
-            &MemoryInput {
-                body: "The new answer.".to_owned(),
-                ..fixture()
-            },
-        )
-        .unwrap();
-        assert!(result.replaced);
-        assert_eq!(result.total, 1);
-        assert_eq!(read_memories(root.path())[0].body, "The new answer.");
+        save_memory(root.path(), "first", "# First").unwrap();
+        assert!(root.path().join("memory").is_dir());
     }
 
     #[test]
-    fn regenerates_the_index_on_every_save() {
+    fn reports_the_key_it_used_when_it_slugged_one() {
         let root = workspace();
-        save_memory(root.path(), &named("alpha")).unwrap();
-        save_memory(root.path(), &named("zeta")).unwrap();
-        let text = index_of(root.path());
-        assert!(text.contains("(alpha.md)"));
-        assert!(text.contains("(zeta.md)"));
+        let saved = save_memory(root.path(), "Auth Sessions", FIXTURE).unwrap();
+        assert_eq!(saved.key, "auth-sessions");
     }
 
     #[test]
-    fn reports_the_name_it_actually_used() {
+    fn keeps_two_differently_keyed_memories_apart() {
         let root = workspace();
-        let result = save_memory(root.path(), &named("Build Conventions")).unwrap();
-        assert_eq!(result.name, "build-conventions");
-        assert_eq!(result.path, "memory/build-conventions.md");
+        save_memory(root.path(), "alpha", "# A").unwrap();
+        let second = save_memory(root.path(), "zeta", "# Z").unwrap();
+        assert!(!second.replaced);
+        assert_eq!(second.total, 2);
     }
 
     #[test]
-    fn leaves_no_temp_file_behind() {
+    fn saving_a_key_again_replaces_it_whole() {
         let root = workspace();
-        save_memory(root.path(), &fixture()).unwrap();
-        let leftovers: Vec<String> = fs::read_dir(root.path().join("memory"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| Path::new(name).extension().is_some_and(|ext| ext == "tmp"))
-            .collect();
-        assert!(leftovers.is_empty());
+        save_memory(root.path(), "auth-sessions", "# Postgres\n\nOld detail.").unwrap();
+        let again = save_memory(root.path(), "auth-sessions", "# Redis").unwrap();
+        assert!(again.replaced);
+        assert_eq!(again.total, 1);
+        assert_eq!(stored(root.path(), "auth-sessions"), "# Redis\n");
     }
 
     #[test]
-    fn moves_aside_a_memory_md_that_resolves_to_the_index_path() {
-        let root = workspace();
-        let target = root.path().join("memory").join("MEMORY.md");
-        install(
-            root.path(),
-            "MEMORY.md",
-            "Always deploy with `make release`.\n",
-        );
-        save_memory(root.path(), &fixture()).unwrap();
-        let mut aside = target.clone().into_os_string();
-        aside.push(".replaced");
-        assert_eq!(
-            fs::read_to_string(aside).unwrap(),
-            "Always deploy with `make release`.\n"
-        );
-        assert!(
-            fs::read_to_string(&target)
-                .unwrap()
-                .contains("(ui-stack-preferences.md)")
-        );
-    }
-
-    #[test]
-    fn overwrites_an_index_it_wrote_itself_without_moving_it_aside() {
-        let root = workspace();
-        save_memory(root.path(), &named("alpha")).unwrap();
-        save_memory(root.path(), &named("zeta")).unwrap();
-        let replaced = fs::read_dir(root.path().join("memory"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| {
-                Path::new(name)
-                    .extension()
-                    .is_some_and(|ext| ext == "replaced")
-            })
-            .count();
-        assert_eq!(replaced, 0);
-    }
-
-    #[test]
-    fn serialises_concurrent_saves_so_the_index_holds_both() {
-        // Each save is a read-modify-write of the *folder*, so two running
-        // together would each write an index that did not know about the other.
+    fn serialises_concurrent_saves_so_both_land_and_the_count_is_right() {
+        // A save reads the folder to count it, so two running together would
+        // each report a total that did not know about the other's file.
         let root = workspace();
         std::thread::scope(|scope| {
-            let a = scope.spawn(|| save_memory(root.path(), &named("alpha")));
-            let b = scope.spawn(|| save_memory(root.path(), &named("zeta")));
+            let a = scope.spawn(|| save_memory(root.path(), "alpha", "# A"));
+            let b = scope.spawn(|| save_memory(root.path(), "zeta", "# Z"));
             a.join().unwrap().unwrap();
             b.join().unwrap().unwrap();
         });
-        let text = index_of(root.path());
-        assert!(text.contains("(alpha.md)"));
-        assert!(text.contains("(zeta.md)"));
+        let keys: Vec<String> = read_memories(root.path())
+            .into_iter()
+            .map(|memory| memory.key)
+            .collect();
+        assert_eq!(keys, ["alpha", "zeta"]);
+        assert_eq!(save_memory(root.path(), "third", "# T").unwrap().total, 3);
     }
 
     #[test]
-    fn refuses_a_name_that_is_not_usable_as_a_filename() {
-        let error = save_memory(workspace().path(), &named("???")).unwrap_err();
+    fn refuses_a_key_that_is_not_usable_as_a_filename() {
+        let error = save_memory(workspace().path(), "???", FIXTURE).unwrap_err();
         assert_eq!(error.kind, ErrorKind::InvalidInput);
         assert!(error.message.contains("not usable as a filename"));
     }
@@ -494,7 +382,108 @@ mod saving {
     fn surfaces_a_folder_that_cannot_be_created() {
         let root = workspace();
         fs::write(root.path().join("memory"), "a file where the folder goes").unwrap();
-        let error = save_memory(root.path(), &fixture()).unwrap_err();
+        let error = save_memory(root.path(), "auth-sessions", FIXTURE).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Storage);
+    }
+
+    #[test]
+    fn leaves_no_temp_file_behind() {
+        let root = workspace();
+        save_memory(root.path(), "auth-sessions", FIXTURE).unwrap();
+        let names: Vec<String> = fs::read_dir(root.path().join("memory"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["auth-sessions.md"]);
+    }
+}
+
+mod deleting {
+    use super::*;
+
+    #[test]
+    fn removes_the_file_the_key_names() {
+        let root = workspace();
+        save_memory(root.path(), "auth-sessions", FIXTURE).unwrap();
+        let removed = delete_memory(root.path(), "auth-sessions").unwrap();
+        assert!(removed.existed);
+        assert_eq!(removed.total, 0);
+        assert!(!root.path().join("memory/auth-sessions.md").exists());
+    }
+
+    #[test]
+    fn leaves_every_other_memory_alone() {
+        let root = workspace();
+        save_memory(root.path(), "alpha", "# A").unwrap();
+        save_memory(root.path(), "zeta", "# Z").unwrap();
+        let removed = delete_memory(root.path(), "alpha").unwrap();
+        assert_eq!(removed.total, 1);
+        let keys: Vec<String> = read_memories(root.path())
+            .into_iter()
+            .map(|memory| memory.key)
+            .collect();
+        assert_eq!(keys, ["zeta"]);
+    }
+
+    #[test]
+    fn a_key_with_nothing_under_it_is_not_an_error() {
+        let root = workspace();
+        save_memory(root.path(), "alpha", "# A").unwrap();
+        let removed = delete_memory(root.path(), "never-written").unwrap();
+        assert!(!removed.existed);
+        assert_eq!(removed.total, 1);
+    }
+
+    #[test]
+    fn deleting_twice_leaves_the_same_state() {
+        let root = workspace();
+        save_memory(root.path(), "alpha", "# A").unwrap();
+        assert!(delete_memory(root.path(), "alpha").unwrap().existed);
+        assert!(!delete_memory(root.path(), "alpha").unwrap().existed);
+    }
+
+    #[test]
+    fn slugs_the_key_it_is_handed() {
+        let root = workspace();
+        save_memory(root.path(), "auth-sessions", FIXTURE).unwrap();
+        assert!(delete_memory(root.path(), "Auth Sessions").unwrap().existed);
+    }
+
+    #[test]
+    fn refuses_a_key_that_is_not_usable_as_a_filename() {
+        let error = delete_memory(workspace().path(), "???").unwrap_err();
+        assert_eq!(error.kind, ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_save_and_a_delete_together_leave_a_consistent_folder() {
+        let root = workspace();
+        save_memory(root.path(), "alpha", "# A").unwrap();
+        std::thread::scope(|scope| {
+            let a = scope.spawn(|| save_memory(root.path(), "zeta", "# Z"));
+            let b = scope.spawn(|| delete_memory(root.path(), "alpha"));
+            a.join().unwrap().unwrap();
+            b.join().unwrap().unwrap();
+        });
+        let keys: Vec<String> = read_memories(root.path())
+            .into_iter()
+            .map(|memory| memory.key)
+            .collect();
+        assert_eq!(keys, ["zeta"]);
+    }
+}
+
+mod index {
+    use super::*;
+
+    #[test]
+    fn is_the_key_then_the_title() {
+        let root = workspace();
+        install(root.path(), "auth-sessions.md", FIXTURE);
+        let memories = read_memories(root.path());
+        assert_eq!(
+            index_line(&memories[0]),
+            "auth-sessions: PostgreSQL-backed sessions"
+        );
     }
 }

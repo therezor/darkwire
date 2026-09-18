@@ -6,7 +6,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -33,7 +33,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -64,7 +64,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -87,7 +87,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "Read a file. Prefer this over `cat`.",
             "fields": {}
           }
@@ -96,7 +96,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Read a file. Prefer this over `cat`.",
             "risk": "safe",
             "source": "builtin",
@@ -127,7 +127,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -150,7 +150,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "",
             "fields": {}
           }
@@ -159,7 +159,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -190,7 +190,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -213,7 +213,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": " ",
             "fields": {}
           }
@@ -222,7 +222,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "",
             "risk": "safe",
             "source": "builtin",
@@ -253,7 +253,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -276,7 +276,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "  Padded. \r\n",
             "fields": {}
           }
@@ -285,7 +285,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Padded.",
             "risk": "safe",
             "source": "builtin",
@@ -316,7 +316,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -339,7 +339,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "",
             "fields": {
               "path": "Relative to the workspace root."
@@ -350,7 +350,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -381,7 +381,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -404,7 +404,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "",
             "fields": {
               "limit": "Maximum lines to return."
@@ -415,7 +415,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -447,7 +447,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -479,7 +479,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -512,7 +512,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -535,7 +535,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "",
             "fields": {
               "pat": "A typo."
@@ -546,7 +546,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -570,7 +570,7 @@
         ],
         "unknownTools": [],
         "unknownFields": [
-          "read_file.pat"
+          "read.pat"
         ]
       }
     },
@@ -624,7 +624,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -637,7 +637,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "",
             "fields": {
               "path": "x"
@@ -648,7 +648,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -662,7 +662,7 @@
         ],
         "unknownTools": [],
         "unknownFields": [
-          "read_file.path"
+          "read.path"
         ]
       }
     },
@@ -671,7 +671,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -716,7 +716,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "Changed.",
             "fields": {}
           }
@@ -725,7 +725,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Changed.",
             "risk": "safe",
             "source": "builtin",
@@ -778,7 +778,7 @@
       "input": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "Reads a file in the workspace.",
             "risk": "safe",
             "source": "builtin",
@@ -801,7 +801,7 @@
           }
         ],
         "overrides": {
-          "read_file": {
+          "read": {
             "description": "😀 Read 𝔞 file.",
             "fields": {
               "path": "🚀"
@@ -812,7 +812,7 @@
       "output": {
         "definitions": [
           {
-            "name": "read_file",
+            "name": "read",
             "description": "😀 Read 𝔞 file.",
             "risk": "safe",
             "source": "builtin",

@@ -82,11 +82,11 @@ pub fn tool_message(tool_call_id: &str, name: &str, content: &str) -> ChatMessag
     })
 }
 
-/// A `read_file` call with the given id.
+/// A `read` call with the given id.
 pub fn call(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_owned(),
-        name: "read_file".to_owned(),
+        name: "read".to_owned(),
         arguments_json: "{\"path\":\"a.txt\"}".to_owned(),
     }
 }

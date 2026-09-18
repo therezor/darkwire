@@ -116,7 +116,7 @@ const PROVIDERS = {
 const TOOLS = {
   tools: [
     {
-      name: 'read_file',
+      name: 'read',
       description: 'Read a file',
       parameters: {},
       risk: 'safe',

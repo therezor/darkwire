@@ -3,7 +3,7 @@
  * The mock model `pnpm demo` records against. Started by `demo-cast.mjs`.
  *
  * Two routes of the `openai-chat` wire — `GET /models` and a streaming
- * `POST /chat/completions` — scripted to call `list_dir` and then answer from
+ * `POST /chat/completions` — scripted to call `ls` and then answer from
  * what came back. The same shape `packages/e2e/src/harness/script.ts` gives the
  * browser suite. Nothing here reaches the network.
  *
@@ -69,7 +69,7 @@ createServer((req, res) => {
               index: 0,
               id: 'call-list',
               type: 'function',
-              function: { name: 'list_dir', arguments: '{"path":"."}' },
+              function: { name: 'ls', arguments: '{"path":"."}' },
             },
           ],
         }),

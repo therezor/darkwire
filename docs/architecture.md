@@ -205,7 +205,7 @@ agent runs under. Each folder in the second **is** a jail root.
 | `config.yaml`             | The settings tree. Written atomically via a `0600` temp file and a rename.                                           |
 | `darkwire.db`             | One SQLite file, one connection, one WAL.                                                                            |
 | `vault.json`, `vault.key` | The encrypted credential vault.                                                                                      |
-| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write_file` cannot rewrite what an agent is told.   |
+| `shared/<workspaceId>/`   | The layer agents in one folder share — **outside the jail**, so `write` cannot rewrite what an agent is told.        |
 | `policy/environments/`    | Environment definitions. Outside every workspace, so injection cannot edit the policy the agent runs under.          |
 | `runs/<containerId>/`     | Sandbox command transcripts. Outside every workspace — a symlink-planting escape was demonstrated before this moved. |
 | `extensions/<id>/`        | Installed extensions. Approved by a digest over every byte, so state is written elsewhere.                           |

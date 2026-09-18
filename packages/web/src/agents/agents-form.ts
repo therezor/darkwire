@@ -551,7 +551,7 @@ export function toAgentEntryPatch(
     form.approvalTimeoutSeconds,
     { min: 1 },
   );
-  // Also `min: 1`, and not because it is a duration: `read_file` sizes its
+  // Also `min: 1`, and not because it is a duration: `read` sizes its
   // buffer from this, so 0 would read one byte of every file.
   const maxOutputChars = required('maxOutputChars', form.maxOutputChars, {
     integer: true,

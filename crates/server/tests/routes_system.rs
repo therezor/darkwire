@@ -194,8 +194,8 @@ async fn status_counts_the_tools_the_agent_advertises_not_the_registry() {
     };
     let test = server(TestServerOptions {
         runtime: FakeRuntimeOptions {
-            tools: vec![tool("read_file")],
-            registered_tools: Some(vec![tool("read_file"), tool("automation")]),
+            tools: vec![tool("read")],
+            registered_tools: Some(vec![tool("read"), tool("automation")]),
             ..FakeRuntimeOptions::default()
         },
         ..TestServerOptions::default()

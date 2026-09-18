@@ -1318,7 +1318,7 @@ async fn memory_says_the_tool_is_not_granted_on_an_install_that_predates_it() {
     // than reporting an empty memory.
     let mut h = Harness::new(
         Install::new(Some(&json!({
-            "agents": { "list": { "default": { "tools": { "read_file": "allow" } } } }
+            "agents": { "list": { "default": { "tools": { "read": "allow" } } } }
         }))),
         "cli:1",
     );
@@ -1396,7 +1396,7 @@ async fn memory_keeps_every_other_permission_when_it_flips_this_one() {
         Install::new(Some(&json!({
             "agents": { "list": { "default": {
                 "label": "Primary",
-                "tools": { "read_file": "allow", "exec": "deny", "memory": "allow" }
+                "tools": { "read": "allow", "exec": "deny", "memory": "allow" }
             } } }
         }))),
         "cli:1",
@@ -1406,7 +1406,7 @@ async fn memory_keeps_every_other_permission_when_it_flips_this_one() {
 
     let config = h.install.config();
     let default = entry(&config, "default");
-    assert_eq!(default.tools.get("read_file"), Some(&ToolPermission::Allow));
+    assert_eq!(default.tools.get("read"), Some(&ToolPermission::Allow));
     assert_eq!(default.tools.get("exec"), Some(&ToolPermission::Deny));
     assert_eq!(default.tools.get("memory"), Some(&ToolPermission::Deny));
     // And nothing else on the entry was dropped either.
@@ -1444,7 +1444,7 @@ async fn skills_says_the_tool_is_not_granted_on_an_install_that_predates_it() {
     // open. An absent key counts as denied, which is what an upgrade looks like.
     let mut h = Harness::new(
         Install::new(Some(&json!({
-            "agents": { "list": { "default": { "tools": { "read_file": "allow" } } } }
+            "agents": { "list": { "default": { "tools": { "read": "allow" } } } }
         }))),
         "cli:1",
     );

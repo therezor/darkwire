@@ -295,7 +295,7 @@ fn delta_text(event: &NestedAgentEvent) -> Option<&str> {
 /// Every case measures the one field that can be large and ignores the ids and
 /// enums around it, which [`ENTRY_OVERHEAD`] covers instead. A tool call's
 /// arguments are the one thing serialised — once per call, never per token —
-/// because a `write_file` carries its whole file there and nothing else on the
+/// because a `write` carries its whole file there and nothing else on the
 /// frame reveals the size.
 fn payload_size(message: &ServerMessage) -> usize {
     match message {

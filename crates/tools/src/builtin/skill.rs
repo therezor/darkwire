@@ -1,7 +1,7 @@
 //! `skill` — open one of the workspace's instruction sheets.
 //!
 //! "A tool whose entire job is to return the bytes of a workspace file is a
-//! worse `read_file` — one more name in every agent's permission map, one more
+//! worse `read` — one more name in every agent's permission map, one more
 //! schema in every request, to reach a file the agent could already open."
 //! That argument is about *reading*, and about reading it is right.
 //!
@@ -25,7 +25,7 @@
 //! A `SKILL.md` may carry an `agents:` line naming who it is for, and this tool
 //! ignores it: it will open a sheet scoped to somebody else. Scope decides what
 //! an agent's *catalogue* advertises — what costs tokens in a prompt — and not
-//! what may be read. Checking it here would gate one door while `read_file`
+//! what may be read. Checking it here would gate one door while `read`
 //! walks past the other.
 
 use darkwire_core::Result;

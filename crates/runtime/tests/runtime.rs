@@ -62,7 +62,7 @@ mod construction {
     #[test]
     fn registers_the_built_ins_by_default() {
         let runtime = Install::with(&configured("llama3")).runtime().unwrap();
-        assert!(runtime.tools().has("read_file"));
+        assert!(runtime.tools().has("read"));
         assert!(runtime.tools().has("exec"));
     }
 
@@ -79,7 +79,7 @@ mod construction {
         assert!(runtime.spec().is_none());
         assert!(!runtime.has_credential());
         // Everything that does not need a model still works.
-        assert!(runtime.tools().has("read_file"));
+        assert!(runtime.tools().has("read"));
         assert!(runtime.jail().root().exists());
         assert_eq!(runtime.workspaces().list().unwrap().len(), 1);
         assert!(runtime.store().get_session("nobody").unwrap().is_none());
@@ -685,7 +685,7 @@ mod multiple_agents {
     #[test]
     fn narrows_one_agents_tools_without_touching_the_shared_registry() {
         let mut tree = tree();
-        tree["agents"]["list"]["reviewer"]["tools"] = json!({"read_file": "allow"});
+        tree["agents"]["list"]["reviewer"]["tools"] = json!({"read": "allow"});
         let runtime = Install::with(&tree).runtime().unwrap();
         runtime.loop_for(Some("reviewer")).unwrap();
         // A view of the one shared registry, not a registry of its own.
@@ -1030,7 +1030,7 @@ mod mcp {
         runtime
             .reconfigure(&patch(json!({"server": {"port": 4567}})))
             .unwrap();
-        assert!(runtime.tools().has("read_file"));
+        assert!(runtime.tools().has("read"));
         assert!(
             runtime
                 .tools()

@@ -138,7 +138,7 @@ fn sends_the_answer_so_far_at_a_tool_boundary_when_progress_is_on() {
 
     let drafts = project_all(
         &mut projection,
-        &[turn_start(), delta("so far"), tool_call("c1", "read_file")],
+        &[turn_start(), delta("so far"), tool_call("c1", "read")],
     );
 
     assert_eq!(kinds(&drafts), vec![OutboundKind::Progress]);
@@ -149,10 +149,7 @@ fn sends_the_answer_so_far_at_a_tool_boundary_when_progress_is_on() {
 fn sends_no_progress_before_the_model_has_written_anything() {
     let mut projection = TurnProjection::new(TurnProjectionOptions::default());
 
-    let drafts = project_all(
-        &mut projection,
-        &[turn_start(), tool_call("c1", "read_file")],
-    );
+    let drafts = project_all(&mut projection, &[turn_start(), tool_call("c1", "read")]);
 
     assert!(drafts.is_empty());
 }
@@ -163,7 +160,7 @@ fn sends_no_progress_when_it_is_switched_off() {
 
     let drafts = project_all(
         &mut projection,
-        &[turn_start(), delta("so far"), tool_call("c1", "read_file")],
+        &[turn_start(), delta("so far"), tool_call("c1", "read")],
     );
 
     assert!(drafts.is_empty());
@@ -172,12 +169,12 @@ fn sends_no_progress_when_it_is_switched_off() {
 #[test]
 fn names_the_tool_only_when_hints_are_on() {
     let mut without = TurnProjection::new(TurnProjectionOptions::default());
-    let quiet_drafts = project_all(&mut without, &[turn_start(), tool_call("c1", "read_file")]);
+    let quiet_drafts = project_all(&mut without, &[turn_start(), tool_call("c1", "read")]);
     assert!(texts(&quiet_drafts).is_empty());
 
     let mut with = TurnProjection::new(hints());
-    let loud = project_all(&mut with, &[turn_start(), tool_call("c1", "read_file")]);
-    assert_eq!(texts(&loud), vec!["Running read_file…"]);
+    let loud = project_all(&mut with, &[turn_start(), tool_call("c1", "read")]);
+    assert_eq!(texts(&loud), vec!["Running read…"]);
 }
 
 #[test]
@@ -188,12 +185,12 @@ fn names_the_tool_that_failed() {
         &mut projection,
         &[
             turn_start(),
-            tool_call("c1", "read_file"),
+            tool_call("c1", "read"),
             tool_result("c1", false),
         ],
     );
 
-    assert!(texts(&drafts).contains(&"read_file failed.".to_owned()));
+    assert!(texts(&drafts).contains(&"read failed.".to_owned()));
 }
 
 #[test]
@@ -204,7 +201,7 @@ fn says_nothing_about_a_tool_that_succeeded() {
         &mut projection,
         &[
             turn_start(),
-            tool_call("c1", "read_file"),
+            tool_call("c1", "read"),
             tool_result("c1", true),
         ],
     );
@@ -232,7 +229,7 @@ fn says_nothing_about_a_failed_tool_when_hints_are_off() {
         &mut projection,
         &[
             turn_start(),
-            tool_call("c1", "read_file"),
+            tool_call("c1", "read"),
             tool_result("c1", false),
         ],
     );

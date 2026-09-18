@@ -147,7 +147,7 @@ describe('a card that delegated', () => {
           {
             kind: 'tool',
             id: 'n1',
-            name: 'list_dir',
+            name: 'ls',
             args: { path: 'src' },
             risk: 'safe',
             status: 'ok',
@@ -168,7 +168,7 @@ describe('a card that delegated', () => {
     // The same landmark and the same status label a top-level call gets — which
     // is the point of one renderer rather than a nested variant.
     expect(
-      screen.getByRole('region', { name: 'Tool call: list_dir' }),
+      screen.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeInTheDocument();
     expect(screen.getAllByLabelText('Succeeded')).toHaveLength(2);
   });
@@ -319,7 +319,7 @@ describe('a card that delegated', () => {
   });
 
   it('adds nothing to an ordinary tool call', () => {
-    card({ name: 'read_file', status: 'ok', content: 'hello' }, null);
+    card({ name: 'read', status: 'ok', content: 'hello' }, null);
 
     expect(
       screen.queryByRole('region', { name: /Subagent run/ }),

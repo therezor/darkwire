@@ -190,7 +190,7 @@ fn format_value(value: &Value) -> String {
 /// exactly the one worth showing verbatim.
 ///
 /// A `null` is nothing rather than the word: JSON has one spelling for absence
-/// where the original union had two, and a card reading `⚙ read_file null`
+/// where the original union had two, and a card reading `⚙ read null`
 /// would be reporting the encoding rather than the call.
 #[must_use]
 pub fn summarise_args(args: &Value, max: usize) -> String {

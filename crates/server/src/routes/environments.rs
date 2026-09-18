@@ -6,7 +6,7 @@
 //!
 //! **Writable, and the invariant that makes that safe is where the files sit
 //! rather than who may ask.** The policy root is beside the workspace, never
-//! inside it, so `write_file` and anything reached by prompt injection cannot
+//! inside it, so `write` and anything reached by prompt injection cannot
 //! touch a definition. An authenticated operator pressing Save in Settings is a
 //! different actor, and the same one who already edits `agents.list` through
 //! `PATCH /api/settings`. What does not change is the validation: every save

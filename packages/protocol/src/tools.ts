@@ -61,10 +61,12 @@ export type ToolPermissions = z.infer<typeof ToolPermissionsSchema>;
  * matches `BUILTIN_TOOLS`, which is the only place both are visible.
  */
 export const BUILTIN_TOOL_NAMES: readonly string[] = [
-  'read_file',
-  'write_file',
-  'edit_file',
-  'list_dir',
+  'read',
+  'write',
+  'edit',
+  'ls',
+  'grep',
+  'find',
   'exec',
   'automation',
   'memory',

@@ -159,8 +159,8 @@ async fn an_agent_with_no_label_falls_back_to_its_id() {
 async fn it_offers_a_registered_tool_the_default_agent_does_not_hold() {
     let test = server(TestServerOptions {
         runtime: FakeRuntimeOptions {
-            tools: vec![tool("read_file")],
-            registered_tools: Some(vec![tool("automation"), tool("read_file")]),
+            tools: vec![tool("read")],
+            registered_tools: Some(vec![tool("automation"), tool("read")]),
             ..FakeRuntimeOptions::default()
         },
         ..TestServerOptions::default()
@@ -178,7 +178,7 @@ async fn it_offers_a_registered_tool_the_default_agent_does_not_hold() {
     // The one tool nobody starts with was, for a while, the one tool nobody
     // could grant.
     assert!(names.contains(&"automation"));
-    assert!(names.contains(&"read_file"));
+    assert!(names.contains(&"read"));
 }
 
 #[tokio::test]

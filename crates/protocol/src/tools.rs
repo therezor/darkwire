@@ -70,10 +70,12 @@ pub type ToolPermissions = IndexMap<String, ToolPermission>;
 /// tool map needs the *names* without the implementations, to seed a new agent
 /// with them.
 pub const BUILTIN_TOOL_NAMES: &[&str] = &[
-    "read_file",
-    "write_file",
-    "edit_file",
-    "list_dir",
+    "read",
+    "write",
+    "edit",
+    "ls",
+    "grep",
+    "find",
     "exec",
     "automation",
     "memory",

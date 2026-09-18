@@ -662,7 +662,7 @@ pub async fn build_static_prompt(options: BuildStaticPrompt<'_>) -> String {
     }
 
     // Fixed text, and fixed by design: see the constant. Before the
-    // contributors so that a skills or memory index that names `read_file`
+    // contributors so that a skills or memory index that names `read`
     // is read after the model has been told how to reach it.
     let discovery = tool_discovery_section(options.tools);
     if !discovery.is_empty() {

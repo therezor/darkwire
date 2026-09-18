@@ -367,7 +367,7 @@ fn a_late_iteration_with_a_correction_is_byte_identical() {
         tools: Some(&PromptTools::default()),
         time_zone: Some("UTC"),
         contributors: &contributors,
-        correction: Some("## Correction\n\nCall `read_file` now."),
+        correction: Some("## Correction\n\nCall `read` now."),
         ..BuildRuntimeBlock::new(&runtime, NONCE)
     });
 

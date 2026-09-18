@@ -111,7 +111,7 @@ describe('ChatMessageSchema', () => {
     expect(
       ChatMessageSchema.safeParse({
         role: 'tool',
-        name: 'read_file',
+        name: 'read',
         content: 'x',
       }).success,
     ).toBe(false);
@@ -119,7 +119,7 @@ describe('ChatMessageSchema', () => {
       ChatMessageSchema.safeParse({
         role: 'tool',
         toolCallId: '',
-        name: 'read_file',
+        name: 'read',
         content: 'x',
       }).success,
     ).toBe(false);

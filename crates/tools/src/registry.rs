@@ -484,7 +484,7 @@ impl ToolRegistry {
         };
 
         // Checked before the handler is entered rather than left to the race
-        // below. A turn cancelled while a `write_file` call was queued must not
+        // below. A turn cancelled while a `write` call was queued must not
         // perform the write and only then notice, and a handler cannot be
         // trusted to check first when the registry can guarantee it.
         if ctx.token.is_cancelled() {

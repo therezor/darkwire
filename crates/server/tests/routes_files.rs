@@ -126,7 +126,7 @@ fn workspace_dir(test: &TestServer, id: &str) -> std::path::PathBuf {
     test.home.path().join("DarkWire/workspaces").join(id)
 }
 
-fn write_file(test: &TestServer, workspace: &str, relative: &str, content: &[u8]) {
+fn write(test: &TestServer, workspace: &str, relative: &str, content: &[u8]) {
     let path = workspace_dir(test, workspace).join(relative);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("the parent directory");
@@ -152,7 +152,7 @@ fn make_workspace(test: &TestServer, name: &str) -> String {
 /// throwaway sign is what brings it into existence, and the row is then the
 /// only place it lives.
 async fn secret(test: &TestServer) -> String {
-    write_file(test, "default", ".signing-probe", b"x");
+    write(test, "default", ".signing-probe", b"x");
     let minted = post(
         test,
         "/api/files/signed-url",
@@ -188,8 +188,8 @@ async fn token_for(test: &TestServer, path: &str, workspace_id: &str) -> String 
 #[tokio::test]
 async fn the_listing_answers_the_workspace_root_by_default_directories_first() {
     let test = server();
-    write_file(&test, "default", "b.txt", b"b");
-    write_file(&test, "default", "a.txt", b"a");
+    write(&test, "default", "b.txt", b"b");
+    write(&test, "default", "a.txt", b"a");
     std::fs::create_dir_all(workspace_dir(&test, "default").join("z-dir")).unwrap();
     std::fs::create_dir_all(workspace_dir(&test, "default").join("a-dir")).unwrap();
 
@@ -215,8 +215,8 @@ async fn the_listing_answers_the_workspace_root_by_default_directories_first() {
 async fn the_workspaces_root_lists_every_workspace_as_a_folder() {
     let test = server();
     let acme = make_workspace(&test, "Acme");
-    write_file(&test, &acme, "brief.md", b"a");
-    write_file(&test, "default", "notes.md", b"n");
+    write(&test, &acme, "brief.md", b"a");
+    write(&test, "default", "notes.md", b"n");
 
     let answer = get(&test, "/api/files?workspace=workspaces").await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -238,7 +238,7 @@ async fn the_workspaces_root_lists_every_workspace_as_a_folder() {
 async fn a_workspace_still_cannot_see_its_sibling() {
     let test = server();
     let acme = make_workspace(&test, "Acme");
-    write_file(&test, &acme, "brief.md", b"a");
+    write(&test, &acme, "brief.md", b"a");
 
     let answer = get(&test, "/api/files?workspace=default").await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -256,7 +256,7 @@ async fn a_workspace_still_cannot_see_its_sibling() {
 async fn the_workspaces_root_reads_a_file_inside_a_workspace() {
     let test = server();
     let acme = make_workspace(&test, "Acme");
-    write_file(&test, &acme, "brief.md", b"the brief");
+    write(&test, &acme, "brief.md", b"the brief");
 
     let answer = get(
         &test,
@@ -293,7 +293,7 @@ async fn the_workspaces_root_clamps_a_path_that_climbs_out_of_it() {
 #[tokio::test]
 async fn the_listing_answers_a_subdirectory() {
     let test = server();
-    write_file(&test, "default", "notes/todo.md", b"todo");
+    write(&test, "default", "notes/todo.md", b"todo");
 
     let answer = get(&test, "/api/files?path=notes").await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -310,7 +310,7 @@ async fn the_listing_answers_a_subdirectory() {
 #[tokio::test]
 async fn a_dot_path_and_a_bare_path_are_the_same_directory() {
     let test = server();
-    write_file(&test, "default", "notes/todo.md", b"todo");
+    write(&test, "default", "notes/todo.md", b"todo");
     let dotted = get(&test, "/api/files?path=./notes/").await;
     let bare = get(&test, "/api/files?path=notes").await;
     assert_eq!(dotted.json()["path"], bare.json()["path"]);
@@ -322,7 +322,7 @@ async fn a_symlink_that_leads_out_of_the_workspace_never_appears() {
     let test = server();
     let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("secret.txt"), "not yours").unwrap();
-    write_file(&test, "default", "inside.txt", b"yours");
+    write(&test, "default", "inside.txt", b"yours");
     std::os::unix::fs::symlink(
         outside.path().join("secret.txt"),
         workspace_dir(&test, "default").join("escape.txt"),
@@ -362,7 +362,7 @@ async fn asking_for_a_symlink_that_points_out_of_the_workspace_is_a_refusal() {
 #[tokio::test]
 async fn asking_for_a_file_where_a_directory_belongs_is_a_bad_request() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"notes");
+    write(&test, "default", "notes.md", b"notes");
     let answer = get(&test, "/api/files?path=notes.md").await;
     assert_eq!(answer.status, StatusCode::BAD_REQUEST);
 }
@@ -468,7 +468,7 @@ async fn an_upload_with_no_path_is_refused() {
 #[tokio::test]
 async fn deleting_removes_a_file() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"notes");
+    write(&test, "default", "notes.md", b"notes");
     let answer = delete(&test, "/api/files?path=notes.md").await;
     assert_eq!(answer.status, StatusCode::NO_CONTENT);
     assert!(!workspace_dir(&test, "default").join("notes.md").exists());
@@ -486,7 +486,7 @@ async fn deleting_removes_an_empty_directory_without_ceremony() {
 #[tokio::test]
 async fn deleting_a_directory_with_contents_is_refused_unless_the_caller_said_so() {
     let test = server();
-    write_file(&test, "default", "notes/todo.md", b"todo");
+    write(&test, "default", "notes/todo.md", b"todo");
 
     let answer = delete(&test, "/api/files?path=notes").await;
     assert_eq!(answer.status, StatusCode::CONFLICT);
@@ -503,7 +503,7 @@ async fn deleting_a_directory_with_contents_is_refused_unless_the_caller_said_so
 #[tokio::test]
 async fn deleting_takes_the_contents_when_the_caller_does_say_so() {
     let test = server();
-    write_file(&test, "default", "notes/todo.md", b"todo");
+    write(&test, "default", "notes/todo.md", b"todo");
     let answer = delete(&test, "/api/files?path=notes&recursive=true").await;
     assert_eq!(answer.status, StatusCode::NO_CONTENT);
     assert!(!workspace_dir(&test, "default").join("notes").exists());
@@ -512,7 +512,7 @@ async fn deleting_takes_the_contents_when_the_caller_does_say_so() {
 #[tokio::test]
 async fn a_recursive_delete_is_clamped_to_the_workspace() {
     let test = server();
-    write_file(&test, "default", "keep.txt", b"keep");
+    write(&test, "default", "keep.txt", b"keep");
     std::fs::write(test.home.path().join("above.txt"), "above").unwrap();
 
     let answer = delete(&test, "/api/files?path=../above.txt&recursive=true").await;
@@ -544,7 +544,7 @@ async fn deleting_with_no_path_is_refused() {
 #[tokio::test]
 async fn reading_answers_with_the_file_and_the_timestamp_a_save_has_to_match() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"# Notes\n");
+    write(&test, "default", "notes.md", b"# Notes\n");
 
     let answer = get(&test, "/api/files/text?path=notes.md").await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -560,7 +560,7 @@ async fn reading_opens_a_source_file_the_media_table_has_never_heard_of() {
     let test = server();
     // Deciding from the bytes rather than the extension is what makes `.py`
     // and `.ts` — the files a person most wants to open — readable at all.
-    write_file(&test, "default", "main.py", b"print('hi')\n");
+    write(&test, "default", "main.py", b"print('hi')\n");
     let answer = get(&test, "/api/files/text?path=main.py").await;
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(answer.json()["content"], "print('hi')\n");
@@ -569,7 +569,7 @@ async fn reading_opens_a_source_file_the_media_table_has_never_heard_of() {
 #[tokio::test]
 async fn reading_refuses_a_binary_file_rather_than_answering_with_mojibake() {
     let test = server();
-    write_file(&test, "default", "blob.txt", &[0x00, 0x01, 0x02]);
+    write(&test, "default", "blob.txt", &[0x00, 0x01, 0x02]);
     let answer = get(&test, "/api/files/text?path=blob.txt").await;
     assert_eq!(answer.status, StatusCode::BAD_REQUEST);
 }
@@ -578,7 +578,7 @@ async fn reading_refuses_a_binary_file_rather_than_answering_with_mojibake() {
 async fn reading_truncates_a_file_past_the_limit_and_says_that_it_did() {
     let test = server();
     let big = vec![b'a'; 600 * 1024];
-    write_file(&test, "default", "big.txt", &big);
+    write(&test, "default", "big.txt", &big);
 
     let answer = get(&test, "/api/files/text?path=big.txt").await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -612,7 +612,7 @@ async fn reading_a_path_that_tried_to_leave_is_clamped() {
 #[tokio::test]
 async fn writing_stores_the_content_and_answers_with_the_entry_it_produced() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"old");
+    write(&test, "default", "notes.md", b"old");
 
     let answer = put(
         &test,
@@ -649,7 +649,7 @@ async fn writing_creates_the_file_and_the_directory_over_it() {
 #[tokio::test]
 async fn a_save_whose_file_moved_since_it_was_read_is_refused() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"old");
+    write(&test, "default", "notes.md", b"old");
     let read = get(&test, "/api/files/text?path=notes.md").await;
     let stamp = read.json()["modifiedAtMs"].as_u64().unwrap();
 
@@ -706,7 +706,7 @@ async fn a_save_that_names_no_timestamp_is_creating_a_file() {
 #[tokio::test]
 async fn a_save_that_matches_the_timestamp_goes_through() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"old");
+    write(&test, "default", "notes.md", b"old");
     let read = get(&test, "/api/files/text?path=notes.md").await;
     let stamp = read.json()["modifiedAtMs"].as_u64().unwrap();
 
@@ -824,7 +824,7 @@ async fn mkdir_clamps_a_directory_that_tried_to_be_created_outside() {
 #[tokio::test]
 async fn moving_renames_a_file_and_answers_with_where_it_landed() {
     let test = server();
-    write_file(&test, "default", "old.md", b"content");
+    write(&test, "default", "old.md", b"content");
 
     let answer = post(
         &test,
@@ -844,7 +844,7 @@ async fn moving_renames_a_file_and_answers_with_where_it_landed() {
 #[tokio::test]
 async fn moving_a_directory_takes_everything_inside_it() {
     let test = server();
-    write_file(&test, "default", "notes/todo.md", b"todo");
+    write(&test, "default", "notes/todo.md", b"todo");
 
     let answer = post(
         &test,
@@ -864,7 +864,7 @@ async fn moving_a_directory_takes_everything_inside_it() {
 #[tokio::test]
 async fn moving_into_another_directory_works_because_a_rename_is_a_move() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"x");
+    write(&test, "default", "notes.md", b"x");
     std::fs::create_dir_all(workspace_dir(&test, "default").join("archive")).unwrap();
 
     let answer = post(
@@ -880,8 +880,8 @@ async fn moving_into_another_directory_works_because_a_rename_is_a_move() {
 #[tokio::test]
 async fn moving_refuses_to_overwrite_whatever_is_already_at_the_target() {
     let test = server();
-    write_file(&test, "default", "a.md", b"a");
-    write_file(&test, "default", "b.md", b"b");
+    write(&test, "default", "a.md", b"a");
+    write(&test, "default", "b.md", b"b");
 
     // A rename will happily replace a file, and one that destroys whatever was
     // already there is a data loss the operator did not ask for.
@@ -913,7 +913,7 @@ async fn moving_a_source_that_is_not_there_is_a_not_found() {
 #[tokio::test]
 async fn moving_into_a_folder_that_is_not_there_names_the_folder() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"x");
+    write(&test, "default", "notes.md", b"x");
     // The operating system reports this as a bare "no such file", which reads
     // as "the file is missing" rather than "the folder is".
     let answer = post(
@@ -949,7 +949,7 @@ async fn moving_a_directory_inside_itself_is_refused() {
 #[tokio::test]
 async fn moving_onto_itself_is_the_no_op_it_is() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"x");
+    write(&test, "default", "notes.md", b"x");
     let answer = post(
         &test,
         "/api/files/move",
@@ -967,7 +967,7 @@ async fn moving_onto_itself_is_the_no_op_it_is() {
 #[tokio::test]
 async fn moving_clamps_both_ends_into_the_workspace() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"x");
+    write(&test, "default", "notes.md", b"x");
     let answer = post(
         &test,
         "/api/files/move",
@@ -984,7 +984,7 @@ async fn moving_clamps_both_ends_into_the_workspace() {
 #[tokio::test]
 async fn a_signature_serves_the_file_and_nothing_else_does() {
     let test = server();
-    write_file(&test, "default", "photo.png", &[0x89, b'P', b'N', b'G']);
+    write(&test, "default", "photo.png", &[0x89, b'P', b'N', b'G']);
 
     let minted = post(&test, "/api/files/signed-url", json!({"path": "photo.png"})).await;
     assert_eq!(minted.status, StatusCode::OK);
@@ -1006,8 +1006,8 @@ async fn a_signature_serves_the_file_and_nothing_else_does() {
 #[tokio::test]
 async fn a_token_whose_payload_was_edited_is_refused() {
     let test = server();
-    write_file(&test, "default", "photo.png", b"png");
-    write_file(&test, "default", "secret.txt", b"secret");
+    write(&test, "default", "photo.png", b"png");
+    write(&test, "default", "secret.txt", b"secret");
 
     let token = token_for(&test, "photo.png", "default").await;
     let (payload, signature) = token.rsplit_once('.').expect("a two-part token");
@@ -1034,7 +1034,7 @@ async fn a_token_whose_payload_was_edited_is_refused() {
 #[tokio::test]
 async fn a_token_that_has_expired_is_refused() {
     let test = server();
-    write_file(&test, "default", "photo.png", b"png");
+    write(&test, "default", "photo.png", b"png");
     let token = token_for(&test, "photo.png", "default").await;
 
     // The alternative to moving the clock is sleeping through the TTL.
@@ -1053,7 +1053,7 @@ async fn a_token_that_has_expired_is_refused() {
 #[tokio::test]
 async fn a_signature_made_with_another_key_is_refused() {
     let test = server();
-    write_file(&test, "default", "photo.png", b"png");
+    write(&test, "default", "photo.png", b"png");
     let forged = sign_media_token(
         "a key this server has never held",
         &MediaClaim {
@@ -1096,7 +1096,7 @@ async fn an_executable_type_is_never_served_inline() {
     // An SVG can carry `<script>`, and served inline from this origin that
     // script runs with the session cookie attached.
     for name in ["page.html", "app.js", "diagram.svg"] {
-        write_file(&test, "default", name, b"<script>alert(1)</script>");
+        write(&test, "default", name, b"<script>alert(1)</script>");
         let token = token_for(&test, name, "default").await;
         let answer = raw(
             &test,
@@ -1137,7 +1137,7 @@ async fn signing_a_file_that_does_not_exist_is_refused() {
 #[tokio::test]
 async fn a_file_deleted_after_the_url_was_minted_is_a_not_found() {
     let test = server();
-    write_file(&test, "default", "photo.png", b"png");
+    write(&test, "default", "photo.png", b"png");
     let token = token_for(&test, "photo.png", "default").await;
     std::fs::remove_file(workspace_dir(&test, "default").join("photo.png")).unwrap();
 
@@ -1172,7 +1172,7 @@ async fn a_signed_directory_is_a_not_found_rather_than_a_stream() {
 #[cfg(unix)]
 async fn a_signed_path_that_became_a_symlink_out_of_the_workspace_is_refused() {
     let test = server();
-    write_file(&test, "default", "photo.png", b"png");
+    write(&test, "default", "photo.png", b"png");
     let token = token_for(&test, "photo.png", "default").await;
 
     // A signature says who asked, not what the filesystem looks like now.
@@ -1200,8 +1200,8 @@ async fn a_signed_path_that_became_a_symlink_out_of_the_workspace_is_refused() {
 async fn the_listing_answers_only_the_workspace_that_was_asked_for() {
     let test = server();
     let id = make_workspace(&test, "Research");
-    write_file(&test, "default", "root-only.txt", b"x");
-    write_file(&test, &id, "research-only.txt", b"x");
+    write(&test, "default", "root-only.txt", b"x");
+    write(&test, &id, "research-only.txt", b"x");
 
     let answer = get(&test, &format!("/api/files?workspace={id}")).await;
     let names: Vec<&str> = answer.json()["entries"]
@@ -1218,7 +1218,7 @@ async fn a_traversal_cannot_reach_a_sibling_workspace() {
     let test = server();
     let one = make_workspace(&test, "One");
     let two = make_workspace(&test, "Two");
-    write_file(&test, &two, "secret.txt", b"not yours");
+    write(&test, &two, "secret.txt", b"not yours");
 
     let answer = get(
         &test,
@@ -1259,7 +1259,7 @@ async fn a_workspace_with_no_registry_row_is_refused_without_creating_it() {
 #[tokio::test]
 async fn no_workspace_named_means_the_default_one() {
     let test = server();
-    write_file(&test, "default", "notes.md", b"x");
+    write(&test, "default", "notes.md", b"x");
     let answer = get(&test, "/api/files/text?path=notes.md").await;
     assert_eq!(answer.status, StatusCode::OK);
 }
@@ -1284,8 +1284,8 @@ async fn an_empty_workspace_id_is_refused_by_the_schema_rather_than_defaulted() 
 async fn a_url_is_signed_against_the_workspace_it_was_minted_for_and_no_other() {
     let test = server();
     let id = make_workspace(&test, "Research");
-    write_file(&test, &id, "photo.png", b"research");
-    write_file(&test, "default", "photo.png", b"default");
+    write(&test, &id, "photo.png", b"research");
+    write(&test, "default", "photo.png", b"default");
 
     let minted = post(
         &test,

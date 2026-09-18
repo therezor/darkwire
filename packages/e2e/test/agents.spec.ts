@@ -229,7 +229,7 @@ test.describe('agents', () => {
               model: 'qwen3',
               maxTokens: 1234,
               systemPrompt: 'House style: be terse.',
-              tools: { read_file: 'allow', exec: 'deny' },
+              tools: { read: 'allow', exec: 'deny' },
             },
           },
         },
@@ -265,7 +265,7 @@ test.describe('agents', () => {
       })
       .toMatchObject({
         systemPrompt: 'House style: be terse.',
-        tools: { read_file: 'allow', exec: 'deny' },
+        tools: { read: 'allow', exec: 'deny' },
         maxTokens: 1234,
       });
   });
@@ -321,7 +321,7 @@ test.describe('agents', () => {
               label: 'Reviewer',
               provider: 'ollama',
               model: 'qwen3',
-              tools: { read_file: 'allow', exec: 'deny' },
+              tools: { read: 'allow', exec: 'deny' },
             },
           },
         },
@@ -351,7 +351,7 @@ test.describe('agents', () => {
       })
       .toMatchObject({
         enabled: false,
-        tools: { read_file: 'allow', exec: 'deny' },
+        tools: { read: 'allow', exec: 'deny' },
       });
 
     const agents = await app.request.get(`${harness.url}/api/agents`);
@@ -420,7 +420,7 @@ test.describe('agents', () => {
               provider: 'ollama',
               model: 'qwen3',
               systemPrompt: '# {{name}}\n\nOnly ever read. Never write.',
-              tools: { read_file: 'allow', exec: 'deny' },
+              tools: { read: 'allow', exec: 'deny' },
             },
           },
         },
@@ -485,9 +485,9 @@ test.describe('agents', () => {
     await app.setViewportSize({ width: 375, height: 800 });
     await expect(app.getByRole('button', { name: 'Open menu' })).toBeVisible();
 
-    const pencil = app.getByRole('button', { name: 'Wording for read_file' });
+    const pencil = app.getByRole('button', { name: 'Wording for read' });
     const permission = app.getByRole('combobox', {
-      name: 'Permission for read_file',
+      name: 'Permission for read',
     });
     await expect(pencil).toBeVisible();
     await expect(permission).toBeVisible();
@@ -611,7 +611,7 @@ test.describe('agents', () => {
               label: 'Reader',
               provider: 'ollama',
               model: 'qwen3',
-              tools: { read_file: 'allow' },
+              tools: { read: 'allow' },
             },
           },
         },

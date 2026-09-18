@@ -216,7 +216,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             tag: darkwire_protocol::ToolCallTag,
             turn_id: "t".to_owned(),
             call_id: "c".to_owned(),
-            name: "read_file".to_owned(),
+            name: "read".to_owned(),
             args: Value::Null,
             risk: ToolRisk::Safe,
         }

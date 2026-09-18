@@ -220,10 +220,10 @@ describe('ConfigSchema', () => {
 describe('DEFAULT_AGENT_TOOLS', () => {
   it('asks before exec and allows reads and jailed writes', () => {
     expect(DEFAULT_AGENT_TOOLS).toMatchObject({
-      read_file: 'allow',
-      list_dir: 'allow',
-      write_file: 'allow',
-      edit_file: 'allow',
+      read: 'allow',
+      ls: 'allow',
+      write: 'allow',
+      edit: 'allow',
       exec: 'ask',
     });
   });
@@ -312,12 +312,12 @@ describe('AgentEntrySchema', () => {
       label: 'Code Reviewer',
       model: 'claude-opus-5',
       temperature: 0,
-      tools: { read_file: 'allow', exec: 'deny' },
+      tools: { read: 'allow', exec: 'deny' },
     });
 
     expect(agent.model).toBe('claude-opus-5');
     expect(agent.temperature).toBe(0);
-    expect(agent.tools).toEqual({ read_file: 'allow', exec: 'deny' });
+    expect(agent.tools).toEqual({ read: 'allow', exec: 'deny' });
   });
 
   it('seeds the built-in tools when an entry names none', () => {
@@ -327,8 +327,8 @@ describe('AgentEntrySchema', () => {
   it('replaces the seed rather than merging into it', () => {
     // The distinction the whole model rests on: an entry naming one tool has
     // one tool, or switching a seeded tool off would be inexpressible.
-    const agent = AgentEntrySchema.parse({ tools: { read_file: 'allow' } });
-    expect(agent.tools).toEqual({ read_file: 'allow' });
+    const agent = AgentEntrySchema.parse({ tools: { read: 'allow' } });
+    expect(agent.tools).toEqual({ read: 'allow' });
   });
 
   it('accepts an empty map as "nothing enabled"', () => {
@@ -557,7 +557,7 @@ describe('agentSettingsPatch', () => {
             model: 'llama3',
             provider: 'ollama',
             temperature: 0.7,
-            tools: { read_file: 'allow' },
+            tools: { read: 'allow' },
           },
         },
       },
@@ -595,7 +595,7 @@ describe('agentSettingsPatch', () => {
     expect(entry?.label).toBe('Coder');
     expect(entry?.systemPrompt).toBe('Write code.');
     expect(entry?.temperature).toBe(0.7);
-    expect(entry?.tools).toEqual({ read_file: 'allow' });
+    expect(entry?.tools).toEqual({ read: 'allow' });
   });
 
   it('clears on a named agent by omitting the key, never by nulling it', () => {

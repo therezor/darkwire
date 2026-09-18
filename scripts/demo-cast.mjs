@@ -6,7 +6,7 @@
  * `pnpm demo`. Everything is local and nothing is faked:
  *
  *  1. A mock provider on 127.0.0.1:11500 speaking the `openai-chat` wire,
- *     scripted to call `list_dir` and then answer from what came back — the
+ *     scripted to call `ls` and then answer from what came back — the
  *     same shape `packages/e2e/src/harness/script.ts` gives the browser suite.
  *     It drives the **real** `darkwire` binary — `target/release/darkwire`, which
  *     `pnpm demo` builds first — through a real config, because a recording of
@@ -101,10 +101,10 @@ function seedHome() {
               provider: 'local',
               model: MODEL,
               tools: {
-                read_file: 'allow',
-                list_dir: 'allow',
-                write_file: 'allow',
-                edit_file: 'allow',
+                read: 'allow',
+                ls: 'allow',
+                write: 'allow',
+                edit: 'allow',
               },
             },
           },

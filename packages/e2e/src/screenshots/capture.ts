@@ -228,7 +228,7 @@ const SCREENS: readonly Screen[] = [
     route: '/',
     settle: async (page) => {
       await ask(page, PROMPTS.tool);
-      const card = page.getByRole('region', { name: 'Tool call: list_dir' });
+      const card = page.getByRole('region', { name: 'Tool call: ls' });
       await card.waitFor();
       // Expanded, because a collapsed card shows that a tool ran and not what
       // it returned — and the second is the thing worth a picture.

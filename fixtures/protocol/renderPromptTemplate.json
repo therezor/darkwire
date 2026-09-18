@@ -180,7 +180,7 @@
     {
       "name": "default: DEFAULT_SKILLS_TEMPLATE",
       "input": {
-        "template": "## Skills\n\nInstruction sheets kept in this workspace under `{{path}}/`. A line below is a\nsummary, not the skill. Open the file with `read_file` before acting on what it\nnames.{{index}}",
+        "template": "## Skills\n\nInstruction sheets kept in this workspace under `{{path}}/`. A line below is a\nsummary, not the skill. Open the file with `read` before acting on what it\nnames.{{index}}",
         "values": {
           "path": "skills",
           "index": "\n\n- skills/code-review/SKILL.md — Review a change.",
@@ -188,19 +188,18 @@
           "count": "1"
         }
       },
-      "output": "## Skills\n\nInstruction sheets kept in this workspace under `skills/`. A line below is a\nsummary, not the skill. Open the file with `read_file` before acting on what it\nnames.\n\n- skills/code-review/SKILL.md — Review a change."
+      "output": "## Skills\n\nInstruction sheets kept in this workspace under `skills/`. A line below is a\nsummary, not the skill. Open the file with `read` before acting on what it\nnames.\n\n- skills/code-review/SKILL.md — Review a change."
     },
     {
       "name": "default: DEFAULT_MEMORY_TEMPLATE",
       "input": {
-        "template": "## Memory\n\nWhat you have learned about this workspace, kept as one file per fact under\n`{{path}}`. Each line below is one memory: the file to open, its name, and\nwhat it is about. The bodies are not here: open one with `read_file` when its\nline bears on what you are doing.\n\nTo record something durable, call the `memory` tool with a short name, a\none-line description, a type and the fact itself. Writing a name that already\nexists replaces it, so something you got wrong is corrected rather than left\nstanding beside its correction.\n\n{{index}}",
+        "template": "## Memory\n\nUse exact keys with the `memory` tool. Do not guess a key.\n\n{{index}}",
         "values": {
-          "path": "memory/",
-          "index": "- memory/deploy.md — deploy: how the site ships.",
+          "index": "deploy: How the site ships",
           "count": "1"
         }
       },
-      "output": "## Memory\n\nWhat you have learned about this workspace, kept as one file per fact under\n`memory/`. Each line below is one memory: the file to open, its name, and\nwhat it is about. The bodies are not here: open one with `read_file` when its\nline bears on what you are doing.\n\nTo record something durable, call the `memory` tool with a short name, a\none-line description, a type and the fact itself. Writing a name that already\nexists replaces it, so something you got wrong is corrected rather than left\nstanding beside its correction.\n\n- memory/deploy.md — deploy: how the site ships."
+      "output": "## Memory\n\nUse exact keys with the `memory` tool. Do not guess a key.\n\ndeploy: How the site ships"
     }
   ]
 }

@@ -141,7 +141,7 @@ async fn keeps_them_across_a_reconfigure_like_mcps() {
         "tools: {:?}",
         runtime.tools().names()
     );
-    assert!(runtime.tools().has("read_file"));
+    assert!(runtime.tools().has("read"));
     runtime.close().await;
 }
 
@@ -172,7 +172,7 @@ async fn takes_an_extensions_tools_away_when_it_is_disabled() {
         runtime.tools().names()
     );
     // The built-ins are untouched: teardown is exact by extension id.
-    assert!(runtime.tools().has("read_file"));
+    assert!(runtime.tools().has("read"));
     runtime.close().await;
 }
 
@@ -214,7 +214,7 @@ async fn boots_with_no_host_at_all_when_extensions_are_switched_off() {
     // show the registry holds only built-ins can say so.
     let runtime = install.runtime().unwrap();
     assert!(runtime.extensions().is_none());
-    assert!(runtime.tools().has("read_file"));
+    assert!(runtime.tools().has("read"));
     assert!(
         !runtime
             .tools()
@@ -306,6 +306,6 @@ async fn survives_an_extension_that_cannot_start_and_still_builds_a_loop() {
     let runtime = create_runtime(options(&install)).unwrap();
     assert!(runtime.configured());
     assert!(runtime.agent_loop().is_some());
-    assert!(runtime.tools().has("read_file"));
+    assert!(runtime.tools().has("read"));
     runtime.close().await;
 }

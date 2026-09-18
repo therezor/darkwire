@@ -1,10 +1,9 @@
 //! Memory, as a section of the prompt.
 //!
-//! **An index, not the contents.** One line per memory — the file to open, its
-//! name, and what it is about — and the model opens the one it wants with
-//! `read_file`. That is the same shape `skills_contributor` uses, and it is
-//! what a *store* wants: one file per fact, growing for as long as the
-//! workspace does. Inlining such a thing would re-send everything ever learned
+//! **An index, not the contents.** One line per memory, its key and its title,
+//! and the model reads the one it wants through the `memory` tool. That is the
+//! same shape `skills_contributor` uses, and it is what a *store* wants: one
+//! file per memory, growing for as long as the workspace does. Inlining such a thing would re-send everything ever learned
 //! on every request of every turn, and the only lever left would be a token cap
 //! deciding what to forget by age rather than by relevance. An index costs a
 //! line each and puts the choice where the question is.
@@ -29,7 +28,7 @@
 
 use std::path::Path;
 
-use darkwire_core::memory::{MEMORY_DIRNAME, Memory, read_memories};
+use darkwire_core::memory::{Memory, index_line, read_memories};
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{DEFAULT_MEMORY_TEMPLATE, render_prompt_template};
 use darkwire_providers::BoxFuture;
@@ -72,7 +71,6 @@ pub fn render_memory_section(memories: &[Memory], template: Option<&str>) -> Str
     }
 
     let mut values = IndexMap::new();
-    values.insert("path".to_owned(), MEMORY_DIRNAME.to_owned());
     values.insert(
         "index".to_owned(),
         memories
@@ -84,25 +82,6 @@ pub fn render_memory_section(memories: &[Memory], template: Option<&str>) -> Str
     values.insert("count".to_owned(), memories.len().to_string());
 
     js_trim(&render_prompt_template(resolved, &values)).to_owned()
-}
-
-/// The path first, because that is the string handed back to `read_file`.
-///
-/// `render_index` in `darkwire-core` writes the same memories as relative
-/// markdown links, and the two are deliberately different: `MEMORY.md` sits
-/// inside `memory/` and is read by a person, while this is read by a model that
-/// has to pass the path to a tool. A prefix it reconstructs is one it can
-/// reconstruct wrongly.
-///
-/// The name is not repeated beside the path, because the path already ends in
-/// it. The *kind* is, at two tokens a line, because a stated preference and a
-/// pointer to a document are not the same claim and the description alone does
-/// not always say which one this is.
-fn index_line(memory: &Memory) -> String {
-    format!(
-        "- `{}` ({}): {}",
-        memory.path, memory.memory_type, memory.description
-    )
 }
 
 /// Reads the workspace's memories and indexes them in the static prompt.

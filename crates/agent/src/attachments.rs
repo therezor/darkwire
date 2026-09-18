@@ -128,7 +128,7 @@ struct Budget {
 /// The one line that precedes every attachment, whatever else follows it.
 ///
 /// `format_bytes` is the tools' own, not a local copy: the model reads this and
-/// `list_dir`'s output in the same context window, and two spellings of
+/// `ls`'s output in the same context window, and two spellings of
 /// "4.2 KB" is a difference it would be entitled to read meaning into.
 fn header(path: &str, mime_type: &str, size_bytes: u64) -> String {
     format!(
@@ -165,7 +165,7 @@ fn locate(part: &FilePart, jail: &WorkspaceJail) -> Option<Located> {
     // The jail's own relative form, not the requested string. They agree on any
     // path an upload produced, but `./uploads/x.png` normalises without being
     // recorded as a rewrite — and the path shown to the model has to be the one
-    // `read_file` and `list_dir` will echo back, or it learns two names for one
+    // `read` and `ls` will echo back, or it learns two names for one
     // file.
     Some(Located {
         absolute: accept.path.to_string_lossy().into_owned(),
@@ -177,7 +177,7 @@ fn locate(part: &FilePart, jail: &WorkspaceJail) -> Option<Located> {
 ///
 /// Note what the failure branch does *not* say: it names the attachment by the
 /// path that was asked for only when that path was legal. A rejected path is
-/// reported without echoing it, for the same reason `read_file` reports where a
+/// reported without echoing it, for the same reason `read` reports where a
 /// read landed rather than what was requested — repeating it back would teach
 /// the model that the workspace has paths it does not have.
 pub fn materialise_file_part(
@@ -242,7 +242,7 @@ fn materialise_one(
 
     // Identity is path, size and mtime together: a file the agent rewrote
     // mid-turn has to be read again, or the model holds the version from before
-    // its own edit beside the one `read_file` just returned. Size and mtime
+    // its own edit beside the one `read` just returned. Size and mtime
     // lead so the delimiter needs no NUL: both are digits, and the first `:`
     // after them ends the number. A raw NUL in a source file is a real cost —
     // it makes the whole file invisible to `grep`.

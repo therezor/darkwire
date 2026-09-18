@@ -46,7 +46,7 @@ call, the container each runs in, and which of the others it may hand work to.
 </div>
 
 <div align="center">
-  <img alt="A terminal recording: darkwire chat is launched, asked what is in the workspace, calls the list_dir tool, and streams back an answer with a code block — finishing in 2 steps." src="docs/screenshots/demo.svg" width="100%">
+  <img alt="A terminal recording: darkwire chat is launched, asked what is in the workspace, calls the ls tool, and streams back an answer with a code block — finishing in 2 steps." src="docs/screenshots/demo.svg" width="100%">
 </div>
 
 <picture>
@@ -106,7 +106,7 @@ codebase surgery, research sweeps, scheduled chores.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/chat-tool-call.light.png">
-  <img alt="A list_dir tool card, expanded to show the files it returned." src="docs/screenshots/chat-tool-call.dark.png">
+  <img alt="A ls tool card, expanded to show the files it returned." src="docs/screenshots/chat-tool-call.dark.png">
 </picture>
 
 </td><td width="50%">
@@ -147,7 +147,7 @@ More in [Web UI](docs/web-ui.md). Generated from the real app, not staged.
 |                                                        |                                                                                                                                                                       |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**Skills**](docs/skills.md)                           | A folder in the workspace. The agent opens the sheet when it applies; ~20 tokens to index.                                                                            |
-| [**Memory**](docs/memory.md)                           | One markdown file per fact, committed beside the project.                                                                                                             |
+| [**Memory**](docs/memory.md)                           | One markdown file per topic, read and written by key, committed beside the project.                                                                                   |
 | [**Environments**](docs/environments.md)               | Bound the blast radius. `exec` runs in a digest-pinned container with caps dropped and root read-only, and no image, capability or uid an agent's config could reach. |
 | [**MCP servers**](docs/tools.md#mcp-servers)           | stdio, Streamable HTTP or SSE, with OAuth. Each agent picks which of their tools it may call.                                                                         |
 | [**Extensions**](docs/extensions.md)                   | Tools, channels, providers, prompt sections, commands. Approval is a digest over every byte.                                                                          |

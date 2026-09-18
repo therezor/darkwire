@@ -1,7 +1,7 @@
 //! Skills, as a section of the prompt.
 //!
 //! A skill reaches the model as one index line — name, description, path. The
-//! model opens the file itself with `read_file` when the description tells it
+//! model opens the file itself with `read` when the description tells it
 //! the skill applies. This is what "the rest loaded when relevant" means, and
 //! it costs about twenty tokens per skill instead of the whole sheet.
 //!
@@ -49,7 +49,7 @@ use crate::skills::{SKILLS_DIRNAME, Skill, read_skills, skills_for_agent};
 /// The heading and the prose come from the operator's template, on the same
 /// contract the other section templates keep: empty inherits
 /// `DEFAULT_SKILLS_TEMPLATE`, a single space deletes the section. What stays in
-/// code is the *shape* of the index line, because that is what `read_file` and
+/// code is the *shape* of the index line, because that is what `read` and
 /// the catalogue agree on, not prose.
 pub fn render_skills(skills: &[Skill], template: Option<&str>) -> String {
     if skills.is_empty() {

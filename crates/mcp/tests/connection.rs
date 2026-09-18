@@ -337,11 +337,11 @@ async fn warns_about_an_enabled_tools_entry_that_matches_nothing() {
 async fn warns_about_a_collision_and_a_sloppy_schema_without_dropping_the_server() {
     let server = FakeServer::new(vec![
         McpToolDescriptor {
-            name: "read file".to_owned(),
+            name: "open file".to_owned(),
             ..echo_tool()
         },
         McpToolDescriptor {
-            name: "read_file".to_owned(),
+            name: "open_file".to_owned(),
             ..echo_tool()
         },
         McpToolDescriptor {
@@ -356,7 +356,7 @@ async fn warns_about_a_collision_and_a_sloppy_schema_without_dropping_the_server
 
     assert_eq!(
         test.current(),
-        ["mcp_demo_read-file", "mcp_demo_read-file_2"]
+        ["mcp_demo_open-file", "mcp_demo_open-file_2"]
     );
     let warnings = test.connection.status().warnings.join("\n");
     assert!(warnings.contains("renamed"));

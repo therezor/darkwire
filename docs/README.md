@@ -8,20 +8,20 @@ and everything else on this page is reference you can reach for afterwards.
 
 ## Using it
 
-| Page                                  | What it covers                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Getting started](getting-started.md) | Install, first run, first conversation, giving it files, letting it run commands.     |
-| [CLI](cli.md)                         | Every `darkwire` command and flag, and the slash commands inside the chat prompt.     |
-| [Configuration](configuration.md)     | Every key in `config.yaml`, its type and its default. Env vars. Patch semantics.      |
-| [Prompts](prompts.md)                 | The eight editable templates, their placeholders, and the caching split behind them.  |
-| [Providers](providers.md)             | The registry, provider instances, resolution order, credentials, resilience.          |
-| [Tools & permissions](tools.md)       | The eight built-in tools, and the `allow \| ask \| deny` model that gates them.       |
-| [Skills](skills.md)                   | Instruction sheets in `<workspace>/skills/`, indexed or named on a message.           |
-| [Memory](memory.md)                   | What an agent remembers between sessions, one file per fact in `<workspace>/memory/`. |
-| [Environments](environments.md)       | Where `exec` runs: digest-pinned execution containers and their network policy.       |
-| [Sandbox service](sandbox-service.md) | Isolated container service, Compose deployment, lifecycle management.                 |
-| [Extensions](extensions.md)           | Third-party code an operator installs and approves, and the five things it may add.   |
-| [Web UI](web-ui.md)                   | The screens, and what each one lets you do.                                           |
+| Page                                  | What it covers                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Getting started](getting-started.md) | Install, first run, first conversation, giving it files, letting it run commands.      |
+| [CLI](cli.md)                         | Every `darkwire` command and flag, and the slash commands inside the chat prompt.      |
+| [Configuration](configuration.md)     | Every key in `config.yaml`, its type and its default. Env vars. Patch semantics.       |
+| [Prompts](prompts.md)                 | The eight editable templates, their placeholders, and the caching split behind them.   |
+| [Providers](providers.md)             | The registry, provider instances, resolution order, credentials, resilience.           |
+| [Tools & permissions](tools.md)       | The eight built-in tools, and the `allow \| ask \| deny` model that gates them.        |
+| [Skills](skills.md)                   | Instruction sheets in `<workspace>/skills/`, indexed or named on a message.            |
+| [Memory](memory.md)                   | What an agent remembers between sessions, one file per topic in `<workspace>/memory/`. |
+| [Environments](environments.md)       | Where `exec` runs: digest-pinned execution containers and their network policy.        |
+| [Sandbox service](sandbox-service.md) | Isolated container service, Compose deployment, lifecycle management.                  |
+| [Extensions](extensions.md)           | Third-party code an operator installs and approves, and the five things it may add.    |
+| [Web UI](web-ui.md)                   | The screens, and what each one lets you do.                                            |
 
 ## Understanding it
 

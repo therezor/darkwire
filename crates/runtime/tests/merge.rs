@@ -252,16 +252,16 @@ fn replaces_an_agents_tool_map_wholesale_so_a_tool_can_be_removed() {
     let base = merged(
         &Config::default(),
         &json!({"agents": {"list": {"reviewer": {
-            "tools": {"read_file": "allow", "write_file": "allow", "exec": "deny"},
+            "tools": {"read": "allow", "write": "allow", "exec": "deny"},
         }}}}),
     );
     let next = merged(
         &base,
-        &json!({"agents": {"list": {"reviewer": {"tools": {"read_file": "ask"}}}}}),
+        &json!({"agents": {"list": {"reviewer": {"tools": {"read": "ask"}}}}}),
     );
     let tools = &next.agents.list["reviewer"].tools;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools["read_file"], ToolPermission::Ask);
+    assert_eq!(tools["read"], ToolPermission::Ask);
 }
 
 #[test]

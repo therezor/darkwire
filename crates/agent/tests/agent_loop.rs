@@ -179,10 +179,10 @@ async fn it_refuses_to_construct_without_a_model() {
 
 #[tokio::test]
 async fn it_runs_the_tools_the_model_asked_for_then_answers() {
-    let read = FakeTool::reading("read_file", "file contents");
+    let read = FakeTool::reading("read", "file contents");
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({"path": "a.md"}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({"path": "a.md"}))]),
             ScriptedTurn::text("It says hello."),
         ],
         tools: vec![read.clone()],
@@ -198,7 +198,7 @@ async fn it_runs_the_tools_the_model_asked_for_then_answers() {
 
     let calls = events_of(&events, "tool.call");
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0]["name"], json!("read_file"));
+    assert_eq!(calls[0]["name"], json!("read"));
     assert_eq!(calls[0]["args"], json!({"path": "a.md"}));
     assert_eq!(calls[0]["risk"], json!("safe"));
 
@@ -214,10 +214,10 @@ async fn it_runs_the_tools_the_model_asked_for_then_answers() {
 async fn it_wraps_the_stored_result_but_not_the_one_it_reports() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "secret contents")],
+        tools: vec![FakeTool::reading("read", "secret contents")],
         ..Setup::default()
     });
 
@@ -243,10 +243,10 @@ async fn it_truncates_a_long_result_before_wrapping_it() {
     let long = "x".repeat(500);
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", &long)],
+        tools: vec![FakeTool::reading("read", &long)],
         max_tool_result_chars: 100,
         ..Setup::default()
     });
@@ -275,11 +275,11 @@ async fn it_truncates_a_long_result_before_wrapping_it() {
 async fn a_failed_call_is_a_result_the_model_can_recover_from() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("I could not read it."),
         ],
         tools: vec![FakeTool::new(
-            "read_file",
+            "read",
             ToolRisk::Safe,
             Behaviour::Fail("no such file".to_owned()),
         )],
@@ -302,7 +302,7 @@ async fn a_call_the_scope_cannot_resolve_is_answered_rather_than_dropped() {
             ScriptedTurn::calls(vec![tool_call("c1", "invented", &json!({}))]),
             ScriptedTurn::text("Sorry."),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -320,14 +320,14 @@ async fn it_leaves_history_legal_for_the_next_request() {
     let harness = Harness::build(Setup {
         turns: vec![
             ScriptedTurn::calls(vec![
-                tool_call("c1", "read_file", &json!({})),
-                tool_call("c2", "write_file", &json!({})),
+                tool_call("c1", "read", &json!({})),
+                tool_call("c2", "write", &json!({})),
             ]),
             ScriptedTurn::text("done"),
         ],
         tools: vec![
-            FakeTool::reading("read_file", "a"),
-            FakeTool::writing("write_file", "b"),
+            FakeTool::reading("read", "a"),
+            FakeTool::writing("write", "b"),
         ],
         ..Setup::default()
     });
@@ -355,11 +355,11 @@ async fn it_leaves_history_legal_for_the_next_request() {
 async fn the_nonce_and_the_definitions_are_computed_once_per_turn() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
-            ScriptedTurn::calls(vec![tool_call("c2", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c2", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -391,11 +391,11 @@ async fn the_nonce_and_the_definitions_are_computed_once_per_turn() {
 async fn the_static_half_stays_byte_identical_across_iterations() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
-            ScriptedTurn::calls(vec![tool_call("c2", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c2", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -442,10 +442,10 @@ async fn the_runtime_half_is_sent_and_never_stored() {
 async fn every_message_before_the_trailing_turn_is_identical_across_iterations() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -464,10 +464,10 @@ async fn every_message_before_the_trailing_turn_is_identical_across_iterations()
 
 #[tokio::test]
 async fn an_agent_with_tools_off_advertises_nothing_and_runs_nothing() {
-    let read = FakeTool::reading("read_file", "x");
+    let read = FakeTool::reading("read", "x");
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("I cannot."),
         ],
         tools: vec![read.clone()],
@@ -505,7 +505,7 @@ async fn an_agent_with_tools_off_advertises_nothing_and_runs_nothing() {
 #[tokio::test]
 async fn switching_tools_off_leaves_the_agent_permissions_alone() {
     let harness = Harness::build(Setup {
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         config: AgentSettings {
             model: "test-model".to_owned(),
             tools_enabled: false,
@@ -533,10 +533,10 @@ async fn it_stops_at_the_iteration_cap_and_says_so() {
         // calling tools.
         turns: vec![ScriptedTurn::calls(vec![tool_call(
             "c1",
-            "read_file",
+            "read",
             &json!({}),
         )])],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         config: AgentSettings {
             model: "test-model".to_owned(),
             max_tool_iterations: 3,
@@ -565,10 +565,10 @@ async fn it_stops_at_the_wall_cap_checked_before_a_request_rather_than_after() {
         turns: vec![
             // The first request takes longer than the cap, so the check at the
             // top of the *second* iteration is the one that fires.
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]).after(5_000),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]).after(5_000),
             ScriptedTurn::text("never asked"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         config: AgentSettings {
             model: "test-model".to_owned(),
             loop_wall_timeout_ms: 2_000,
@@ -860,11 +860,11 @@ async fn a_turn_clears_its_session_queue_when_it_ends() {
 async fn it_corrects_a_model_that_wrote_a_call_as_text_and_takes_the_retry() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::text("<tool_call>\n{\"name\": \"read_file\"}\n</tool_call>"),
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::text("<tool_call>\n{\"name\": \"read\"}\n</tool_call>"),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("It says hello."),
         ],
-        tools: vec![FakeTool::reading("read_file", "hello")],
+        tools: vec![FakeTool::reading("read", "hello")],
         ..Setup::default()
     });
 
@@ -878,14 +878,14 @@ async fn it_corrects_a_model_that_wrote_a_call_as_text_and_takes_the_retry() {
         notices[0]["message"]
             .as_str()
             .unwrap()
-            .contains("wrote a call to `read_file` as text")
+            .contains("wrote a call to `read` as text")
     );
 
     // The correction rides in the runtime half, so it costs no cached prefix
     // and leaves nothing behind in history.
     let second = darkwire_core::text_of(harness.provider.requests()[1].messages.last().unwrap());
     assert!(second.contains("## Correction"));
-    assert!(second.contains("Call `read_file` now, properly."));
+    assert!(second.contains("Call `read` now, properly."));
     for message in harness.stored("web:1") {
         assert!(!darkwire_core::text_of(&message).contains("## Correction"));
     }
@@ -893,10 +893,10 @@ async fn it_corrects_a_model_that_wrote_a_call_as_text_and_takes_the_retry() {
 
 #[tokio::test]
 async fn it_corrects_once_then_lets_the_answer_stand() {
-    let written = "<tool_call>\n{\"name\": \"read_file\"}\n</tool_call>";
+    let written = "<tool_call>\n{\"name\": \"read\"}\n</tool_call>";
     let harness = Harness::build(Setup {
         turns: vec![ScriptedTurn::text(written)],
-        tools: vec![FakeTool::reading("read_file", "hello")],
+        tools: vec![FakeTool::reading("read", "hello")],
         ..Setup::default()
     });
 
@@ -915,9 +915,9 @@ async fn it_corrects_once_then_lets_the_answer_stand() {
 async fn an_answer_that_merely_mentions_a_tool_is_left_alone() {
     let harness = Harness::build(Setup {
         turns: vec![ScriptedTurn::text(
-            "You would call read_file with a \"name\" like this.",
+            "You would call read with a \"name\" like this.",
         )],
-        tools: vec![FakeTool::reading("read_file", "hello")],
+        tools: vec![FakeTool::reading("read", "hello")],
         ..Setup::default()
     });
 
@@ -934,7 +934,7 @@ async fn it_adds_up_usage_across_every_request_in_the_turn() {
     let harness = Harness::build(Setup {
         turns: vec![
             ScriptedTurn {
-                tool_calls: vec![tool_call("c1", "read_file", &json!({}))],
+                tool_calls: vec![tool_call("c1", "read", &json!({}))],
                 usage: Some(Usage {
                     cached_tokens: Some(2),
                     ..usage(10, 5)
@@ -950,7 +950,7 @@ async fn it_adds_up_usage_across_every_request_in_the_turn() {
                 ..ScriptedTurn::default()
             },
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -973,7 +973,7 @@ async fn it_pairs_generation_time_with_the_tokens_produced_inside_it() {
             // Ollama's shape for a bare tool call: charged for its tokens,
             // measured at zero. Those tokens must sit out with the window.
             ScriptedTurn {
-                tool_calls: vec![tool_call("c1", "read_file", &json!({}))],
+                tool_calls: vec![tool_call("c1", "read", &json!({}))],
                 usage: Some(usage(10, 225)),
                 generation_ms: Some(0.0),
                 ..ScriptedTurn::default()
@@ -986,7 +986,7 @@ async fn it_pairs_generation_time_with_the_tokens_produced_inside_it() {
                 ..ScriptedTurn::default()
             },
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -1135,7 +1135,7 @@ async fn the_stored_workspace_wins_over_the_one_a_frame_claims() {
 #[tokio::test]
 async fn the_preview_is_the_prompt_a_turn_would_carry() {
     let harness = Harness::build(Setup {
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
     let _ = harness.say("web:1", "hi").await;
@@ -1231,11 +1231,11 @@ async fn a_contributor_static_section_runs_once_per_turn_not_once_per_iteration(
     let counting = Arc::new(Counting(AtomicUsize::new(0)));
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
-            ScriptedTurn::calls(vec![tool_call("c2", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c2", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         contributors: vec![counting.clone()],
         ..Setup::default()
     });
@@ -1254,10 +1254,10 @@ async fn a_contributor_static_section_runs_once_per_turn_not_once_per_iteration(
 async fn it_reports_the_context_whenever_the_history_grows() {
     let harness = Harness::build(Setup {
         turns: vec![
-            ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({}))]),
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -1284,12 +1284,12 @@ async fn it_reports_the_arguments_a_model_sent_malformed_or_absent() {
     let harness = Harness::build(Setup {
         turns: vec![
             ScriptedTurn::calls(vec![
-                raw_tool_call("c1", "read_file", "{not json"),
-                raw_tool_call("c2", "read_file", ""),
+                raw_tool_call("c1", "read", "{not json"),
+                raw_tool_call("c2", "read", ""),
             ]),
             ScriptedTurn::text("done"),
         ],
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         ..Setup::default()
     });
 
@@ -1306,7 +1306,7 @@ async fn it_reports_the_arguments_a_model_sent_malformed_or_absent() {
 async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
     let mut overrides = darkwire_protocol::ToolPromptOverrides::new();
     overrides.insert(
-        "read_file".to_owned(),
+        "read".to_owned(),
         darkwire_protocol::ToolPromptOverride {
             description: "Open a file in this project.".to_owned(),
             fields: indexmap::IndexMap::new(),
@@ -1314,7 +1314,7 @@ async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
     );
 
     let harness = Harness::build(Setup {
-        tools: vec![FakeTool::reading("read_file", "x")],
+        tools: vec![FakeTool::reading("read", "x")],
         agent: Some(LoopAgent {
             id: "coder".to_owned(),
             tool_prompts: Some(overrides),
@@ -1336,13 +1336,13 @@ async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
 #[tokio::test]
 async fn a_denied_tool_is_never_advertised() {
     let mut permissions = darkwire_protocol::ToolPermissions::new();
-    permissions.insert("read_file".to_owned(), ToolPermission::Allow);
-    permissions.insert("write_file".to_owned(), ToolPermission::Deny);
+    permissions.insert("read".to_owned(), ToolPermission::Allow);
+    permissions.insert("write".to_owned(), ToolPermission::Deny);
 
     let harness = Harness::build(Setup {
         tools: vec![
-            FakeTool::reading("read_file", "x"),
-            FakeTool::writing("write_file", "y"),
+            FakeTool::reading("read", "x"),
+            FakeTool::writing("write", "y"),
         ],
         permissions: Some(permissions),
         ..Setup::default()
@@ -1352,7 +1352,7 @@ async fn a_denied_tool_is_never_advertised() {
     // model is sent.
     let definitions = harness.agent_loop.permitted_definitions();
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, vec!["read_file"]);
+    assert_eq!(names, vec!["read"]);
 }
 
 #[tokio::test]
@@ -1421,8 +1421,8 @@ mod lazy_discovery {
 
     fn four_tools() -> Vec<darkwire_tools::AnyTool> {
         vec![
-            FakeTool::reading("read_file", "x"),
-            FakeTool::writing("write_file", "y"),
+            FakeTool::reading("read", "x"),
+            FakeTool::writing("write", "y"),
             FakeTool::reading("memory", "m"),
             tool_search_tool(),
         ]
@@ -1459,17 +1459,17 @@ mod lazy_discovery {
 
         let harness = Harness::build(setup(
             vec![ScriptedTurn::text("ok")],
-            &["write_file", "memory", "not_registered"],
+            &["write", "memory", "not_registered"],
         ));
         assert_eq!(
             names(&harness.agent_loop.tool_definitions("web:1")),
-            vec!["tool_search", "memory", "write_file"]
+            vec!["tool_search", "memory", "write"]
         );
 
         let _ = harness.say("web:1", "hi").await;
         assert_eq!(
             names(&harness.provider.requests()[0].tools),
-            vec!["tool_search", "memory", "write_file"]
+            vec!["tool_search", "memory", "write"]
         );
     }
 
@@ -1477,11 +1477,11 @@ mod lazy_discovery {
     async fn a_pin_the_agent_denies_is_not_sent() {
         let mut permissions = ToolPermissions::new();
         permissions.insert("tool_search".to_owned(), ToolPermission::Allow);
-        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
-        permissions.insert("write_file".to_owned(), ToolPermission::Deny);
+        permissions.insert("read".to_owned(), ToolPermission::Allow);
+        permissions.insert("write".to_owned(), ToolPermission::Deny);
         let harness = Harness::build(Setup {
             permissions: Some(permissions),
-            ..setup(vec![ScriptedTurn::text("ok")], &["write_file"])
+            ..setup(vec![ScriptedTurn::text("ok")], &["write"])
         });
         assert_eq!(
             names(&harness.agent_loop.tool_definitions("web:1")),
@@ -1493,7 +1493,7 @@ mod lazy_discovery {
     async fn an_agent_with_nothing_to_hide_gets_the_whole_list_without_the_door_mattering() {
         let harness = Harness::build(setup(
             vec![ScriptedTurn::text("ok")],
-            &["read_file", "write_file", "memory"],
+            &["read", "write", "memory"],
         ));
         assert_eq!(
             harness.agent_loop.tool_definitions("web:1"),
@@ -1507,8 +1507,8 @@ mod lazy_discovery {
         // `tool_search`. It still gets the short list, because the door is not
         // the map's to grant or refuse.
         let mut permissions = ToolPermissions::new();
-        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
-        permissions.insert("write_file".to_owned(), ToolPermission::Allow);
+        permissions.insert("read".to_owned(), ToolPermission::Allow);
+        permissions.insert("write".to_owned(), ToolPermission::Allow);
         let harness = Harness::build(Setup {
             permissions: Some(permissions),
             ..setup(vec![ScriptedTurn::text("ok")], &[])
@@ -1539,9 +1539,9 @@ mod lazy_discovery {
     async fn a_search_finds_only_what_the_agent_may_call_and_marks_the_visible() {
         let mut permissions = ToolPermissions::new();
         permissions.insert("tool_search".to_owned(), ToolPermission::Allow);
-        permissions.insert("read_file".to_owned(), ToolPermission::Allow);
+        permissions.insert("read".to_owned(), ToolPermission::Allow);
         permissions.insert("memory".to_owned(), ToolPermission::Allow);
-        permissions.insert("write_file".to_owned(), ToolPermission::Deny);
+        permissions.insert("write".to_owned(), ToolPermission::Deny);
         let harness = Harness::build(Setup {
             permissions: Some(permissions),
             ..setup(
@@ -1549,7 +1549,7 @@ mod lazy_discovery {
                     ScriptedTurn::calls(vec![tool_call(
                         "c1",
                         "tool_search",
-                        &json!({"query": "file memory"}),
+                        &json!({"query": "read memory"}),
                     )]),
                     ScriptedTurn::text("ok"),
                 ],
@@ -1559,22 +1559,22 @@ mod lazy_discovery {
         let (events, _) = harness.say("web:1", "find").await;
         let results = events_of(&events, "tool.result");
         let content = results[0]["content"].as_str().unwrap();
-        assert!(content.contains("- read_file:"), "{content}");
+        assert!(content.contains("- read:"), "{content}");
         assert!(
             content.contains("- memory (already in your tool list)"),
             "{content}"
         );
-        assert!(!content.contains("write_file"), "{content}");
+        assert!(!content.contains("write"), "{content}");
         assert!(!content.contains("tool_search:"), "{content}");
     }
 
     #[tokio::test]
     async fn an_activation_reaches_the_very_next_request_and_lasts_the_session() {
-        let read = FakeTool::reading("read_file", "x");
+        let read = FakeTool::reading("read", "x");
         let harness = Harness::build(Setup {
             tools: vec![
                 read.clone(),
-                FakeTool::writing("write_file", "y"),
+                FakeTool::writing("write", "y"),
                 tool_search_tool(),
             ],
             config: lazy(&[]),
@@ -1582,9 +1582,9 @@ mod lazy_discovery {
                 ScriptedTurn::calls(vec![tool_call(
                     "c1",
                     "tool_search",
-                    &json!({"activate": ["read_file", "ghost"]}),
+                    &json!({"activate": ["read", "ghost"]}),
                 )]),
-                ScriptedTurn::calls(vec![tool_call("c2", "read_file", &json!({"path": "a"}))]),
+                ScriptedTurn::calls(vec![tool_call("c2", "read", &json!({"path": "a"}))]),
                 ScriptedTurn::text("done"),
                 ScriptedTurn::text("still here"),
             ],
@@ -1596,14 +1596,14 @@ mod lazy_discovery {
         let requests = harness.provider.requests();
         assert_eq!(names(&requests[0].tools), vec!["tool_search"]);
         // The request right after the activating batch already carries it.
-        assert_eq!(names(&requests[1].tools), vec!["tool_search", "read_file"]);
-        assert_eq!(names(&requests[2].tools), vec!["tool_search", "read_file"]);
+        assert_eq!(names(&requests[1].tools), vec!["tool_search", "read"]);
+        assert_eq!(names(&requests[2].tools), vec!["tool_search", "read"]);
         assert_eq!(read.calls().len(), 1);
 
         // No schema in the transcript, and the miss is answered.
         let results = events_of(&events, "tool.result");
         let content = results[0]["content"].as_str().unwrap();
-        assert!(content.contains("Activated: read_file."), "{content}");
+        assert!(content.contains("Activated: read."), "{content}");
         assert!(content.contains("Unknown tool \"ghost\""), "{content}");
         assert!(!content.contains("properties"), "{content}");
 
@@ -1612,7 +1612,7 @@ mod lazy_discovery {
         let _ = harness.say("web:1", "again").await;
         assert_eq!(
             names(&harness.provider.requests()[3].tools),
-            vec!["tool_search", "read_file"]
+            vec!["tool_search", "read"]
         );
         assert_eq!(
             names(&harness.agent_loop.tool_definitions("web:2")),
@@ -1627,7 +1627,7 @@ mod lazy_discovery {
                 ScriptedTurn::calls(vec![tool_call(
                     "c1",
                     "tool_search",
-                    &json!({"activate": ["write_file", "read_file"]}),
+                    &json!({"activate": ["write", "read"]}),
                 )]),
                 ScriptedTurn::text("done"),
             ],
@@ -1636,22 +1636,22 @@ mod lazy_discovery {
         let _ = harness.say("web:1", "go").await;
         assert_eq!(
             names(&harness.provider.requests()[1].tools),
-            vec!["tool_search", "memory", "write_file", "read_file"]
+            vec!["tool_search", "memory", "write", "read"]
         );
     }
 
     #[tokio::test]
     async fn a_hidden_tool_called_by_name_runs_and_is_activated_by_that_call() {
-        let read = FakeTool::reading("read_file", "x");
+        let read = FakeTool::reading("read", "x");
         let harness = Harness::build(Setup {
             tools: vec![
                 read.clone(),
-                FakeTool::writing("write_file", "y"),
+                FakeTool::writing("write", "y"),
                 tool_search_tool(),
             ],
             config: lazy(&[]),
             turns: vec![
-                ScriptedTurn::calls(vec![tool_call("c1", "read_file", &json!({"path": "a"}))]),
+                ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({"path": "a"}))]),
                 ScriptedTurn::text("done"),
             ],
             ..Setup::default()
@@ -1661,7 +1661,7 @@ mod lazy_discovery {
         assert_eq!(events_of(&events, "tool.result")[0]["ok"], json!(true));
         assert_eq!(
             names(&harness.provider.requests()[1].tools),
-            vec!["tool_search", "read_file"]
+            vec!["tool_search", "read"]
         );
     }
 
@@ -1692,7 +1692,7 @@ mod lazy_discovery {
     async fn a_call_written_as_text_to_a_hidden_tool_is_still_corrected() {
         let harness = Harness::build(setup(
             vec![
-                ScriptedTurn::text(r#"{"name": "read_file", "arguments": {"path": "a"}}"#),
+                ScriptedTurn::text(r#"{"name": "read", "arguments": {"path": "a"}}"#),
                 ScriptedTurn::text("Sorry."),
             ],
             &[],

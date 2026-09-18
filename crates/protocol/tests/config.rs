@@ -115,7 +115,7 @@ fn the_seed_tools_are_the_built_ins_at_their_band() {
     let tools = default_agent_tools();
     assert_eq!(tools.len(), DEFAULT_AGENT_TOOLS.len());
     assert_eq!(tools["exec"], ToolPermission::Ask);
-    assert_eq!(tools["read_file"], ToolPermission::Allow);
+    assert_eq!(tools["read"], ToolPermission::Allow);
     assert_eq!(AgentEntry::default().tools, tools);
 }
 

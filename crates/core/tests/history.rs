@@ -29,7 +29,7 @@ const WINDOWS: &str = include_str!(concat!(
 fn call(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_owned(),
-        name: "read_file".to_owned(),
+        name: "read".to_owned(),
         arguments_json: "{}".to_owned(),
     }
 }
@@ -58,7 +58,7 @@ fn system(text: &str) -> ChatMessage {
 }
 
 fn tool(id: &str, content: &str) -> ChatMessage {
-    tool_message(id, "read_file", content, ToolOptions::default()).into()
+    tool_message(id, "read", content, ToolOptions::default()).into()
 }
 
 fn tool_of(message: &ChatMessage) -> &darkwire_protocol::ToolMessage {

@@ -25,7 +25,7 @@ const CONTEXT = {
   systemPrompt: 'You are DarkWire, a helpful agent.',
   tools: [
     {
-      name: 'read_file',
+      name: 'read',
       description: 'Read a file from the workspace.',
       parameters: { type: 'object', properties: { path: { type: 'string' } } },
       risk: 'safe',
@@ -268,7 +268,7 @@ describe('the context inspector: what is in each section', () => {
 
     await user.click(await screen.findByText('Tool definitions (2)'));
 
-    expect(screen.getByText('read_file')).toBeVisible();
+    expect(screen.getByText('read')).toBeVisible();
     expect(screen.getByText('Read a file from the workspace.')).toBeVisible();
     // The risk band, because it is the field that decides whether a call needs
     // approving and it is the one most worth seeing beside the name.
@@ -280,7 +280,7 @@ describe('the context inspector: what is in each section', () => {
     // children in the DOM, so `queryByText` finds them either way.
     const [schema] = screen.getAllByText(/"properties"/);
     expect(schema).not.toBeVisible();
-    await user.click(screen.getByText('read_file schema'));
+    await user.click(screen.getByText('read schema'));
     expect(schema).toBeVisible();
   });
 

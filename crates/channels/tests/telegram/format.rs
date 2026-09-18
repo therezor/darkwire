@@ -83,8 +83,8 @@ fn escapes_an_unpaired_asterisk_rather_than_opening_an_entity() {
 #[test]
 fn does_not_treat_a_snake_case_identifier_as_italics() {
     assert_eq!(
-        to_markdown_v2("read_file and write_file"),
-        r"read\_file and write\_file"
+        to_markdown_v2("open_file and close_file"),
+        r"open\_file and close\_file"
     );
 }
 

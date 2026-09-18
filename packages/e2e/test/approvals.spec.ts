@@ -79,10 +79,10 @@ test.describe('with exec allowed', () => {
             // holding only `exec` could not read a file to answer with.
             default: {
               tools: {
-                read_file: 'allow',
-                list_dir: 'allow',
-                write_file: 'allow',
-                edit_file: 'allow',
+                read: 'allow',
+                ls: 'allow',
+                write: 'allow',
+                edit: 'allow',
                 e2e_wait: 'allow',
                 exec: 'allow',
               },

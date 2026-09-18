@@ -110,7 +110,7 @@
         "created_at_ms": 1700000003000,
         "turn_id": "turn-1",
         "role": "assistant",
-        "payload_json": "{\"role\":\"assistant\",\"content\":[],\"toolCalls\":[{\"id\":\"call_1\",\"name\":\"read_file\",\"argumentsJson\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}],\"reasoning\":\"I should read the file.\"}"
+        "payload_json": "{\"role\":\"assistant\",\"content\":[],\"toolCalls\":[{\"id\":\"call_1\",\"name\":\"read\",\"argumentsJson\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}],\"reasoning\":\"I should read the file.\"}"
       },
       {
         "id": "msg-3",
@@ -119,7 +119,7 @@
         "created_at_ms": 1700000003000,
         "turn_id": "turn-1",
         "role": "tool",
-        "payload_json": "{\"role\":\"tool\",\"toolCallId\":\"call_1\",\"name\":\"read_file\",\"content\":\"hello\",\"isError\":false,\"truncated\":false}"
+        "payload_json": "{\"role\":\"tool\",\"toolCallId\":\"call_1\",\"name\":\"read\",\"content\":\"hello\",\"isError\":false,\"truncated\":false}"
       },
       {
         "id": "msg-4",

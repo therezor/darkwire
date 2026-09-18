@@ -110,10 +110,16 @@ describe('DEFAULT_MEMORY_TEMPLATE', () => {
   });
 
   it('places the index, which is the whole of what the section carries', () => {
-    // A template without it advertises a memory folder and names nothing in
-    // it, which is the one way this section can be actively misleading.
+    // A template without it announces a memory tool and names nothing to use
+    // it on, which is the one way this section can be actively misleading.
     expect(DEFAULT_MEMORY_TEMPLATE).toContain('{{index}}');
-    expect(DEFAULT_MEMORY_TEMPLATE).toContain('{{path}}');
+  });
+
+  it('spends nothing on a folder the model never names', () => {
+    // The tool takes a key, so a path in the section would be a second
+    // spelling of the address, paid for on every request.
+    expect(DEFAULT_MEMORY_TEMPLATE).not.toContain('{{path}}');
+    expect(MEMORY_PROMPT_PLACEHOLDERS).not.toContain('path');
   });
 
   it('offers a count it does not use', () => {
@@ -124,11 +130,18 @@ describe('DEFAULT_MEMORY_TEMPLATE', () => {
     expect(DEFAULT_MEMORY_TEMPLATE).not.toContain('{{count}}');
   });
 
-  it('tells the model to open a file, not to read the section', () => {
-    // A list of paths with no instruction to open them reads as a list of
-    // things that exist. The skills index learned this first.
-    expect(DEFAULT_MEMORY_TEMPLATE).toContain('read_file');
+  it('names the tool and says the keys are exact, and stops there', () => {
+    // A list of keys with no instruction to use them reads as a list of things
+    // that exist. The skills index learned that first. What follows it is the
+    // one rule the data cannot carry: an unlisted key does not exist, and a
+    // small model that invents a near miss spends a turn on the error.
     expect(DEFAULT_MEMORY_TEMPLATE).toContain('`memory` tool');
+    expect(DEFAULT_MEMORY_TEMPLATE).toContain('Do not guess a key.');
+    // Everything about saving lives in the tool description, which is sent
+    // once rather than on every request.
+    expect(DEFAULT_MEMORY_TEMPLATE).not.toContain('Saving');
+    // One line of prose, then the data.
+    expect(DEFAULT_MEMORY_TEMPLATE.split('\n\n')).toHaveLength(3);
   });
 });
 

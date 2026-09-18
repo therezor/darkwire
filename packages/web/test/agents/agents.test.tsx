@@ -48,7 +48,7 @@ const CONFIG = ConfigSchema.parse({
         provider: 'ollama',
         model: 'llama3',
         maxTokens: 4096,
-        tools: { read_file: 'allow', list_dir: 'allow', exec: 'deny' },
+        tools: { read: 'allow', ls: 'allow', exec: 'deny' },
       },
     },
   },
@@ -398,7 +398,7 @@ describe('the agents index', () => {
     });
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
       enabled: false,
-      tools: { read_file: 'allow', list_dir: 'allow', exec: 'deny' },
+      tools: { read: 'allow', ls: 'allow', exec: 'deny' },
     });
   });
 
@@ -1137,7 +1137,7 @@ describe('a named agent', () => {
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
       label: 'Second Reader',
       // Wholesale replacement, so the rest of the agent has to ride along.
-      tools: { read_file: 'allow', list_dir: 'allow', exec: 'deny' },
+      tools: { read: 'allow', ls: 'allow', exec: 'deny' },
     });
 
     // The assertion that would have caught it: the agents query is refetched,
@@ -1181,7 +1181,7 @@ describe('a named agent', () => {
           tools: [
             { name: 'exec', description: '', risk: 'exec', parameters: {} },
             {
-              name: 'write_file',
+              name: 'write',
               description: '',
               risk: 'write',
               parameters: {},
@@ -1191,7 +1191,7 @@ describe('a named agent', () => {
       ],
     });
 
-    await pick(user, 'write_file', 'Ask first');
+    await pick(user, 'write', 'Ask first');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
@@ -1202,10 +1202,10 @@ describe('a named agent', () => {
     expect(patch?.agents?.list?.reviewer).toMatchObject({
       // The whole map, every save — the fixture's three plus the one just added.
       tools: {
-        read_file: 'allow',
-        list_dir: 'allow',
+        read: 'allow',
+        ls: 'allow',
         exec: 'deny',
-        write_file: 'ask',
+        write: 'ask',
       },
     });
     // The defaults are not touched by editing one agent.
@@ -1215,7 +1215,7 @@ describe('a named agent', () => {
   it('groups memory and skill away from the action tools', async () => {
     // Denying one of these removes a prompt section for the whole workspace,
     // which is a different size of decision from denying a file write — and an
-    // alphabetical list beside `list_dir` does not say so.
+    // alphabetical list beside `ls` does not say so.
     mount('/agents/reviewer', {
       '/api/tools': [
         200,
@@ -1223,7 +1223,7 @@ describe('a named agent', () => {
           tools: [
             { name: 'exec', description: '', risk: 'exec', parameters: {} },
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1235,8 +1235,8 @@ describe('a named agent', () => {
       ],
     });
 
-    // `memory`, not `read_file`: the fixture's own tool map already renders a
-    // `read_file` row before the registry answers, so awaiting that one proves
+    // `memory`, not `read`: the fixture's own tool map already renders a
+    // `read` row before the registry answers, so awaiting that one proves
     // nothing about whether the mocked tools have arrived.
     await screen.findByRole('combobox', { name: 'Permission for memory' });
     const rows = (region: string): Array<string | null> =>
@@ -1260,7 +1260,7 @@ describe('a named agent', () => {
 
   it('groups the MCP servers’ tools away from the built-in ones', async () => {
     // Alphabetical mixed them: `mcp_github_search_issues` sat between
-    // `list_dir` and `read_file`, where nothing said that one of the three
+    // `ls` and `read`, where nothing said that one of the three
     // arrives with a server the operator configured and two ship with DarkWire.
     mount('/agents/reviewer', {
       '/api/tools': [
@@ -1269,7 +1269,7 @@ describe('a named agent', () => {
           tools: [
             { name: 'exec', description: '', risk: 'exec', parameters: {} },
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1303,7 +1303,7 @@ describe('a named agent', () => {
       named[0]?.some((row) => row.startsWith('mcp_github_search_issues')),
     ).toBe(false);
     expect(named[0]?.some((row) => row.startsWith('exec'))).toBe(true);
-    expect(named[0]?.some((row) => row.startsWith('read_file'))).toBe(true);
+    expect(named[0]?.some((row) => row.startsWith('read'))).toBe(true);
 
     expect(named[1]).toHaveLength(1);
     expect(named[1]?.[0]?.startsWith('mcp_github_search_issues')).toBe(true);
@@ -1320,7 +1320,7 @@ describe('a named agent', () => {
           tools: [
             { name: 'exec', description: '', risk: 'exec', parameters: {} },
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1341,7 +1341,7 @@ describe('a named agent', () => {
                   label: 'Reviewer',
                   provider: 'ollama',
                   model: 'llama3',
-                  tools: { read_file: 'allow', mcp_linear_create_issue: 'ask' },
+                  tools: { read: 'allow', mcp_linear_create_issue: 'ask' },
                 },
               },
             },
@@ -1373,21 +1373,21 @@ describe('a named agent', () => {
 
   it('puts exec at the top, above the alphabetical rest', async () => {
     // The row this section is opened to look at. Alphabetical sorted it second
-    // by accident of spelling, between `edit_file` and `list_dir`.
+    // by accident of spelling, between `edit` and `ls`.
     mount('/agents/reviewer', {
       '/api/tools': [
         200,
         {
           tools: [
             {
-              name: 'edit_file',
+              name: 'edit',
               description: '',
               risk: 'write',
               parameters: {},
             },
             { name: 'exec', description: '', risk: 'exec', parameters: {} },
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1397,7 +1397,7 @@ describe('a named agent', () => {
       ],
     });
 
-    await screen.findByRole('combobox', { name: 'Permission for edit_file' });
+    await screen.findByRole('combobox', { name: 'Permission for edit' });
     const rows = within(
       screen.getByRole('region', { name: 'Tools' }),
     ).getAllByRole('listitem');
@@ -1407,9 +1407,9 @@ describe('a named agent', () => {
     // is readable off the prefixes. `exec` first, then A–Z — pinning one row
     // must not scramble the rest.
     expect(startsWith[0]?.startsWith('exec')).toBe(true);
-    expect(startsWith[1]?.startsWith('edit_file')).toBe(true);
-    expect(startsWith[2]?.startsWith('list_dir')).toBe(true);
-    expect(startsWith[3]?.startsWith('read_file')).toBe(true);
+    expect(startsWith[1]?.startsWith('edit')).toBe(true);
+    expect(startsWith[2]?.startsWith('ls')).toBe(true);
+    expect(startsWith[3]?.startsWith('read')).toBe(true);
   });
 
   it('offers a registered tool this agent has never held, at Disabled', async () => {
@@ -1465,7 +1465,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1475,14 +1475,14 @@ describe('a named agent', () => {
       ],
     });
 
-    // `read_file` arrives with the tools query; `exec` is already on screen from
+    // `read` arrives with the tools query; `exec` is already on screen from
     // the stored map, so waiting for the slower one is what makes this assert
     // the union rather than a race.
-    await pick(user, 'read_file', 'Ask first');
+    await pick(user, 'read', 'Ask first');
     expect(
       screen.getByRole('combobox', { name: 'Permission for exec' }),
     ).toBeInTheDocument();
-    // `exec` and `list_dir` are both in the stored map and neither is
+    // `exec` and `ls` are both in the stored map and neither is
     // registered in this fixture, so both rows carry the badge.
     expect(screen.getAllByText('not installed')).toHaveLength(2);
 
@@ -1492,7 +1492,7 @@ describe('a named agent', () => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
-      tools: { read_file: 'ask', list_dir: 'allow', exec: 'deny' },
+      tools: { read: 'ask', ls: 'allow', exec: 'deny' },
     });
   });
 
@@ -1506,7 +1506,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1517,7 +1517,7 @@ describe('a named agent', () => {
     });
 
     const permission = await screen.findByRole('combobox', {
-      name: 'Permission for read_file',
+      name: 'Permission for read',
     });
     expect(permission).toBeEnabled();
 
@@ -1532,7 +1532,7 @@ describe('a named agent', () => {
     ).toBeInTheDocument();
     expect(permission).toBeDisabled();
     expect(
-      screen.getByRole('button', { name: 'Wording for read_file' }),
+      screen.getByRole('button', { name: 'Wording for read' }),
     ).toBeDisabled();
   });
 
@@ -1552,7 +1552,7 @@ describe('a named agent', () => {
     });
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
       toolsEnabled: false,
-      tools: { read_file: 'allow', list_dir: 'allow', exec: 'deny' },
+      tools: { read: 'allow', ls: 'allow', exec: 'deny' },
     });
   });
 
@@ -1563,7 +1563,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: '',
               risk: 'safe',
               parameters: {},
@@ -1573,9 +1573,9 @@ describe('a named agent', () => {
       ],
     });
 
-    await pick(user, 'read_file', 'Disabled');
+    await pick(user, 'read', 'Disabled');
     expect(
-      screen.queryByRole('switch', { name: 'read_file' }),
+      screen.queryByRole('switch', { name: 'read' }),
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
@@ -1586,7 +1586,7 @@ describe('a named agent', () => {
     // `deny` rather than a dropped key: both read as off, but only this one
     // leaves a row in the editor to switch back on.
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer?.tools).toMatchObject({
-      read_file: 'deny',
+      read: 'deny',
     });
   });
 
@@ -1597,7 +1597,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: 'Reads a file in the workspace.',
               risk: 'safe',
               parameters: {
@@ -1617,7 +1617,7 @@ describe('a named agent', () => {
     });
 
     await user.click(
-      await screen.findByRole('button', { name: 'Wording for read_file' }),
+      await screen.findByRole('button', { name: 'Wording for read' }),
     );
     await user.type(
       screen.getByLabelText('Description'),
@@ -1639,7 +1639,7 @@ describe('a named agent', () => {
       expect(patchesOf(calls)).toHaveLength(1);
     });
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer?.toolPrompts).toEqual({
-      read_file: {
+      read: {
         description: 'Read a file. Prefer this over `cat`.',
         fields: { path: 'Relative to the workspace root.' },
       },
@@ -1656,7 +1656,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: 'Reads a file in the workspace.',
               risk: 'safe',
               parameters: {
@@ -1677,7 +1677,7 @@ describe('a named agent', () => {
     });
 
     await user.click(
-      await screen.findByRole('button', { name: 'Wording for read_file' }),
+      await screen.findByRole('button', { name: 'Wording for read' }),
     );
 
     expect(screen.getByLabelText('Description')).toHaveAttribute(
@@ -1703,7 +1703,7 @@ describe('a named agent', () => {
         {
           tools: [
             {
-              name: 'read_file',
+              name: 'read',
               description: 'Reads.',
               risk: 'safe',
               parameters: {},
@@ -1714,10 +1714,10 @@ describe('a named agent', () => {
     });
 
     await user.click(
-      await screen.findByRole('button', { name: 'Wording for read_file' }),
+      await screen.findByRole('button', { name: 'Wording for read' }),
     );
     await user.click(screen.getByRole('button', { name: 'Done' }));
-    await pick(user, 'read_file', 'Ask first');
+    await pick(user, 'read', 'Ask first');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
@@ -2320,7 +2320,7 @@ describe('subagents', () => {
                   label: 'Reviewer',
                   provider: 'ollama',
                   model: 'llama3',
-                  tools: { read_file: 'allow' },
+                  tools: { read: 'allow' },
                   subagents: [
                     { id: 'default', prompt: 'Ask.', permission: 'allow' },
                   ],
@@ -2514,7 +2514,7 @@ describe('the tool settings on an agent', () => {
   const TOOLS_WITH_DOOR = {
     tools: [
       {
-        name: 'read_file',
+        name: 'read',
         description: 'Read a file',
         risk: 'safe',
         parameters: {},
@@ -2609,14 +2609,15 @@ describe('the tool settings on an agent', () => {
     });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(
-      screen.queryByRole('button', { name: 'Pin read_file' }),
+      screen.queryByRole('button', { name: 'Pin read' }),
     ).not.toBeInTheDocument();
 
     await user.click(toggle);
 
-    expect(
-      screen.getByRole('button', { name: 'Pin read_file' }),
-    ).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Pin read' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     expect(
       screen.getByRole('button', { name: 'Pin exec' }),
     ).toBeInTheDocument();
@@ -2702,10 +2703,11 @@ describe('the tool settings on an agent', () => {
     await user.click(
       await screen.findByRole('switch', { name: 'Find tools on demand' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Pin read_file' }));
-    expect(
-      screen.getByRole('button', { name: 'Pin read_file' }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Pin read' }));
+    expect(screen.getByRole('button', { name: 'Pin read' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
@@ -2713,7 +2715,7 @@ describe('the tool settings on an agent', () => {
     });
     expect(patchesOf(calls)[0]?.agents?.list?.reviewer).toMatchObject({
       lazyDiscovery: true,
-      pinnedTools: ['read_file'],
+      pinnedTools: ['read'],
     });
   });
 });

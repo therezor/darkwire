@@ -86,7 +86,7 @@ const READY_TIMEOUT_MS = 15_000;
 /** How long SIGTERM is given before SIGKILL. */
 const GRACE_MS = 2_000;
 
-/** The workspace the file browser and `list_dir` both see. */
+/** The workspace the file browser and `ls` both see. */
 const FIXTURE_FILES: Readonly<Record<string, string>> = {
   'notes.md': '# Notes\n\nOne file, so the browser has something to list.\n',
   'src/main.ts': 'export const answer = 42;\n',

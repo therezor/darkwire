@@ -818,8 +818,8 @@ fn appends_a_block_in_one_transaction_with_contiguous_seqs() {
             "s",
             vec![
                 assistant_message("", vec![call("a"), call("b")]),
-                tool_message("a", "read_file", "x"),
-                tool_message("b", "read_file", "y"),
+                tool_message("a", "read", "x"),
+                tool_message("b", "read", "y"),
             ],
             &NO_OPTIONS,
         )
@@ -877,7 +877,7 @@ fn records_the_turn_id_on_every_message_of_a_turn() {
             "s",
             vec![
                 assistant_message("", vec![call("a")]),
-                tool_message("a", "read_file", "x"),
+                tool_message("a", "read", "x"),
             ],
             &options,
         )
@@ -1026,8 +1026,8 @@ fn survives_a_reopen_with_tool_call_pairing_intact() {
             vec![
                 user_message("read a.txt and b.txt"),
                 assistant_message("", vec![call("a"), call("b")]),
-                tool_message("a", "read_file", "contents of a"),
-                tool_message("b", "read_file", "contents of b"),
+                tool_message("a", "read", "contents of a"),
+                tool_message("b", "read", "contents of b"),
                 assistant_message("Both read.", vec![]),
             ],
             &AppendOptions {
@@ -1061,7 +1061,7 @@ fn survives_a_reopen_with_tool_call_pairing_intact() {
     );
     assert_eq!(
         history[2].message,
-        tool_message("a", "read_file", "contents of a")
+        tool_message("a", "read", "contents of a")
     );
 }
 
@@ -1145,7 +1145,7 @@ fn tool_exchange() -> SessionStore {
     let (store, _) = make_store();
     append(&store, "s", user_message("read it"));
     append(&store, "s", assistant_message("", vec![call("a")]));
-    append(&store, "s", tool_message("a", "read_file", "contents"));
+    append(&store, "s", tool_message("a", "read", "contents"));
     append(&store, "s", assistant_message("done", vec![]));
     store
 }
@@ -1217,7 +1217,7 @@ fn clears_a_session_when_cut_at_zero() {
 fn falls_back_to_zero_when_the_first_exchange_is_the_unsplittable_one() {
     let (store, _) = make_store();
     append(&store, "s", assistant_message("", vec![call("a")]));
-    append(&store, "s", tool_message("a", "read_file", "contents"));
+    append(&store, "s", tool_message("a", "read", "contents"));
 
     assert_eq!(
         store.truncate_after("s", 1).unwrap(),
@@ -1238,7 +1238,7 @@ fn leaves_history_readable_with_no_orphaned_tool_result() {
     let (store, _) = make_store();
     append(&store, "s", user_message("read it"));
     append(&store, "s", assistant_message("", vec![call("a")]));
-    append(&store, "s", tool_message("a", "read_file", "contents"));
+    append(&store, "s", tool_message("a", "read", "contents"));
 
     store.truncate_after("s", 2).unwrap();
 
@@ -1430,7 +1430,7 @@ fn forking_snaps_to_a_legal_boundary() {
     let (store, _) = make_store();
     append(&store, "s", user_message("read it"));
     append(&store, "s", assistant_message("", vec![call("a")]));
-    append(&store, "s", tool_message("a", "read_file", "contents"));
+    append(&store, "s", tool_message("a", "read", "contents"));
 
     let fork = store.fork_session("s", 2, ForkSession::default()).unwrap();
 

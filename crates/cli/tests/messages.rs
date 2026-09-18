@@ -44,7 +44,7 @@ fn empty_store() -> SessionStore {
 fn call(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_owned(),
-        name: "read_file".to_owned(),
+        name: "read".to_owned(),
         arguments_json: "{}".to_owned(),
     }
 }
@@ -73,7 +73,7 @@ fn store() -> SessionStore {
     created
         .append(
             SESSION,
-            tool_message("a", "read_file", "contents", ToolOptions::default()).into(),
+            tool_message("a", "read", "contents", ToolOptions::default()).into(),
             &options,
         )
         .unwrap();

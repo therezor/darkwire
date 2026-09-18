@@ -142,9 +142,9 @@ pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> Too
         // from and one it has to guess around. That is the whole token
         // argument: a 12,000-token scan comes back as a summary and a path.
         //
-        // **`exec`, explicitly, not `read_file`.** The transcript is mounted
+        // **`exec`, explicitly, not `read`.** The transcript is mounted
         // into the container from outside the workspace, so its path is
-        // absolute and outside the jail — `read_file` would refuse it as an
+        // absolute and outside the jail — `read` would refuse it as an
         // escape. Naming the wrong tool here would send the model down a path
         // that cannot work and cost it a turn discovering that.
         sections.push(match &outcome.transcript_dir {
@@ -153,7 +153,7 @@ pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> Too
                 plan.max_output_bytes
             ),
             Some(dir) => format!(
-                "[exec: output truncated at {} bytes per stream. The complete output is at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec: grep/tail/cat those paths rather than re-running the command. read_file cannot: the path is outside the workspace.]",
+                "[exec: output truncated at {} bytes per stream. The complete output is at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec: grep/tail/cat those paths rather than re-running the command. read cannot: the path is outside the workspace.]",
                 plan.max_output_bytes
             ),
         });

@@ -227,7 +227,7 @@ const TOOL_SEARCH = 'tool_search';
  * does not say so.
  *
  * Kept as names rather than derived from a risk band: both are `write`, and so
- * is `write_file`, which is squarely an action tool.
+ * is `write`, which is squarely an action tool.
  */
 const FEATURE_TOOLS: ReadonlySet<string> = new Set(['memory', 'skill']);
 
@@ -579,12 +579,12 @@ function Editor({
   /**
    * `memory` and `skill`, split out of the list above into a group of their own.
    *
-   * They are not the same kind of thing as the rows they sat among. `read_file`,
+   * They are not the same kind of thing as the rows they sat among. `read`,
    * `exec` and the rest are *actions* an agent takes during a turn, and a
    * permission on one is about that call. These two are the write halves of two
    * whole features, and denying one also removes a section from every prompt on
    * the workspace — so an operator setting `memory` to `deny` in an alphabetical
-   * list beside `list_dir` is making a much larger decision than the row admits.
+   * list beside `ls` is making a much larger decision than the row admits.
    *
    * The switches above are the front door for that decision. This group is the
    * same values with the `ask` state and the wording overrides the switches do
@@ -603,8 +603,8 @@ function Editor({
    * reading for. Built-ins are this build's and change when DarkWire is upgraded;
    * these arrive and leave with a server the operator configured, and one of
    * them going missing means "the server is down", not "the tool was removed".
-   * Alphabetical order put `mcp_github_search_issues` between `list_dir` and
-   * `read_file`, where nothing said which of the three was which.
+   * Alphabetical order put `mcp_github_search_issues` between `ls` and
+   * `read`, where nothing said which of the three was which.
    *
    * `source` first, the name prefix second — see `MCP_TOOL_PREFIX`. Filtered out
    * of the action list below rather than merely added here, so the three groups

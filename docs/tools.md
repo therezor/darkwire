@@ -1,7 +1,7 @@
 # Tools and permissions
 
 What an agent can actually _do_, and who decided it could. Two halves: the tools
-themselves (nine built in, plus whatever MCP servers and extensions contribute) and the
+themselves (eleven built in, plus whatever MCP servers and extensions contribute) and the
 `allow | ask | deny` map that gates every one of them, per agent.
 
 The short version, if you read one paragraph: **enablement and permission are the same
@@ -11,30 +11,45 @@ it to call and nothing to refuse.
 
 ## The built-ins
 
-Nine, and the count is deliberate: anything expressible as a command is `exec`'s job. A
-`grep` tool would be a worse `rg`, and a `move_file` tool would be a worse `mv`.
+Eleven. The test each one passes is that it is a capability the agent cannot obtain as
+cheaply any other way, which for most of them means `exec` cannot do the job: a command
+needs an approval nobody may be there to give, and it needs a binary the container image
+may not ship. A `move_file` tool would still be a worse `mv`, and there is no such thing.
 
-Six of them are capabilities the agent cannot get any other way. `memory` and `skill`
+`grep` and `find` are the two that look like commands and are not. Both are ripgrep
+compiled in rather than spawned, so they are confined to the workspace by construction,
+bound their own output, and work in an image carrying neither `rg` nor `fd`. Searching
+is also what an agent does before almost every edit, so paying an approval for it once
+a turn is the difference between an agent that reads the code and one that guesses.
+
+Eight of them are capabilities the agent cannot get any other way. `memory` and `skill`
 are not, and are here for a second reason: a tool carries a per-agent permission, so
 being a tool is what makes each feature switchable without a config flag beside it that
 could disagree. Denying either removes its prompt section too. See [Memory](memory.md)
 and [Skills](skills.md). `tool_search` is the door to the other tools when
 [lazy discovery](#lazy-discovery) is on, and is registered only then.
 
-| Tool          | Args                                        | Risk band | Does                                                                                        |
-| ------------- | ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
-| `read_file`   | `path`, `offset?`, `limit?`                 | `safe`    | Reads a file in the workspace.                                                              |
-| `list_dir`    | `path`, `recursive?`, `maxEntries?`         | `safe`    | Lists a directory.                                                                          |
-| `write_file`  | `path`, `content`                           | `write`   | Creates or overwrites.                                                                      |
-| `edit_file`   | `path`, `oldText`, `newText`, `replaceAll?` | `write`   | Exact-match replacement.                                                                    |
-| `exec`        | `argv: string[]`, `timeoutMs?`              | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
-| `automation`  | `action`, plus a name, message and schedule | `exec`    | Schedules a turn for later. See below.                                                      |
-| `memory`      | `name`, `description`, `type`, `body`       | `write`   | Records one durable fact in [memory](memory.md). No path argument.                          |
-| `skill`       | `name`                                      | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
-| `tool_search` | `query?`, `activate?: string[]`             | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
+| Tool          | Args                                                    | Risk band | Does                                                                                        |
+| ------------- | ------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `read`        | `path`, `offset?`, `limit?`                             | `safe`    | Reads a file, 2000 lines at a time, and says how many are left.                             |
+| `ls`          | `path`, `recursive?`, `maxEntries?`                     | `safe`    | Lists a directory. Hides nothing.                                                           |
+| `grep`        | `pattern`, `path?`, `glob?`, `mode?`, and more          | `safe`    | Searches file contents by regex. Skips what `.gitignore` skips.                             |
+| `find`        | `pattern`, `path?`, `limit?`                            | `safe`    | Finds files by glob, most recently modified first.                                          |
+| `write`       | `path`, `content`                                       | `write`   | Creates or overwrites.                                                                      |
+| `edit`        | `path`, `oldText`, `newText`, `replaceAll?`, or `edits` | `write`   | Exact-match replacement, one block or several atomically.                                   |
+| `exec`        | `argv: string[]`, `timeoutMs?`                          | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `automation`  | `action`, plus a name, message and schedule             | `exec`    | Schedules a turn for later. See below.                                                      |
+| `memory`      | `action`, `key`, `content?`                             | `write`   | Reads, saves or deletes one [memory](memory.md). No path argument.                          |
+| `skill`       | `name`                                                  | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
+| `tool_search` | `query?`, `activate?: string[]`                         | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
 takes an argv array, never a command string.
+
+`grep` and `find` are the only tools that leave anything out: both skip what
+`.gitignore` skips, and `.git` itself. `ls` hides nothing, because it answers what is in
+a directory and a listing that omits things reads as an empty directory. A search
+answers where the code is, and a vendored copy of the answer is noise.
 
 There is no install-wide switch for `exec`. An agent that should not run commands sets
 `exec: deny` in its permission map, and the tool leaves that agent's definitions with
@@ -111,7 +126,7 @@ it and the agent on a large hosted one may not.
   once is one round trip. The answer names what changed and nothing more; the schema
   arrives in the tools array, where it is paid for once.
 - **Pins** grant nothing: a pinned tool the agent denies is still not sent. Pin what
-  every turn needs (`read_file`, say) and leave the rest to search.
+  every turn needs (`read`, `grep` and `find`, say) and leave the rest to search.
 - **A hidden tool called by name anyway runs.** The permission map is what decides, not
   the advertised list, and the call counts as an activation.
 
@@ -251,7 +266,7 @@ and neither should stop an agent that was working a moment ago.
 **Per tool, per agent, and one map rather than a selection plus a policy.**
 
 ```json
-"tools": { "read_file": "allow", "list_dir": "allow", "exec": "ask" }
+"tools": { "read": "allow", "ls": "allow", "exec": "ask" }
 ```
 
 | Value    | Means                                                                        |

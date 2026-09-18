@@ -263,7 +263,7 @@ test.describe('workspaces', () => {
     await app.getByRole('textbox', { name: 'Message' }).fill('list the files');
     await app.getByRole('button', { name: 'Send' }).click();
     await expect(
-      app.getByRole('region', { name: 'Tool call: list_dir' }),
+      app.getByRole('region', { name: 'Tool call: ls' }),
     ).toBeVisible();
 
     const key =
@@ -286,12 +286,12 @@ test.describe('workspaces', () => {
       })
       .toBe('research');
 
-    // The half that proves it reached the jail: the next turn's `list_dir` sees
+    // The half that proves it reached the jail: the next turn's `ls` sees
     // the new workspace's files and not the old one's.
     await app.getByRole('textbox', { name: 'Message' }).fill('list the files');
     await app.getByRole('button', { name: 'Send' }).click();
 
-    const cards = app.getByRole('region', { name: 'Tool call: list_dir' });
+    const cards = app.getByRole('region', { name: 'Tool call: ls' });
     await expect(cards).toHaveCount(2);
     const second = cards.nth(1);
     await second.getByRole('button', { expanded: false }).click();

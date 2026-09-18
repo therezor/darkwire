@@ -12,7 +12,7 @@
 //! Three decisions are load-bearing:
 //!
 //!  - **The schema must refuse unknown keys.** Rejecting them is not pedantry:
-//!    a model that adds `recursive: true` to `read_file` has misunderstood the
+//!    a model that adds `recursive: true` to `read` has misunderstood the
 //!    tool, and silently stripping the key runs a command it did not ask for
 //!    and returns an answer to a question it did not pose. Every argument
 //!    struct carries `deny_unknown_fields`, which is what puts
@@ -83,7 +83,7 @@ pub fn default_tools_config() -> AgentSettings {
 /// definition time.
 ///
 /// A tool is a value, not a closure over a workspace: the registry is built
-/// once and the same `read_file` serves every session, so the jail, the config
+/// once and the same `read` serves every session, so the jail, the config
 /// and — critically — the turn's cancellation token arrive with the invocation.
 /// Capturing them would mean a registry per session and a token one turn stale.
 #[derive(Clone)]

@@ -13,10 +13,10 @@ use serde_json::{Map, Value, json};
 
 #[test]
 fn carries_its_kind_and_message() {
-    let error = WireError::new(ErrorKind::Tool, "read_file failed");
+    let error = WireError::new(ErrorKind::Tool, "read failed");
     assert_eq!(error.kind, ErrorKind::Tool);
-    assert_eq!(error.message, "read_file failed");
-    assert_eq!(error.to_string(), "read_file failed");
+    assert_eq!(error.message, "read failed");
+    assert_eq!(error.to_string(), "read failed");
 }
 
 #[test]
