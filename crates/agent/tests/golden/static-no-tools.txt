@@ -8,7 +8,7 @@ their files and their shell. You work on their behalf and answer to them alone.
 You are working in the `default` workspace. It is the only place you
 can read or write, and it behaves as the whole filesystem: `/notes/todo.md`,
 `notes/todo.md` and `../notes/todo.md` all name one file inside it. Write the
-plain relative form — `notes/todo.md`.
+plain relative form: `notes/todo.md`.
 
 ## Guidelines
 

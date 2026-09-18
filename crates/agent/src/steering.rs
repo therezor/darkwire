@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 /// Without it the model reads a mid-task user turn as a new request and
 /// frequently abandons what it was doing; with it, the common case — "no, the
 /// other directory" — is understood as a correction to the task in flight.
-pub const STEERING_PREFIX: &str = "[Steering — sent by the user while this task was running]";
+pub const STEERING_PREFIX: &str = "[Steering: sent by the user while this task was running]";
 
 /// How many pending messages one session may hold.
 ///

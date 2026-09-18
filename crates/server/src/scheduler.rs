@@ -107,7 +107,7 @@ pub const INTERRUPTED_BY_RESTART: &str = "Interrupted by a restart.";
 pub const INTERRUPTED_BY_SHUTDOWN: &str = "Interrupted by shutdown.";
 
 /// What a job that asks for delivery on an install with no channel records.
-pub const NO_CHANNEL_WARNING: &str = "This job asks for delivery, but no channel is wired yet — the result was recorded in the notification centre instead.";
+pub const NO_CHANNEL_WARNING: &str = "This job asks for delivery, but no channel is wired yet. The result was recorded in the notification centre instead.";
 
 // Ports
 

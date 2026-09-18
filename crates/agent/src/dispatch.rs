@@ -138,7 +138,7 @@ fn tools_disabled_execution(name: &str) -> ToolExecution {
             ErrorKind::Config,
             format!(
                 "Refused: tool calling is switched off for this model, so \"{name}\" did not run \
-                 and nothing happened. No tools are available on this turn — answer from the \
+                 and nothing happened. No tools are available on this turn. Answer from the \
                  conversation, or tell the user what you would need to do and why you cannot."
             ),
         ),

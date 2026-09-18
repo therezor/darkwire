@@ -201,7 +201,7 @@ fn materialise_one(
 ) -> Vec<ContentPart> {
     let Some(found) = locate(part, jail) else {
         return vec![text_part(
-            "[attachment: unavailable — the path is not inside this workspace]",
+            "[attachment: unavailable. The path is not inside this workspace]",
         )];
     };
     let relative = &found.relative;
@@ -210,12 +210,12 @@ fn materialise_one(
     // client frame, and every cap below is a memory bound.
     let Ok(stats) = fs::metadata(&found.absolute) else {
         return vec![text_part(format!(
-            "[attachment: {relative} — no longer in the workspace]"
+            "[attachment: {relative}. No longer in the workspace]"
         ))];
     };
     if stats.is_dir() {
         return vec![text_part(format!(
-            "[attachment: {relative} — a directory, not a file]"
+            "[attachment: {relative}. A directory, not a file]"
         ))];
     }
     let size_bytes = stats.len();
@@ -237,7 +237,7 @@ fn materialise_one(
     let line = header(relative, mime_type, size_bytes);
 
     if size_bytes == 0 {
-        return vec![text_part(format!("{line} — the file is empty"))];
+        return vec![text_part(format!("{line}. The file is empty"))];
     }
 
     // Identity is path, size and mtime together: a file the agent rewrote
@@ -278,17 +278,17 @@ fn read_parts(
         // on one would take room away from the text attachments it *can* read.
         if !options.images {
             return vec![text_part(format!(
-                "{line} — this model cannot read images; use the file tools"
+                "{line}. This model cannot read images; use the file tools"
             ))];
         }
         if size_bytes > options.max_image_bytes {
             return vec![text_part(format!(
-                "{line} — too large to show; use the file tools to read it"
+                "{line}. Too large to show; use the file tools to read it"
             ))];
         }
         if size_bytes > budget.remaining {
             return vec![text_part(format!(
-                "{line} — not shown inline; use the file tools to read it"
+                "{line}. Not shown inline; use the file tools to read it"
             ))];
         }
         budget.remaining -= size_bytes;
@@ -299,17 +299,17 @@ fn read_parts(
                 text_part(line),
                 image_part(mime_type, ImageSource::Data(BASE64.encode(bytes))),
             ],
-            Err(_) => vec![text_part(format!("{line} — could not be read"))],
+            Err(_) => vec![text_part(format!("{line}. Could not be read"))],
         };
     }
 
     if size_bytes <= options.max_text_bytes && size_bytes <= budget.remaining {
         match read_text(Path::new(&found.absolute), size_bytes) {
-            Err(_) => return vec![text_part(format!("{line} — could not be read"))],
+            Err(_) => return vec![text_part(format!("{line}. Could not be read"))],
             Ok(Some(text)) => {
                 budget.remaining -= size_bytes;
                 let note = if text.truncated {
-                    "\n\n[…truncated — read the file for the rest]"
+                    "\n\n[…truncated. Read the file for the rest]"
                 } else {
                     ""
                 };
@@ -323,7 +323,7 @@ fn read_parts(
     }
 
     vec![text_part(format!(
-        "{line} — not shown inline; use the file tools to read it"
+        "{line}. Not shown inline; use the file tools to read it"
     ))]
 }
 
@@ -389,7 +389,7 @@ fn materialise_content(
                 ));
             }
             other if is_unfetchable(other) => parts.push(text_part(
-                "[image: unavailable — this attachment predates workspace attachments]",
+                "[image: unavailable. This attachment predates workspace attachments]",
             )),
             other => parts.push(other.clone()),
         }

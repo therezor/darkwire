@@ -106,7 +106,7 @@ function useProbe(): {
           ok: false,
           models: [],
           reason: 'transport',
-          message: `The server could not be asked — ${error instanceof Error ? error.message : String(error)}`,
+          message: `The server could not be asked: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     },
@@ -261,7 +261,7 @@ export function describeProbe(
   saved: boolean,
   t: TFunction,
 ): string {
-  const prefix = saved ? 'Saved — but ' : '';
+  const prefix = saved ? 'Saved, but ' : '';
 
   if (result.ok) {
     const count = result.models.length;

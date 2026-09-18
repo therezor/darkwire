@@ -72,8 +72,8 @@ describe('an unanswered prompt', () => {
 
 describe('a prompt this tab answered', () => {
   it.each([
-    ['approved' as const, 'Approved — waiting for the agent.'],
-    ['denied' as const, 'Denied — waiting for the agent.'],
+    ['approved' as const, 'Approved. Waiting for the agent.'],
+    ['denied' as const, 'Denied. Waiting for the agent.'],
   ])('reports %s and stops offering buttons', (answered, line) => {
     promptWith({ answered });
 

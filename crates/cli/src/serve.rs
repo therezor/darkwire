@@ -406,7 +406,7 @@ impl LateWatch {
             title: format!("Approval needed for \"{}\"", approval.tool_name),
             body: format!(
                 "The \"{}\" agent asked to run \"{}\" on a session nobody was watching. \
-                 Open the session to answer it — an unanswered request is denied when it expires.",
+                 Open the session to answer it. An unanswered request is denied when it expires.",
                 approval.agent_id, approval.tool_name
             ),
             level: NotificationLevel::Warning,

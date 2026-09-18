@@ -155,7 +155,7 @@ fn a_finished_run_becomes_the_answer_and_nothing_else() {
 
     let cut_off = subagent_result(&binding, "", StopReason::WallTimeout, 1);
     assert!(cut_off.content.contains("stopped early (wall_timeout)"));
-    assert!(cut_off.content.contains("this is not a finding"));
+    assert!(cut_off.content.contains("This is not a finding"));
 
     // A cap reached with something found is still an answer, with a line saying
     // it was cut short.

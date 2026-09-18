@@ -153,7 +153,7 @@ fn act(
     let Some(id) = id.filter(|value| !value.is_empty()) else {
         writeln!(
             streams.err,
-            "Which extension? Pass an id — see `darkwire extension list`."
+            "Which extension? Pass an id. See `darkwire extension list`."
         )
         .map_err(WireError::from)?;
         return Ok(2);

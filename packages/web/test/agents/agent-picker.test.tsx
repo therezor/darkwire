@@ -95,7 +95,7 @@ describe('the agent picker', () => {
 
     expect(
       await screen.findByRole('button', {
-        name: /reviewer — no longer configured/,
+        name: /reviewer \(no longer configured\)/,
       }),
     ).toBeInTheDocument();
   });

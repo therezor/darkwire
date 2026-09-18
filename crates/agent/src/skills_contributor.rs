@@ -83,7 +83,7 @@ pub fn render_skills(skills: &[Skill], template: Option<&str>) -> String {
 
 fn index_line(skill: &Skill) -> String {
     format!(
-        "- `{}` — **{}**: {}",
+        "- `{}`: **{}**. {}",
         skill.path, skill.name, skill.description
     )
 }

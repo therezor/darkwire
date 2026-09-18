@@ -340,7 +340,7 @@ sync_command!(run_messages, |input| {
         rows.iter()
             .map(|row| {
                 format!(
-                    "`{}` {} — {}",
+                    "`{}` {}: {}",
                     row.seq,
                     role_of(&row.message),
                     clip(&text_of(&row.message))
@@ -601,7 +601,7 @@ fn run_memory<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandRe
             ));
         }
         Ok(CommandResult::say(if state.count == 0 {
-            "Nothing remembered yet — the first one is written when the agent \
+            "Nothing remembered yet. The first one is written when the agent \
              uses its `memory` tool."
                 .to_owned()
         } else {
@@ -627,7 +627,7 @@ fn run_skills<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandRe
         }
         if state.skills.is_empty() {
             return Ok(CommandResult::say(
-                "No skills here yet — a folder with a `SKILL.md` in `skills/` becomes one.",
+                "No skills here yet. A folder with a `SKILL.md` in `skills/` becomes one.",
             ));
         }
         Ok(CommandResult::say(
@@ -639,7 +639,7 @@ fn run_skills<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandRe
                     // holds, and a sheet missing from the list would be the
                     // harder thing to explain to whoever just wrote it.
                     let scope = if skill.mine { "" } else { " _(other agents)_" };
-                    format!("`{}` — {}{scope}", skill.name, skill.description)
+                    format!("`{}`: {}{scope}", skill.name, skill.description)
                 })
                 .collect::<Vec<_>>()
                 .join("\n"),
@@ -686,8 +686,8 @@ sync_command!(run_output, |input| {
     let prefs = input.chat.prefs;
     let Some(field) = input.arg(0) else {
         return Ok(CommandResult::say(format!(
-            "progress: {} — a turn fills in one message\n\
-             markdown: {} — formatted, or plain text",
+            "progress: {}. A turn fills in one message\n\
+             markdown: {}. Formatted, or plain text",
             on_off(prefs.progress),
             on_off(prefs.markdown)
         )));
@@ -785,7 +785,7 @@ sync_command!(run_workspaces, |input| {
                 } else {
                     "  "
                 };
-                format!("{marker}`{}` — {}", workspace.id, workspace.name)
+                format!("{marker}`{}`: {}", workspace.id, workspace.name)
             })
             .collect::<Vec<_>>()
             .join("\n"),

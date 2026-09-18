@@ -436,7 +436,7 @@ pub fn render_index(memories: &[Memory]) -> String {
         String::new(),
         "# Memory".to_owned(),
         String::new(),
-        "One file per fact. Regenerated from this folder on every save — edit the".to_owned(),
+        "One file per fact. Regenerated from this folder on every save. Edit the".to_owned(),
         "memories, not this list.".to_owned(),
         String::new(),
     ];
@@ -445,7 +445,7 @@ pub fn render_index(memories: &[Memory]) -> String {
     } else {
         lines.extend(memories.iter().map(|memory| {
             format!(
-                "- [{name}]({name}.md) _({kind})_ — {description}",
+                "- [{name}]({name}.md) _({kind})_: {description}",
                 name = memory.name,
                 kind = memory.memory_type,
                 description = memory.description

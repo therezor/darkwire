@@ -154,7 +154,7 @@ export function FileEditor({
       <div className="cluster file-editor__toolbar">
         <span className="micro-label">
           {truncated
-            ? 'Read-only — truncated'
+            ? 'Read-only (truncated)'
             : dirty
               ? 'Unsaved changes'
               : editing

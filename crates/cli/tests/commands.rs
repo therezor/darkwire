@@ -1493,7 +1493,7 @@ async fn skills_lists_one_scoped_to_another_agent_and_marks_it() {
 
     assert!(h.text().contains("triage"));
     assert!(
-        h.text().contains("for lead only — not this agent"),
+        h.text().contains("for lead only, not this agent"),
         "{}",
         h.text()
     );

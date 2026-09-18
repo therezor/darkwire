@@ -462,7 +462,7 @@ function Editor({
         title={t('providers.models')}
         description={
           instance.supportsModelListing
-            ? 'This endpoint lists its own models. Fetching asks it — which is also how you find out whether it can be reached at all.'
+            ? 'This endpoint lists its own models. Fetching asks it, which is also how you find out whether it can be reached at all.'
             : 'Nothing enumerates this endpoint, so this list is the catalogue the agent editor offers.'
         }
       >

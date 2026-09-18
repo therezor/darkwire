@@ -177,7 +177,7 @@ fn describe(descriptor: &McpToolDescriptor, options: &BridgeOptions) -> String {
 fn describe_binary(part: &crate::session::McpContentPart) -> String {
     let bytes = part.data.as_ref().map_or(0, |data| data.len() * 3 / 4);
     let kind = part.mime_type.as_deref().unwrap_or(&part.kind);
-    format!("[{kind}, {bytes} bytes — not shown]")
+    format!("[{kind}, {bytes} bytes, not shown]")
 }
 
 /// Every part of a result as one string.
@@ -197,7 +197,7 @@ pub fn flatten_content(result: &McpCallResult) -> String {
                     embedded
                         .and_then(|r| r.text.clone())
                         .or_else(|| embedded.and_then(|r| r.uri.clone()))
-                        .unwrap_or_else(|| "[resource — not shown]".to_owned()),
+                        .unwrap_or_else(|| "[resource, not shown]".to_owned()),
                 );
             }
             "resource_link" => lines.push(
@@ -205,7 +205,7 @@ pub fn flatten_content(result: &McpCallResult) -> String {
                     .clone()
                     .unwrap_or_else(|| "[resource link]".to_owned()),
             ),
-            other => lines.push(format!("[{other} — not shown]")),
+            other => lines.push(format!("[{other}, not shown]")),
         }
     }
     if !lines.is_empty() {

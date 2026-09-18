@@ -91,7 +91,7 @@ pub fn skill_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
             "skill",
-            "Read one of this workspace’s skills — the full instruction sheet behind a line in the skills catalogue. Open it before acting on what it names.",
+            "Read one of this workspace’s skills: the full instruction sheet behind a line in the skills catalogue. Open it before acting on what it names.",
         )
         .risk(ToolRisk::Safe)
         .annotations(ToolAnnotations {

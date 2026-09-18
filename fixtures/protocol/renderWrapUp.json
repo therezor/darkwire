@@ -4,18 +4,18 @@
     {
       "name": "renders the default with a leading blank line",
       "input": {
-        "template": "Tool iterations left in this turn: {{iterationsLeft}}. Wrap up — answer with what you have, or say plainly what is still missing.",
+        "template": "Tool iterations left in this turn: {{iterationsLeft}}. Wrap up: answer with what you have, or say plainly what is still missing.",
         "iterationsLeft": 2
       },
-      "output": "\n\nTool iterations left in this turn: 2. Wrap up — answer with what you have, or say plainly what is still missing."
+      "output": "\n\nTool iterations left in this turn: 2. Wrap up: answer with what you have, or say plainly what is still missing."
     },
     {
       "name": "clamps a negative count to zero",
       "input": {
-        "template": "Tool iterations left in this turn: {{iterationsLeft}}. Wrap up — answer with what you have, or say plainly what is still missing.",
+        "template": "Tool iterations left in this turn: {{iterationsLeft}}. Wrap up: answer with what you have, or say plainly what is still missing.",
         "iterationsLeft": -3
       },
-      "output": "\n\nTool iterations left in this turn: 0. Wrap up — answer with what you have, or say plainly what is still missing."
+      "output": "\n\nTool iterations left in this turn: 0. Wrap up: answer with what you have, or say plainly what is still missing."
     },
     {
       "name": "a single space renders to nothing at all",

@@ -73,7 +73,7 @@ export const UNSET_VALUE = '__unset__';
  * setting. Blank is a state the form refuses rather than one it saves.
  */
 export const MODEL_REQUIRED =
-  'Choose a model — an agent with none cannot run a turn.';
+  'Choose a model. An agent with none cannot run a turn.';
 
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'off',

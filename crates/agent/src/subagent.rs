@@ -190,7 +190,7 @@ fn refusal_text(refusal: DelegationRefusal, binding: &SubagentBinding, chain: &[
     match refusal {
         DelegationRefusal::Unconfigured => format!(
             "Cannot delegate to \"{label}\": that agent has no provider or model configured, so \
-             it cannot run. Do not call it again — do the work yourself, or tell the user their \
+             it cannot run. Do not call it again. Do the work yourself, or tell the user their \
              \"{}\" agent needs setting up.",
             binding.agent_id
         ),
@@ -199,13 +199,13 @@ fn refusal_text(refusal: DelegationRefusal, binding: &SubagentBinding, chain: &[
             path.push(&binding.agent_id);
             format!(
                 "Cannot delegate to \"{label}\": it is already running above this call ({}). Do \
-                 not call it again — finish the work here.",
+                 not call it again. Finish the work here.",
                 path.join(" → ")
             )
         }
         DelegationRefusal::TooDeep => format!(
             "Cannot delegate to \"{label}\": delegation is {MAX_SUBAGENT_DEPTH} levels deep \
-             already ({}). Do not call it again — do the work yourself, or return what you have.",
+             already ({}). Do not call it again. Do the work yourself, or return what you have.",
             chain.join(" → ")
         ),
     }
@@ -265,7 +265,7 @@ pub fn subagent_result(
         if text.is_empty() {
             format!(
                 "The {label} agent stopped early ({reason}) without writing an answer. It did not \
-                 finish — this is not a finding."
+                 finish. This is not a finding."
             )
         } else {
             format!("{text}\n\n(The {label} agent stopped early: {reason}.)")

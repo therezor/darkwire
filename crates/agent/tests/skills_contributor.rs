@@ -64,8 +64,8 @@ fn a_catalogue_is_one_index_line_per_sheet() {
     );
 
     assert!(section.starts_with("## Skills"));
-    assert!(section.contains("`skills/deploy/SKILL.md` — **deploy**: How to ship it."));
-    assert!(section.contains("`skills/test/SKILL.md` — **test**: How to test it."));
+    assert!(section.contains("`skills/deploy/SKILL.md`: **deploy**. How to ship it."));
+    assert!(section.contains("`skills/test/SKILL.md`: **test**. How to test it."));
     // It names `read_file`, because a list of paths with no instruction to open
     // them reads as a list of things that exist.
     assert!(section.contains("read_file"));

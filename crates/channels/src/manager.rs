@@ -224,7 +224,7 @@ fn to_frame_content(content: &[ContentPart]) -> (String, Vec<Attachment>) {
                 size_bytes: file.size_bytes,
             }),
             ContentPart::Image(image) => texts.push(format!(
-                "[image omitted: {} — publish a file part instead]",
+                "[image omitted: {}. Publish a file part instead]",
                 image.mime_type
             )),
         }

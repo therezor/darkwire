@@ -201,7 +201,7 @@ fn assert_command_policy(id: &str, command: &[String], root: &Path) -> Result<()
         return Err(policy_error(
             id,
             format!(
-                "Extension \"{id}\" names a shell as its command: {program}\n  The command is an argv, passed to the program as arguments — never a\n  line for a shell to re-parse. Name the interpreter directly, as in\n  \"command\": [\"node\", \"index.mjs\"]."
+                "Extension \"{id}\" names a shell as its command: {program}\n  The command is an argv, passed to the program as arguments, never a\n  line for a shell to re-parse. Name the interpreter directly, as in\n  \"command\": [\"node\", \"index.mjs\"]."
             ),
         )
         .with_detail("program", program));

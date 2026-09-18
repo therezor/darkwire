@@ -53,8 +53,8 @@ fn the_path_comes_first_because_that_is_what_read_file_takes() {
     );
 
     assert!(section.starts_with("## Memory"));
-    assert!(section.contains("- `memory/units.md` (user) — Prefers metric."));
-    assert!(section.contains("- `memory/deploy-target.md` (project) — Ships to fly.io."));
+    assert!(section.contains("- `memory/units.md` (user): Prefers metric."));
+    assert!(section.contains("- `memory/deploy-target.md` (project): Ships to fly.io."));
     // The kind is stated because a preference and a pointer to a document are
     // not the same claim.
     assert!(section.contains("(user)"));

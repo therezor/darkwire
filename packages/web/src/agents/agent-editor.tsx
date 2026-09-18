@@ -788,7 +788,7 @@ function Editor({
       (instance) => instance.enabled,
     );
     return [
-      { value: 'auto', label: 'auto — resolve from whichever has credentials' },
+      { value: 'auto', label: 'auto: resolve from whichever has credentials' },
       ...instances.map((instance) => ({
         value: instance.id,
         label: instance.displayName === '' ? instance.id : instance.displayName,
@@ -1027,7 +1027,7 @@ function Editor({
             ? 'Every session that names no agent runs on this one, and a new agent starts as a copy of it.'
             : !form.enabled
               ? 'Switched off: it cannot take a turn, and it is hidden from the picker. Its settings and its sessions are kept.'
-              : `Runs on ${resolved?.model === '' || resolved === undefined ? 'no model yet — it cannot take a turn until one is chosen' : resolved.model}.`}
+              : `Runs on ${resolved?.model === '' || resolved === undefined ? 'no model yet. It cannot take a turn until one is chosen' : resolved.model}.`}
         </p>
       </div>
 

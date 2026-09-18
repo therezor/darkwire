@@ -99,7 +99,7 @@ struct AutomationArgs {
 /// failure lands a week later, on somebody who was not there. A model has no
 /// way to discover it: the create succeeds, and the first run is the only
 /// evidence.
-const DESCRIPTION: &str = "Schedule work for later, list what you have scheduled, or cancel it. To create, give a name, a message, and exactly one of: every_minutes, cron, or at. The current time is in your system prompt — compute an \"at\" instant from it yourself. A cron expression is read in the install timezone, which is the zone named beside the current time in your prompt; write the hour you mean on that clock and do not convert it. The job runs in a fresh conversation that cannot see this one, so write the message so it stands alone — name the files, people and facts it needs instead of referring back to what was said here. You only ever see and delete jobs you created yourself.";
+const DESCRIPTION: &str = "Schedule work for later, list what you have scheduled, or cancel it. To create, give a name, a message, and exactly one of: every_minutes, cron, or at. The current time is in your system prompt. Compute an \"at\" instant from it yourself. A cron expression is read in the install timezone, which is the zone named beside the current time in your prompt; write the hour you mean on that clock and do not convert it. The job runs in a fresh conversation that cannot see this one, so write the message so it stands alone. Name the files, people and facts it needs instead of referring back to what was said here. You only ever see and delete jobs you created yourself.";
 
 /// What went wrong, in words a model can act on rather than retry blindly.
 fn refused<T>(outcome: &AutomationOutcome<T>) -> ToolOutput {
@@ -236,7 +236,7 @@ fn detail_of(job: &AutomationJob) -> String {
 }
 
 fn describe(job: &AutomationJob) -> String {
-    format!("{} — {} · {}", job.id, job.name, detail_of(job))
+    format!("{}: {} · {}", job.id, job.name, detail_of(job))
 }
 
 /// A non-empty, trimmed argument, or `None`.

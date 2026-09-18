@@ -298,7 +298,7 @@ fn a_refused_connection_names_the_endpoint_and_is_not_retryable() {
     // The origin, not the path: which server is down is the question.
     assert_eq!(
         error.message,
-        "Could not reach Ollama at http://127.0.0.1:11434 — nothing is listening there."
+        "Could not reach Ollama at http://127.0.0.1:11434: nothing is listening there."
     );
     assert!(!error.retryable);
     assert_eq!(error.reason, ProviderErrorReason::Transport);
@@ -321,7 +321,7 @@ fn a_timeout_and_a_reset_stay_retryable() {
     );
     assert_eq!(
         reset.message,
-        "Could not reach ollama — it closed the connection before answering."
+        "Could not reach ollama: it closed the connection before answering."
     );
     let unreachable = transport_error(
         &wrapped(io::ErrorKind::HostUnreachable, "x"),
@@ -333,7 +333,7 @@ fn a_timeout_and_a_reset_stay_retryable() {
     );
     assert_eq!(
         unreachable.message,
-        "Could not reach Custom at http://rzr-ai:8080 — there is no route to that host."
+        "Could not reach Custom at http://rzr-ai:8080: there is no route to that host."
     );
     assert!(
         transport_error(
@@ -355,7 +355,7 @@ fn a_fault_without_wording_falls_back_to_the_innermost_message() {
     );
     assert_eq!(
         error.message,
-        "Could not reach Ollama at http://127.0.0.1:11434 — failed to lookup address information."
+        "Could not reach Ollama at http://127.0.0.1:11434: failed to lookup address information."
     );
     assert!(error.retryable);
     assert!(error.details.get("code").is_none());
@@ -368,5 +368,5 @@ fn a_fault_without_wording_falls_back_to_the_innermost_message() {
             label: None,
         },
     );
-    assert_eq!(odd.message, "Could not reach x at not a url — boom.");
+    assert_eq!(odd.message, "Could not reach x at not a url: boom.");
 }

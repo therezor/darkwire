@@ -797,7 +797,7 @@ fn live_time(now_ms: i64, time_zone: &str) -> String {
     };
     // No `Current time:` label — that belongs to the template, which an
     // operator may reword. This returns the value the template names.
-    format!("{local} ({time_zone}) — {iso}")
+    format!("{local} ({time_zone}), {iso}")
 }
 
 /// The zone the prompt's clock is printed in when nobody named one.

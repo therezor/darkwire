@@ -679,7 +679,7 @@ fn the_time_zone_defaults_to_the_host() {
 
     // Whatever the host says it is, the line names it rather than guessing.
     assert!(block.contains("Current time:"));
-    assert!(block.contains(" — 2023-11-14T22:13:20Z"));
+    assert!(block.contains(", 2023-11-14T22:13:20Z"));
 }
 
 #[test]

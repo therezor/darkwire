@@ -89,7 +89,7 @@ impl KeyFileStore {
             return Err(WireError::new(
                 ErrorKind::Config,
                 format!(
-                    "Vault key file is readable by other users (mode {mode:o}): {}. Run chmod 600 on it, or delete it to generate a new key — every stored credential is lost with the old one.",
+                    "Vault key file is readable by other users (mode {mode:o}): {}. Run chmod 600 on it, or delete it to generate a new key. Every stored credential is lost with the old one.",
                     self.file.display()
                 ),
             )

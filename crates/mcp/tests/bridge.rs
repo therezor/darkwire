@@ -377,7 +377,7 @@ fn describes_a_binary_part_instead_of_pasting_its_base64() {
         }],
         ..McpCallResult::default()
     });
-    assert_eq!(untyped, "[audio, 0 bytes — not shown]");
+    assert_eq!(untyped, "[audio, 0 bytes, not shown]");
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn prefers_a_resource_text_over_its_uri() {
         }],
         ..McpCallResult::default()
     };
-    assert_eq!(flatten_content(&empty), "[resource — not shown]");
+    assert_eq!(flatten_content(&empty), "[resource, not shown]");
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn names_a_link_and_a_part_it_does_not_understand_rather_than_dropping_them() {
     };
     assert_eq!(
         flatten_content(&link),
-        "https://x.test/doc\n[resource link]\n[invented — not shown]"
+        "https://x.test/doc\n[resource link]\n[invented, not shown]"
     );
 }
 

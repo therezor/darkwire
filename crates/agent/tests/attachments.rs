@@ -154,7 +154,7 @@ fn an_image_past_its_cap_becomes_a_path() {
     );
 
     assert_eq!(parts.len(), 1);
-    assert!(text_of(&parts).contains("too large to show"));
+    assert!(text_of(&parts).contains("Too large to show"));
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn a_file_past_the_request_budget_still_appears_as_a_path() {
     let text = text_of(&user.content);
     assert!(text.contains("aaaa"), "the first was inlined");
     assert!(text.contains("b.txt"), "{text}");
-    assert!(text.contains("— not shown inline"), "{text}");
+    assert!(text.contains(". Not shown inline"), "{text}");
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn a_text_file_past_its_own_cap_becomes_a_path() {
         None,
     );
 
-    assert!(text_of(&parts).contains("not shown inline"));
+    assert!(text_of(&parts).contains("Not shown inline"));
     const { assert!(MAX_INLINE_TEXT_BYTES > 10) };
 }
 
@@ -213,7 +213,7 @@ fn an_empty_file_says_so_rather_than_showing_an_empty_fence() {
 
     assert!(
         text_of(&fixture.materialise(&Fixture::part("empty.txt", "text/plain")))
-            .contains("the file is empty")
+            .contains("The file is empty")
     );
 }
 
@@ -224,11 +224,11 @@ fn a_missing_file_and_a_directory_each_say_what_went_wrong() {
 
     assert!(
         text_of(&fixture.materialise(&Fixture::part("gone.txt", "text/plain")))
-            .contains("no longer in the workspace")
+            .contains("No longer in the workspace")
     );
     assert!(
         text_of(&fixture.materialise(&Fixture::part("folder", "text/plain")))
-            .contains("a directory, not a file")
+            .contains("A directory, not a file")
     );
 }
 
@@ -243,7 +243,7 @@ fn a_path_outside_the_workspace_is_refused_without_echoing_it() {
     let text = text_of(&parts);
     assert_eq!(
         text,
-        "[attachment: unavailable — the path is not inside this workspace]"
+        "[attachment: unavailable. The path is not inside this workspace]"
     );
     // Repeating it back would teach the model that the workspace has paths it
     // does not have.

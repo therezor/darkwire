@@ -100,7 +100,7 @@ pub fn render_memory_section(memories: &[Memory], template: Option<&str>) -> Str
 /// not always say which one this is.
 fn index_line(memory: &Memory) -> String {
     format!(
-        "- `{}` ({}) — {}",
+        "- `{}` ({}): {}",
         memory.path, memory.memory_type, memory.description
     )
 }

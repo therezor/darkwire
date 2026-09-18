@@ -866,7 +866,7 @@ async fn skills_marks_a_sheet_another_agent_owns_rather_than_hiding_it() {
     let result = run(&harness, "/skills").await;
 
     assert!(
-        result.text.contains("`release` — how to cut one"),
+        result.text.contains("`release`: how to cut one"),
         "{}",
         result.text
     );

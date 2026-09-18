@@ -116,7 +116,7 @@ fn seconds(ms: u64) -> u64 {
 
 fn wall_timeout_text(elapsed_ms: u64, cap_ms: u64) -> String {
     format!(
-        "I ran out of time for this turn — {}s against a {}s cap. Ask me to continue, or narrow \
+        "I ran out of time for this turn: {}s against a {}s cap. Ask me to continue, or narrow \
          the task.",
         seconds(elapsed_ms),
         seconds(cap_ms)

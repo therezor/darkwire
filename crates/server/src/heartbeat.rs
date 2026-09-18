@@ -233,7 +233,7 @@ pub fn build_decide_messages(input: &DecideMessagesInput) -> Vec<ChatMessage> {
         ChatMessage::System(system_message(format!(
             "You decide whether a task file asks for work right now. \
              The current time is {now_iso}. \
-             Answer only by calling the heartbeat tool — never with prose. \
+             Answer only by calling the heartbeat tool, never with prose. \
              Choose skip unless something in the file is actually due: this runs on a \
              timer forever, and a run that was not needed costs the user real money \
              and a real interruption."
@@ -360,7 +360,7 @@ pub fn build_evaluate_messages(input: &EvaluateMessagesInput) -> Vec<ChatMessage
         ChatMessage::System(system_message(
             "You decide whether an unattended agent run is worth interrupting someone about. \
              Answer only by calling the heartbeat_result tool. \
-             Choose notify only for something the user would want to know now — work \
+             Choose notify only for something the user would want to know now: work \
              finished, a decision needed, something broken. Routine progress is not worth a notification.",
         )),
         ChatMessage::User(user_message(vec![text_part(format!(

@@ -1172,7 +1172,7 @@ impl DockerEngine {
             return Err(WireError::new(
                 ErrorKind::Tool,
                 format!(
-                    "{} {what} did not respond within {}ms — is the daemon running?",
+                    "{} {what} did not respond within {}ms. Is the daemon running?",
                     self.bin,
                     timeout.as_millis()
                 ),

@@ -734,7 +734,7 @@ test.describe('agents', () => {
     // it — so it is asserted where the state can be held still, in
     // `chat.test.tsx`, rather than raced for here.
     await expect(
-      app.getByRole('button', { name: /reviewer — no longer configured/ }),
+      app.getByRole('button', { name: /reviewer \(no longer configured\)/ }),
     ).toBeVisible();
 
     // And the binding is untouched, which is what lets re-creating the agent

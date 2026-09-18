@@ -133,7 +133,7 @@ export function TokensRoute(): JSX.Element {
 
       <Section
         title="Overlays"
-        hint="Alpha fills, not ramp stops — they lighten in dark and darken in light."
+        hint="Alpha fills, not ramp stops. They lighten in dark and darken in light."
       >
         <div className="style-guide__grid">
           {OVERLAYS.map((name) => (
@@ -195,19 +195,19 @@ export function TokensRoute(): JSX.Element {
                 '--swatch-leading': `var(--leading-${size})`,
               })}
             >
-              <span className="style-guide__type-name">text-{size}</span> — The
+              <span className="style-guide__type-name">text-{size}</span>: The
               quick brown fox jumps over the lazy dog
             </p>
           ))}
           <p className="style-guide__mono-line">
-            font-mono — const nonce = randomUUID(); // 0O1lI!=
+            font-mono: const nonce = randomUUID(); // 0O1lI!=
           </p>
         </div>
       </Section>
 
       <Section
         title="Radius"
-        hint="Two stops and a pill. Elevation is a surface and a stroke, not a shadow — there is no shadow scale."
+        hint="Two stops and a pill. Elevation is a surface and a stroke, not a shadow. There is no shadow scale."
       >
         <div className="cluster style-guide__chips">
           {RADII.map((radius) => (
@@ -224,7 +224,7 @@ export function TokensRoute(): JSX.Element {
 
       <Section
         title="Buttons"
-        hint="One recipe. Tab through them — the ring is the base layer's, not each button's. The disabled row is the one to check: it is a measured pairing, not a faded one."
+        hint="One recipe. Tab through them: the ring is the base layer's, not each button's. The disabled row is the one to check. It is a measured pairing, not a faded one."
       >
         <div className="stack">
           {BUTTON_VARIANTS.map((variant) => (
@@ -243,7 +243,7 @@ export function TokensRoute(): JSX.Element {
 
       <Section
         title="Badges"
-        hint="One recipe parameterised on role — not twenty-five pills."
+        hint="One recipe parameterised on role, not twenty-five pills."
       >
         <div className="stack">
           {ROLE_VARIANTS.map((variant) => (

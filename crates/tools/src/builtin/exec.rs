@@ -54,7 +54,7 @@ use crate::tool::{
 struct ExecArgs {
     #[schemars(
         length(min = 1),
-        description = "Program and arguments as separate strings, e.g. [\"git\",\"status\",\"--short\"]. On the host there is no shell, so pipes, redirection and globs are not interpreted. In a sandbox there is one: [\"bash\",\"-lc\",\"a | b > c\"] works. Your instructions say which applies — a \"Sandbox\" section means the second."
+        description = "Program and arguments as separate strings, e.g. [\"git\",\"status\",\"--short\"]. On the host there is no shell, so pipes, redirection and globs are not interpreted. In a sandbox there is one: [\"bash\",\"-lc\",\"a | b > c\"] works. Your instructions say which applies: a \"Sandbox\" section means the second."
     )]
     argv: Vec<String>,
     #[schemars(
@@ -153,7 +153,7 @@ pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> Too
                 plan.max_output_bytes
             ),
             Some(dir) => format!(
-                "[exec: output truncated at {} bytes per stream. The complete output is at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec — grep/tail/cat those paths rather than re-running the command. read_file cannot: the path is outside the workspace.]",
+                "[exec: output truncated at {} bytes per stream. The complete output is at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec: grep/tail/cat those paths rather than re-running the command. read_file cannot: the path is outside the workspace.]",
                 plan.max_output_bytes
             ),
         });
@@ -206,7 +206,7 @@ pub fn exec_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
             "exec",
-            "Run a program and return its output. Arguments are passed as an argv array. On the host it runs in the workspace root on the real filesystem, so an argument pointing outside the workspace is refused rather than clamped — \"/etc/passwd\" and \"../x\" are errors, and there is no shell. In a sandbox it runs inside a container that mounts only the workspace: a shell is available, and absolute paths address the container rather than this machine. Your instructions carry a \"Sandbox\" section when that is the case, naming what the image holds.",
+            "Run a program and return its output. Arguments are passed as an argv array. On the host it runs in the workspace root on the real filesystem, so an argument pointing outside the workspace is refused rather than clamped: \"/etc/passwd\" and \"../x\" are errors, and there is no shell. In a sandbox it runs inside a container that mounts only the workspace: a shell is available, and absolute paths address the container rather than this machine. Your instructions carry a \"Sandbox\" section when that is the case, naming what the image holds.",
         )
         .risk(ToolRisk::Exec)
         .annotations(ToolAnnotations {

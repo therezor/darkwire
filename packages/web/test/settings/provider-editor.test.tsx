@@ -278,7 +278,7 @@ describe('the provider editor', () => {
     );
 
     expect(
-      await screen.findByText('Reachable — 2 models listed.'),
+      await screen.findByText('Reachable: 2 models listed.'),
     ).toBeInTheDocument();
     expect(screen.getByText('gpt-5-mini')).toBeInTheDocument();
     // Fetching is not saving.
@@ -374,7 +374,7 @@ describe('the provider editor', () => {
       extraHeaders: { 'X-Title': 'DarkWire' },
       instanceId: 'ollama',
     });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Saved — but');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Saved, but');
   });
 
   it('deletes after asking, and returns to the list', async () => {

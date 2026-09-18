@@ -77,7 +77,7 @@ export function ApprovalPrompt({
         )}
       >
         {answered === 'approved' ? <Check /> : <X />}
-        {answered === 'approved' ? 'Approved' : 'Denied'} — waiting for the
+        {answered === 'approved' ? 'Approved' : 'Denied'}. Waiting for the
         agent.
       </p>
     );

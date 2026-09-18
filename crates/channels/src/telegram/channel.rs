@@ -203,7 +203,7 @@ impl Telegram {
             return Err(WireError::new(
                 ErrorKind::Config,
                 "channels.telegram.allowlist is empty, so this bot would answer nobody. \
-                 Add your Telegram user id — message the bot and read the log line for it.",
+                 Add your Telegram user id. Message the bot and read the log line for it.",
             ));
         }
 
@@ -704,7 +704,7 @@ impl Telegram {
 
     async fn say_rejected(&self, chat_id: i64, result: &PublishResult) {
         let text = match result {
-            PublishResult::RateLimited { .. } => "Slow down a moment — that was too fast.",
+            PublishResult::RateLimited { .. } => "Slow down a moment. That was too fast.",
             _ => "Busy right now. Try again shortly.",
         };
         self.render(

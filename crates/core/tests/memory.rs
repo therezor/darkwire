@@ -153,7 +153,7 @@ mod render {
         let root = workspace();
         save_memory(root.path(), &fixture()).unwrap();
         assert!(index_of(root.path()).contains(
-            "- [ui-stack-preferences](ui-stack-preferences.md) _(user)_ — no shadcn/ui; Tailwind in rem, not px",
+            "- [ui-stack-preferences](ui-stack-preferences.md) _(user)_: no shadcn/ui; Tailwind in rem, not px",
         ));
     }
 
@@ -171,7 +171,7 @@ mod render {
             body: String::new(),
             path: "memory/alpha.md".to_owned(),
         };
-        assert!(render_index(&[memory]).contains("- [alpha](alpha.md) _(reference)_ — a"));
+        assert!(render_index(&[memory]).contains("- [alpha](alpha.md) _(reference)_: a"));
     }
 }
 

@@ -125,7 +125,7 @@ fn default_api_base() -> String {
 fn unusable(detail: impl std::fmt::Display) -> WireError {
     WireError::new(
         ErrorKind::Config,
-        format!("channels.telegram is not usable — {detail}"),
+        format!("channels.telegram is not usable: {detail}"),
     )
 }
 

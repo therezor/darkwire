@@ -155,7 +155,7 @@ fn a_long_body_is_bounded_and_says_where_the_rest_is() {
 
     let body = &read_skills(workspace.path())[0].body;
     assert!(body.len() < SKILL_MAX_BYTES + 100);
-    assert!(body.contains("[Truncated — read SKILL.md for the rest.]"));
+    assert!(body.contains("[Truncated. Read SKILL.md for the rest.]"));
 }
 
 #[test]

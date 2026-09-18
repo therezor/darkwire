@@ -648,7 +648,7 @@ pub fn transport_error(
 
     let mut result = ProviderError::new(
         ProviderErrorReason::Transport,
-        format!("Could not reach {target} — {detail}."),
+        format!("Could not reach {target}: {detail}."),
     )
     .with_provider(provider_id);
     if let Some(fault) = fault {

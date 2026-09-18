@@ -88,7 +88,7 @@ describe('ConfirmDialog', () => {
     renderWithProviders(
       <ConfirmDialog {...props} onConfirm={vi.fn()} onOpenChange={vi.fn()}>
         <p className="notice notice--danger">
-          Everything inside goes with it — 47 items.
+          Everything inside goes with it: 47 items.
         </p>
       </ConfirmDialog>,
     );

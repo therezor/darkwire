@@ -316,7 +316,7 @@ fn truncate_bytes(text: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     format!(
-        "{}\n\n[Truncated — read {SKILL_FILENAME} for the rest.]",
+        "{}\n\n[Truncated. Read {SKILL_FILENAME} for the rest.]",
         &text[..end]
     )
 }

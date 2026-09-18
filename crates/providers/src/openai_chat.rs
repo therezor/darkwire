@@ -651,7 +651,7 @@ impl Inner {
                 return Err(ProviderError::new(
                     ProviderErrorReason::Timeout,
                     format!(
-                        "Could not reach {} at {} — it accepted the request and never replied.",
+                        "Could not reach {} at {}. It accepted the request and never replied.",
                         self.spec.display_name,
                         self.base.origin().ascii_serialization()
                     ),

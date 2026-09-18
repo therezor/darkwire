@@ -126,7 +126,7 @@ pub fn text_tool_call_correction(name: &str) -> String {
 
 Your previous message contained a call to `{name}` written as text in your
 reply. That is not a tool call and nothing ran. Tool calls have to be made through
-the tool-calling interface, as structured calls — never written out in the message
+the tool-calling interface, as structured calls, never written out in the message
 body, and never wrapped in tags.
 
 Call `{name}` now, properly. If you cannot, say so in plain words instead and do

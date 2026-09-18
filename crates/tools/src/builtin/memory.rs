@@ -87,7 +87,7 @@ impl From<MemoryKind> for MemoryType {
 struct MemoryArgs {
     #[schemars(
         length(min = 1, max = MAX_MEMORY_NAME_CHARS),
-        description = "A short kebab-case name for this one fact, unique in this workspace — `ui-stack-preferences`. It becomes the filename and is what a [[link]] in another memory refers to. Calling this again with the same name replaces that memory, which is how you correct one."
+        description = "A short kebab-case name for this one fact, unique in this workspace, such as `ui-stack-preferences`. It becomes the filename and is what a [[link]] in another memory refers to. Calling this again with the same name replaces that memory, which is how you correct one."
     )]
     name: String,
     #[schemars(
@@ -97,7 +97,7 @@ struct MemoryArgs {
     description: String,
     #[serde(rename = "type")]
     #[schemars(
-        description = "What kind of fact this is. `user` — who the person is and what they prefer. `feedback` — how they have asked you to work, and why. `project` — an ongoing goal or constraint the code does not state. `reference` — a pointer to something outside this workspace."
+        description = "What kind of fact this is. `user`: who the person is and what they prefer. `feedback`: how they have asked you to work, and why. `project`: an ongoing goal or constraint the code does not state. `reference`: a pointer to something outside this workspace."
     )]
     kind: MemoryKind,
     #[schemars(
@@ -124,7 +124,7 @@ impl ToolHandler for Memory {
             // rather than an error from two layers down.
             let Some(name) = memory_slug(&args.name) else {
                 return Ok(ToolOutput::error(format!(
-                    "Nothing usable as a filename in \"{}\". Names are letters, digits and hyphens — try something like `build-conventions`.",
+                    "Nothing usable as a filename in \"{}\". Names are letters, digits and hyphens. Try something like `build-conventions`.",
                     args.name
                 )));
             };
@@ -167,7 +167,7 @@ pub fn memory_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
             "memory",
-            "Record one durable fact about this workspace for future sessions. Each call writes memory/<name>.md and puts a one-line summary of it in your prompt from now on; the fact itself stays on disk until you open it with read_file. Use it for what stays true — preferences, conventions, where things live — not for what only matters in this conversation. Calling it again with the same name replaces that memory.",
+            "Record one durable fact about this workspace for future sessions. Each call writes memory/<name>.md and puts a one-line summary of it in your prompt from now on; the fact itself stays on disk until you open it with read_file. Use it for what stays true (preferences, conventions, where things live), not for what only matters in this conversation. Calling it again with the same name replaces that memory.",
         )
         .risk(ToolRisk::Write)
         .annotations(ToolAnnotations {

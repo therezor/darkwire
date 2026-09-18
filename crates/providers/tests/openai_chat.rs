@@ -408,7 +408,7 @@ async fn reports_a_refused_connection_as_network_not_a_provider_rejection() {
     assert_eq!(provider_error.reason, ProviderErrorReason::Transport);
     assert!(
         provider_error.message.starts_with(&format!(
-            "Could not reach Ollama at http://127.0.0.1:{port} — "
+            "Could not reach Ollama at http://127.0.0.1:{port}: "
         )),
         "{}",
         provider_error.message

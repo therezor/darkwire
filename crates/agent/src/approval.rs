@@ -156,7 +156,7 @@ pub fn denied_tool_result(name: &str, reason: DenialReason) -> String {
         }
     };
     format!(
-        "Denied: {cause}. The tool did not run. Do not call it again — continue without it, or \
+        "Denied: {cause}. The tool did not run. Do not call it again. Continue without it, or \
          tell the user what you need and why."
     )
 }
