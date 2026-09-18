@@ -18,11 +18,12 @@
 //! stranded copy per resize. No amount of arithmetic fixes that, because the
 //! arithmetic is applied to coordinates the reflow already invalidated.
 //!
-//! So a width change is not patched here. It throws the screen away —
-//! including the scrollback, which is this program's own output and nobody
-//! else's — and prints the frame again at the new width. That is only possible
-//! because the frame is all of it; a renderer holding just a footer would have
-//! nothing to print the transcript back from.
+//! So a width change is not patched here. It erases the screen and prints the
+//! frame again at the new width. That is only possible because the frame is all
+//! of it; a renderer holding just a footer would have nothing to print the
+//! transcript back from. The scrollback is left alone: a reflow can strand a
+//! fragment of an old frame up there, and scrolling past one is cheaper than
+//! losing the conversation to be sure it is gone.
 //!
 //! ## The rest of the time
 //!
@@ -44,10 +45,12 @@
 //!    and a change above it forces the full redraw, because a row in the
 //!    scrollback cannot be moved to.
 //!
-//! A size change reaches the program as an event on the input side, not the
-//! output, so there is no resize subscription here: the renderer compares the
-//! width it drew at against the width it sees now, on every render, and the
-//! caller renders when it hears the window moved.
+//! A size change reaches the program as a signal rather than as anything this
+//! renderer can see, so there is no resize subscription here: the renderer
+//! compares the width it drew at against the width it sees now, on every
+//! render, and the caller renders when it hears the window moved.
+//! [`Renderer::invalidate`] is the same answer for a screen that is wrong for
+//! any other reason.
 
 use std::cmp::Ordering;
 
@@ -57,30 +60,14 @@ use crate::text::{truncate_to_width, visible_width};
 
 const ERASE_ROW: &str = "\x1b[2K";
 const ERASE_BELOW: &str = "\x1b[0J";
-/// Clear the screen, go home, and drop the scrollback with it.
+/// Clear the screen and go home, leaving the scrollback alone.
 ///
-/// The scrollback goes because it has to. A narrowing rewraps every row this
-/// program drew, and a frame that was sixteen rows at 120 columns is forty at
-/// 20 — far more than the window holds, so the terminal scrolls and the top of
-/// the old frame lands in the history. Erasing only the viewport leaves that
-/// fragment behind: measured at 120 → 20, eight rows of a half-wrapped banner
-/// sat above the new frame, one copy per resize. Nothing the program can ask
-/// tells it whether that happened, so the only sound answer is to assume it
-/// did.
-///
-/// What is lost is whatever the operator's shell printed before the program
-/// started. What is gained is that the conversation is reprinted whole,
-/// correctly folded, with no stale copy behind it — and the conversation is
-/// what the scrollback of a chat session is for.
-pub const CLEAR_ALL: &str = "\x1b[2J\x1b[H\x1b[3J";
-/// The same, without the `3J` — the screen, not the history behind it.
-///
-/// What the first frame gets. [`CLEAR_ALL`]'s third sequence is there because
-/// a rewrap can strand fragments of a frame *this renderer drew* up in the
-/// scrollback, and the only way to be sure they are gone is to drop it. On the
-/// first frame no frame has been drawn yet, so there is nothing of ours up
-/// there and `3J` would erase only the operator's own shell history — hours of
-/// it, bought for nothing.
+/// Deliberately without `3J`. A rewrap can strand fragments of a frame this
+/// renderer drew up in the history, and dropping the scrollback is the only way
+/// to be certain they are gone. It also drops the conversation, which is
+/// the thing the operator scrolls back to read, plus whatever their shell
+/// printed before the program started. A stale fragment costs a scroll past it.
+/// A wiped history costs the session.
 pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H";
 const HIDE_CURSOR: &str = "\x1b[?25l";
 const SHOW_CURSOR: &str = "\x1b[?25h";
@@ -98,6 +85,15 @@ fn cursor_down(rows: usize) -> String {
 fn cursor_right(columns: usize) -> String {
     format!("\x1b[{columns}C")
 }
+
+/// How long a frame gets, in milliseconds.
+///
+/// 30 frames a second. Deliberately not the spinner's interval: a spinner
+/// advances at whatever rate reads well as rotation, and a frame goes out at
+/// whatever rate reads as motion. Tying the two made every streamed token draw
+/// a frame, which on a slow machine is the whole cost of the session paid per
+/// word.
+pub const FRAME_INTERVAL_MS: u64 = 33;
 
 /// How a renderer is set up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +139,22 @@ impl Default for RendererOptions {
 enum Clear {
     None,
     Screen,
-    All,
+}
+
+/// What the next draw owes the screen.
+///
+/// One field rather than a pair of flags, because two of the three states are
+/// "a frame was asked for" and the difference between them is only how much of
+/// the screen it may trust. Holding them apart invited the fourth combination,
+/// which does not exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pending {
+    /// Nobody asked.
+    None,
+    /// Asked for, and the screen is what this renderer last wrote.
+    Frame,
+    /// Asked for, and what is on the screen is anybody's guess.
+    Whole,
 }
 
 /// The frame with the marker removed, and where in it the cursor goes.
@@ -195,7 +206,7 @@ pub struct Renderer<O: TerminalOutput> {
     /// How many rows of the frame have scrolled off the top.
     viewport_top: usize,
     full_redraws: usize,
-    scheduled: bool,
+    pending: Pending,
     stopped: bool,
     cursor_visible: bool,
 }
@@ -212,7 +223,7 @@ impl<O: TerminalOutput> Renderer<O> {
             hardware_row: 0,
             viewport_top: 0,
             full_redraws: 0,
-            scheduled: false,
+            pending: Pending::None,
             stopped: false,
             cursor_visible: true,
         }
@@ -251,9 +262,23 @@ impl<O: TerminalOutput> Renderer<O> {
     /// Asks for a frame on the caller's next turn, once, however often this is
     /// called. [`Renderer::render_if_requested`] is that turn.
     pub fn request_render(&mut self) {
-        if !self.stopped {
-            self.scheduled = true;
+        if !self.stopped && self.pending == Pending::None {
+            self.pending = Pending::Frame;
         }
+    }
+
+    /// Throws the screen away and prints the next frame whole.
+    ///
+    /// The answer to a window that moved and to anything else that left the
+    /// screen disagreeing with what this renderer believes is on it. It erases
+    /// the screen but *not* the scrollback: what is up there is the
+    /// conversation, and a redraw is asked for to fix the visible rows rather
+    /// than to forget the ones that have scrolled past.
+    pub fn invalidate(&mut self) {
+        if self.stopped {
+            return;
+        }
+        self.pending = Pending::Whole;
     }
 
     /// Draws the frame if one was requested since the last draw.
@@ -261,11 +286,26 @@ impl<O: TerminalOutput> Renderer<O> {
     /// A streaming turn asks for a render per token; drawing each one would be
     /// one frame per word arriving. Returns whether it drew.
     pub fn render_if_requested(&mut self, root: &mut dyn Component) -> bool {
-        if self.stopped || !self.scheduled {
+        if self.stopped || self.pending == Pending::None {
             return false;
         }
-        self.scheduled = false;
         self.render(root);
+        true
+    }
+
+    /// Whether a frame was asked for, answered once.
+    ///
+    /// For a caller with its own work to do before the draw (committing finished
+    /// rows to the scrollback, say) and so cannot hand the component
+    /// straight to [`Renderer::render_if_requested`]. A pending invalidation is
+    /// left standing, because the draw that follows is what consumes it.
+    pub fn take_request(&mut self) -> bool {
+        if self.stopped || self.pending == Pending::None {
+            return false;
+        }
+        if self.pending == Pending::Frame {
+            self.pending = Pending::None;
+        }
         true
     }
 
@@ -306,7 +346,6 @@ impl<O: TerminalOutput> Renderer<O> {
         self.hardware_row = lines.len().saturating_sub(1);
         self.viewport_top = lines.len().saturating_sub(screen_rows);
         let erase = match clear {
-            Clear::All => CLEAR_ALL,
             Clear::Screen => CLEAR_SCREEN,
             Clear::None => "",
         };
@@ -339,13 +378,15 @@ impl<O: TerminalOutput> Renderer<O> {
 
         // Nothing on screen yet, or the window moved and every row on it has
         // already been rewrapped by the terminal into places this cannot
-        // address. A resize drops the scrollback with the screen, for the
-        // reason `CLEAR_ALL` gives; a launch takes the screen only, and only
-        // if asked.
-        if self.previous.is_empty() || width_changed || height_changed {
-            let clear = if !self.previous.is_empty() {
-                Clear::All
-            } else if self.options.clear_on_first_frame {
+        // address. A launch erases the screen only if asked; everything else
+        // erases it because the alternative is drawing over a reflow.
+        let forced = std::mem::replace(&mut self.pending, Pending::None) == Pending::Whole;
+        if forced || self.previous.is_empty() || width_changed || height_changed {
+            // The screen, never the scrollback. What is up there is the
+            // conversation this program printed, and it is what the operator
+            // scrolls back to read.
+            let clear = if forced || !self.previous.is_empty() || self.options.clear_on_first_frame
+            {
                 Clear::Screen
             } else {
                 Clear::None
@@ -367,7 +408,7 @@ impl<O: TerminalOutput> Renderer<O> {
         // A row that has scrolled into the scrollback cannot be moved to, so
         // the only honest answer is to print the frame again.
         if first_changed < self.viewport_top {
-            self.print_whole(&built, Clear::All, columns, screen_rows);
+            self.print_whole(&built, Clear::Screen, columns, screen_rows);
             self.settle(built.lines, columns, screen_rows);
             return;
         }
@@ -442,6 +483,81 @@ impl<O: TerminalOutput> Renderer<O> {
         let (cursor_row, cursor_column) = cursor_of(built);
         body.push_str(&self.move_to(cursor_row, cursor_column));
         body
+    }
+
+    /// Writes `lines` into the terminal's own scrollback, above the frame.
+    ///
+    /// The escape hatch from holding the whole session. Rows handed over here
+    /// stop being this renderer's problem: the terminal owns them, it reflows
+    /// them itself when the window moves, and nothing here can address them
+    /// again. That last part is the cost, and it is why a caller commits only
+    /// what has stopped changing.
+    ///
+    /// They go out **unwrapped**. Every other row this renderer writes is cut to
+    /// the window, because the frame's arithmetic needs one entry to be one row.
+    /// A committed line is never addressed again, so letting the terminal fold it
+    /// is both free and the only way a later resize can refold it.
+    ///
+    /// One write, and that is not an optimisation. Erasing the live region and
+    /// painting it back in two brackets shows the gap in between, and at one
+    /// commit per batch of a streamed answer that is a blank flash per batch.
+    pub fn print_above(&mut self, lines: &[String], root: &mut dyn Component) {
+        if self.stopped {
+            return;
+        }
+        if lines.is_empty() {
+            self.render(root);
+            return;
+        }
+
+        let columns = self.columns();
+        let screen_rows = self.rows();
+        let built = extract_cursor(root.render(columns));
+        // An invalidation outstanding when a commit comes through is still an
+        // invalidation. Taking it here rather than leaving it for a later
+        // `render` is the difference between a resize being repaired on the
+        // next frame and being swallowed by whichever frame happened to commit.
+        let forced = std::mem::replace(&mut self.pending, Pending::None) == Pending::Whole;
+
+        // Up to the first row of the frame, then erase from there down:
+        // everything below it is this renderer's and all of it is about to be
+        // written again.
+        //
+        // Unless the frame has outgrown the window, in which case its first row
+        // is already in the history and cannot be moved to. A caller committing
+        // on every frame keeps that from happening; one that has not yet caught
+        // up gets the screen erased instead, which is correct and merely
+        // expensive.
+        let mut body = if !forced && self.viewport_top == 0 {
+            let mut up = self.move_to(0, 0);
+            up.push_str(ERASE_BELOW);
+            up
+        } else {
+            self.hardware_row = 0;
+            String::from(CLEAR_SCREEN)
+        };
+        for line in lines {
+            body.push_str(line);
+            body.push_str("\r\n");
+        }
+
+        self.full_redraws += 1;
+        self.hardware_row = built.lines.len().saturating_sub(1);
+        self.viewport_top = built.lines.len().saturating_sub(screen_rows);
+        body.push_str(
+            &built
+                .lines
+                .iter()
+                .map(|line| fit(line, columns))
+                .collect::<Vec<_>>()
+                .join("\r\n"),
+        );
+        let (cursor_row, cursor_column) = cursor_of(&built);
+        body.push_str(&self.move_to(cursor_row, cursor_column));
+
+        let bytes = self.frame(&body);
+        self.output.write_str(&bytes);
+        self.settle(built.lines, columns, screen_rows);
     }
 
     /// Shows or hides the terminal's cursor.

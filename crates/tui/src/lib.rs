@@ -19,6 +19,7 @@
 //! measurement that decided that.
 #![forbid(unsafe_code)]
 
+pub mod block;
 pub mod component;
 pub mod editor;
 pub mod keys;
@@ -31,10 +32,11 @@ pub mod text;
 pub mod theme;
 pub mod transcript;
 
+pub use block::Block;
 pub use component::{CURSOR_MARKER, Component};
 pub use editor::{Editor, EditorOutcome};
 pub use keys::{Key, KeyName, is_ctrl, parse_key, parse_keys};
-pub use renderer::{CLEAR_ALL, CLEAR_SCREEN, Renderer, RendererOptions};
+pub use renderer::{CLEAR_SCREEN, FRAME_INTERVAL_MS, Renderer, RendererOptions};
 pub use select::{
     CHROME_ROWS, DEFAULT_MAX_ROWS, Select, SelectLabels, SelectOptions, SelectOutcome,
 };

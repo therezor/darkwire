@@ -408,6 +408,41 @@ fn help_aligns_every_description_in_one_column() {
 }
 
 #[test]
+fn help_lists_the_keys_as_well_as_the_commands() {
+    // The keys were undiscoverable: two of them existed and nothing in the
+    // program said so.
+    let help = help_text(&Translations::default());
+    for binding in ["ctrl-g", "ctrl-t", "ctrl-o", "ctrl-l", "tab"] {
+        assert!(help.contains(binding), "{binding} is not in /help");
+    }
+}
+
+#[test]
+fn a_key_is_never_offered_as_a_command() {
+    // `command_rows` is flattened into the palette, into Tab completion and
+    // into the list a slash command opens. A Keys *section* of the help layout
+    // would have put `ctrl-t` in all three as something to run, which is why
+    // the keys are a listing of their own rather than a section.
+    for row in command_rows() {
+        assert!(
+            row.syntax.starts_with('/'),
+            "{:?} is not a command",
+            row.syntax
+        );
+    }
+    let t = Translations::default();
+    for item in command_items(
+        &command_rows()
+            .iter()
+            .map(PaletteRow::from)
+            .collect::<Vec<_>>(),
+        &t,
+    ) {
+        assert!(!item.label.contains("ctrl-"), "{:?} is a key", item.label);
+    }
+}
+
+#[test]
 fn help_indents_every_row_the_same_including_the_first() {
     let help = help_text(&Translations::default());
     for line in help_lines(&help) {

@@ -572,6 +572,17 @@
         "locale": {
           "type": "string"
         },
+        "reasoning": {
+          "type": "string",
+          "enum": [
+            "hidden",
+            "collapsed",
+            "expanded"
+          ]
+        },
+        "expandToolOutput": {
+          "type": "boolean"
+        },
         "timezone": {
           "type": "string",
           "minLength": 1

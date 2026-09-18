@@ -74,6 +74,21 @@ pub enum PromptMode {
     Raw,
 }
 
+/// How much of the model's reasoning is shown before anybody asks.
+///
+/// See [`UiConfig::reasoning`] for why there are three of these and not two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningDisplay {
+    /// Never rendered. The strong reading of "hide the thinking".
+    Hidden,
+    /// Rendered as one labelled row that opens on a keystroke.
+    #[default]
+    Collapsed,
+    /// Rendered in full, as it arrives.
+    Expanded,
+}
+
 // One agent's settings
 
 /// The working folder every agent shares.
@@ -1045,6 +1060,26 @@ pub struct UiConfig {
     /// A BCP-47 tag. Unknown values fall back rather than failing to parse.
     #[serde(default = "default_locale")]
     pub locale: String,
+    /// How much of the model's reasoning a reader is shown by default.
+    ///
+    /// Three states rather than a switch, and the middle one is why. `hidden`
+    /// stops the reasoning reaching a surface at all, which is what somebody
+    /// who never wants to see it means. `collapsed` is the default: the run is
+    /// there, labelled, one row, and opening it is a keystroke. A switch would
+    /// have had to pick one of those two to be "off", and both readings are
+    /// reasonable.
+    ///
+    /// It governs both surfaces, because it is a property of the install rather
+    /// than of the terminal. The browser collapses reasoning already, so only
+    /// `hidden` changes anything there.
+    #[serde(default)]
+    pub reasoning: ReasoningDisplay,
+    /// Whether a tool's output arrives open.
+    ///
+    /// A switch and not three states, unlike reasoning above: the text is
+    /// written either way, so there is no third thing for "off" to mean.
+    #[serde(default)]
+    pub expand_tool_output: bool,
     /// The one zone this install reads and writes clock times in.
     ///
     /// Everything is *stored* in UTC, so this is not a storage format; it is
@@ -1070,6 +1105,8 @@ impl Default for UiConfig {
     fn default() -> Self {
         Self {
             locale: default_locale(),
+            reasoning: ReasoningDisplay::default(),
+            expand_tool_output: false,
             timezone: default_timezone(),
         }
     }
@@ -1628,6 +1665,12 @@ pub struct UiConfigPatch {
     /// See [`UiConfig::locale`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+    /// See [`UiConfig::reasoning`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningDisplay>,
+    /// See [`UiConfig::expand_tool_output`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expand_tool_output: Option<bool>,
     /// See [`UiConfig::timezone`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]

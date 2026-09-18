@@ -164,11 +164,21 @@ export function ToolCard({ tool, onApprove }: ToolCardProps): JSX.Element {
 
           <span className="tool-card__timing">
             {tool.status === 'running' && formatDuration(elapsedMs)}
-            {tool.status === 'awaiting-approval' && 'waiting for you'}
+            {tool.status === 'awaiting-approval' && t('tool.needsYou')}
             {tool.durationMs !== undefined && formatDuration(tool.durationMs)}
           </span>
         </button>
       </h4>
+
+      {/* Outside the disclosure, because a running call is collapsed by
+          default and the one thing worth saying about it is that it is still
+          going. Inside, it would be behind a click on the very card whose
+          silence prompted the click. */}
+      {tool.status === 'running' && (
+        <p className="tool-card__running" role="status">
+          {tool.progress ?? t('tool.running')}
+        </p>
+      )}
 
       {tool.approval !== undefined && (
         <ApprovalPrompt
@@ -218,10 +228,6 @@ export function ToolCard({ tool, onApprove }: ToolCardProps): JSX.Element {
                 <p className="tool-card__note">{t('tool.truncated')}</p>
               )}
             </Labelled>
-          )}
-
-          {tool.content === undefined && tool.status === 'running' && (
-            <p className="tool-card__running">{t('tool.running')}</p>
           )}
         </div>
       )}
@@ -349,7 +355,6 @@ export function TurnParts({
   readonly unanswered?: boolean;
 }): JSX.Element {
   const last = parts.at(-1);
-  const hasAnswer = parts.some((part) => part.kind === 'text');
 
   return (
     <>
@@ -365,7 +370,7 @@ export function TurnParts({
               <ReasoningBlock
                 key={part.id}
                 text={part.text}
-                live={live && !hasAnswer}
+                live={live}
                 expanded={unanswered}
               />
             );

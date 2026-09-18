@@ -10,6 +10,15 @@
     "argument": "a single turn to run, instead of the prompt",
     "attachedTo": "attached to {{key}}",
     "description": "Talk to the agent. With no message, opens a prompt.",
+    "folds": {
+      "reasoningOff": "reasoning is off for this session. /output reasoning on brings it back",
+      "thinking": "thinking…",
+      "thought": "thought",
+      "toolsFolded": "tool output folded",
+      "toolsShown": "tool output shown",
+      "reasoningFolded": "reasoning folded",
+      "reasoningShown": "reasoning shown"
+    },
     "generating": "thinking…",
     "header": {
       "agent": "agent",
@@ -233,6 +242,20 @@
       "workspaceRm": "detach; refuses while sessions name it",
       "workspaces": "list them, marking the current one"
     },
+    "keys": {
+      "cancel": "stop the turn, or leave",
+      "complete": "take the highlighted command",
+      "editLine": "start of line, end of line, back, forward",
+      "editWord": "back a word, forward a word",
+      "history": "the last thing you asked, and the one before it",
+      "kill": "clear the line, clear to the end, delete a word",
+      "leave": "leave",
+      "palette": "every command, searchable",
+      "redraw": "draw the screen again",
+      "reasoning": "fold or unfold the reasoning",
+      "run": "run the highlighted command",
+      "tools": "fold or unfold what tools printed"
+    },
     "notes": {
       "created": "created {{id}}",
       "deleted": "deleted {{key}}",
@@ -279,6 +302,7 @@
     "sections": {
       "agents": "agents",
       "context": "context and cost",
+      "keys": "keys",
       "memory": "memory",
       "messages": "messages",
       "output": "what a turn shows",

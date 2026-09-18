@@ -22,11 +22,13 @@ use std::future::Future;
 use std::pin::Pin;
 
 use darkwire::chat::{
-    ChunkSink, Frame, RunTurnDeps, SIGINT_EXIT_CODE, Surface, TurnOutcome, TurnSink, Typed, chunks,
-    drive_prompt, handle_key, run_turn,
+    ChunkSink, FoldDefaults, Frame, FrameEvent, RunTurnDeps, SIGINT_EXIT_CODE, Surface,
+    TurnOutcome, TurnSink, Typed, chunks, drive_prompt, handle_key, run_turn,
 };
+use darkwire::commands::command_rows;
 use darkwire::i18n::Env;
 use darkwire::i18n::Translations;
+use darkwire::pickers::palette::{PaletteRow, command_items};
 use darkwire::pickers::{NoMenu, PickerMenu};
 use darkwire::program::{ChatArgs, Globals};
 use darkwire::render::{TurnRenderer, TurnRendererOptions};
@@ -35,6 +37,8 @@ use darkwire_agent::{AgentLoop, AgentLoopOptions, SteeringQueue};
 use darkwire_core::messages::Content;
 use darkwire_core::{Database, ErrorKind, SessionStore};
 use darkwire_protocol::StopReason;
+use darkwire_protocol::config::ReasoningDisplay;
+use darkwire_protocol::tasks::TaskStatus;
 use darkwire_security::jail::{JailOptions, WorkspaceJail, single_jail};
 use darkwire_tools::{ToolRegistry, ToolScope};
 use darkwire_tui::{Key, parse_key};
@@ -313,7 +317,7 @@ async fn a_session_created_by_a_turn_lands_in_the_workspace_it_was_given() {
 struct Scripted {
     lines: std::collections::VecDeque<String>,
     sink: ChunkSink,
-    chunks: tokio::sync::mpsc::UnboundedReceiver<String>,
+    chunks: tokio::sync::mpsc::UnboundedReceiver<FrameEvent>,
     menu: NoMenu,
     /// Every line the loop echoed back, in order.
     echoed: Vec<String>,
@@ -343,8 +347,8 @@ impl Scripted {
     }
 
     fn drain(&mut self) {
-        while let Ok(text) = self.chunks.try_recv() {
-            self.drawn.push_str(&text);
+        while let Ok(event) = self.chunks.try_recv() {
+            self.drawn.push_str(event.as_text());
         }
     }
 }
@@ -547,7 +551,22 @@ async fn attaching_moves_the_prompt_to_another_conversation() {
 // ------------------------------------------------------------- keystrokes
 
 fn frame() -> Frame {
-    Frame::new(darkwire_tui::theme_for(Some(false)), "generating")
+    frame_with(FoldDefaults::default())
+}
+
+fn frame_with(folds: FoldDefaults) -> Frame {
+    let t = Translations::new(darkwire_i18n::DEFAULT_LOCALE);
+    let mut frame = Frame::new(
+        darkwire_tui::theme_for(Some(false)),
+        "generating",
+        darkwire::chat::FoldLabels::from(&t),
+    );
+    frame.set_folds(folds);
+    // The real table, so the list a slash command opens is the one the
+    // operator would see rather than a fixture that cannot go stale.
+    let rows: Vec<PaletteRow> = command_rows().iter().map(PaletteRow::from).collect();
+    frame.set_commands(command_items(&rows, &t));
+    frame
 }
 
 /// A key as the terminal actually sends it, decoded by the real parser.
@@ -585,20 +604,379 @@ fn return_on_an_empty_line_is_not_a_line() {
 }
 
 #[test]
-fn tab_asks_for_a_completion_rather_than_inserting_one() {
-    // The table lives on the surface, which is what knows which commands this
-    // install actually has — an extension adds rows to it.
+fn typing_a_slash_opens_the_list_beside_the_line() {
+    // Beside, not over: what was typed stays visible and editable, which is the
+    // whole difference from the palette.
     let mut frame = frame();
     typed(&mut frame, "/he");
+
+    assert!(has(&mut frame, "/help"));
+    assert_eq!(frame.typing(), "/he");
+}
+
+#[test]
+fn the_list_closes_once_the_command_is_a_command_and_arguments_follow() {
+    // A slash command is one token. Past the space the operator is typing
+    // arguments, and a list of commands is no longer an answer to anything.
+    let mut frame = frame();
+    typed(&mut frame, "/rename ");
+    assert!(!has(&mut frame, "/help"));
+}
+
+#[test]
+fn the_list_is_not_offered_for_ordinary_prose() {
+    let mut frame = frame();
+    typed(&mut frame, "what is a slash command");
+    assert!(!has(&mut frame, "/help"));
+}
+
+#[test]
+fn tab_takes_the_row_under_the_cursor() {
+    // What Tab used to do only when exactly one command matched. An ambiguous
+    // prefix used to leave the line alone and say nothing; now it is a list
+    // with a cursor on it.
+    let mut frame = frame();
+    typed(&mut frame, "/he");
+    assert_eq!(handle_key(&mut frame, &key("\t")), Typed::Redraw);
+    assert_eq!(frame.typing(), "/help ");
+}
+
+#[test]
+fn return_runs_a_command_that_needs_nothing_else() {
+    let mut frame = frame();
+    typed(&mut frame, "/hel");
+    assert_eq!(
+        handle_key(&mut frame, &key("\r")),
+        Typed::Line("/help".to_owned()),
+    );
+    assert_eq!(frame.typing(), "");
+}
+
+#[test]
+fn return_leaves_a_command_that_wants_an_argument_on_the_line() {
+    // Submitting `/rename` with no title would be running a command the
+    // operator has not finished writing.
+    let mut frame = frame();
+    typed(&mut frame, "/renam");
+    assert_eq!(handle_key(&mut frame, &key("\r")), Typed::Redraw);
+    assert_eq!(frame.typing(), "/rename ");
+}
+
+#[test]
+fn escape_puts_the_list_away_and_keeps_what_was_typed() {
+    let mut frame = frame();
+    typed(&mut frame, "/he");
+    assert_eq!(handle_key(&mut frame, &key("\u{1b}")), Typed::Redraw);
+    assert!(!has(&mut frame, "/help"));
+    assert_eq!(frame.typing(), "/he");
+}
+
+#[test]
+fn tab_outside_a_slash_command_still_asks_for_a_completion() {
+    let mut frame = frame();
+    typed(&mut frame, "ordinary prose");
     assert_eq!(handle_key(&mut frame, &key("\t")), Typed::Complete);
 }
 
 #[test]
-fn ctrl_g_opens_the_palette_and_is_still_the_only_shortcut() {
+fn ctrl_g_opens_the_palette() {
     let mut frame = frame();
     assert_eq!(handle_key(&mut frame, &key("\u{7}")), Typed::Palette);
-    // Every other control key means what a shell says it means.
+    // Ctrl-A is the editor's, and every control key this frame does not claim
+    // still means what a shell says it means.
     assert_eq!(handle_key(&mut frame, &key("\u{1}")), Typed::Redraw);
+}
+
+// ------------------------------------------------------------------- folds
+
+/// Everything the frame would draw above its own chrome.
+fn shown(frame: &mut Frame) -> Vec<String> {
+    darkwire_tui::Component::render(frame, 80)
+}
+
+fn has(frame: &mut Frame, needle: &str) -> bool {
+    shown(frame).iter().any(|row| row.contains(needle))
+}
+
+#[test]
+fn reasoning_arrives_folded_and_tool_output_with_it() {
+    // A turn is read for its answer. The working out is available, not first.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
+    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
+    frame.absorb(&FrameEvent::ToolBodyEnd);
+
+    assert!(!has(&mut frame, "a private thought"));
+    assert!(!has(&mut frame, "a line of output"));
+    // Folded, not hidden: both still say they happened.
+    assert!(has(&mut frame, "thought"));
+    assert!(has(&mut frame, "ok 1.2s"));
+}
+
+#[test]
+fn ctrl_t_opens_the_reasoning_that_is_still_on_screen() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+
+    assert_eq!(handle_key(&mut frame, &key("\u{14}")), Typed::FoldReasoning);
+    assert!(has(&mut frame, "a private thought"));
+
+    handle_key(&mut frame, &key("\u{14}"));
+    assert!(!has(&mut frame, "a private thought"));
+}
+
+#[test]
+fn ctrl_t_also_says_how_the_next_run_arrives() {
+    // The half that keeps working once the screen has filled: a run already in
+    // the terminal's scrollback cannot be rewritten, so a key that only reached
+    // what was visible would quietly stop meaning anything.
+    let mut frame = frame();
+    handle_key(&mut frame, &key("\u{14}"));
+
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a later thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    assert!(has(&mut frame, "a later thought"));
+}
+
+#[test]
+fn ctrl_o_leaves_the_reasoning_alone_and_the_other_way_round() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
+    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
+    frame.absorb(&FrameEvent::ToolBodyEnd);
+
+    assert_eq!(handle_key(&mut frame, &key("\u{f}")), Typed::FoldTools);
+    assert!(has(&mut frame, "a line of output"));
+    assert!(!has(&mut frame, "a private thought"));
+}
+
+#[test]
+fn the_answer_itself_never_folds() {
+    // Text outside a run is the thing the reader came for. There is no key for
+    // hiding it and no state in which it is hidden.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Text("the answer\n".to_owned()));
+    handle_key(&mut frame, &key("\u{14}"));
+    handle_key(&mut frame, &key("\u{f}"));
+    assert!(has(&mut frame, "the answer"));
+}
+
+#[test]
+fn a_folded_run_of_reasoning_keeps_moving_while_it_runs() {
+    // The one thing on screen while the model thinks. A row that never changed
+    // would be indistinguishable from a terminal that had stopped.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("thinking hard\n".to_owned()));
+
+    let before = shown(&mut frame);
+    for _ in 0..40 {
+        frame.tick();
+    }
+    assert_ne!(shown(&mut frame), before);
+}
+
+#[test]
+fn the_spinner_survives_a_run_of_reasoning_that_says_nothing_visible() {
+    // `absorb` used to clear it on the first byte of anything. With reasoning
+    // folded away, that byte is one nobody sees, so the frame would go blank
+    // and stay blank for the length of the run.
+    let mut frame = frame();
+    frame.start_turn();
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    assert!(frame.is_waiting());
+
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&FrameEvent::Text("the answer".to_owned()));
+    assert!(!frame.is_waiting());
+}
+
+#[test]
+fn ctrl_t_on_a_session_with_reasoning_off_says_where_the_switch_is() {
+    // Doing nothing would be defensible and would read as a broken key. The
+    // reasoning never reached this frame, so there is nothing to unfold and the
+    // only useful answer is the sentence saying so.
+    let mut frame = frame_with(FoldDefaults {
+        reasoning: ReasoningDisplay::Hidden,
+        tools: true,
+    });
+    handle_key(&mut frame, &key("\u{14}"));
+    assert!(has(&mut frame, "reasoning is off"));
+}
+
+#[test]
+fn the_install_settings_decide_how_a_run_arrives() {
+    // The one place the config becomes frame behaviour. `expandToolOutput` is
+    // the inverse of "folded", which is exactly the sort of flip that is right
+    // once and wrong afterwards.
+    use darkwire_protocol::config::UiConfig;
+
+    let folds = FoldDefaults::from(&UiConfig::default());
+    assert_eq!(folds.reasoning, ReasoningDisplay::Collapsed);
+    assert!(folds.tools, "tool output is folded by default");
+
+    let opened = FoldDefaults::from(&UiConfig {
+        reasoning: ReasoningDisplay::Expanded,
+        expand_tool_output: true,
+        ..UiConfig::default()
+    });
+    assert_eq!(opened.reasoning, ReasoningDisplay::Expanded);
+    assert!(!opened.tools);
+}
+
+#[test]
+fn switching_reasoning_off_mid_session_makes_the_key_say_so() {
+    // `/output reasoning off` and `ui.reasoning: hidden` are the same state
+    // reached two ways, and Ctrl-T has to read them the same way. Otherwise
+    // the key claims there is something folded away after the command that
+    // stopped anything arriving.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningShown(false));
+    handle_key(&mut frame, &key("\u{14}"));
+    assert!(has(&mut frame, "reasoning is off"));
+}
+
+#[test]
+fn switching_reasoning_back_on_makes_the_key_work_again() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::ReasoningShown(false));
+    frame.absorb(&FrameEvent::ReasoningShown(true));
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+
+    assert!(!has(&mut frame, "a thought"));
+    handle_key(&mut frame, &key("\u{14}"));
+    assert!(has(&mut frame, "a thought"));
+}
+
+#[test]
+fn tool_output_arrives_open_when_the_install_asked_for_that() {
+    let mut frame = frame_with(FoldDefaults {
+        reasoning: ReasoningDisplay::Collapsed,
+        tools: false,
+    });
+    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
+    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
+    frame.absorb(&FrameEvent::ToolBodyEnd);
+    assert!(has(&mut frame, "a line of output"));
+}
+
+#[test]
+fn reasoning_arrives_open_when_the_install_asked_for_that() {
+    let mut frame = frame_with(FoldDefaults {
+        reasoning: ReasoningDisplay::Expanded,
+        tools: true,
+    });
+    frame.absorb(&FrameEvent::ReasoningStart);
+    frame.absorb(&FrameEvent::Text("a thought\n".to_owned()));
+    frame.absorb(&FrameEvent::ReasoningEnd);
+    assert!(has(&mut frame, "a thought"));
+}
+
+// ------------------------------------------------------------------- tasks
+
+fn plan(rows: &[(TaskStatus, &str)]) -> Vec<(TaskStatus, String)> {
+    rows.iter()
+        .map(|(status, text)| (*status, (*text).to_owned()))
+        .collect()
+}
+
+#[test]
+fn a_session_with_no_plan_draws_no_plan() {
+    // A blank box above the composer of a conversation that has not started
+    // answers a question nobody asked.
+    let mut frame = frame();
+    let rows = shown(&mut frame);
+    assert!(!rows.iter().any(|row| row.contains("▸")));
+}
+
+#[test]
+fn the_plan_sits_above_the_input_and_not_in_the_conversation() {
+    // Frame state, not transcript. A turn that revises its plan six times must
+    // leave one list on screen and nothing at all in the scrollback.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Tasks(plan(&[
+        (TaskStatus::Done, "inspect auth"),
+        (TaskStatus::Doing, "update sessions"),
+    ])));
+    frame.absorb(&FrameEvent::Tasks(plan(&[
+        (TaskStatus::Done, "inspect auth"),
+        (TaskStatus::Done, "update sessions"),
+        (TaskStatus::Doing, "add tests"),
+    ])));
+
+    let rows = shown(&mut frame);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.contains("inspect auth"))
+            .count(),
+        1,
+    );
+    assert!(rows.iter().any(|row| row.contains("add tests")));
+}
+
+#[test]
+fn a_long_plan_shows_a_window_around_what_is_in_hand() {
+    // "Where has this got to" is answered worse by ten rows above the box you
+    // type into than by three.
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Tasks(plan(&[
+        (TaskStatus::Done, "one"),
+        (TaskStatus::Done, "two"),
+        (TaskStatus::Done, "three"),
+        (TaskStatus::Doing, "four"),
+        (TaskStatus::Todo, "five"),
+        (TaskStatus::Todo, "six"),
+    ])));
+
+    let rows = shown(&mut frame);
+    assert!(rows.iter().any(|row| row.contains("four")));
+    assert!(rows.iter().any(|row| row.contains("three")));
+    assert!(!rows.iter().any(|row| row.contains("one")));
+    // Everything off the window, above as well as below: two finished tasks
+    // scrolled off the top are as hidden as the one below.
+    assert!(rows.iter().any(|row| row.contains("+3 more")));
+}
+
+#[test]
+fn an_emptied_plan_leaves_nothing_behind() {
+    let mut frame = frame();
+    frame.absorb(&FrameEvent::Tasks(plan(&[(TaskStatus::Doing, "a task")])));
+    assert!(has(&mut frame, "a task"));
+
+    frame.absorb(&FrameEvent::Tasks(Vec::new()));
+    assert!(!has(&mut frame, "a task"));
+}
+
+#[test]
+fn ctrl_l_asks_for_the_screen_to_be_thrown_away() {
+    // Distinct from `Redraw`, which draws the frame against what the renderer
+    // believes is on the screen. Ctrl-L is asked for precisely when that belief
+    // is wrong, so it has to be an answer the renderer cannot reach by diffing.
+    let mut frame = frame();
+    assert_eq!(handle_key(&mut frame, &key("\u{c}")), Typed::Reset);
+}
+
+#[test]
+fn ctrl_l_leaves_what_is_typed_alone() {
+    // It repaints the screen; it does not clear the line. A shell's does the
+    // same, and losing a half-written question to a smudge on the terminal
+    // would be a worse bargain than the smudge.
+    let mut frame = frame();
+    typed(&mut frame, "half a question");
+    handle_key(&mut frame, &key("\u{c}"));
+    assert_eq!(frame.typing(), "half a question");
 }
 
 #[test]
@@ -622,8 +1000,8 @@ async fn a_sink_hands_every_write_to_whoever_is_draining_it() {
     drop(sink);
 
     let mut seen = String::new();
-    while let Some(text) = rx.recv().await {
-        seen.push_str(&text);
+    while let Some(event) = rx.recv().await {
+        seen.push_str(event.as_text());
     }
     assert_eq!(seen, "onetwo");
 }

@@ -650,6 +650,19 @@
               "default": "en",
               "type": "string"
             },
+            "reasoning": {
+              "default": "collapsed",
+              "type": "string",
+              "enum": [
+                "hidden",
+                "collapsed",
+                "expanded"
+              ]
+            },
+            "expandToolOutput": {
+              "default": false,
+              "type": "boolean"
+            },
             "timezone": {
               "default": "UTC",
               "type": "string",

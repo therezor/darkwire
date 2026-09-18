@@ -42,14 +42,16 @@ use darkwire_core::messages::Content;
 use darkwire_core::session_store::CreateSession;
 use darkwire_core::{Result, WireError};
 use darkwire_i18n::{args, keys};
+use darkwire_protocol::config::ReasoningDisplay;
+use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, StopReason};
 use darkwire_runtime::{RuntimeOptions, WireRuntime};
 use darkwire_server::agent_for_turn;
 use darkwire_tui::{
-    CHROME_ROWS, Component, DEFAULT_MAX_ROWS, Editor, EditorOutcome, Key, KeyName, Renderer,
-    RendererOptions, SPINNER_INTERVAL_MS, Select, SelectOptions, SelectOutcome, StandardInput,
-    StandardOutput, TerminalInput, Theme, Transcript, columns_of, is_ctrl, open_keyboard,
-    spinner_frame, theme_for,
+    CHROME_ROWS, Component, DEFAULT_MAX_ROWS, Editor, EditorOutcome, FRAME_INTERVAL_MS, Key,
+    KeyName, Renderer, RendererOptions, SPINNER_INTERVAL_MS, Select, SelectItem, SelectList,
+    SelectOptions, SelectOutcome, StandardInput, StandardOutput, TerminalInput, Theme, Transcript,
+    columns_of, is_ctrl, open_keyboard, spinner_frame, theme_for, truncate_to_width,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -60,11 +62,20 @@ use crate::header::{ContextUsage, HeaderView, input_rule, startup_header, status
 use crate::i18n::{Env, Translations, describe_error};
 use crate::menu::{MenuAvailable, menu_available};
 use crate::models::{ModelCatalogue, ModelCatalogueOptions, create_model_catalogue};
-use crate::pickers::palette::{complete_command, pick_command};
+use crate::pickers::palette::{CommandChoice, command_items, complete_command, pick_command};
 use crate::pickers::{MenuRequest as PickerRequest, NoMenu, PickerMenu};
 use crate::program::{ChatArgs, Globals};
-use crate::render::{TurnRenderer, TurnRendererOptions};
+use crate::render::{TurnRenderer, TurnRendererOptions, format_duration};
 use crate::runtime::{env_map, install_logger, settings_of};
+
+/// How many streamed chunks the pump takes before it must draw.
+///
+/// Absorbing a chunk is cheap and drawing is not, so the loop prefers to drain;
+/// but a provider that never stops arriving would hold the first arm of a
+/// `biased` select forever and nothing else would run. This is the ceiling that
+/// makes the frame tick, the keyboard and the interrupt reachable under a
+/// flood.
+const CHUNKS_PER_FRAME: usize = 64;
 
 /// Conventional exit code for "terminated by SIGINT".
 pub const SIGINT_EXIT_CODE: u8 = 130;
@@ -230,6 +241,18 @@ pub struct ChatSession {
     /// The process environment, for the one question the prompt asks of it:
     /// whether this terminal can draw a menu at all.
     env: Env,
+}
+
+impl ChatSession {
+    /// Whether reasoning is worth sending to a surface at all.
+    ///
+    /// `hidden` is the strong reading of the setting, and it is enforced at the
+    /// source rather than at the fold: text nobody can ever unfold is text
+    /// nobody should have paid to format, carry over a channel and hold in a
+    /// transcript.
+    fn reasoning_reaches_a_reader(&self) -> bool {
+        self.runtime.config().ui.reasoning != ReasoningDisplay::Hidden
+    }
 }
 
 impl std::fmt::Debug for ChatSession {
@@ -629,7 +652,7 @@ async fn turn_once(
         } else {
             session.colors
         },
-        show_reasoning: args.show_reasoning,
+        show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
         t: Translations::new(session.t.locale()),
         ..TurnRendererOptions::new(Box::new(std::io::sink()))
     });
@@ -680,19 +703,102 @@ async fn turn_once(
 /// same bytes reach a pipe, or a frame's transcript, as the model produces
 /// them, without the writer having to know which one it got.
 #[derive(Clone, Debug)]
-pub struct ChunkSink(mpsc::UnboundedSender<String>);
+pub struct ChunkSink(mpsc::UnboundedSender<FrameEvent>);
+
+/// What a renderer tells the frame, in the order it happened.
+///
+/// Text and structure on one channel, because they are one sequence: a
+/// reasoning run starts *between* two chunks of prose, and two channels would
+/// leave the frame guessing which side of a boundary a chunk fell on.
+///
+/// The variants say what happened, not what to draw with it. Nothing here
+/// mentions a fold. That is the frame's word, and keeping it out is what lets
+/// the same renderer feed a pipe, a log file and a screen.
+#[derive(Clone, Debug)]
+pub enum FrameEvent {
+    /// Prose, exactly as it would have been written.
+    Text(String),
+    /// The model has started reasoning.
+    ReasoningStart,
+    /// The reasoning run has ended.
+    ReasoningEnd,
+    /// A tool's output follows, under the row this carries.
+    ToolBodyStart(String),
+    /// The tool's output has ended.
+    ToolBodyEnd,
+    /// The agent has rewritten its plan; this is the whole of it.
+    Tasks(Vec<(TaskStatus, String)>),
+    /// Reasoning has been switched on or off for the rest of the session.
+    ReasoningShown(bool),
+}
+
+impl FrameEvent {
+    /// The bytes this event would have been, for a target that only writes.
+    ///
+    /// A pipe and a log file have nowhere to put structure, so they take the
+    /// text and the rows the signals carry and drop the boundaries, which is
+    /// byte for byte what they saw before any of this existed.
+    #[must_use]
+    pub fn as_text(&self) -> &str {
+        match self {
+            FrameEvent::Text(text) | FrameEvent::ToolBodyStart(text) => text,
+            FrameEvent::ReasoningStart
+            | FrameEvent::ReasoningEnd
+            | FrameEvent::ToolBodyEnd
+            | FrameEvent::Tasks(_)
+            | FrameEvent::ReasoningShown(_) => "",
+        }
+    }
+}
+
+impl ChunkSink {
+    /// A closed receiver means the surface has already gone; the turn is on its
+    /// way out behind it and has nothing useful to do about the loss.
+    fn send(&self, event: FrameEvent) {
+        let _ = self.0.send(event);
+    }
+}
 
 impl crate::render::RenderTarget for ChunkSink {
     fn write(&mut self, text: &str) {
-        // A closed receiver means the surface has already gone; the turn is on
-        // its way out behind it and has nothing useful to do about the loss.
-        let _ = self.0.send(text.to_owned());
+        self.send(FrameEvent::Text(text.to_owned()));
+    }
+
+    fn reasoning_start(&mut self) {
+        self.send(FrameEvent::ReasoningStart);
+    }
+
+    fn reasoning_end(&mut self) {
+        self.send(FrameEvent::ReasoningEnd);
+    }
+
+    fn tool_body_start(&mut self, summary: &str) {
+        self.send(FrameEvent::ToolBodyStart(summary.to_owned()));
+    }
+
+    fn tool_body_end(&mut self) {
+        self.send(FrameEvent::ToolBodyEnd);
+    }
+
+    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
+        self.send(FrameEvent::Tasks(tasks.to_vec()));
+    }
+
+    /// Nothing. The frame keeps the plan above the box you type into, so the
+    /// card the call announced would be the same list a second time, in the
+    /// scrollback, one copy per revision.
+    fn tasks_card(&mut self, card: &str) {
+        let _ = card;
+    }
+
+    fn reasoning_shown(&mut self, shown: bool) {
+        self.send(FrameEvent::ReasoningShown(shown));
     }
 }
 
 /// A sink and the receiver that drains it.
 #[must_use]
-pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<String>) {
+pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<FrameEvent>) {
     let (tx, rx) = mpsc::unbounded_channel();
     (ChunkSink(tx), rx)
 }
@@ -704,22 +810,23 @@ pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<String>) {
 /// turn race, and the tail of an answer lands after the summary line.
 async fn streamed(
     turn: impl Future<Output = Result<TurnOutcome>>,
-    chunks: &mut mpsc::UnboundedReceiver<String>,
+    chunks: &mut mpsc::UnboundedReceiver<FrameEvent>,
     out: &mut (dyn Write + Send),
 ) -> Result<TurnOutcome> {
     tokio::pin!(turn);
     let outcome = loop {
         tokio::select! {
             biased;
-            Some(text) = chunks.recv() => {
-                out.write_all(text.as_bytes()).map_err(WireError::from)?;
+            Some(event) = chunks.recv() => {
+                out.write_all(event.as_text().as_bytes()).map_err(WireError::from)?;
                 out.flush().map_err(WireError::from)?;
             }
             done = &mut turn => break done,
         }
     };
-    while let Ok(text) = chunks.try_recv() {
-        out.write_all(text.as_bytes()).map_err(WireError::from)?;
+    while let Ok(event) = chunks.try_recv() {
+        out.write_all(event.as_text().as_bytes())
+            .map_err(WireError::from)?;
     }
     out.flush().map_err(WireError::from)?;
     outcome
@@ -800,7 +907,7 @@ pub async fn drive_prompt(
     let mut renderer = TurnRenderer::new(TurnRendererOptions {
         out: Box::new(surface.sink()),
         colors: session.colors,
-        show_reasoning: args.show_reasoning,
+        show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
         t: Translations::new(session.t.locale()),
         ..TurnRendererOptions::new(Box::new(std::io::sink()))
     });
@@ -948,7 +1055,7 @@ pub struct PlainSurface<'a> {
     out: &'a mut (dyn Write + Send),
     lines: mpsc::UnboundedReceiver<String>,
     sink: ChunkSink,
-    chunks: mpsc::UnboundedReceiver<String>,
+    chunks: mpsc::UnboundedReceiver<FrameEvent>,
     menu: NoMenu,
 }
 
@@ -1046,8 +1153,8 @@ impl Surface for PlainSurface<'_> {
         // reaches the stream.
         let _ = view;
         Box::pin(async move {
-            while let Ok(text) = self.chunks.try_recv() {
-                let _ = self.out.write_all(text.as_bytes());
+            while let Ok(event) = self.chunks.try_recv() {
+                let _ = self.out.write_all(event.as_text().as_bytes());
             }
             let _ = self.out.flush();
         })
@@ -1055,8 +1162,8 @@ impl Surface for PlainSurface<'_> {
 
     fn close(&mut self) -> BoxFut<'_, ()> {
         Box::pin(async move {
-            while let Ok(text) = self.chunks.try_recv() {
-                let _ = self.out.write_all(text.as_bytes());
+            while let Ok(event) = self.chunks.try_recv() {
+                let _ = self.out.write_all(event.as_text().as_bytes());
             }
             let _ = self.out.flush();
         })
@@ -1076,12 +1183,129 @@ pub struct Frame {
     transcript: Transcript,
     editor: Editor,
     overlay: Option<Select<usize>>,
+    /// The command list, while a slash command is being typed.
+    ///
+    /// Beside the editor rather than over it, which is the whole difference
+    /// from the palette above: the palette replaces everything below the
+    /// conversation and owns the keyboard, and this sits between the
+    /// conversation and the rule while what you typed stays visible and
+    /// editable. A list that hid the line it was filtering would be a list you
+    /// had to close to see what you had asked for.
+    popup: Option<SelectList<CommandChoice>>,
+    /// Every command this install has, for the list above.
+    commands: Vec<SelectItem<CommandChoice>>,
     /// Spinner frame while a turn has said nothing yet; absent once it has.
     thinking: Option<i64>,
     theme: Theme,
     generating: String,
     status: Vec<String>,
+    /// How a *new* run of each kind arrives, and what Ctrl-T and Ctrl-O set.
+    ///
+    /// Held apart from each block's own state, and that is the whole of what
+    /// makes the key sensible: a run that has gone to the scrollback cannot be
+    /// rewritten, so a key that only reached what is on screen would stop
+    /// working the moment the screen filled. This is the half that keeps
+    /// working: press it once and every run after it arrives the way you asked.
+    folds: FoldDefaults,
+    /// Ticks since the open reasoning run started, for a summary that moves.
+    reasoning_since: Option<i64>,
+    /// The plan the agent is running on, as rows above the input.
+    ///
+    /// Frame state, not transcript: it is rewritten rather than appended, so a
+    /// turn that revises its plan six times leaves one list on screen and
+    /// nothing at all in the scrollback. Putting it in the conversation would
+    /// leave six stale copies of it there.
+    tasks: Vec<(TaskStatus, String)>,
+    /// The words a fold's summary is built from, translated once.
+    ///
+    /// Strings rather than a `Translations`, and not by preference: the frame
+    /// lives behind a mutex shared with a `Send` future, and the translator
+    /// holds an `Rc`. `generating` above is the same arrangement for the same
+    /// reason.
+    labels: FoldLabels,
 }
+
+/// The two words a run of reasoning is labelled with.
+#[derive(Debug, Clone, Default)]
+pub struct FoldLabels {
+    /// While it is still going.
+    pub thinking: String,
+    /// Once it has finished.
+    pub thought: String,
+    /// What Ctrl-T says when there is no reasoning to unfold.
+    pub reasoning_off: String,
+}
+
+impl FoldLabels {
+    /// The two words, from a translator the frame cannot hold on to.
+    #[must_use]
+    pub fn from(t: &Translations) -> FoldLabels {
+        FoldLabels {
+            thinking: t.t(keys::chat::folds::THINKING),
+            thought: t.t(keys::chat::folds::THOUGHT),
+            reasoning_off: t.t(keys::chat::folds::REASONING_OFF),
+        }
+    }
+}
+
+/// Which kinds of run arrive folded away.
+///
+/// The defaults are both folded, and that is the argument the whole feature
+/// rests on: a turn is read for its answer, and a terminal that prints every
+/// line of the reasoning and every line of every tool result buries the one
+/// thing the reader came for under the four things they can ask for.
+#[derive(Debug, Clone, Copy)]
+pub struct FoldDefaults {
+    /// How much of the model's reasoning arrives at all.
+    pub reasoning: ReasoningDisplay,
+    /// Whether a tool's output arrives folded.
+    pub tools: bool,
+}
+
+impl Default for FoldDefaults {
+    /// Both folded. Spelled out rather than derived, because `false` is the
+    /// derived answer for `tools` and it is the wrong one.
+    fn default() -> Self {
+        Self {
+            reasoning: ReasoningDisplay::Collapsed,
+            tools: true,
+        }
+    }
+}
+
+impl FoldDefaults {
+    /// What the install asked for.
+    #[must_use]
+    pub fn from(ui: &darkwire_protocol::config::UiConfig) -> FoldDefaults {
+        FoldDefaults {
+            reasoning: ui.reasoning,
+            tools: !ui.expand_tool_output,
+        }
+    }
+}
+
+/// How many tasks the frame shows at once. See [`Frame::task_rows`].
+const TASK_ROWS: usize = 3;
+
+/// One task, marked by where it has got to.
+///
+/// The same three marks the tool card prints, because they are the same three
+/// states and a reader should not have to learn them twice. The mark carries
+/// the distinction and the colour carries only one thing: which row is in hand.
+/// The frame's palette is deliberately small, and a plan painted in three
+/// colours above the box you type into would be the loudest thing on screen.
+fn task_row(theme: &Theme, status: TaskStatus, text: &str) -> String {
+    match status {
+        TaskStatus::Done => format!("  {} {}", theme.dim.apply("✓"), theme.dim.apply(text)),
+        TaskStatus::Doing => format!("  {} {}", theme.accent.apply("▸"), theme.text.apply(text)),
+        TaskStatus::Todo => format!("  {} {}", theme.dim.apply("☐"), theme.dim.apply(text)),
+    }
+}
+
+/// The tag a run of reasoning carries in the transcript.
+const REASONING_FOLD: &str = "reasoning";
+/// The tag a tool's output carries.
+const TOOL_FOLD: &str = "tool";
 
 impl std::fmt::Debug for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1096,22 +1320,326 @@ impl Frame {
     /// what a keystroke means is the part worth asserting, and a real screen
     /// is not.
     #[must_use]
-    pub fn new(theme: Theme, generating: &str) -> Frame {
+    pub fn new(theme: Theme, generating: &str, labels: FoldLabels) -> Frame {
         Frame {
             transcript: Transcript::new(),
             editor: Editor::new(&theme),
             overlay: None,
+            popup: None,
+            commands: Vec::new(),
             thinking: None,
             theme,
             generating: generating.to_owned(),
             status: Vec::new(),
+            folds: FoldDefaults::default(),
+            reasoning_since: None,
+            tasks: Vec::new(),
+            labels,
         }
+    }
+
+    /// One thing the turn said.
+    ///
+    /// The four signals become two folds here and nowhere else. A pipe reading
+    /// the same stream sees the text and none of this, which is the point of
+    /// the boundary being a signal rather than a fold.
+    pub fn absorb(&mut self, event: &FrameEvent) {
+        match event {
+            FrameEvent::Text(text) => {
+                self.transcript.write(text);
+                // The spinner stood in for an answer that had not started. A
+                // fold opening is not an answer starting, which is why this is
+                // here and not on every event: a collapsed run of reasoning
+                // would otherwise clear the one thing on screen that was moving.
+                if self.reasoning_since.is_none() {
+                    self.thinking = None;
+                }
+            }
+            FrameEvent::ReasoningStart => {
+                self.reasoning_since = Some(0);
+                let summary = self.reasoning_summary(false);
+                let collapsed = self.folds.reasoning != ReasoningDisplay::Expanded;
+                self.transcript
+                    .open_block(REASONING_FOLD, &summary, collapsed);
+            }
+            FrameEvent::ReasoningEnd => {
+                let summary = self.reasoning_summary(true);
+                self.transcript.set_summary(&summary);
+                self.transcript.close_block();
+                self.reasoning_since = None;
+            }
+            FrameEvent::ToolBodyStart(summary) => {
+                self.transcript.open_block(
+                    TOOL_FOLD,
+                    summary.trim_end_matches('\n'),
+                    self.folds.tools,
+                );
+            }
+            FrameEvent::ToolBodyEnd => self.transcript.close_block(),
+            FrameEvent::Tasks(tasks) => self.set_tasks(tasks),
+            // `/output reasoning off` and `ui.reasoning: hidden` are the same
+            // state reached two ways, so the fold has to read them the same
+            // way: Ctrl-T says where the switch is rather than pretending there
+            // is something folded away.
+            FrameEvent::ReasoningShown(shown) => {
+                self.folds.reasoning = if *shown {
+                    ReasoningDisplay::Collapsed
+                } else {
+                    ReasoningDisplay::Hidden
+                };
+            }
+        }
+    }
+
+    /// Replaces the plan shown above the input.
+    ///
+    /// Whole, because that is what the `todo` tool does: there is no add and no
+    /// complete, so the list that arrived is the list.
+    pub fn set_tasks(&mut self, tasks: &[(TaskStatus, String)]) {
+        self.tasks = tasks.to_vec();
+    }
+
+    /// How long the open run of reasoning has been going, in milliseconds.
+    ///
+    /// Counted from spinner ticks rather than a clock, which is not a style
+    /// choice: `SystemTime::now` is denied in `clippy.toml`, because a renderer
+    /// reading the wall clock is one a test cannot hold still.
+    fn reasoning_elapsed(&self) -> f64 {
+        let ticks = self.reasoning_since.unwrap_or(0).max(0);
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a tick count large enough to lose precision is a turn lasting weeks"
+        )]
+        let elapsed = (ticks as f64) * (SPINNER_INTERVAL_MS as f64);
+        elapsed
+    }
+
+    /// The row a folded run of reasoning shows.
+    ///
+    /// The figure is appended rather than interpolated into a sentence, so the
+    /// translation is a word and the duration is a duration. A template with a
+    /// count in it would need plural rules to say "1 second" in the languages
+    /// that have them, for a row that is read at a glance.
+    fn reasoning_summary(&self, done: bool) -> String {
+        let elapsed = format_duration(self.reasoning_elapsed());
+        let (mark, word) = if done {
+            ("┄", &self.labels.thought)
+        } else {
+            (
+                spinner_frame(self.thinking.unwrap_or(0)),
+                &self.labels.thinking,
+            )
+        };
+        self.theme.dim.apply(&format!("{mark} {word} {elapsed}"))
+    }
+
+    /// The commands the list offers.
+    pub fn set_commands(&mut self, commands: Vec<SelectItem<CommandChoice>>) {
+        self.commands = commands;
+    }
+
+    /// Moves the cursor in the open command list.
+    fn move_popup(&mut self, delta: i64) {
+        if let Some(popup) = self.popup.as_mut() {
+            popup.move_by(delta);
+        }
+    }
+
+    /// Opens, filters or closes the command list for what is on the line.
+    ///
+    /// A slash command is a single token, so the list is open exactly while the
+    /// line is one: from the `/` until the space that ends it. After that the
+    /// operator is typing arguments, and a list of commands is no longer an
+    /// answer to anything.
+    fn sync_popup(&mut self, rows: usize) {
+        let text = self.editor.text();
+        if !text.starts_with('/') || text.contains(' ') {
+            self.popup = None;
+            return;
+        }
+        if let Some(popup) = self.popup.as_mut() {
+            popup.set_rows(rows);
+            popup.set_filter(text);
+            return;
+        }
+        let mut popup = SelectList::new(self.commands.clone(), Some(rows), None);
+        popup.set_filter(text);
+        self.popup = Some(popup);
+    }
+
+    /// Takes the highlighted row, if the list is open and has one.
+    ///
+    /// A row that needs an argument lands on the line with the cursor after it.
+    /// A row that needs nothing is submitted when `run` says so, because there
+    /// is nothing left for the operator to say. Only then, though: Tab completes
+    /// and Return runs, and that distinction is older than this program.
+    fn accept_popup(&mut self, run: bool) -> Typed {
+        let Some(choice) = self
+            .popup
+            .as_ref()
+            .and_then(SelectList::selected)
+            .map(|item| item.value.clone())
+        else {
+            return Typed::Redraw;
+        };
+        self.popup = None;
+        if run && choice.submit {
+            self.editor.set_text("");
+            self.editor.remember(&choice.command);
+            return Typed::Line(choice.command);
+        }
+        self.editor.set_text(&format!("{} ", choice.command));
+        Typed::Redraw
+    }
+
+    /// How runs of each kind arrive from here on.
+    pub fn set_folds(&mut self, folds: FoldDefaults) {
+        self.folds = folds;
+    }
+
+    /// A turn has started: nothing has been said yet, so the spinner stands in.
+    pub fn start_turn(&mut self) {
+        self.thinking = Some(0);
+    }
+
+    /// The turn is over, or has started answering.
+    pub fn end_turn(&mut self) {
+        self.thinking = None;
+        self.reasoning_since = None;
+    }
+
+    /// Whether the frame is still standing in for an answer that has not begun.
+    #[must_use]
+    pub fn is_waiting(&self) -> bool {
+        self.thinking.is_some()
+    }
+
+    /// Advances everything that moves on its own. Says whether anything did.
+    ///
+    /// The spinner, and the figure on an open run of reasoning. The second is
+    /// what keeps a folded run from reading as a terminal that has stopped:
+    /// there is nothing else on screen while the model thinks, and a row that
+    /// never changes is indistinguishable from one nobody is writing.
+    pub fn tick(&mut self) -> bool {
+        let mut moved = false;
+        if let Some(tick) = self.thinking {
+            self.thinking = Some(tick + 1);
+            moved = true;
+        }
+        if let Some(ticks) = self.reasoning_since {
+            self.reasoning_since = Some(ticks + 1);
+            let summary = self.reasoning_summary(false);
+            self.transcript.set_summary(&summary);
+            moved = true;
+        }
+        moved
+    }
+
+    /// Folds or unfolds one kind of run, now and from now on.
+    ///
+    /// Returns what the new default is, so the caller can say which way it
+    /// went. Both halves matter: the runs on screen follow at once, and the
+    /// runs that have already gone to the scrollback cannot, so the default is
+    /// what makes the key mean anything on the next turn.
+    pub fn toggle_fold(&mut self, tag: &'static str) -> Option<bool> {
+        let collapsed = if tag == REASONING_FOLD {
+            // Nothing to fold. The reasoning never reached this frame, so the
+            // honest answer is to say where the switch is rather than to do
+            // nothing and let the key look broken.
+            if self.folds.reasoning == ReasoningDisplay::Hidden {
+                let note = self.theme.dim.apply(&self.labels.reasoning_off);
+                self.transcript.write(&format!("\n{note}\n"));
+                return None;
+            }
+            self.folds.reasoning = if self.folds.reasoning == ReasoningDisplay::Collapsed {
+                ReasoningDisplay::Expanded
+            } else {
+                ReasoningDisplay::Collapsed
+            };
+            self.folds.reasoning == ReasoningDisplay::Collapsed
+        } else {
+            self.folds.tools = !self.folds.tools;
+            self.folds.tools
+        };
+        self.transcript.set_collapsed(tag, collapsed);
+        Some(collapsed)
     }
 
     /// What is on the editor line right now.
     #[must_use]
     pub fn typing(&self) -> &str {
         self.editor.text()
+    }
+
+    /// The plan, as a window around whatever is in hand.
+    ///
+    /// Capped, because the question this answers is "where has this got to" and
+    /// a ten-row list above the box you type into answers it worse than three
+    /// rows do. The window is centred on the task in progress: what was just
+    /// finished and what is next are the two things worth seeing beside it, and
+    /// the rest is a count.
+    fn task_rows(&self, width: usize) -> Vec<String> {
+        if self.tasks.is_empty() {
+            return Vec::new();
+        }
+        let doing = self
+            .tasks
+            .iter()
+            .position(|(status, _)| *status == TaskStatus::Doing)
+            .unwrap_or(0);
+        let first = doing
+            .saturating_sub(1)
+            .min(self.tasks.len().saturating_sub(TASK_ROWS));
+        let shown = self.tasks.iter().skip(first).take(TASK_ROWS);
+
+        let mut rows: Vec<String> = shown
+            .map(|(status, text)| {
+                truncate_to_width(&task_row(&self.theme, *status, text), width, "…")
+            })
+            .collect();
+        // Everything off the window, above it as well as below. Counting only
+        // what follows would report "+1 more" for a plan with two finished
+        // tasks scrolled off the top, which is a count of the wrong thing.
+        let hidden = self.tasks.len().saturating_sub(rows.len());
+        if hidden > 0 {
+            rows.push(self.theme.dim.apply(&format!("  +{hidden} more")));
+        }
+        rows
+    }
+
+    /// How many rows everything below the conversation takes.
+    ///
+    /// Measured rather than counted, because the editor grows with what is
+    /// typed into it and an overlay replaces the lot. Whatever is left of the
+    /// window after this is what the conversation may keep on screen; the rest
+    /// goes to the terminal's scrollback.
+    ///
+    /// It renders the chrome to measure it, and the frame renders it again a
+    /// moment later. That is a real cost and a deliberately bounded one: the
+    /// chrome is a couple of dozen rows whatever the session has said, which is
+    /// the whole property this arrangement exists to buy. Counting instead would
+    /// mean a second description of the layout, kept in step by hand.
+    fn chrome_rows(&mut self, width: usize) -> usize {
+        // The gap above the frame: one row always, and a second closing the
+        // conversation's last line when it did not close itself. Counted the
+        // same way `render` writes it, because a chrome measured one row too
+        // tall commits a row of conversation that would have fitted.
+        let mut rows = if self.transcript.at_line_start() {
+            1
+        } else {
+            2
+        };
+        if let Some(overlay) = self.overlay.as_mut() {
+            return rows + overlay.render(width).len();
+        }
+        if self.thinking.is_some() {
+            rows += 1;
+        }
+        if let Some(popup) = self.popup.as_ref() {
+            rows += popup.render(width, &self.theme).len();
+        }
+        rows += self.task_rows(width).len();
+        rows + 1 + self.editor.render(width).len() + self.status.len()
     }
 }
 
@@ -1137,6 +1665,10 @@ impl Component for Frame {
                 self.generating
             )));
         }
+        if let Some(popup) = self.popup.as_ref() {
+            rows.extend(popup.render(width, &self.theme));
+        }
+        rows.extend(self.task_rows(width));
         rows.push(input_rule(width, &self.theme));
         rows.extend(self.editor.render(width));
         rows.extend(self.status.clone());
@@ -1163,6 +1695,12 @@ pub enum Typed {
     Complete,
     /// Redraw and keep waiting.
     Redraw,
+    /// Throw the screen away and draw it again.
+    Reset,
+    /// Fold or unfold the model's reasoning.
+    FoldReasoning,
+    /// Fold or unfold what tools printed.
+    FoldTools,
 }
 
 /// The screen, the editor and the keyboard, shared with the menu.
@@ -1173,7 +1711,8 @@ pub enum Typed {
 struct FrameState {
     frame: Frame,
     renderer: Renderer<StandardOutput>,
-    keys: mpsc::UnboundedReceiver<Key>,
+    /// Keystrokes and window changes, in the order they happened.
+    woke: mpsc::UnboundedReceiver<Wake>,
 }
 
 impl FrameState {
@@ -1187,16 +1726,89 @@ impl FrameState {
             .max(1)
     }
 
+    /// Hands finished conversation to the scrollback, then draws what is left.
+    ///
+    /// The commit happens here rather than inside the frame because only this
+    /// pair knows both halves: the frame knows how tall its chrome is, and the
+    /// renderer knows how tall the window is and owns the bytes that put a line
+    /// above it. A frame that fits commits nothing, which is every frame of a
+    /// short session.
     fn draw(&mut self) {
-        self.renderer.render(&mut self.frame);
+        let width = self.renderer.columns();
+        let cap = self
+            .renderer
+            .rows()
+            .saturating_sub(self.frame.chrome_rows(width));
+        let committed = self.frame.transcript.take_committable(cap, width);
+        if committed.is_empty() {
+            self.renderer.render(&mut self.frame);
+        } else {
+            self.renderer.print_above(&committed, &mut self.frame);
+        }
     }
 
-    /// Everything the turn has rendered so far, into the transcript.
+    /// Draws only if something asked for a frame since the last one.
     ///
-    /// The first word of an answer is what the spinner was standing in for.
-    fn absorb(&mut self, text: &str) {
-        self.frame.transcript.write(text);
-        self.frame.thinking = None;
+    /// Through [`FrameState::draw`], so a frame that goes out on the tick
+    /// commits what a frame drawn any other way would have.
+    fn render_if_requested(&mut self) {
+        if self.renderer.take_request() {
+            self.draw();
+        }
+    }
+
+    /// Throws the screen away and draws it again.
+    ///
+    /// What a resize needs, and what Ctrl-L is. The renderer notices a width
+    /// change on its own, but a window that changed only in height, or one
+    /// whose rows some other program scribbled on, looks identical to it. So the
+    /// frame is printed whole rather than diffed against a belief about the
+    /// screen that is already wrong.
+    fn redraw(&mut self) {
+        self.renderer.invalidate();
+        // Erasing the screen takes the committed rows that were on it. Those
+        // are not in the terminal's history, where only what has scrolled past
+        // lives, so they are reprinted above the frame.
+        //
+        // Only as many as are left over after the frame itself, and *the frame*
+        // is the measure rather than its chrome: the live region holds recent
+        // conversation as well as the editor. Sizing this against the chrome
+        // printed more rows than the window has, which scrolls, which puts the
+        // overflow into the history that the next resize's erase cannot reach.
+        // One stranded copy per resize, which is the bug this comment is here
+        // to stop somebody reintroducing.
+        let width = self.renderer.columns();
+        // Committing first, exactly as an ordinary draw does. A narrower window
+        // wraps the same conversation onto more rows, so the live region grows
+        // on every narrowing: without this it outgrows the window, the print
+        // scrolls, and what scrolls off is stranded in a history the next
+        // resize cannot erase.
+        let cap = self
+            .renderer
+            .rows()
+            .saturating_sub(self.frame.chrome_rows(width));
+        self.frame.transcript.take_committable(cap, width);
+
+        let frame_rows = Component::render(&mut self.frame, width).len();
+        // A row of margin, because the terminal is the one wrapping these and
+        // its arithmetic is not quite ours: a line exactly as wide as the window
+        // leaves some emulators in a pending-wrap state that costs a row. Being
+        // one row short of the window is invisible. Being one row over scrolls,
+        // and scrolling is the whole fault.
+        let above = self.renderer.rows().saturating_sub(frame_rows + 1);
+        let tail = self.frame.transcript.committed_tail(above, width);
+        self.renderer.print_above(&tail, &mut self.frame);
+    }
+
+    /// One thing the turn said, into the transcript.
+    ///
+    /// Where a signal becomes a fold. The renderer says *a reasoning run
+    /// started*; this is what decides that a reasoning run is something the
+    /// reader may put away, and that it starts put away. Reversing those two,
+    /// with a renderer that emitted folds, would have handed a pipe and a log
+    /// file a disclosure widget neither can draw.
+    fn absorb(&mut self, event: &FrameEvent) {
+        self.frame.absorb(event);
     }
 }
 
@@ -1230,8 +1842,15 @@ impl PickerMenu for FrameMenu {
             }));
             state.draw();
             let chosen = loop {
-                let Some(key) = state.keys.recv().await else {
+                let Some(woke) = state.woke.recv().await else {
                     break None;
+                };
+                let key = match woke {
+                    Wake::Key(key) => key,
+                    Wake::Resized => {
+                        state.redraw();
+                        continue;
+                    }
                 };
                 let Some(overlay) = state.frame.overlay.as_mut() else {
                     break None;
@@ -1277,7 +1896,7 @@ pub struct FramedSurface {
     state: Arc<tokio::sync::Mutex<FrameState>>,
     menu: FrameMenu,
     sink: ChunkSink,
-    chunks: mpsc::UnboundedReceiver<String>,
+    chunks: mpsc::UnboundedReceiver<FrameEvent>,
     /// Lines typed while a turn was running, in the order they were submitted.
     queued: std::collections::VecDeque<String>,
     theme: Theme,
@@ -1312,11 +1931,32 @@ impl FramedSurface {
             transcript: Transcript::new(),
             editor: Editor::new(&session.theme),
             overlay: None,
+            popup: None,
+            commands: command_items(&crate::commands::palette_rows(&session.runtime), &session.t),
             thinking: None,
             theme: session.theme,
             generating: session.t.t(keys::chat::GENERATING),
             status: status_bar(&session.view(), width, &session.theme),
+            folds: FoldDefaults::from(&session.runtime.config().ui),
+            reasoning_since: None,
+            tasks: Vec::new(),
+            labels: FoldLabels::from(&session.t),
         };
+        // A resumed session has a plan already. Reading it here rather than
+        // waiting for the agent to rewrite one means the first thing on screen
+        // is where the work had got to, not a blank above the composer.
+        if let Ok(stored) = session
+            .runtime
+            .store()
+            .tasks(&session.attachment.session_key)
+        {
+            frame.set_tasks(
+                &stored
+                    .iter()
+                    .map(|task| (task.status, task.text.clone()))
+                    .collect::<Vec<_>>(),
+            );
+        }
         frame.transcript.write(&startup_header(
             &session.view(),
             width,
@@ -1333,7 +1973,7 @@ impl FramedSurface {
         let state = Arc::new(tokio::sync::Mutex::new(FrameState {
             frame,
             renderer,
-            keys: spawn_keyboard(),
+            woke: spawn_events(),
         }));
         let (sink, chunks) = chunks();
         FramedSurface {
@@ -1370,14 +2010,26 @@ impl Surface for FramedSurface {
                 if let Some(held) = self.queued.pop_front() {
                     return Some(held);
                 }
-                let key = {
+                let woke = {
                     let mut state = self.state.lock().await;
-                    state.keys.recv().await?
+                    state.woke.recv().await?
+                };
+                let key = match woke {
+                    Wake::Key(key) => key,
+                    Wake::Resized => {
+                        let mut state = self.state.lock().await;
+                        state.redraw();
+                        continue;
+                    }
                 };
                 let typed = {
                     let mut state = self.state.lock().await;
-                    let typed = handle_key(&mut state.frame, &key);
-                    state.draw();
+                    let rows = state.menu_rows();
+                    let typed = handle_key_with(&mut state.frame, &key, rows);
+                    match typed {
+                        Typed::Reset => state.redraw(),
+                        _ => state.draw(),
+                    }
                     typed
                 };
                 match typed {
@@ -1387,7 +2039,7 @@ impl Surface for FramedSurface {
                     Typed::Interrupt | Typed::Leave => return None,
                     Typed::Palette => self.open_palette().await,
                     Typed::Complete => self.complete().await,
-                    Typed::Redraw => {}
+                    Typed::Redraw | Typed::Reset | Typed::FoldReasoning | Typed::FoldTools => {}
                 }
             }
         })
@@ -1401,7 +2053,7 @@ impl Surface for FramedSurface {
         Box::pin(async move {
             {
                 let mut state = self.state.lock().await;
-                state.frame.thinking = Some(0);
+                state.frame.start_turn();
                 // Nothing to point at until the answer starts: the caret would
                 // otherwise sit on the blank row beside the spinner and read
                 // as a stray block.
@@ -1411,7 +2063,7 @@ impl Surface for FramedSurface {
             let outcome = self.pump(token, body).await;
             {
                 let mut state = self.state.lock().await;
-                state.frame.thinking = None;
+                state.frame.end_turn();
                 state.renderer.set_cursor_visible(true);
                 state.draw();
             }
@@ -1430,8 +2082,8 @@ impl Surface for FramedSurface {
     fn refresh<'a>(&'a mut self, view: &'a HeaderView) -> BoxFut<'a, ()> {
         Box::pin(async move {
             let mut state = self.state.lock().await;
-            while let Ok(text) = self.chunks.try_recv() {
-                state.absorb(&text);
+            while let Ok(event) = self.chunks.try_recv() {
+                state.absorb(&event);
             }
             let width = state.renderer.columns();
             state.frame.status = status_bar(view, width, &self.theme);
@@ -1461,53 +2113,91 @@ impl Surface for FramedSurface {
 impl FramedSurface {
     /// Drives the turn while the frame keeps drawing.
     ///
-    /// The four arms are the whole of what a running turn has to stay
-    /// responsive to: the answer arriving, the spinner, the interrupt, and the
-    /// turn finishing. Anything typed meanwhile is queued rather than dropped,
-    /// which is what lets somebody write the next question while the current
-    /// answer is still streaming.
+    /// The five arms are the whole of what a running turn has to stay
+    /// responsive to: the answer arriving, the frame going out, the spinner
+    /// advancing, the keyboard, and the turn finishing. Anything typed meanwhile
+    /// is queued rather than dropped, which is what lets somebody write the next
+    /// question while the current answer is still streaming.
+    ///
+    /// **Text arriving does not draw.** It asks for a frame, and the frame tick
+    /// draws at most one. A turn streams a token at a time and a fast provider
+    /// sends hundreds a second; drawing each one is a frame per word, and the
+    /// operator cannot read at 200fps anyway. What they see is identical and
+    /// the machine does a fraction of the work, which on slow hardware is the
+    /// difference between a prompt that types and one that stutters.
+    ///
+    /// The select is `biased` and the chunk arm is first, so a provider fast
+    /// enough to keep it permanently ready would starve every arm below it and
+    /// the screen would freeze for the length of the answer. Hence
+    /// [`CHUNKS_PER_FRAME`]: once that many have been taken without a frame
+    /// going out, the arm disables itself until the tick comes round, which is
+    /// what lets the tick come round.
     async fn pump(
         &mut self,
         token: &CancellationToken,
         body: BoxFut<'_, Result<TurnOutcome>>,
     ) -> Result<TurnOutcome> {
         tokio::pin!(body);
-        let mut ticks =
+        let mut frames = tokio::time::interval(std::time::Duration::from_millis(FRAME_INTERVAL_MS));
+        let mut spins =
             tokio::time::interval(std::time::Duration::from_millis(SPINNER_INTERVAL_MS));
+        let mut since_frame = 0usize;
         loop {
             let mut state = self.state.lock().await;
             let outcome = tokio::select! {
                 biased;
-                Some(text) = self.chunks.recv() => {
-                    state.absorb(&text);
-                    state.draw();
+                Some(event) = self.chunks.recv(), if since_frame < CHUNKS_PER_FRAME => {
+                    state.absorb(&event);
+                    state.renderer.request_render();
+                    since_frame += 1;
                     None
                 }
-                Some(key) = state.keys.recv() => {
-                    match handle_key(&mut state.frame, &key) {
+                _ = frames.tick() => {
+                    since_frame = 0;
+                    state.render_if_requested();
+                    None
+                }
+                Some(woke) = state.woke.recv() => {
+                    let Wake::Key(key) = woke else {
+                        state.redraw();
+                        continue;
+                    };
+                    let rows = state.menu_rows();
+                    let typed = handle_key_with(&mut state.frame, &key, rows);
+                    let reset = typed == Typed::Reset;
+                    match typed {
                         // While a turn runs the interrupt belongs to the turn.
                         Typed::Interrupt => token.cancel(),
                         Typed::Line(line) => self.queued.push_back(line),
                         // Leaving is refused mid-turn: the answer is still
                         // being written into the transcript this would tear
                         // down. A second interrupt stops the turn first.
-                        Typed::Leave | Typed::Palette | Typed::Complete | Typed::Redraw => {}
+                        Typed::Leave
+                        | Typed::Palette
+                        | Typed::Complete
+                        | Typed::Redraw
+                        | Typed::Reset
+                        | Typed::FoldReasoning
+                        | Typed::FoldTools => {}
                     }
-                    state.draw();
+                    if reset {
+                        state.redraw();
+                    } else {
+                        state.draw();
+                    }
                     None
                 }
-                _ = ticks.tick() => {
-                    if let Some(tick) = state.frame.thinking {
-                        state.frame.thinking = Some(tick + 1);
-                        state.draw();
+                _ = spins.tick() => {
+                    if state.frame.tick() {
+                        state.renderer.request_render();
                     }
                     None
                 }
                 done = &mut body => Some(done),
             };
             if let Some(done) = outcome {
-                while let Ok(text) = self.chunks.try_recv() {
-                    state.absorb(&text);
+                while let Ok(event) = self.chunks.try_recv() {
+                    state.absorb(&event);
                 }
                 state.draw();
                 return done;
@@ -1549,13 +2239,60 @@ impl FramedSurface {
     }
 }
 
+/// Something the frame has to react to.
+///
+/// One channel rather than two, because both loops below wait on it inside a
+/// `select!` and two receivers on the same state cannot both be borrowed there.
+/// Keeping them separate *variants* is the part that matters: a resize must not
+/// reach the editor, and a synthetic keystroke would.
+#[derive(Debug)]
+enum Wake {
+    Key(Key),
+    Resized,
+}
+
+/// Keystrokes and window changes, on one channel.
+///
+/// A resize is a signal rather than anything on the input stream: the keyboard
+/// thread reads raw bytes and decodes them itself, so it never sees the
+/// crossterm event that would have carried one. Without this the frame is drawn
+/// at the new width only when something *else* asks for a draw, which at an idle
+/// prompt is the next keystroke. The window is resized, the terminal reflows
+/// rows this program will not rewrite, and the artifacts sit there until
+/// somebody types.
+fn spawn_events() -> mpsc::UnboundedReceiver<Wake> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    spawn_keyboard(tx.clone());
+    // Both the subscription and the task it runs on need a reactor, and this
+    // function is reachable from a plain `fn`. Asking rather than assuming, so
+    // the worst a caller outside a runtime gets is a prompt that does not
+    // notice resizes, rather than a panic on launch.
+    #[cfg(unix)]
+    if tokio::runtime::Handle::try_current().is_ok() {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut winch) = signal(SignalKind::window_change()) {
+            tokio::spawn(async move {
+                while winch.recv().await.is_some() {
+                    if tx.send(Wake::Resized).is_err() {
+                        return;
+                    }
+                }
+            });
+            return rx;
+        }
+    }
+    // No such signal, or it could not be handled: the keyboard is the only
+    // producer and this sender has nothing left to do.
+    drop(tx);
+    rx
+}
+
 /// Reads keystrokes on a thread and delivers them to the prompt.
 ///
 /// A thread rather than an async read, because terminal input is a blocking
 /// device read with no portable poll — and the prompt has to stay responsive
 /// to a turn's events while it waits. The channel is what joins the two.
-fn spawn_keyboard() -> mpsc::UnboundedReceiver<Key> {
-    let (tx, rx) = mpsc::unbounded_channel();
+fn spawn_keyboard(tx: mpsc::UnboundedSender<Wake>) {
     std::thread::spawn(move || {
         let Ok(mut keyboard) = open_keyboard(StandardInput, None) else {
             return;
@@ -1565,7 +2302,7 @@ fn spawn_keyboard() -> mpsc::UnboundedReceiver<Key> {
                 Ok(keys) if keys.is_empty() => break,
                 Ok(keys) => {
                     for key in keys {
-                        if tx.send(key).is_err() {
+                        if tx.send(Wake::Key(key)).is_err() {
                             let _ = keyboard.stop();
                             return;
                         }
@@ -1576,7 +2313,6 @@ fn spawn_keyboard() -> mpsc::UnboundedReceiver<Key> {
         }
         let _ = keyboard.stop();
     });
-    rx
 }
 
 /// One keystroke against the frame.
@@ -1584,6 +2320,15 @@ fn spawn_keyboard() -> mpsc::UnboundedReceiver<Key> {
 /// Public because it is the whole of the frame's input rule, and a test that
 /// could not reach it would be asserting the rule through a real terminal.
 pub fn handle_key(frame: &mut Frame, key: &Key) -> Typed {
+    handle_key_with(frame, key, DEFAULT_MAX_ROWS)
+}
+
+/// The same, told how many rows a list may take.
+///
+/// Split out because the window's height is the renderer's to know and the
+/// input rule is the frame's, and a test asserting what a keystroke means
+/// should not have to invent a terminal to ask.
+pub fn handle_key_with(frame: &mut Frame, key: &Key, rows: usize) -> Typed {
     if let Some(overlay) = frame.overlay.as_mut() {
         // An open menu owns the keyboard; the pump that opened it is what
         // reads the answer.
@@ -1591,11 +2336,59 @@ pub fn handle_key(frame: &mut Frame, key: &Key) -> Typed {
         return Typed::Redraw;
     }
 
-    // Ctrl-G is the palette, and it is still the only shortcut: the palette
-    // lists every command, and every other control key means what a shell says
-    // it means.
+    // The command list, while one is being typed. It takes the four keys a list
+    // needs and nothing else, so every other key still reaches the editor and
+    // the line stays editable underneath it.
+    if frame.popup.is_some() {
+        match key.name {
+            KeyName::Up => {
+                frame.move_popup(-1);
+                return Typed::Redraw;
+            }
+            KeyName::Down => {
+                frame.move_popup(1);
+                return Typed::Redraw;
+            }
+            KeyName::Escape => {
+                frame.popup = None;
+                return Typed::Redraw;
+            }
+            // Both take the row under the cursor, and they differ in what
+            // happens next. Tab completes: the command lands on the line and
+            // the operator carries on. Return runs it. That is what the two
+            // keys mean everywhere else, and a Tab that submitted would run a
+            // command nobody had finished looking at.
+            KeyName::Tab => return frame.accept_popup(false),
+            KeyName::Enter => return frame.accept_popup(true),
+            _ => {}
+        }
+    }
+
+    // Ctrl-G is the palette: the list of every command at once, searchable,
+    // for when you do not know the name to start typing.
     if is_ctrl(key, 'g') {
         return Typed::Palette;
+    }
+
+    // The two folds. Both flip what is on screen *and* how the next run
+    // arrives, because a run that has gone to the scrollback cannot be
+    // rewritten and a key that only reached the screen would stop working the
+    // moment the screen filled.
+    if is_ctrl(key, 't') {
+        frame.toggle_fold(REASONING_FOLD);
+        return Typed::FoldReasoning;
+    }
+    if is_ctrl(key, 'o') {
+        frame.toggle_fold(TOOL_FOLD);
+        return Typed::FoldTools;
+    }
+
+    // Ctrl-L is what it is in every shell: the screen is wrong, draw it again.
+    // Worth having even with the resize signal wired up, because a program
+    // writing to the same terminal from somewhere else leaves damage no signal
+    // announces.
+    if is_ctrl(key, 'l') {
+        return Typed::Reset;
     }
 
     // Tab completes a slash command and nothing else. The rest of a prompt is
@@ -1605,7 +2398,9 @@ pub fn handle_key(frame: &mut Frame, key: &Key) -> Typed {
         return Typed::Complete;
     }
 
-    match frame.editor.handle_key(key) {
+    let outcome = frame.editor.handle_key(key);
+    frame.sync_popup(rows);
+    match outcome {
         EditorOutcome::Submit(text) => {
             let line = text.trim().to_owned();
             if line.is_empty() {

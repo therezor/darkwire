@@ -783,6 +783,9 @@ function applyPartEvent(
         ...tool,
         // Monotonic: a replayed heartbeat must not wind the counter back.
         elapsedMs: Math.max(tool.elapsedMs, event.elapsedMs),
+        // Kept when a heartbeat omits it, so a card that had a sentence does
+        // not lose it to the next beat that does not repeat it.
+        progress: event.message ?? tool.progress,
       }));
 
     case 'tool.approvalRequest':

@@ -1,6 +1,7 @@
 //! Fragments become logical lines, refolded per width, styles carried across breaks, bounded.
 
 use darkwire_tui::{Component, Transcript};
+use proptest::prelude::*;
 
 const ESC: &str = "\x1b";
 const DIM: &str = "\x1b[2m";
@@ -131,4 +132,527 @@ fn drops_the_oldest_lines_in_blocks_rather_than_one_at_a_time() {
     let lines = transcript.lines();
     assert!(lines.len() < 12_001);
     assert_eq!(lines[lines.len() - 2], "line 12000");
+}
+
+// ------------------------------------------------------------------- blocks
+
+#[test]
+fn prose_with_no_blocks_reads_exactly_as_it_used_to() {
+    // The degenerate case, and the one that has to stay free: a conversation
+    // that never opens a run is one block, and nothing about it costs more than
+    // a list of lines did.
+    let mut transcript = Transcript::new();
+    transcript.write("the answer\ncontinues\n");
+    assert_eq!(transcript.render(40), ["the answer", "continues", ""]);
+}
+
+#[test]
+fn a_run_opened_and_closed_keeps_what_came_after_it_out() {
+    // The whole reason blocks exist. A flat buffer cannot say where the
+    // reasoning stopped, so a fold drawn over it eats the first line of the
+    // answer.
+    let mut transcript = Transcript::new();
+    transcript.write("before\n");
+    transcript.open_block("reasoning", "thought", false);
+    transcript.write("thinking\n");
+    transcript.close_block();
+    transcript.write("after\n");
+
+    // No blank row between `before` and the fold. The line the last write left
+    // open is where the next thing goes, and the next thing is the block.
+    transcript.set_collapsed("reasoning", true);
+    assert_eq!(transcript.render(40), ["before", "thought", "after", ""]);
+}
+
+#[test]
+fn folding_reaches_every_run_of_that_kind_not_just_the_last() {
+    // The key is pressed to answer "show me what it was thinking", and a turn
+    // that called three tools has three runs of it.
+    let mut transcript = Transcript::new();
+    for at in 0..3 {
+        transcript.open_block("reasoning", &format!("thought {at}"), false);
+        transcript.write(&format!("body {at}\n"));
+        transcript.close_block();
+    }
+
+    transcript.set_collapsed("reasoning", true);
+    assert_eq!(
+        transcript.render(40),
+        ["thought 0", "thought 1", "thought 2"],
+    );
+
+    transcript.set_collapsed("reasoning", false);
+    assert!(transcript.render(40).iter().any(|row| row == "body 1"));
+}
+
+#[test]
+fn one_tag_folds_without_touching_another() {
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thought", false);
+    transcript.write("thinking\n");
+    transcript.close_block();
+    transcript.open_block("tool", "exec", false);
+    transcript.write("output\n");
+    transcript.close_block();
+
+    transcript.set_collapsed("reasoning", true);
+    let rows = transcript.render(40);
+    assert!(!rows.iter().any(|row| row == "thinking"));
+    assert!(rows.iter().any(|row| row == "output"));
+}
+
+#[test]
+fn the_open_run_is_the_one_whose_summary_moves() {
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thinking… 1s", true);
+    transcript.write("a thought\n");
+    transcript.set_summary("thinking… 9s");
+    assert_eq!(transcript.render(40), ["thinking… 9s"]);
+}
+
+#[test]
+fn opening_a_run_straight_after_closing_one_leaves_no_gap() {
+    // A block nobody wrote to draws nothing and still costs a comparison on
+    // every frame, which at thirty frames a second is worth not having.
+    let mut transcript = Transcript::new();
+    transcript.open_block("tool", "read", true);
+    transcript.write("output\n");
+    transcript.close_block();
+    transcript.open_block("tool", "write", true);
+    transcript.write("output\n");
+    transcript.close_block();
+
+    assert_eq!(transcript.render(40), ["read", "write"]);
+}
+
+#[test]
+fn clearing_leaves_somewhere_to_write() {
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thought", true);
+    transcript.write("thinking\n");
+    transcript.clear();
+    transcript.write("fresh\n");
+
+    assert_eq!(transcript.render(40), ["fresh", ""]);
+}
+
+#[test]
+fn the_bound_takes_a_whole_run_with_its_summary() {
+    // A summary row for a body nobody can read any more is worse than nothing,
+    // so a run small enough to fit in the batch goes entirely, the row that
+    // labels it included.
+    let mut transcript = Transcript::new();
+    transcript.open_block("tool", "the first call", false);
+    for at in 0..100 {
+        transcript.write(&format!("old {at}\n"));
+    }
+    transcript.close_block();
+    for at in 0..12_000 {
+        transcript.write(&format!("new {at}\n"));
+    }
+
+    let rows = transcript.render(40);
+    assert!(!rows.iter().any(|row| row == "the first call"));
+    assert!(!rows.iter().any(|row| row == "old 0"));
+    assert!(rows.iter().any(|row| row == "new 11999"));
+}
+
+#[test]
+fn a_run_too_big_for_the_batch_is_trimmed_and_keeps_its_summary() {
+    // The other half of the rule. Dropping 12,000 lines to stay under a bound
+    // of 10,000 would throw away most of a session to reclaim a batch, so a run
+    // larger than the batch gives up its oldest lines and stays.
+    let mut transcript = Transcript::new();
+    transcript.open_block("tool", "one enormous call", false);
+    for at in 0..12_000 {
+        transcript.write(&format!("old {at}\n"));
+    }
+
+    let rows = transcript.render(40);
+    assert!(rows.iter().any(|row| row == "one enormous call"));
+    assert!(!rows.iter().any(|row| row == "old 0"));
+    assert!(rows.iter().any(|row| row == "old 11999"));
+}
+
+// ------------------------------------------------- the incremental wrap cache
+
+/// The rows a transcript that had been written all at once would hand back.
+///
+/// The oracle for every case below: an incremental cache is only correct if it
+/// cannot be told apart from a clean one, and the only way to say that without
+/// restating the wrap algorithm is to build a clean one and compare.
+fn from_scratch(writes: &[String], width: usize) -> Vec<String> {
+    let mut fresh = Transcript::new();
+    for text in writes {
+        fresh.write(text);
+    }
+    fresh.render(width)
+}
+
+#[test]
+fn a_write_with_no_newline_still_refolds_the_line_it_lengthened() {
+    // The case a length comparison misses. `logical.len()` does not move, and
+    // the rows do: this is every streamed token that is not the end of a line.
+    let mut transcript = Transcript::new();
+    transcript.write("word ".repeat(6).as_str());
+    let before = transcript.render(20);
+    transcript.write("and several more words after it");
+    let after = transcript.render(20);
+
+    assert_ne!(before, after);
+    assert_eq!(
+        after,
+        from_scratch(
+            &[
+                "word ".repeat(6),
+                "and several more words after it".to_owned(),
+            ],
+            20,
+        ),
+    );
+}
+
+#[test]
+fn appending_matches_a_clean_render_at_every_step() {
+    let writes: Vec<String> = [
+        "one two three four five six seven\n",
+        "eight",
+        " nine ten\n\n",
+        "eleven twelve thirteen fourteen fifteen sixteen seventeen\n",
+        "eighteen",
+    ]
+    .iter()
+    .map(|text| (*text).to_owned())
+    .collect();
+
+    let mut transcript = Transcript::new();
+    for at in 0..writes.len() {
+        transcript.write(&writes[at]);
+        assert_eq!(
+            transcript.render(24),
+            from_scratch(&writes[..=at], 24),
+            "after write {at}",
+        );
+    }
+}
+
+#[test]
+fn a_width_change_rebuilds_rather_than_resuming() {
+    // Nothing can be kept: a line that was one row at 80 is three at 24, so
+    // every row after it has moved.
+    let writes: Vec<String> = ["alpha beta gamma delta epsilon zeta eta theta\niota\n"]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+
+    let mut transcript = Transcript::new();
+    transcript.write(&writes[0]);
+    transcript.render(80);
+
+    assert_eq!(transcript.render(24), from_scratch(&writes, 24));
+    assert_eq!(transcript.render(80), from_scratch(&writes, 80));
+}
+
+#[test]
+fn a_style_carried_across_a_break_survives_the_incremental_path() {
+    // The rows this produces are not the text that was written, so a cache that
+    // resumed from the wrong place would show it here first.
+    let writes: Vec<String> = [format!("{DIM}thinking"), " about it\nplainly\n".to_owned()]
+        .iter()
+        .map(String::clone)
+        .collect();
+
+    let mut transcript = Transcript::new();
+    transcript.write(&writes[0]);
+    transcript.render(30);
+    transcript.write(&writes[1]);
+
+    assert_eq!(transcript.render(30), from_scratch(&writes, 30));
+}
+
+#[test]
+fn clearing_and_writing_again_does_not_resume_from_what_went() {
+    let mut transcript = Transcript::new();
+    transcript.write("the first conversation, at some length\n");
+    transcript.render(20);
+    transcript.clear();
+    transcript.write("the second\n");
+
+    assert_eq!(
+        transcript.render(20),
+        from_scratch(&["the second\n".to_owned()], 20),
+    );
+}
+
+proptest! {
+    // The cache is the one place in this file where a correct answer and a
+    // fast one are written differently, so the property worth asserting is that
+    // they cannot be told apart. Generated writes, because the shapes that
+    // break a resume point are the ones nobody thinks to type: a chunk that is
+    // only a newline, a chunk that is empty, a line that is exactly the width.
+
+    #[test]
+    fn an_incrementally_built_cache_matches_a_clean_one(
+        writes in prop::collection::vec("[ -~\n]{0,24}", 1..12),
+        width in 4_usize..=40,
+    ) {
+        let mut transcript = Transcript::new();
+        for text in &writes {
+            transcript.write(text);
+            // Rendered after every write, which is what forces the incremental
+            // path. Rendering only at the end would rebuild once and prove
+            // nothing.
+            transcript.render(width);
+        }
+        prop_assert_eq!(transcript.render(width), from_scratch(&writes, width));
+    }
+
+    #[test]
+    fn a_render_at_another_width_in_the_middle_changes_nothing(
+        writes in prop::collection::vec("[ -~\n]{0,24}", 1..8),
+        narrow in 4_usize..=20,
+        wide in 21_usize..=60,
+    ) {
+        let mut transcript = Transcript::new();
+        for text in &writes {
+            transcript.write(text);
+            transcript.render(narrow);
+            transcript.render(wide);
+        }
+        prop_assert_eq!(transcript.render(narrow), from_scratch(&writes, narrow));
+        prop_assert_eq!(transcript.render(wide), from_scratch(&writes, wide));
+    }
+}
+
+// ------------------------------------------------------- the scrollback line
+
+#[test]
+fn a_frame_that_fits_commits_nothing() {
+    // Every frame of a short session, and most frames of a long one. The
+    // scrollback is where text goes when there is nowhere left to put it, not
+    // a place text passes through.
+    let mut transcript = Transcript::new();
+    transcript.write("one\ntwo\n");
+    assert!(transcript.take_committable(20, 40).is_empty());
+    assert_eq!(transcript.render(40), ["one", "two", ""]);
+}
+
+#[test]
+fn the_open_line_never_goes_even_when_the_frame_is_over() {
+    // It is still being written to. Committed text cannot be rewritten, so a
+    // half-streamed sentence in the history is a sentence that stays half.
+    let mut transcript = Transcript::new();
+    for at in 0..40 {
+        transcript.write(&format!("line {at}\n"));
+    }
+    transcript.write("still arriv");
+    transcript.take_committable(4, 40);
+
+    let rows = transcript.render(40);
+    assert!(rows.iter().any(|row| row == "still arriv"));
+}
+
+#[test]
+fn committing_keeps_the_live_region_inside_its_cap() {
+    let mut transcript = Transcript::new();
+    for at in 0..200 {
+        transcript.write(&format!("line {at}\n"));
+        transcript.take_committable(10, 40);
+        assert!(
+            transcript.height(40) <= 10,
+            "live region grew to {} rows",
+            transcript.height(40),
+        );
+    }
+}
+
+#[test]
+fn what_is_committed_is_what_was_on_screen_in_order() {
+    let mut transcript = Transcript::new();
+    for at in 0..60 {
+        transcript.write(&format!("line {at}\n"));
+    }
+    let committed = transcript.take_committable(8, 40);
+
+    // The history and the screen are one conversation cut in two, not two views
+    // of it: put them back together and nothing has moved, repeated or gone.
+    let mut rejoined = committed.clone();
+    rejoined.extend(transcript.render(40));
+
+    let mut whole = Transcript::new();
+    for at in 0..60 {
+        whole.write(&format!("line {at}\n"));
+    }
+    assert_eq!(rejoined, whole.render(40));
+    assert!(!committed.is_empty());
+}
+
+#[test]
+fn a_folded_run_commits_the_row_that_was_showing_and_not_the_body() {
+    // The history is what was on screen. Committing the body of something the
+    // reader had folded away would put it in the scrollback precisely because
+    // they asked not to see it.
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thought for 4s", true);
+    for at in 0..40 {
+        transcript.write(&format!("secret {at}\n"));
+    }
+    transcript.close_block();
+    transcript.write("the answer\n");
+
+    let committed = transcript.take_committable(2, 40);
+    assert!(committed.iter().any(|line| line == "thought for 4s"));
+    assert!(!committed.iter().any(|line| line.starts_with("secret")));
+}
+
+#[test]
+fn an_open_run_holds_the_line_rather_than_freezing_a_summary_that_moves() {
+    // Its summary counts up. Half of it in the history would leave whichever
+    // figure it happened to be showing there for good.
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thinking… 1s", false);
+    for at in 0..40 {
+        transcript.write(&format!("thought {at}\n"));
+    }
+
+    assert!(transcript.take_committable(4, 40).is_empty());
+    transcript.close_block();
+    transcript.write("done\n");
+    assert!(!transcript.take_committable(4, 40).is_empty());
+}
+
+#[test]
+fn the_ring_keeps_enough_to_repaint_and_no_more() {
+    // What a resize reprints. Erasing the screen takes the rows that had not
+    // yet scrolled into the history with them, so they have to be held.
+    let mut transcript = Transcript::new();
+    for at in 0..2_000 {
+        transcript.write(&format!("line {at}\n"));
+        transcript.take_committable(10, 40);
+    }
+
+    let tail = transcript.committed_tail(20, 40);
+    assert!(!tail.is_empty());
+    // As many rows as the screen held and not one more: a line that is already
+    // in the terminal's history would otherwise be printed a second time,
+    // directly under the first.
+    assert!(tail.len() <= 20, "held {} lines", tail.len());
+    // The newest committed lines, not the oldest: they are the ones the screen
+    // had on it.
+    assert!(tail.iter().any(|line| line.starts_with("line 19")));
+}
+
+#[test]
+fn clearing_forgets_the_history_it_was_holding_for_a_repaint() {
+    let mut transcript = Transcript::new();
+    for at in 0..60 {
+        transcript.write(&format!("line {at}\n"));
+    }
+    transcript.take_committable(4, 40);
+    transcript.clear();
+    assert!(transcript.committed_tail(20, 40).is_empty());
+}
+
+#[test]
+fn a_run_that_said_nothing_leaves_no_summary_behind() {
+    // A provider opening and closing its reasoning channel with nothing in it
+    // is ordinary. A fold that opens onto an empty body is not.
+    let mut transcript = Transcript::new();
+    transcript.write("before\n");
+    transcript.open_block("reasoning", "thought for 0s", false);
+    transcript.close_block();
+    transcript.write("after\n");
+
+    let rows = transcript.render(40);
+    assert!(!rows.iter().any(|row| row.contains("thought for")));
+    assert!(rows.iter().any(|row| row == "before"));
+    assert!(rows.iter().any(|row| row == "after"));
+}
+
+#[test]
+fn an_expanded_run_puts_no_blank_row_between_its_summary_and_its_body() {
+    // The summary arrives as a written line, newline and all, and a summary
+    // that kept it would draw an empty row under itself on every fold.
+    let mut transcript = Transcript::new();
+    transcript.open_block("tool", "  ok 1.2s", false);
+    transcript.write("    first line of output\n");
+    transcript.close_block();
+
+    let rows = transcript.render(40);
+    assert_eq!(rows[0], "  ok 1.2s");
+    assert_eq!(rows[1], "    first line of output");
+}
+
+#[test]
+fn the_repaint_counts_rows_rather_than_lines() {
+    // A line that wraps to three rows fills three rows of the screen it is
+    // being put back onto, and counting it as one would reprint three times
+    // what was erased.
+    let mut transcript = Transcript::new();
+    for at in 0..200 {
+        transcript.write(&format!(
+            "line {at} with enough words on it to wrap at forty\n"
+        ));
+        transcript.take_committable(6, 40);
+    }
+
+    let tail = transcript.committed_tail(6, 40);
+    let rows: usize = tail
+        .iter()
+        .map(|line| darkwire_tui::wrap_to_width(line, 40).len().max(1))
+        .sum();
+    assert!(rows <= 6, "{rows} rows for a six-row window");
+    assert!(!tail.is_empty());
+}
+
+#[test]
+fn the_line_a_write_left_open_does_not_become_a_blank_row_above_a_fold() {
+    // Every message is written with a trailing newline, so every fold that
+    // follows one had an empty row over it. Once reasoning folds by default,
+    // that is a blank line between what you typed and the answer to it.
+    let mut transcript = Transcript::new();
+    transcript.write("› how are you\n");
+    transcript.open_block("reasoning", "┄ thought 400ms", true);
+    transcript.write("some thinking\n");
+    transcript.close_block();
+
+    assert_eq!(transcript.render(40), ["› how are you", "┄ thought 400ms"]);
+}
+
+#[test]
+fn a_write_after_a_run_starts_its_own_line() {
+    // The line trimmed above is where the next write would have landed, so
+    // dropping it has to leave somewhere else for the answer to go. Without
+    // that, the first chunk after a run joins the end of the line before it:
+    // `beforeafter`.
+    let mut transcript = Transcript::new();
+    transcript.write("before\n");
+    transcript.open_block("reasoning", "thought", true);
+    transcript.write("thinking\n");
+    transcript.close_block();
+    transcript.write("after\n");
+
+    let rows = transcript.render(40);
+    assert!(rows.iter().any(|row| row == "before"), "{rows:?}");
+    assert!(rows.iter().any(|row| row == "after"), "{rows:?}");
+}
+
+#[test]
+fn a_write_after_a_run_that_said_nothing_also_starts_its_own_line() {
+    // The same, down the path where the empty run is dropped rather than kept.
+    // That path put the previous block back on the end of the list, trimmed,
+    // and the next write joined onto it.
+    let mut transcript = Transcript::new();
+    transcript.write("before\n");
+    transcript.open_block("reasoning", "thought", true);
+    transcript.close_block();
+    transcript.write("after\n");
+
+    let rows = transcript.render(40);
+    assert!(rows.iter().any(|row| row == "before"), "{rows:?}");
+    assert!(rows.iter().any(|row| row == "after"), "{rows:?}");
+    assert!(
+        !rows.iter().any(|row| row.contains("beforeafter")),
+        "{rows:?}"
+    );
 }

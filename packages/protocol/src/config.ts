@@ -937,9 +937,38 @@ export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
  * policy — and `settings.reload` already exists, which is what makes a language
  * change take effect without a restart.
  */
+export const ReasoningDisplaySchema = z.enum([
+  'hidden',
+  'collapsed',
+  'expanded',
+]);
+export type ReasoningDisplay = z.infer<typeof ReasoningDisplaySchema>;
+
 export const UiConfigSchema = z.object({
   /** A BCP-47 tag. Unknown values fall back rather than failing to parse. */
   locale: z.string().default('en'),
+  /**
+   * How much of the model's reasoning a reader is shown by default.
+   *
+   * Three states rather than a switch, and the middle one is why. `hidden`
+   * stops the reasoning reaching a surface at all, which is what somebody who
+   * never wants to see it means. `collapsed` is the default: the run is there,
+   * labelled, one row, and opening it is a click or a keystroke. A switch would
+   * have had to pick one of those two to be "off", and both readings are
+   * reasonable.
+   *
+   * It governs both surfaces because it is a property of the install rather
+   * than of the terminal. This UI collapses reasoning already, so only `hidden`
+   * changes anything here.
+   */
+  reasoning: ReasoningDisplaySchema.default('collapsed'),
+  /**
+   * Whether a tool's output arrives open.
+   *
+   * A switch and not three states, unlike reasoning above: the text is written
+   * either way, so there is no third thing for "off" to mean.
+   */
+  expandToolOutput: z.boolean().default(false),
   /**
    * The one zone this install reads and writes clock times in.
    *

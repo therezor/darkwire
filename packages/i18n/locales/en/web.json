@@ -582,6 +582,11 @@
       "languageHint": "`System` follows your browser until someone chooses otherwise.",
       "languageTitle": "Language",
       "light": "Light",
+      "reasoning": "Reasoning",
+      "reasoningCollapsed": "Folded away",
+      "reasoningExpanded": "Open",
+      "reasoningHidden": "Never shown",
+      "reasoningHint": "Applies to the terminal as well as this page.",
       "system": "System",
       "theme": "Colour scheme",
       "themeDesc": "Whether the interface is light or dark. This one is yours alone: it is stored in this browser and never written to the config.",
@@ -589,7 +594,9 @@
       "timezone": "Timezone",
       "timezoneDesc": "The one clock this install uses. Every date and time on screen is shown in it, and a scheduled job is read against it. Changing it moves when existing cron jobs fire.",
       "timezoneHint": "`System` reads your browser’s zone and saves it as a real timezone, so the answer does not change when you open the app somewhere else.",
-      "timezoneTitle": "Date and time"
+      "timezoneTitle": "Date and time",
+      "transcriptDesc": "How much of an answer’s working out you see before you ask for it.",
+      "transcriptTitle": "Transcript"
     },
     "channels": {
       "accessDesc": "The bot answers these Telegram accounts and nobody else. A messaging app has no password on it, so this list is the whole boundary.",
@@ -899,6 +906,7 @@
     "error": "Error",
     "failed": "Failed",
     "needsApproval": "Needs approval",
+    "needsYou": "waiting for you",
     "output": "Output",
     "running": "Running…",
     "runningLabel": "Running",

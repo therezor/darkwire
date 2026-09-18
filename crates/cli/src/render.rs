@@ -52,6 +52,59 @@ use crate::i18n::Translations;
 pub trait RenderTarget: Send {
     /// Writes `text`, dropping any failure.
     fn write(&mut self, text: &str);
+
+    /// The model has started reasoning; what follows is that run.
+    ///
+    /// The first of the four signals below, and they are the whole of what this
+    /// trait says about *structure*. A target that only writes bytes takes the
+    /// defaults and cannot tell they exist; one that draws a frame uses them to
+    /// decide that a run of reasoning is something the reader may fold away.
+    /// That decision belongs to the frame rather than here: a pipe has nowhere
+    /// to put a fold and a log file has no reader to open one.
+    fn reasoning_start(&mut self) {}
+
+    /// The reasoning run has ended. Whatever follows is not part of it.
+    fn reasoning_end(&mut self) {}
+
+    /// A tool's output follows, under `summary`.
+    ///
+    /// `summary` is the row that says how the call went, and the default writes
+    /// it because that is what a stream of bytes has always done. A frame keeps
+    /// it as the row to show when the output underneath is folded away.
+    fn tool_body_start(&mut self, summary: &str) {
+        self.write(summary);
+    }
+
+    /// The tool's output has ended.
+    fn tool_body_end(&mut self) {}
+
+    /// The reasoning channel has been switched on or off for this session.
+    ///
+    /// `/output reasoning off` stops the run reaching this target at all, which
+    /// a surface drawing a fold has to know: without it, a key that unfolds the
+    /// reasoning would keep claiming there was some.
+    fn reasoning_shown(&mut self, shown: bool) {
+        let _ = shown;
+    }
+
+    /// The agent is asking for a new plan; `card` is the rows that say so.
+    ///
+    /// Announced, not settled: a call can still be refused or fail. A stream
+    /// writes the card because that is what a stream has always done, and a
+    /// surface keeping a live plan shows nothing yet.
+    fn tasks_card(&mut self, card: &str) {
+        self.write(card);
+    }
+
+    /// The plan is now this. Only ever after a call that succeeded.
+    ///
+    /// Separate from the card above, and the separation is the point: a `todo`
+    /// call that is refused, or that the validator turns away, still announces
+    /// itself. A surface that painted its plan from the announcement would show
+    /// a plan nothing is running, which is worse than showing none.
+    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
+        let _ = tasks;
+    }
 }
 
 /// Every writer is a render target, with a failed write dropped.
@@ -404,6 +457,10 @@ pub struct TurnRenderer {
     show_stats: bool,
     tool_result_lines: usize,
     t: Translations,
+    /// The plan a `todo` call asked for, until its result says whether it stuck.
+    ///
+    /// Keyed like [`TurnRenderer::calls`], for the same reason.
+    pending_tasks: HashMap<String, Vec<(TaskStatus, String)>>,
     /// Tool name by call, so a result can label itself without re-reading.
     ///
     /// Keyed by `session:call` rather than by the call id alone. A call id is
@@ -448,6 +505,7 @@ impl TurnRenderer {
             tool_result_lines: options.tool_result_lines,
             t: options.t,
             calls: HashMap::new(),
+            pending_tasks: HashMap::new(),
             at_line_start: true,
             mode: Mode::Idle,
             session_key: String::new(),
@@ -483,7 +541,7 @@ impl TurnRenderer {
     fn render(&mut self, event: &NestedAgentEvent, session_key: &str) {
         match event {
             NestedAgentEvent::TurnStart(start) => {
-                self.mode = Mode::Idle;
+                self.set_mode(Mode::Idle);
                 // Only the operator's own turn resets the map. A subagent's
                 // `turn.start` arriving here would otherwise drop the labels of
                 // the calls its caller has in flight — including the delegating
@@ -573,8 +631,7 @@ impl TurnRenderer {
         let depth = usize::try_from(event.depth).unwrap_or(0);
 
         if matches!(event.event, NestedAgentEvent::TurnStart(_)) {
-            self.break_line();
-            self.mode = Mode::Idle;
+            self.set_mode(Mode::Idle);
             self.depth = depth.saturating_sub(1);
             let sentence = self
                 .t
@@ -604,12 +661,15 @@ impl TurnRenderer {
 
     /// Ends the turn's last line, so a prompt is never printed onto it.
     pub fn finish(&mut self) {
-        self.break_line();
-        self.mode = Mode::Idle;
+        self.set_mode(Mode::Idle);
     }
 
     /// A line of the CLI's own, in the same line discipline as the events.
     pub fn note(&mut self, text: &str) {
+        // Out of the reasoning run first. The CLI's own voice is not the
+        // model's thinking, and a note folded away inside it is a note nobody
+        // asked to hide.
+        self.set_mode(Mode::Idle);
         let line = self.colors.dim.apply(text);
         self.line(&line);
     }
@@ -629,7 +689,7 @@ impl TurnRenderer {
     /// written, and here is the only place that knows a new exchange is
     /// starting.
     pub fn echo(&mut self, text: &str) {
-        self.break_line();
+        self.set_mode(Mode::Idle);
         self.write("\n");
         // The same caret the editor draws, in the same colour: scrolling back
         // through a long session, these are what the eye counts exchanges by.
@@ -650,14 +710,26 @@ impl TurnRenderer {
     /// renderer's to reformat, and a structured log line that has been prettied
     /// is a log line that no longer matches what is in the file.
     pub fn aside(&mut self, text: &str) {
-        self.break_line();
+        self.set_mode(Mode::Idle);
         self.write(text);
     }
 
     /// Something the operator should notice, in the CLI's own voice.
     pub fn warn(&mut self, text: &str) {
+        self.set_mode(Mode::Idle);
         let mark = self.colors.yellow.apply("⚠");
         self.line(&format!("{mark} {text}"));
+    }
+
+    /// Puts a plan where the surface keeps one, without printing it.
+    ///
+    /// For `/tasks`, which prints the list itself and still has to move the one
+    /// above the box you type into: the command's own output goes through
+    /// `note` as every command's does, and this carries the same list to
+    /// whatever is drawing a frame. A target that only writes bytes takes the
+    /// empty card and writes nothing, which is why the two do not double up.
+    pub fn plan(&mut self, tasks: &[(TaskStatus, String)]) {
+        self.out.tasks(tasks);
     }
 
     /// Whether the model's reasoning is streamed.
@@ -669,6 +741,7 @@ impl TurnRenderer {
     /// Shows or hides the model's reasoning from here on.
     pub fn set_reasoning_shown(&mut self, shown: bool) {
         self.show_reasoning = shown;
+        self.out.reasoning_shown(shown);
     }
 
     /// Whether the token and timing line is printed after a turn.
@@ -718,12 +791,29 @@ impl TurnRenderer {
         }
     }
 
+    /// Moves between the answer, the reasoning and neither.
+    ///
+    /// The one place the mode changes, so the signals that mark a reasoning run
+    /// cannot be emitted from some paths and not others. That matters for
+    /// `warn` and `aside`: both reset the mode, and a warning or a log line
+    /// landing inside a folded run of reasoning is a warning nobody sees.
+    fn set_mode(&mut self, mode: Mode) {
+        if self.mode == mode {
+            return;
+        }
+        self.break_line();
+        if self.mode == Mode::Reasoning {
+            self.out.reasoning_end();
+        }
+        self.mode = mode;
+        if mode == Mode::Reasoning {
+            self.out.reasoning_start();
+        }
+    }
+
     /// Assistant text and reasoning, told apart by the break between them.
     fn stream(&mut self, mode: Mode, text: &str) {
-        if self.mode != mode {
-            self.break_line();
-            self.mode = mode;
-        }
+        self.set_mode(mode);
         if mode == Mode::Reasoning {
             let dimmed = self.colors.dim.apply(text);
             self.write(&dimmed);
@@ -751,9 +841,20 @@ impl TurnRenderer {
             Vec::new()
         };
         if !tasks.is_empty() {
-            self.line(&head);
-            for (status, text) in tasks {
-                self.line(&self.task_line(status, &text));
+            let mut card = self.indent_line(&head);
+            for (status, text) in &tasks {
+                let row = self.task_line(*status, text);
+                card.push_str(&self.indent_line(&row));
+            }
+            self.out.tasks_card(&card);
+            self.at_line_start = true;
+            // Held until the result says the call worked. Only the top-level
+            // plan is held at all: a subagent keeps its own list in its own
+            // session, and hoisting it would overwrite the plan the operator is
+            // watching with the plan of something it delegated to.
+            if self.depth == 0 {
+                self.pending_tasks
+                    .insert(call_key(session_key, call_id), tasks);
             }
             return;
         }
@@ -807,16 +908,29 @@ impl TurnRenderer {
             "{}{suffix}",
             format_duration(to_ms(result.duration_ms))
         ));
-        self.line(&format!("  {mark} {timing}"));
+        let head = self.indent_line(&format!("  {mark} {timing}"));
+        self.out.tool_body_start(&head);
+        self.at_line_start = true;
         let was = self.calls.remove(&call_key(session_key, &result.call_id));
+
+        // The plan the call asked for, now that it is known to have landed.
+        if let Some(tasks) = self
+            .pending_tasks
+            .remove(&call_key(session_key, &result.call_id))
+            && result.ok
+        {
+            self.out.tasks(&tasks);
+        }
 
         // The plan was printed as the call went out, and the result is a
         // sentence counting what is already on screen.
         if was.as_deref() == Some(TODO_TOOL) && result.ok {
+            self.out.tool_body_end();
             return;
         }
 
         if self.tool_result_lines == 0 || result.content.is_empty() {
+            self.out.tool_body_end();
             return;
         }
         let lines: Vec<&str> = result.content.split('\n').collect();
@@ -832,6 +946,7 @@ impl TurnRenderer {
             let text = self.colors.dim.apply(&format!("    … {hidden} more lines"));
             self.line(&text);
         }
+        self.out.tool_body_end();
     }
 
     fn error(&mut self, code: &str, message: &str, retryable: bool) {
@@ -849,8 +964,7 @@ impl TurnRenderer {
         usage: Option<&Usage>,
         timing: &TurnTiming,
     ) {
-        self.break_line();
-        self.mode = Mode::Idle;
+        self.set_mode(Mode::Idle);
 
         // `complete` has no key, so a turn that finished normally prints
         // nothing rather than announcing itself on every single turn.
@@ -880,6 +994,24 @@ impl TurnRenderer {
     fn line(&mut self, text: &str) {
         self.break_line();
         self.write(&format!("{text}\n"));
+    }
+
+    /// One line, indented for its depth, ready to be handed somewhere other
+    /// than [`TurnRenderer::write`].
+    ///
+    /// For the rows that go out through a signal rather than as prose: a target
+    /// keeping one as a summary needs the text, not a call that has already
+    /// written it. The break before it still happens here, because the stream
+    /// has to be at the start of a line either way.
+    fn indent_line(&mut self, text: &str) -> String {
+        self.break_line();
+        let body = format!("{text}\n");
+        let indent = "  ".repeat(self.depth);
+        if indent.is_empty() {
+            body
+        } else {
+            indented(&body, &indent, true)
+        }
     }
 
     /// A newline only when the cursor is not already at the start of one.

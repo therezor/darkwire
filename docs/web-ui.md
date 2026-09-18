@@ -52,9 +52,22 @@ never drops a running turn.
 
 ## Chat
 
-- Answers stream in; reasoning arrives in a separate collapsible block.
+- Answers stream in; reasoning arrives in a separate collapsible block, and the block
+  says `thinking…` for as long as it is still being written to, including on the
+  iterations after the first, which used to go quiet.
+- **Something is always moving while a turn runs.** The dots under the last message
+  appear whenever the model is working and nothing on screen is: before the first token,
+  and in the gap between one tool finishing and the next thing starting. On an agent that
+  runs forty tools that gap is most of the turn, and it used to show a finished card and
+  a Stop button and nothing else.
 - **Tool cards** — one per call, with the risk badge, running/succeeded/failed status,
-  progress ticks for slow calls, and a flag when output was truncated.
+  progress ticks for slow calls, and a flag when output was truncated. A running call
+  says so on the card itself rather than behind the disclosure, and shows the server's
+  own sentence when a heartbeat carried one, so a call that has been going for a
+  minute is not a one-line strip you have to click to learn anything about.
+- **`ui.reasoning`** decides how much of the working out arrives: `collapsed` by default,
+  `expanded`, or `hidden`, which stops it reaching either surface. It is install-wide and
+  the terminal honours the same key; Appearance is where it is set.
 - **Approval prompts** show the arguments before the call runs, and take Approve once /
   this session, or Deny. A standing permission is an agent setting, not a button here.
   See [Tools & permissions](tools.md#answering).

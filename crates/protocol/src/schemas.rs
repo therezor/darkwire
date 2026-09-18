@@ -272,6 +272,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::PromptMode>,
     },
     RegisteredSchema {
+        name: "ReasoningDisplay",
+        schema: schema_for::<config::ReasoningDisplay>,
+    },
+    RegisteredSchema {
         name: "AgentSettings",
         schema: schema_for::<config::AgentSettings>,
     },

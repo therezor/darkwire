@@ -118,6 +118,14 @@ export interface ToolPart {
   readonly status: ToolStatus;
   /** Last figure from `tool.progress`; the card ticks past it locally. */
   readonly elapsedMs: number;
+  /**
+   * The sentence the last heartbeat carried, if it carried one.
+   *
+   * The server has always sent this and the client has always dropped it. It is
+   * the only thing on a running card that can say *what* is taking the time
+   * rather than how long it has taken.
+   */
+  readonly progress: string | undefined;
   readonly durationMs: number | undefined;
   /** The tool's own output, unwrapped. Undefined until the result arrives. */
   readonly content: string | undefined;

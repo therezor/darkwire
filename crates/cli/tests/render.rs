@@ -22,6 +22,7 @@ use darkwire::render::{
 };
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
+use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{StopReason, TurnTiming, Usage};
 use serde_json::{Value, json};
 
@@ -933,4 +934,141 @@ fn a_context_usage_event_draws_nothing() {
         }),
     ]);
     assert_eq!(text, String::new());
+}
+
+/// A turn with every kind of run in it, through a target that overrides nothing.
+///
+/// The regression guard for the signals. `RenderTarget` grew four boundary
+/// methods and a plan method so that a *frame* could fold a run of reasoning or
+/// a tool's output away; a pipe, a log file and `--json` have nowhere to put a
+/// fold, so all five have defaults and all five defaults write what this file
+/// has always written. Every other case here would keep passing if one of those
+/// defaults silently dropped its text, because each asserts a substring. This
+/// one pins the whole shape.
+///
+/// The fixture was taken from the commit before the signals existed, by running
+/// these same events through that renderer, rather than from this one, so it
+/// asserts that nothing moved rather than recording wherever it ended up.
+const EVERY_KIND_OF_RUN: &str = "\
+weighing the options
+Looking now.
+⚙ ls path=\"/tmp\"
+  ✓ 1.2s
+    one
+    two
+⚙ todo
+  ✓ inspect auth
+  ▸ update sessions
+  ☐ add tests
+  ✓ 1ms
+Done.
+";
+
+#[test]
+fn a_target_that_overrides_nothing_writes_what_it_always_wrote() {
+    let text = plain(&[
+        start(),
+        json!({"type": "reasoning.delta", "turnId": "t1", "text": "weighing the options"}),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "Looking now."}),
+        json!({
+            "type": "tool.call", "turnId": "t1", "callId": "c1",
+            "name": "ls", "args": {"path": "/tmp"}, "risk": "safe",
+        }),
+        json!({
+            "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": true,
+            "content": "one\ntwo", "truncated": false, "durationMs": 1200,
+        }),
+        json!({
+            "type": "tool.call", "turnId": "t1", "callId": "c2", "name": "todo",
+            "args": {"tasks": [
+                {"text": "inspect auth", "status": "done"},
+                {"text": "update sessions", "status": "doing"},
+                {"text": "add tests", "status": "todo"},
+            ]},
+            "risk": "safe",
+        }),
+        json!({
+            "type": "tool.result", "turnId": "t1", "callId": "c2", "ok": true,
+            "content": "3 tasks", "truncated": false, "durationMs": 1,
+        }),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "Done."}),
+    ]);
+
+    assert_eq!(text, EVERY_KIND_OF_RUN);
+}
+
+/// One plan, as the surface is told to keep it.
+type Plan = Vec<(TaskStatus, String)>;
+
+/// A target that records the plans it was told to keep, and nothing else.
+#[derive(Clone, Default)]
+struct Plans(Arc<Mutex<Vec<Plan>>>);
+
+impl RenderTarget for Plans {
+    fn write(&mut self, text: &str) {
+        let _ = text;
+    }
+
+    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
+        self.0.lock().unwrap().push(tasks.to_vec());
+    }
+}
+
+fn plans_for(events: &[Value]) -> Vec<Plan> {
+    let sink = Plans::default();
+    let mut renderer = TurnRenderer::new(TurnRendererOptions {
+        colors: Some(false),
+        t: Translations::default(),
+        ..TurnRendererOptions::new(Box::new(sink.clone()))
+    });
+    for value in events {
+        renderer.handle(&event(value.clone()));
+    }
+    renderer.finish();
+    sink.0.lock().unwrap().clone()
+}
+
+fn todo_call(call_id: &str) -> Value {
+    json!({
+        "type": "tool.call", "turnId": "t1", "callId": call_id, "name": "todo",
+        "args": {"tasks": [
+            {"text": "water the houseplants", "status": "todo"},
+            {"text": "read twenty pages", "status": "todo"},
+        ]},
+        "risk": "safe",
+    })
+}
+
+#[test]
+fn a_plan_reaches_the_surface_once_the_call_has_landed() {
+    let plans = plans_for(&[
+        start(),
+        todo_call("c1"),
+        json!({
+            "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": true,
+            "content": "2 tasks", "truncated": false, "durationMs": 1,
+        }),
+    ]);
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].len(), 2);
+}
+
+#[test]
+fn a_plan_that_was_only_asked_for_never_reaches_the_surface() {
+    // The bug this exists for: a `todo` call announces itself before it runs,
+    // so a surface painting from the announcement shows a plan for a call that
+    // was refused, failed validation, or never finished. The list then sits
+    // above the composer of a session whose stored plan is empty, and `/tasks`
+    // and the screen disagree.
+    assert!(plans_for(&[start(), todo_call("c1")]).is_empty());
+
+    let failed = plans_for(&[
+        start(),
+        todo_call("c1"),
+        json!({
+            "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": false,
+            "content": "at most 10 tasks", "truncated": false, "durationMs": 1,
+        }),
+    ]);
+    assert!(failed.is_empty(), "a refused call painted {failed:?}");
 }

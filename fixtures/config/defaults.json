@@ -104,6 +104,8 @@
   },
   "ui": {
     "locale": "en",
+    "reasoning": "collapsed",
+    "expandToolOutput": false,
     "timezone": "UTC"
   }
 }

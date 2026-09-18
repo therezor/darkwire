@@ -26,6 +26,10 @@ import { useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SUPPORTED_LOCALES } from '@darkwire/i18n';
+import {
+  ReasoningDisplaySchema,
+  type ReasoningDisplay,
+} from '@darkwire/protocol';
 
 import { useAppLocale } from '@/i18n/i18n-context.js';
 import { SYSTEM } from '@/i18n/locale-preference.js';
@@ -44,7 +48,7 @@ import {
   SelectField,
   type SelectFieldOption,
 } from '@/components/form/controls.js';
-import { useSaveSettings } from './use-settings.js';
+import { useSaveSettings, useSettings } from './use-settings.js';
 
 /**
  * The languages this build ships, named in their own language.
@@ -82,6 +86,7 @@ export function AppearancePanel(): JSX.Element {
   const theme = useAppTheme();
   const timezone = useAppTimezone();
   const { save, saving } = useSaveSettings();
+  const settings = useSettings();
 
   // The preference as the select shows it, which is not the same as what is
   // saved: `system` is a real choice here and resolves to a concrete tag before
@@ -126,6 +131,16 @@ export function AppearancePanel(): JSX.Element {
   const [pendingTz, setPendingTz] = useState<string | undefined>(undefined);
   const shownTz = pendingTz ?? timezone;
   const tzDirty = pendingTz !== undefined && pendingTz !== timezone;
+
+  // `undefined` until touched, for the reason `pendingTz` gives above: the
+  // settings query has not answered on the first render, and seeding from a
+  // default would show the panel as unsaved before anyone touched it.
+  const reasoning = settings.data?.config.ui.reasoning ?? 'collapsed';
+  const [pendingReasoning, setPendingReasoning] = useState<
+    ReasoningDisplay | undefined
+  >(undefined);
+  const reasoningDirty =
+    pendingReasoning !== undefined && pendingReasoning !== reasoning;
 
   return (
     <div className="stack">
@@ -188,6 +203,49 @@ export function AppearancePanel(): JSX.Element {
           }}
           onRevert={() => {
             setPendingTz(undefined);
+          }}
+        />
+      </Section>
+
+      <Section
+        title={t('settings.appearance.transcriptTitle')}
+        description={t('settings.appearance.transcriptDesc')}
+      >
+        <FieldGrid>
+          <SelectField
+            label={t('settings.appearance.reasoning')}
+            hint={t('settings.appearance.reasoningHint')}
+            value={pendingReasoning ?? reasoning}
+            options={[
+              {
+                value: 'collapsed',
+                label: t('settings.appearance.reasoningCollapsed'),
+              },
+              {
+                value: 'expanded',
+                label: t('settings.appearance.reasoningExpanded'),
+              },
+              {
+                value: 'hidden',
+                label: t('settings.appearance.reasoningHidden'),
+              },
+            ]}
+            onValueChange={(value) => {
+              const parsed = ReasoningDisplaySchema.safeParse(value);
+              if (parsed.success) setPendingReasoning(parsed.data);
+            }}
+          />
+        </FieldGrid>
+
+        <SaveBar
+          dirty={reasoningDirty}
+          saving={saving}
+          onSave={() => {
+            if (pendingReasoning === undefined) return;
+            save({ ui: { reasoning: pendingReasoning } });
+          }}
+          onRevert={() => {
+            setPendingReasoning(undefined);
           }}
         />
       </Section>

@@ -88,6 +88,7 @@ export function seedTool(
     risk,
     status,
     elapsedMs: 0,
+    progress: undefined,
     durationMs: undefined,
     content: undefined,
     truncated: false,

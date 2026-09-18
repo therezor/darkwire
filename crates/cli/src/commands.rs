@@ -53,7 +53,7 @@ use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, text_of};
 use darkwire_i18n::{args, format_number, keys};
 use darkwire_protocol::config::{AgentSettingsChange, agent_settings_patch};
-use darkwire_protocol::tasks::render_tasks;
+use darkwire_protocol::tasks::{TaskStatus, render_tasks};
 use darkwire_protocol::{
     DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, ModelsResponse, ReasoningEffort, ToolPermission,
     new_uuid,
@@ -234,6 +234,33 @@ struct HelpSection {
     rows: Vec<CommandRow>,
 }
 
+/// Every key the prompt binds, as `/help` prints them.
+///
+/// Deliberately not a section of [`help_layout`]. That table is flattened by
+/// [`command_rows`] and handed to the palette, to Tab completion and to the
+/// list a slash command opens, so a Keys section there would offer `ctrl-t` as
+/// a command to run. These are keys, they are never typed, and they belong to a
+/// listing rather than to a vocabulary.
+fn key_layout() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("ctrl-g", keys::slash::keys::PALETTE),
+        ("tab", keys::slash::keys::COMPLETE),
+        ("return", keys::slash::keys::RUN),
+        ("ctrl-t", keys::slash::keys::REASONING),
+        ("ctrl-o", keys::slash::keys::TOOLS),
+        ("ctrl-l", keys::slash::keys::REDRAW),
+        ("ctrl-c", keys::slash::keys::CANCEL),
+        ("ctrl-d", keys::slash::keys::LEAVE),
+        ("up, down", keys::slash::keys::HISTORY),
+        (
+            "ctrl-a, ctrl-e, ctrl-b, ctrl-f",
+            keys::slash::keys::EDIT_LINE,
+        ),
+        ("alt-left, alt-right", keys::slash::keys::EDIT_WORD),
+        ("ctrl-u, ctrl-k, ctrl-w", keys::slash::keys::KILL),
+    ]
+}
+
 /// Every command, grouped as `/help` prints them.
 fn help_layout() -> Vec<HelpSection> {
     vec![
@@ -398,8 +425,24 @@ pub fn help_text(t: &Translations) -> String {
         })
         .collect();
 
+    let bindings = key_layout();
+    let key_width = bindings
+        .iter()
+        .map(|(binding, _)| visible_width(binding))
+        .max()
+        .unwrap_or(0);
+    let key_rows: Vec<String> = bindings
+        .iter()
+        .map(|(binding, key)| format!("  {}  {}", pad_to_width(binding, key_width), t.t(key)))
+        .collect();
+    let key_block = format!(
+        "  {}\n{}",
+        t.t(keys::slash::sections::KEYS),
+        key_rows.join("\n")
+    );
+
     format!(
-        "{}\n\n  {}",
+        "{}\n\n{key_block}\n\n  {}",
         blocks.join("\n\n"),
         t.t(keys::slash::REF_NOTE)
     )
@@ -1649,6 +1692,14 @@ fn skills_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
 
 // Tasks
 
+/// A stored list as the rows a surface draws.
+fn plan_rows(tasks: &[darkwire_protocol::tasks::TaskItem]) -> Vec<(TaskStatus, String)> {
+    tasks
+        .iter()
+        .map(|task| (task.status, task.text.clone()))
+        .collect()
+}
+
 /// `/tasks`, and `/tasks clear`.
 ///
 /// The store directly, with no loop involved, for the reason `/context` reaches
@@ -1663,12 +1714,17 @@ fn tasks_command(action: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<Sla
 
     if action == Some("clear") {
         store.set_tasks(ctx.session_key, &[])?;
+        // The store and the frame both, because the frame's copy is not read
+        // from the store on every draw: clearing one and not the other leaves
+        // a plan above the composer that nothing is running.
+        ctx.renderer.plan(&[]);
         let note = ctx.t.t(keys::slash::notes::TASKS_CLEARED);
         ctx.renderer.note(&note);
         return Ok(SlashOutcome::Continue);
     }
 
     let tasks = store.tasks(ctx.session_key)?;
+    ctx.renderer.plan(&plan_rows(&tasks));
     let text = if tasks.is_empty() {
         ctx.t.t(keys::slash::notes::TASKS_EMPTY)
     } else {

@@ -70,7 +70,7 @@ git log --oneline -20 | darkwire chat "what changed"   # a pipe target
 | `-W, --workspace-id <id>` | Which workspace inside it new sessions land in.          |
 | `--new`                   | Clear the session before this turn.                      |
 | `--json`                  | One agent event per line, as JSON.                       |
-| `--no-reasoning`          | Hide the model's reasoning stream.                       |
+| `--no-reasoning`          | Hide the model's reasoning for this run.                 |
 | `--no-tools`              | Run the turn with no tools registered at all.            |
 
 **`-w` and `-W` are deliberately different flags** for two different things, and the
@@ -151,6 +151,63 @@ the first token.
 | --------------------------- | --------------------------------------- |
 | `/output`                   | What a turn shows, and what it does not |
 | `/output <field> [on\|off]` | Flip one — `reasoning`, `stats`         |
+
+Reasoning and tool output arrive **folded**: one labelled row each, which opens
+on a keystroke. A turn is read for its answer, and a terminal that prints every
+line of the working out buries the one thing you came for.
+
+The fold that is still running counts up (`⠋ thinking… 4s`), so a long run of
+reasoning never reads as a terminal that has stopped.
+
+`ctrl-t` and `ctrl-o` flip them. Each does two things: it opens or closes what is
+on screen, and it decides how the next run arrives. The second half is the one
+that matters, because a run that has scrolled into the terminal's own history
+cannot be rewritten. Press the key once and everything after it arrives the way
+you asked.
+
+`ui.reasoning` in the config file is where that choice lives across runs. It has
+three values rather than two: `collapsed` is the default, `expanded` prints it as
+it streams, and `hidden` stops it reaching the terminal at all. `--no-reasoning`
+means `hidden` for one run. `ui.expandToolOutput` is the switch for the other
+half, and it is a switch because tool output is written either way.
+
+On a pipe, on a dumb terminal or under `--json` there is nothing to fold, so
+`collapsed` prints as it always did and only `hidden` silences anything.
+
+**Keys**
+
+| Key                          | What it does                                    |
+| ---------------------------- | ----------------------------------------------- |
+| `ctrl-g`                     | Every command, searchable                       |
+| `/`                          | The command list, filtered as you type          |
+| `tab`                        | Take the highlighted command                    |
+| `return`                     | Run the highlighted command                     |
+| `ctrl-t`                     | Fold or unfold the reasoning                    |
+| `ctrl-o`                     | Fold or unfold what tools printed               |
+| `ctrl-l`                     | Draw the screen again                           |
+| `ctrl-c`                     | Stop the turn, or leave                         |
+| `ctrl-d`                     | Leave                                           |
+| `up`, `down`                 | The last thing you asked, and the one before    |
+| `ctrl-a`, `ctrl-e`           | Start of line, end of line                      |
+| `ctrl-b`, `ctrl-f`           | Back, forward                                   |
+| `alt-left`, `alt-right`      | Back a word, forward a word                     |
+| `ctrl-u`, `ctrl-k`, `ctrl-w` | Clear the line, clear to the end, delete a word |
+
+`/help` prints the same table, so the keys are discoverable from inside the
+prompt rather than only from here.
+
+Typing `/` opens the command list **beside** the line rather than over it: what
+you typed stays visible and editable while the list filters under it. `ctrl-g`
+is the other half of the same idea, for when you do not know the name to start
+typing. It opens the whole table, searchable, in place of the prompt.
+
+**The plan**
+
+An agent doing multi-step work writes one with its `todo` tool, and it sits
+above the box you type into, three tasks at a time around whatever is in hand
+with a `+N more` when the list is longer. It is rewritten rather than appended,
+so a turn that revises its plan six times leaves one list on screen and nothing
+in the scrollback. `/tasks` prints it in full and `/tasks clear` empties it.
 
 **Agents and models**
 

@@ -266,7 +266,7 @@ function TurnMessage({
         unanswered={unanswered}
       />
 
-      {streaming && !turn.done && turn.parts.length === 0 && (
+      {streaming && !turn.done && isWorking(turn) && (
         <p className="turn__thinking" role="status">
           <span className="thinking-dots" aria-hidden="true">
             <span />
@@ -307,6 +307,36 @@ function TurnMessage({
         onAction={onAction}
       />
     </article>
+  );
+}
+
+/**
+ * A running turn with nothing on screen that is moving.
+ *
+ * The indicator used to appear only while a turn had no parts at all, which is
+ * true for about as long as it takes the first token to arrive. After that it
+ * never came back, so the gap between a tool finishing and the next thing
+ * starting showed a finished card, a static sentence under the composer and a
+ * red Stop button, and nothing anywhere saying the turn was still running. On
+ * an agent that runs forty tools that gap is most of the turn.
+ *
+ * Two shapes qualify, and between them they are every moment when the model is
+ * working and the transcript is not:
+ *
+ *  - **Nothing yet.** The first token has not arrived.
+ *  - **The last part has finished.** A tool card that says `ok` or `error` is
+ *    not going to change again, and the next `tool.call` or text delta has not
+ *    landed. The model is generating in between.
+ *
+ * Everything else already has something of its own that moves: streaming text
+ * grows, a running tool card spins and counts, an approval prompt is waiting on
+ * the reader rather than on the model.
+ */
+function isWorking(turn: TurnItem): boolean {
+  const last = turn.parts.at(-1);
+  if (last === undefined) return true;
+  return (
+    last.kind === 'tool' && (last.status === 'ok' || last.status === 'error')
   );
 }
 

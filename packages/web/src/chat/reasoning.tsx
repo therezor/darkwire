@@ -76,7 +76,7 @@ export function ReasoningBlock({
         />
         <Brain />
         <span>{t('chat.reasoning')}</span>
-        {live && <span className="reasoning__live">thinking…</span>}
+        {live && <span className="reasoning__live">{t('chat.thinking')}</span>}
       </button>
 
       <div id={bodyId} hidden={!open} className="reasoning__body">
