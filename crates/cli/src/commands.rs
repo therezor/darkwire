@@ -61,7 +61,7 @@ use darkwire_protocol::{
 use darkwire_providers::estimate_tokens;
 use darkwire_security::random::{OsRandom, RandomSource};
 use darkwire_server::agent_for_turn;
-use darkwire_tui::{pad_to_width, visible_width};
+use darkwire_tui::{Page, PagesLabels, pad_to_width, visible_width};
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
@@ -69,6 +69,7 @@ use crate::i18n::Translations;
 use crate::menu::Menu;
 use crate::messages::{DEFAULT_MESSAGE_LINES, recent_messages, resolve_seq};
 use crate::models::ModelCatalogue;
+use crate::pickers::ListingRequest;
 use crate::pickers::agents::{agent_listing, pick_agent};
 use crate::pickers::effort::{DEFAULT_LEVEL, LEVELS, effort_listing, effort_value, pick_effort};
 use crate::pickers::models::{model_errors, model_listing, pick_model};
@@ -449,6 +450,96 @@ pub fn help_text(t: &Translations) -> String {
     )
 }
 
+/// `/help` as tabs, for a terminal that can lay an overlay over the prompt.
+///
+/// The same rows [`help_text`] writes, grouped into four places instead of one
+/// scroll. A listing printed into the conversation is worse than it looks: it
+/// goes into the terminal's own history, between the question and the answer to
+/// it, and stays there for the rest of the session.
+///
+/// The section headings survive inside the tabs, so the grouping a reader
+/// already knows is still what they see.
+#[must_use]
+pub fn help_pages(t: &Translations) -> Vec<Page> {
+    let layout = help_layout();
+    let width = layout
+        .iter()
+        .flat_map(|section| &section.rows)
+        .filter(|row| row.key.is_some())
+        .map(|row| visible_width(&row.syntax))
+        .max()
+        .unwrap_or(0);
+
+    // Which heading belongs on which tab. Named rather than counted, so moving
+    // a section between tabs is one edit here and nothing else.
+    let commands = [
+        None,
+        Some(keys::slash::sections::SESSIONS),
+        Some(keys::slash::sections::MESSAGES),
+    ];
+    let turn = [
+        Some(keys::slash::sections::CONTEXT),
+        Some(keys::slash::sections::OUTPUT),
+    ];
+
+    let mut tabs = vec![
+        Page {
+            title: t.t(keys::slash::tabs::COMMANDS),
+            rows: section_rows(&layout, width, t, |heading| commands.contains(&heading)),
+        },
+        Page {
+            title: t.t(keys::slash::tabs::TURN),
+            rows: section_rows(&layout, width, t, |heading| turn.contains(&heading)),
+        },
+        Page {
+            title: t.t(keys::slash::tabs::SETUP),
+            rows: section_rows(&layout, width, t, |heading| {
+                !commands.contains(&heading) && !turn.contains(&heading)
+            }),
+        },
+    ];
+
+    let bindings = key_layout();
+    let key_width = bindings
+        .iter()
+        .map(|(binding, _)| visible_width(binding))
+        .max()
+        .unwrap_or(0);
+    tabs.push(Page {
+        title: t.t(keys::slash::sections::KEYS),
+        rows: bindings
+            .iter()
+            .map(|(binding, key)| format!("  {}  {}", pad_to_width(binding, key_width), t.t(key)))
+            .collect(),
+    });
+    tabs
+}
+
+/// The rows of every section `wanted` accepts, with a blank row between them.
+fn section_rows(
+    layout: &[HelpSection],
+    width: usize,
+    t: &Translations,
+    wanted: impl Fn(Option<&'static str>) -> bool,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for section in layout.iter().filter(|section| wanted(section.heading)) {
+        if !out.is_empty() {
+            out.push(String::new());
+        }
+        if let Some(heading) = section.heading {
+            out.push(format!("  {}", t.t(heading)));
+        }
+        for row in &section.rows {
+            out.push(match row.key {
+                None => format!("  {}", row.syntax),
+                Some(key) => format!("  {}  {}", pad_to_width(&row.syntax, width), t.t(key)),
+            });
+        }
+    }
+    out
+}
+
 // The dispatcher
 
 /// Runs one slash command.
@@ -490,8 +581,22 @@ async fn dispatch(
         "exit" | "quit" => Ok(SlashOutcome::Exit),
 
         "help" => {
-            let text = help_text(ctx.t);
-            ctx.renderer.note(&text);
+            // The overlay when there is a screen to lay it over, and the same
+            // rows written to the stream when there is not. A pipe, `--json`
+            // and a dumb terminal all still get the answer.
+            let shown = ctx
+                .menu
+                .show(ListingRequest {
+                    pages: help_pages(ctx.t),
+                    labels: PagesLabels {
+                        footer: ctx.t.t(keys::slash::help::FOOTER),
+                    },
+                })
+                .await;
+            if !shown {
+                let text = help_text(ctx.t);
+                ctx.renderer.note(&text);
+            }
             Ok(SlashOutcome::Continue)
         }
 
@@ -2028,6 +2133,16 @@ impl<M: Menu + Send> PickerMenu for SyncMenu<M> {
             .ok()
             .and_then(|mut menu| menu.choose(framed));
         Box::pin(std::future::ready(chosen))
+    }
+
+    /// Nothing. This wrapper exists for the scripted paths, which have a menu
+    /// they can answer and no screen to lay a listing over.
+    fn show<'a>(
+        &'a self,
+        request: crate::pickers::ListingRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(false))
     }
 }
 

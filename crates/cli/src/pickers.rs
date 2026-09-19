@@ -25,7 +25,7 @@ pub mod workspaces;
 use std::future::Future;
 use std::pin::Pin;
 
-use darkwire_tui::{SelectItem, SelectLabels};
+use darkwire_tui::{Page, PagesLabels, SelectItem, SelectLabels};
 
 use crate::i18n::Translations;
 
@@ -45,6 +45,18 @@ pub struct MenuRequest {
     pub index: Option<usize>,
 }
 
+/// What a listing asks a frame to show.
+///
+/// Nothing comes back. A listing is opened to be read, so the only thing the
+/// caller learns is that the reader closed it.
+#[derive(Debug)]
+pub struct ListingRequest {
+    /// The tabs, in the order they are shown.
+    pub pages: Vec<Page>,
+    /// Already translated: the toolkit holds no keys.
+    pub labels: PagesLabels,
+}
+
 /// What a picker needs from whoever owns the frame.
 ///
 /// The concrete menu lives in `menu.rs`, which knows where a menu goes among
@@ -62,6 +74,16 @@ pub trait PickerMenu: Send + Sync {
         &'a self,
         request: MenuRequest,
     ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>>;
+
+    /// Puts a listing into the frame and answers when it closes.
+    ///
+    /// `false` when there was nowhere to draw one, which is what tells a caller
+    /// to write the same rows to the stream instead. A pipe has no overlay and
+    /// still deserves the answer.
+    fn show<'a>(
+        &'a self,
+        request: ListingRequest,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
 }
 
 /// A menu that never draws and always answers nothing.
@@ -83,6 +105,14 @@ impl PickerMenu for NoMenu {
     ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>> {
         drop(request);
         Box::pin(std::future::ready(None))
+    }
+
+    fn show<'a>(
+        &'a self,
+        request: ListingRequest,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(false))
     }
 }
 

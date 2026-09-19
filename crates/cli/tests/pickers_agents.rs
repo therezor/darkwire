@@ -94,6 +94,15 @@ impl PickerMenu for Recording {
         let answer = self.answer;
         Box::pin(async move { answer })
     }
+
+    /// Nothing to lay a listing over; a scripted menu has no screen.
+    fn show<'a>(
+        &'a self,
+        request: darkwire::pickers::ListingRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(false))
+    }
 }
 
 #[test]

@@ -238,6 +238,15 @@ impl PickerMenu for AnsweringMenu {
             .and_then(|want| request.items.iter().position(|item| &item.label == want));
         Box::pin(std::future::ready(at))
     }
+
+    /// Nothing to lay a listing over; a scripted menu has no screen.
+    fn show<'a>(
+        &'a self,
+        request: darkwire::pickers::ListingRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(false))
+    }
 }
 
 /// Everything one case holds, so the context can borrow it field by field.
@@ -2357,4 +2366,50 @@ async fn tasks_reads_the_session_the_prompt_is_attached_to() {
     let mut h = h;
     h.run("/tasks").await;
     assert!(h.text().contains("no plan"), "{}", h.text());
+}
+
+#[test]
+fn the_help_tabs_carry_every_row_the_text_does() {
+    // Two renderings of one table, and the tabbed one is what a terminal shows.
+    // A command that reached only the text would be a command nobody at a
+    // prompt can find.
+    let t = Translations::default();
+    let text = darkwire::commands::help_text(&t);
+    let pages = darkwire::commands::help_pages(&t);
+    let tabbed: String = pages
+        .iter()
+        .flat_map(|page| page.rows.iter())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for line in text.lines() {
+        let Some(syntax) = line.trim().split("  ").next() else {
+            continue;
+        };
+        if !syntax.starts_with('/') {
+            continue;
+        }
+        assert!(tabbed.contains(syntax), "the tabs are missing {syntax}");
+    }
+}
+
+#[test]
+fn every_help_tab_has_a_name_and_some_rows() {
+    let pages = darkwire::commands::help_pages(&Translations::default());
+    assert_eq!(pages.len(), 4);
+    for page in &pages {
+        assert!(!page.title.is_empty());
+        assert!(!page.rows.is_empty(), "{} is empty", page.title);
+    }
+}
+
+#[test]
+fn the_keys_tab_lists_the_bindings_and_no_commands() {
+    // A key is never typed as a command, which is why they were kept out of the
+    // table the palette and Tab completion read from.
+    let pages = darkwire::commands::help_pages(&Translations::default());
+    let keys = pages.last().expect("there is a keys tab");
+    assert!(keys.rows.iter().any(|row| row.contains("ctrl-g")));
+    assert!(!keys.rows.iter().any(|row| row.trim().starts_with('/')));
 }

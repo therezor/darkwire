@@ -23,6 +23,7 @@ pub mod block;
 pub mod component;
 pub mod editor;
 pub mod keys;
+pub mod pages;
 pub mod renderer;
 pub mod select;
 pub mod select_list;
@@ -36,6 +37,9 @@ pub use block::Block;
 pub use component::{CURSOR_MARKER, Component};
 pub use editor::{Editor, EditorOutcome};
 pub use keys::{Key, KeyName, is_ctrl, parse_key, parse_keys};
+pub use pages::{
+    CHROME_ROWS as PAGES_CHROME_ROWS, Page, Pages, PagesLabels, PagesOptions, PagesOutcome,
+};
 pub use renderer::{FRAME_INTERVAL_MS, Renderer, RendererOptions};
 pub use select::{
     CHROME_ROWS, DEFAULT_MAX_ROWS, Select, SelectLabels, SelectOptions, SelectOutcome,

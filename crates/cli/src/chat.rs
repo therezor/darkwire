@@ -49,9 +49,10 @@ use darkwire_runtime::{RuntimeOptions, WireRuntime};
 use darkwire_server::agent_for_turn;
 use darkwire_tui::{
     CHROME_ROWS, Component, DEFAULT_MAX_ROWS, Editor, EditorOutcome, FRAME_INTERVAL_MS, Key,
-    KeyName, Renderer, RendererOptions, SPINNER_INTERVAL_MS, Select, SelectItem, SelectList,
-    SelectOptions, SelectOutcome, StandardInput, StandardOutput, TerminalInput, Theme, Transcript,
-    columns_of, is_ctrl, open_keyboard, spinner_frame, theme_for, truncate_to_width,
+    KeyName, PAGES_CHROME_ROWS, Pages, PagesOptions, PagesOutcome, Renderer, RendererOptions,
+    SPINNER_INTERVAL_MS, Select, SelectItem, SelectList, SelectOptions, SelectOutcome,
+    StandardInput, StandardOutput, TerminalInput, Theme, Transcript, columns_of, is_ctrl,
+    open_keyboard, spinner_frame, theme_for, truncate_to_width,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -63,7 +64,7 @@ use crate::i18n::{Env, Translations, describe_error};
 use crate::menu::{MenuAvailable, menu_available};
 use crate::models::{ModelCatalogue, ModelCatalogueOptions, create_model_catalogue};
 use crate::pickers::palette::{CommandChoice, command_items, complete_command, pick_command};
-use crate::pickers::{MenuRequest as PickerRequest, NoMenu, PickerMenu};
+use crate::pickers::{ListingRequest, MenuRequest as PickerRequest, NoMenu, PickerMenu};
 use crate::program::{ChatArgs, Globals};
 use crate::render::{
     LineKind, PlainPrinter, TranscriptEvent, TranscriptSink, TurnRenderer, TurnRendererOptions,
@@ -1137,7 +1138,7 @@ impl Surface for PlainSurface<'_> {
 pub struct Frame {
     transcript: Transcript,
     editor: Editor,
-    overlay: Option<Select<usize>>,
+    overlay: Option<Overlay>,
     /// The command list, while a slash command is being typed.
     ///
     /// Beside the editor rather than over it, which is the whole difference
@@ -1783,6 +1784,38 @@ impl Component for Frame {
     }
 }
 
+/// What is drawn in place of the editor and the status rows.
+///
+/// Two kinds and not one, because they answer different questions. A menu is
+/// opened to pick something and closes on a value; a listing is opened to read
+/// and closes on nothing. Holding them apart here rather than behind one trait
+/// keeps the key map honest: the pump that opened a menu is waiting for an
+/// answer, and the pump that opened a listing is not.
+pub enum Overlay {
+    /// A menu, waiting for a row to be chosen.
+    Choice(Select<usize>),
+    /// A listing with tabs, waiting to be dismissed.
+    Listing(Pages),
+}
+
+impl std::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Overlay::Choice(_) => "Overlay::Choice",
+            Overlay::Listing(_) => "Overlay::Listing",
+        })
+    }
+}
+
+impl Component for Overlay {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        match self {
+            Overlay::Choice(select) => select.render(width),
+            Overlay::Listing(pages) => pages.render(width),
+        }
+    }
+}
+
 /// What a keystroke asked the prompt to do.
 ///
 /// Public because [`handle_key`] is the whole of the frame's input rule, and a
@@ -1833,6 +1866,19 @@ impl FrameState {
         DEFAULT_MAX_ROWS
             .min(self.renderer.rows().saturating_sub(CHROME_ROWS))
             .max(1)
+    }
+
+    /// The window, less the row of gap above the overlay.
+    ///
+    /// More than a menu gets, and deliberately. A menu is a dozen rows because
+    /// a list you are picking from wants to stay near the thing you are picking
+    /// for. A listing is the thing you opened, and every row it cannot show is
+    /// a row somebody has to go looking for.
+    fn listing_rows(&self) -> usize {
+        self.renderer
+            .rows()
+            .saturating_sub(2)
+            .max(PAGES_CHROME_ROWS + 1)
     }
 
     /// Prints finished conversation, then draws what is left.
@@ -1928,13 +1974,13 @@ impl PickerMenu for FrameMenu {
         Box::pin(async move {
             let mut state = self.state.lock().await;
             let rows = state.menu_rows();
-            state.frame.overlay = Some(Select::new(SelectOptions {
+            state.frame.overlay = Some(Overlay::Choice(Select::new(SelectOptions {
                 items: request.items,
                 labels: request.labels,
                 theme: Some(state.frame.theme),
                 index: request.index,
                 max_rows: Some(rows),
-            }));
+            })));
             state.draw();
             let chosen = loop {
                 let Some(woke) = state.woke.recv().await else {
@@ -1947,10 +1993,10 @@ impl PickerMenu for FrameMenu {
                         continue;
                     }
                 };
-                let Some(overlay) = state.frame.overlay.as_mut() else {
+                let Some(Overlay::Choice(menu)) = state.frame.overlay.as_mut() else {
                     break None;
                 };
-                match overlay.handle_key(&key) {
+                match menu.handle_key(&key) {
                     SelectOutcome::Open => state.draw(),
                     SelectOutcome::Chosen(at) => break Some(at),
                     SelectOutcome::Cancelled => break None,
@@ -1959,6 +2005,45 @@ impl PickerMenu for FrameMenu {
             state.frame.overlay = None;
             state.draw();
             chosen
+        })
+    }
+
+    fn show<'a>(
+        &'a self,
+        request: ListingRequest,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().await;
+            let rows = state.listing_rows();
+            state.frame.overlay = Some(Overlay::Listing(Pages::new(PagesOptions {
+                pages: request.pages,
+                labels: request.labels,
+                theme: Some(state.frame.theme),
+                max_rows: Some(rows),
+            })));
+            state.draw();
+            loop {
+                let Some(woke) = state.woke.recv().await else {
+                    break;
+                };
+                let key = match woke {
+                    Wake::Key(key) => key,
+                    Wake::Resized => {
+                        state.redraw();
+                        continue;
+                    }
+                };
+                let Some(Overlay::Listing(pages)) = state.frame.overlay.as_mut() else {
+                    break;
+                };
+                match pages.handle_key(&key) {
+                    PagesOutcome::Open => state.draw(),
+                    PagesOutcome::Closed => break,
+                }
+            }
+            state.frame.overlay = None;
+            state.draw();
+            true
         })
     }
 }
@@ -2433,9 +2518,19 @@ pub fn handle_key(frame: &mut Frame, key: &Key) -> Typed {
 /// should not have to invent a terminal to ask.
 pub fn handle_key_with(frame: &mut Frame, key: &Key, rows: usize) -> Typed {
     if let Some(overlay) = frame.overlay.as_mut() {
-        // An open menu owns the keyboard; the pump that opened it is what
-        // reads the answer.
-        let _ = overlay.handle_key(key);
+        // An open overlay owns the keyboard. A menu hands its answer to the
+        // pump that opened it, so this only has to redraw; a listing answers
+        // nobody, so closing it is this function's to do.
+        match overlay {
+            Overlay::Choice(menu) => {
+                let _ = menu.handle_key(key);
+            }
+            Overlay::Listing(pages) => {
+                if pages.handle_key(key) == PagesOutcome::Closed {
+                    frame.overlay = None;
+                }
+            }
+        }
         return Typed::Redraw;
     }
 

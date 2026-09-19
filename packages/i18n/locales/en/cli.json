@@ -220,6 +220,7 @@
       "edit": "replace a message and re-run from there",
       "effort": "pick how hard this session's agent is asked to think, or name a level",
       "exit": "leave",
+      "footer": "←→ tabs · ↑↓ scroll · esc closes",
       "help": "this list",
       "memory": "how many memories this workspace holds, and what the index costs",
       "memoryOnOff": "let this agent remember, or stop it. Changes the agent, not only this session",
@@ -309,6 +310,11 @@
       "output": "what a turn shows",
       "sessions": "sessions",
       "workspaces": "workspaces"
+    },
+    "tabs": {
+      "commands": "commands",
+      "turn": "the turn",
+      "setup": "setup"
     }
   }
 }
