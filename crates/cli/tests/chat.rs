@@ -1311,3 +1311,37 @@ fn the_bar_at_the_bottom_is_drawn_at_the_width_it_is_asked_for() {
         assert!(last.contains("qwen3:8b"), "at {width}: {last}");
     }
 }
+
+#[test]
+fn an_echo_opens_an_exchange_and_lets_the_last_one_go() {
+    // The boundary the printing rule turns on. Without it nothing was ever
+    // finished, so nothing could be printed and the strip grew to the window.
+    let mut frame = frame();
+    frame.absorb(&delta("an answer\n"));
+    assert!(
+        frame.take_committable(80).is_empty(),
+        "the exchange on screen is held"
+    );
+
+    frame.echo("the next question");
+    let committed = frame.take_committable(80);
+    assert!(
+        committed.iter().any(|line| line.contains("an answer")),
+        "{committed:?}"
+    );
+}
+
+#[test]
+fn what_the_operator_typed_is_drawn_with_a_caret_and_a_row_of_space() {
+    let mut frame = frame();
+    frame.absorb(&delta("an answer\n"));
+    frame.echo("the next question");
+
+    let drawn = shown(&mut frame);
+    let asked = drawn
+        .iter()
+        .position(|row| row.contains("the next question"))
+        .expect("it is drawn");
+    assert!(drawn[asked].contains('›'), "{drawn:?}");
+    assert!(drawn[asked - 1].is_empty(), "{drawn:?}");
+}

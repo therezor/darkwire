@@ -1422,6 +1422,35 @@ impl Frame {
         }
     }
 
+    /// What may go to the terminal, taken.
+    ///
+    /// Public so a test can assert the boundary rather than infer it from rows.
+    /// The frame is what knows an exchange has ended; the transcript is what
+    /// knows which blocks that makes finished.
+    pub fn take_committable(&mut self, width: usize) -> Vec<String> {
+        self.transcript.take_committable(0, width)
+    }
+
+    /// The operator's own message, which opens an exchange.
+    ///
+    /// The editor holds the line while it is being typed and clears it on
+    /// Return, so nothing would otherwise record what was asked: the frame is
+    /// not the transcript.
+    ///
+    /// It is also the boundary the printing rule turns on. Everything above it
+    /// is a finished exchange and may go to the terminal; everything after it
+    /// is held, so the keys that fold keep reaching the run on screen.
+    pub fn echo(&mut self, content: &str) {
+        self.transcript.start_turn();
+        self.at_line_start = true;
+        // The one row of space between one exchange and the next, and the same
+        // caret the editor draws. Scrolling back through a long session, these
+        // are what the eye counts exchanges by.
+        self.write_line("");
+        let caret = self.theme.accent.apply("›");
+        self.write_line(&format!("{caret} {content}"));
+    }
+
     /// A chunk of streamed text, indented for the turn it belongs to.
     ///
     /// The indent is applied here rather than at the source because a chunk may
@@ -1784,6 +1813,15 @@ impl Component for Frame {
     }
 }
 
+/// The tallest a listing gets, however tall the window is.
+///
+/// Not about the reading. It is about what a resize costs: the strip is what a
+/// width change erases and redraws, and what it cannot reach is stranded in the
+/// history above it. A six row strip strands six rows. A strip that filled a
+/// forty row window would strand forty, and `/help` is the one thing that would
+/// make it that tall. Every tab fits inside this.
+const LISTING_MAX_ROWS: usize = 24;
+
 /// What is drawn in place of the editor and the status rows.
 ///
 /// Two kinds and not one, because they answer different questions. A menu is
@@ -1878,7 +1916,7 @@ impl FrameState {
         self.renderer
             .rows()
             .saturating_sub(2)
-            .max(PAGES_CHROME_ROWS + 1)
+            .clamp(PAGES_CHROME_ROWS + 1, LISTING_MAX_ROWS)
     }
 
     /// Prints finished conversation, then draws what is left.
@@ -2262,7 +2300,7 @@ impl Surface for FramedSurface {
     fn echo<'a>(&'a mut self, content: &'a str) -> BoxFut<'a, ()> {
         Box::pin(async move {
             let mut state = self.state.lock().await;
-            state.frame.transcript.write(&format!("\n› {content}\n"));
+            state.frame.echo(content);
             state.draw();
         })
     }
