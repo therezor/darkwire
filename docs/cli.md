@@ -214,8 +214,15 @@ turn's cost prints when `ui.expandTurnStats` is on.
 | `alt-left`, `alt-right`      | Back a word, forward a word                     |
 | `ctrl-u`, `ctrl-k`, `ctrl-w` | Clear the line, clear to the end, delete a word |
 
-`/help` prints the same table, so the keys are discoverable from inside the
-prompt rather than only from here.
+`/help` opens over the prompt rather than printing into the conversation, with
+four tabs: commands, the turn, setup and keys. Left and right move between them,
+the arrows and page keys scroll, and escape closes it. So the keys are
+discoverable from inside the prompt rather than only from here, and reading them
+does not leave sixty rows of reference in your scrollback between the question
+and the answer to it.
+
+On a pipe, under `--json` or on a dumb terminal there is nowhere to lay an
+overlay, so the same table is written to the stream exactly as it always was.
 
 Typing `/` opens the command list **beside** the line rather than over it: what
 you typed stays visible and editable while the list filters under it. `ctrl-g`
