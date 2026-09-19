@@ -259,7 +259,7 @@ impl Harness {
             // Stated rather than detected: a case must not print escape codes
             // into its own assertions because the runner happened to own a tty.
             colors: Some(false),
-            ..TurnRendererOptions::new(Box::new(sink.clone()))
+            ..TurnRendererOptions::new(Box::new(darkwire::render::PlainSink::new(sink.clone())))
         });
         Harness {
             install,

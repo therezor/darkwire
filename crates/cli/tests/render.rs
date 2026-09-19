@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex};
 
 use darkwire::i18n::Translations;
 use darkwire::render::{
-    DEFAULT_ARG_SUMMARY_CHARS, RenderTarget, TurnRenderer, TurnRendererOptions, clip, format_count,
-    format_duration, format_rate, summarise_args,
+    DEFAULT_ARG_SUMMARY_CHARS, PlainPrinter, TranscriptEvent, TranscriptSink, TurnRenderer,
+    TurnRendererOptions, clip, format_count, format_duration, format_rate, summarise_args,
 };
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
@@ -26,20 +26,26 @@ use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{StopReason, TurnTiming, Usage};
 use serde_json::{Value, json};
 
-/// A target a test can read back, which is the whole reason [`RenderTarget`] is
-/// a trait of its own rather than a writer.
+/// A sink a test can read back, rendered the way a pipe renders it.
+///
+/// Every expectation in this file is the byte stream a redirected stdout gets,
+/// so the printer is part of the fixture: the renderer emits events and this is
+/// the one consumer that turns them back into the line discipline a stream has
+/// always had.
 #[derive(Clone, Default)]
-struct Sink(Arc<Mutex<String>>);
+struct Sink(Arc<Mutex<(PlainPrinter, String)>>);
 
 impl Sink {
     fn text(&self) -> String {
-        self.0.lock().unwrap().clone()
+        self.0.lock().unwrap().1.clone()
     }
 }
 
-impl RenderTarget for Sink {
-    fn write(&mut self, text: &str) {
-        self.0.lock().unwrap().push_str(text);
+impl TranscriptSink for Sink {
+    fn emit(&mut self, event: TranscriptEvent) {
+        let mut held = self.0.lock().unwrap();
+        let bytes = held.0.bytes(&event);
+        held.1.push_str(&bytes);
     }
 }
 
@@ -1026,13 +1032,11 @@ type Plan = Vec<(TaskStatus, String)>;
 #[derive(Clone, Default)]
 struct Plans(Arc<Mutex<Vec<Plan>>>);
 
-impl RenderTarget for Plans {
-    fn write(&mut self, text: &str) {
-        let _ = text;
-    }
-
-    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
-        self.0.lock().unwrap().push(tasks.to_vec());
+impl TranscriptSink for Plans {
+    fn emit(&mut self, event: TranscriptEvent) {
+        if let TranscriptEvent::Tasks(tasks) = event {
+            self.0.lock().unwrap().push(tasks);
+        }
     }
 }
 
@@ -1153,10 +1157,11 @@ fn a_surface_that_can_fold_is_handed_the_row_even_when_it_is_off() {
     // so it is always built and the switch travels with it.
     #[derive(Clone, Default)]
     struct Folding(Arc<Mutex<Vec<(String, bool)>>>);
-    impl RenderTarget for Folding {
-        fn write(&mut self, _text: &str) {}
-        fn turn_stats(&mut self, line: &str, shown: bool) {
-            self.0.lock().unwrap().push((line.to_owned(), shown));
+    impl TranscriptSink for Folding {
+        fn emit(&mut self, event: TranscriptEvent) {
+            if let TranscriptEvent::TurnStats { line, shown } = event {
+                self.0.lock().unwrap().push((line, shown));
+            }
         }
     }
 
@@ -1199,10 +1204,11 @@ fn switching_it_on_tells_the_surface_so() {
     // surface holding them can unfold those.
     #[derive(Clone, Default)]
     struct Switches(Arc<Mutex<Vec<bool>>>);
-    impl RenderTarget for Switches {
-        fn write(&mut self, _text: &str) {}
-        fn stats_shown(&mut self, shown: bool) {
-            self.0.lock().unwrap().push(shown);
+    impl TranscriptSink for Switches {
+        fn emit(&mut self, event: TranscriptEvent) {
+            if let TranscriptEvent::StatsShown(shown) = event {
+                self.0.lock().unwrap().push(shown);
+            }
         }
     }
 

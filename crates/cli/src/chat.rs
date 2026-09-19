@@ -65,7 +65,10 @@ use crate::models::{ModelCatalogue, ModelCatalogueOptions, create_model_catalogu
 use crate::pickers::palette::{CommandChoice, command_items, complete_command, pick_command};
 use crate::pickers::{MenuRequest as PickerRequest, NoMenu, PickerMenu};
 use crate::program::{ChatArgs, Globals};
-use crate::render::{TurnRenderer, TurnRendererOptions, format_duration};
+use crate::render::{
+    LineKind, PlainPrinter, TranscriptEvent, TranscriptSink, TurnRenderer, TurnRendererOptions,
+    format_duration,
+};
 use crate::runtime::{env_map, install_logger, settings_of};
 
 /// How many streamed chunks the pump takes before it must draw.
@@ -655,7 +658,7 @@ async fn turn_once(
         show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
         show_stats: session.runtime.config().ui.expand_turn_stats,
         t: Translations::new(session.t.locale()),
-        ..TurnRendererOptions::new(Box::new(std::io::sink()))
+        ..TurnRendererOptions::new(Box::new(crate::render::NullSink))
     });
 
     let chosen = session.agent_for_this_turn(&mut renderer);
@@ -697,143 +700,38 @@ async fn turn_once(
 
 // ------------------------------------------------------------- streaming
 
-/// A render target that hands every write to whoever is draining it.
+/// A sink that hands every event to whoever is draining it.
 ///
-/// The alternative — a buffer the driver reads once the turn is over — is what
+/// The alternative, a buffer the driver reads once the turn is over, is what
 /// made an answer arrive all at once at the end. A channel is what lets the
-/// same bytes reach a pipe, or a frame's transcript, as the model produces
-/// them, without the writer having to know which one it got.
+/// same events reach a pipe, or a frame's transcript, as the model produces
+/// them, without the renderer having to know which one it got.
 #[derive(Clone, Debug)]
-pub struct ChunkSink(mpsc::UnboundedSender<FrameEvent>);
-
-/// What a renderer tells the frame, in the order it happened.
-///
-/// Text and structure on one channel, because they are one sequence: a
-/// reasoning run starts *between* two chunks of prose, and two channels would
-/// leave the frame guessing which side of a boundary a chunk fell on.
-///
-/// The variants say what happened, not what to draw with it. Nothing here
-/// mentions a fold. That is the frame's word, and keeping it out is what lets
-/// the same renderer feed a pipe, a log file and a screen.
-#[derive(Clone, Debug)]
-pub enum FrameEvent {
-    /// Prose, exactly as it would have been written.
-    Text(String),
-    /// The model has started reasoning.
-    ReasoningStart,
-    /// The reasoning run has ended.
-    ReasoningEnd,
-    /// A tool's output follows, under the row this carries.
-    ToolBodyStart(String),
-    /// The tool's output has ended.
-    ToolBodyEnd,
-    /// The agent has rewritten its plan; this is the whole of it.
-    Tasks(Vec<(TaskStatus, String)>),
-    /// Reasoning has been switched on or off for the rest of the session.
-    ReasoningShown(bool),
-    /// What the turn cost, and whether a target that only writes prints it.
-    ///
-    /// The flag travels with the row because the two consumers ask different
-    /// questions of it. A pipe asks whether to write it at all. A frame keeps
-    /// it either way and asks its own fold, so a key can reveal it later.
-    TurnStats {
-        /// The row itself, ready to draw.
-        line: String,
-        /// Whether a target that only writes bytes prints it.
-        shown: bool,
-    },
-    /// The turn's cost has been switched on or off for the rest of the session.
-    StatsShown(bool),
-}
-
-impl FrameEvent {
-    /// The bytes this event would have been, for a target that only writes.
-    ///
-    /// A pipe and a log file have nowhere to put structure, so they take the
-    /// text and the rows the signals carry and drop the boundaries, which is
-    /// byte for byte what they saw before any of this existed.
-    #[must_use]
-    pub fn as_text(&self) -> &str {
-        match self {
-            FrameEvent::Text(text) | FrameEvent::ToolBodyStart(text) => text,
-            // The switch decides here rather than at the source, so a frame can
-            // hold a row a pipe never prints.
-            FrameEvent::TurnStats { line, shown } => {
-                if *shown {
-                    line
-                } else {
-                    ""
-                }
-            }
-            FrameEvent::ReasoningStart
-            | FrameEvent::ReasoningEnd
-            | FrameEvent::ToolBodyEnd
-            | FrameEvent::Tasks(_)
-            | FrameEvent::ReasoningShown(_)
-            | FrameEvent::StatsShown(_) => "",
-        }
-    }
-}
+pub struct ChunkSink(mpsc::UnboundedSender<TranscriptEvent>);
 
 impl ChunkSink {
     /// A closed receiver means the surface has already gone; the turn is on its
     /// way out behind it and has nothing useful to do about the loss.
-    fn send(&self, event: FrameEvent) {
+    fn send(&self, event: TranscriptEvent) {
         let _ = self.0.send(event);
     }
 }
 
-impl crate::render::RenderTarget for ChunkSink {
-    fn write(&mut self, text: &str) {
-        self.send(FrameEvent::Text(text.to_owned()));
-    }
-
-    fn reasoning_start(&mut self) {
-        self.send(FrameEvent::ReasoningStart);
-    }
-
-    fn reasoning_end(&mut self) {
-        self.send(FrameEvent::ReasoningEnd);
-    }
-
-    fn tool_body_start(&mut self, summary: &str) {
-        self.send(FrameEvent::ToolBodyStart(summary.to_owned()));
-    }
-
-    fn tool_body_end(&mut self) {
-        self.send(FrameEvent::ToolBodyEnd);
-    }
-
-    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
-        self.send(FrameEvent::Tasks(tasks.to_vec()));
-    }
-
-    /// Nothing. The frame keeps the plan above the box you type into, so the
-    /// card the call announced would be the same list a second time, in the
-    /// scrollback, one copy per revision.
-    fn tasks_card(&mut self, card: &str) {
-        let _ = card;
-    }
-
-    fn reasoning_shown(&mut self, shown: bool) {
-        self.send(FrameEvent::ReasoningShown(shown));
-    }
-
-    fn turn_stats(&mut self, line: &str, shown: bool) {
-        self.send(FrameEvent::TurnStats {
-            line: line.to_owned(),
-            shown,
-        });
-    }
-
-    fn stats_shown(&mut self, shown: bool) {
-        self.send(FrameEvent::StatsShown(shown));
+impl TranscriptSink for ChunkSink {
+    fn emit(&mut self, event: TranscriptEvent) {
+        // The frame keeps the plan above the box you type into, so the card a
+        // `todo` call announces would be the same list a second time, in the
+        // scrollback, one copy per revision.
+        if matches!(event, TranscriptEvent::TasksCard { .. }) {
+            return;
+        }
+        self.send(event);
     }
 }
 
 /// A sink and the receiver that drains it.
 #[must_use]
-pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<FrameEvent>) {
+pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<TranscriptEvent>) {
     let (tx, rx) = mpsc::unbounded_channel();
     (ChunkSink(tx), rx)
 }
@@ -845,22 +743,23 @@ pub fn chunks() -> (ChunkSink, mpsc::UnboundedReceiver<FrameEvent>) {
 /// turn race, and the tail of an answer lands after the summary line.
 async fn streamed(
     turn: impl Future<Output = Result<TurnOutcome>>,
-    chunks: &mut mpsc::UnboundedReceiver<FrameEvent>,
+    chunks: &mut mpsc::UnboundedReceiver<TranscriptEvent>,
     out: &mut (dyn Write + Send),
 ) -> Result<TurnOutcome> {
     tokio::pin!(turn);
+    let mut printer = PlainPrinter::new();
     let outcome = loop {
         tokio::select! {
             biased;
             Some(event) = chunks.recv() => {
-                out.write_all(event.as_text().as_bytes()).map_err(WireError::from)?;
+                out.write_all(printer.bytes(&event).as_bytes()).map_err(WireError::from)?;
                 out.flush().map_err(WireError::from)?;
             }
             done = &mut turn => break done,
         }
     };
     while let Ok(event) = chunks.try_recv() {
-        out.write_all(event.as_text().as_bytes())
+        out.write_all(printer.bytes(&event).as_bytes())
             .map_err(WireError::from)?;
     }
     out.flush().map_err(WireError::from)?;
@@ -955,7 +854,7 @@ pub async fn drive_prompt(
         show_reasoning: args.show_reasoning && session.reasoning_reaches_a_reader(),
         show_stats: session.runtime.config().ui.expand_turn_stats,
         t: Translations::new(session.t.locale()),
-        ..TurnRendererOptions::new(Box::new(std::io::sink()))
+        ..TurnRendererOptions::new(Box::new(crate::render::NullSink))
     });
 
     loop {
@@ -1108,7 +1007,9 @@ pub struct PlainSurface<'a> {
     out: &'a mut (dyn Write + Send),
     lines: mpsc::UnboundedReceiver<String>,
     sink: ChunkSink,
-    chunks: mpsc::UnboundedReceiver<FrameEvent>,
+    chunks: mpsc::UnboundedReceiver<TranscriptEvent>,
+    /// The line discipline for a stream that cannot fold anything.
+    printer: PlainPrinter,
     menu: NoMenu,
 }
 
@@ -1141,6 +1042,7 @@ impl<'a> PlainSurface<'a> {
             lines,
             sink,
             chunks,
+            printer: PlainPrinter::new(),
             menu: NoMenu,
         })
     }
@@ -1207,7 +1109,7 @@ impl Surface for PlainSurface<'_> {
         let _ = view;
         Box::pin(async move {
             while let Ok(event) = self.chunks.try_recv() {
-                let _ = self.out.write_all(event.as_text().as_bytes());
+                let _ = self.out.write_all(self.printer.bytes(&event).as_bytes());
             }
             let _ = self.out.flush();
         })
@@ -1216,7 +1118,7 @@ impl Surface for PlainSurface<'_> {
     fn close(&mut self) -> BoxFut<'_, ()> {
         Box::pin(async move {
             while let Ok(event) = self.chunks.try_recv() {
-                let _ = self.out.write_all(event.as_text().as_bytes());
+                let _ = self.out.write_all(self.printer.bytes(&event).as_bytes());
             }
             let _ = self.out.flush();
         })
@@ -1268,6 +1170,12 @@ pub struct Frame {
     folds: FoldDefaults,
     /// Ticks since the open reasoning run started, for a summary that moves.
     reasoning_since: Option<i64>,
+    /// Whether the transcript's open line has been ended.
+    ///
+    /// The line discipline the renderer used to keep. It belongs here because
+    /// only the thing holding the rows knows whether one is half written, and
+    /// a pipe drawing the same events answers the question differently.
+    at_line_start: bool,
     /// What a key last did to the row saying what a turn cost, until taken.
     ///
     /// The switch has two owners and this is the wire between them. See
@@ -1403,6 +1311,7 @@ impl Frame {
             view: HeaderView::default(),
             folds: FoldDefaults::default(),
             reasoning_since: None,
+            at_line_start: true,
             stats_toggled: None,
             tasks: Vec::new(),
             labels,
@@ -1411,13 +1320,14 @@ impl Frame {
 
     /// One thing the turn said.
     ///
-    /// The four signals become two folds here and nowhere else. A pipe reading
-    /// the same stream sees the text and none of this, which is the point of
-    /// the boundary being a signal rather than a fold.
-    pub fn absorb(&mut self, event: &FrameEvent) {
+    /// Every event carries its own kind, so a fold is a property of what
+    /// arrived rather than a guess about where a write landed. A pipe reads the
+    /// same events and renders them flat, which is the point of the kind being
+    /// on the event rather than a signal beside it.
+    pub fn absorb(&mut self, event: &TranscriptEvent) {
         match event {
-            FrameEvent::Text(text) => {
-                self.transcript.write(text);
+            TranscriptEvent::AssistantDelta { text, depth } => {
+                self.stream(text, *depth);
                 // The spinner stood in for an answer that had not started. A
                 // fold opening is not an answer starting, which is why this is
                 // here and not on every event: a collapsed run of reasoning
@@ -1426,55 +1336,117 @@ impl Frame {
                     self.thinking = None;
                 }
             }
-            FrameEvent::ReasoningStart => {
+            TranscriptEvent::ReasoningDelta { text, depth } => {
+                self.stream(text, *depth);
+            }
+            TranscriptEvent::Line { kind, text } => {
+                // The one row of space between one exchange and the next. A
+                // layout rule read off the kind, not a newline the renderer had
+                // to remember to write.
+                if *kind == LineKind::Echo {
+                    self.write_line("");
+                }
+                self.write_line(text);
+                if self.reasoning_since.is_none() {
+                    self.thinking = None;
+                }
+            }
+            // A stream that ended mid-line closes it. The transcript no longer
+            // draws the line a write left open, so this is what makes its last
+            // row text rather than an empty row waiting for more.
+            TranscriptEvent::EndLine => self.end_line(),
+            TranscriptEvent::ReasoningStart => {
                 self.reasoning_since = Some(0);
                 let summary = self.reasoning_summary(false);
                 let collapsed = self.folds.reasoning != ReasoningDisplay::Expanded;
                 self.transcript
                     .open_block(REASONING_FOLD, &summary, collapsed);
             }
-            FrameEvent::ReasoningEnd => {
+            TranscriptEvent::ReasoningEnd => {
                 let summary = self.reasoning_summary(true);
                 self.transcript.set_summary(&summary);
                 self.transcript.close_block();
                 self.reasoning_since = None;
             }
-            FrameEvent::ToolBodyStart(summary) => {
+            TranscriptEvent::ToolBodyStart { summary } => {
                 self.transcript.open_block(
                     TOOL_FOLD,
                     summary.trim_end_matches('\n'),
                     self.folds.tools,
                 );
+                self.at_line_start = true;
             }
-            FrameEvent::ToolBodyEnd => self.transcript.close_block(),
-            FrameEvent::Tasks(tasks) => self.set_tasks(tasks),
+            TranscriptEvent::ToolBodyEnd => self.transcript.close_block(),
+            TranscriptEvent::Tasks(tasks) => self.set_tasks(tasks),
+            // The frame keeps the plan above the box you type into, so the card
+            // never reaches here. `ChunkSink` drops it at the source.
+            TranscriptEvent::TasksCard { .. } => {}
             // `/output reasoning off` and `ui.reasoning: hidden` are the same
             // state reached two ways, so the fold has to read them the same
             // way: Ctrl-T says where the switch is rather than pretending there
             // is something folded away.
-            FrameEvent::ReasoningShown(shown) => {
+            TranscriptEvent::ReasoningShown(shown) => {
                 self.folds.reasoning = if *shown {
                     ReasoningDisplay::Collapsed
                 } else {
                     ReasoningDisplay::Hidden
                 };
             }
-            // Written whatever the switch says, into a run that shows nothing
-            // while it is folded. Opened, written and closed in one step: a run
-            // left open holds the live region, and one that said nothing is
-            // dropped rather than kept as a fold onto an empty body.
-            FrameEvent::TurnStats { line, .. } => {
+            // Kept whatever the switch says, in a run that shows nothing while
+            // it is folded. Opened, written and closed in one step: a run left
+            // open holds the live region, and one that said nothing is dropped
+            // rather than kept as a fold onto an empty body.
+            TranscriptEvent::TurnStats { line, .. } => {
                 self.transcript.hide_block(STATS_FOLD, self.folds.stats);
                 self.transcript.write(line);
                 self.transcript.close_block();
+                self.at_line_start = true;
             }
             // Set rather than flipped: this is the command's half of one switch
             // arriving, and a flip here would undo what was asked for.
-            FrameEvent::StatsShown(shown) => {
+            TranscriptEvent::StatsShown(shown) => {
                 self.folds.stats = !*shown;
                 self.transcript.set_collapsed(STATS_FOLD, self.folds.stats);
             }
         }
+    }
+
+    /// A chunk of streamed text, indented for the turn it belongs to.
+    ///
+    /// The indent is applied here rather than at the source because a chunk may
+    /// start mid-line: a subagent's answer indented on whichever line a chunk
+    /// happened to begin, and flush left everywhere else, is what doing it any
+    /// earlier produces.
+    fn stream(&mut self, text: &str, depth: usize) {
+        if text.is_empty() {
+            return;
+        }
+        let indent = "  ".repeat(depth);
+        if indent.is_empty() {
+            self.transcript.write(text);
+        } else {
+            let body = crate::render::indented(text, &indent, self.at_line_start);
+            self.transcript.write(&body);
+        }
+        // Measured on what a reader sees. Dimmed reasoning ends in a closing
+        // sequence however its prose ended, so testing the raw string reports
+        // "mid-line" for a chunk that plainly finished one.
+        self.at_line_start = darkwire_tui::strip_ansi(text).ends_with('\n');
+    }
+
+    /// Closes the open line, if one is open.
+    fn end_line(&mut self) {
+        if !self.at_line_start {
+            self.transcript.write("\n");
+            self.at_line_start = true;
+        }
+    }
+
+    /// One complete line, with a break in front when the stream owes one.
+    fn write_line(&mut self, text: &str) {
+        self.end_line();
+        self.transcript.write(&format!("{text}\n"));
+        self.at_line_start = true;
     }
 
     /// Replaces the plan shown above the input.
@@ -1934,7 +1906,7 @@ impl FrameState {
     /// reader may put away, and that it starts put away. Reversing those two,
     /// with a renderer that emitted folds, would have handed a pipe and a log
     /// file a disclosure widget neither can draw.
-    fn absorb(&mut self, event: &FrameEvent) {
+    fn absorb(&mut self, event: &TranscriptEvent) {
         self.frame.absorb(event);
     }
 }
@@ -2023,7 +1995,7 @@ pub struct FramedSurface {
     state: Arc<tokio::sync::Mutex<FrameState>>,
     menu: FrameMenu,
     sink: ChunkSink,
-    chunks: mpsc::UnboundedReceiver<FrameEvent>,
+    chunks: mpsc::UnboundedReceiver<TranscriptEvent>,
     /// Lines typed while a turn was running, in the order they were submitted.
     queued: std::collections::VecDeque<String>,
     t: Translations,
@@ -2065,6 +2037,7 @@ impl FramedSurface {
             view: session.view(),
             folds: FoldDefaults::from(&session.runtime.config().ui),
             reasoning_since: None,
+            at_line_start: true,
             stats_toggled: None,
             tasks: Vec::new(),
             labels: FoldLabels::from(&session.t),

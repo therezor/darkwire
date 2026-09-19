@@ -22,8 +22,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use darkwire::chat::{
-    ChunkSink, FoldDefaults, Frame, FrameEvent, RunTurnDeps, SIGINT_EXIT_CODE, Surface,
-    TurnOutcome, TurnSink, Typed, chunks, drive_prompt, handle_key, run_turn,
+    ChunkSink, FoldDefaults, Frame, RunTurnDeps, SIGINT_EXIT_CODE, Surface, TurnOutcome, TurnSink,
+    Typed, chunks, drive_prompt, handle_key, run_turn,
 };
 use darkwire::commands::command_rows;
 use darkwire::i18n::Env;
@@ -31,7 +31,7 @@ use darkwire::i18n::Translations;
 use darkwire::pickers::palette::{PaletteRow, command_items};
 use darkwire::pickers::{NoMenu, PickerMenu};
 use darkwire::program::{ChatArgs, Globals};
-use darkwire::render::{TurnRenderer, TurnRendererOptions};
+use darkwire::render::{TranscriptEvent, TurnRenderer, TurnRendererOptions};
 use darkwire_agent::testkit::{ScriptedProvider, ScriptedTurn, TokioClock};
 use darkwire_agent::{AgentLoop, AgentLoopOptions, SteeringQueue};
 use darkwire_core::messages::Content;
@@ -44,6 +44,24 @@ use darkwire_tools::{ToolRegistry, ToolScope};
 use darkwire_tui::{Key, parse_key};
 use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
+
+/// A chunk of the answer at the operator's own depth.
+fn delta(text: &str) -> TranscriptEvent {
+    TranscriptEvent::AssistantDelta {
+        text: text.to_owned(),
+        depth: 0,
+    }
+}
+
+/// The same, for the call sites that already own their string.
+fn delta_owned(text: String) -> TranscriptEvent {
+    TranscriptEvent::AssistantDelta { text, depth: 0 }
+}
+
+/// A tool's output opening under `summary`.
+fn tool_body_start(summary: String) -> TranscriptEvent {
+    TranscriptEvent::ToolBodyStart { summary }
+}
 
 /// A collector the renderer writes into, which a case then reads back.
 #[derive(Clone, Default)]
@@ -126,7 +144,7 @@ fn renderer(sink: &Sink) -> TurnRenderer {
         // assertion about a palette rather than about what was said.
         colors: Some(false),
         t: Translations::default(),
-        ..TurnRendererOptions::new(Box::new(sink.clone()))
+        ..TurnRendererOptions::new(Box::new(darkwire::render::PlainSink::new(sink.clone())))
     })
 }
 
@@ -317,12 +335,14 @@ async fn a_session_created_by_a_turn_lands_in_the_workspace_it_was_given() {
 struct Scripted {
     lines: std::collections::VecDeque<String>,
     sink: ChunkSink,
-    chunks: tokio::sync::mpsc::UnboundedReceiver<FrameEvent>,
+    chunks: tokio::sync::mpsc::UnboundedReceiver<TranscriptEvent>,
     menu: NoMenu,
     /// Every line the loop echoed back, in order.
     echoed: Vec<String>,
     /// Everything written through the sink, drained at each refresh.
     drawn: String,
+    /// The line discipline, so `drawn` is what a pipe would have seen.
+    printer: darkwire::render::PlainPrinter,
     /// How many times the prompt was redrawn.
     refreshes: usize,
     /// How many turns the surface was asked to run.
@@ -340,6 +360,7 @@ impl Scripted {
             menu: NoMenu,
             echoed: Vec::new(),
             drawn: String::new(),
+            printer: darkwire::render::PlainPrinter::new(),
             refreshes: 0,
             turns: 0,
             closed: false,
@@ -348,7 +369,8 @@ impl Scripted {
 
     fn drain(&mut self) {
         while let Ok(event) = self.chunks.try_recv() {
-            self.drawn.push_str(event.as_text());
+            let bytes = self.printer.bytes(&event);
+            self.drawn.push_str(&bytes);
         }
     }
 }
@@ -702,12 +724,12 @@ fn has(frame: &mut Frame, needle: &str) -> bool {
 fn reasoning_arrives_folded_and_tool_output_with_it() {
     // A turn is read for its answer. The working out is available, not first.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
-    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
-    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
-    frame.absorb(&FrameEvent::ToolBodyEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a private thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&tool_body_start("  ok 1.2s\n".to_owned()));
+    frame.absorb(&delta_owned("    a line of output\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ToolBodyEnd);
 
     assert!(!has(&mut frame, "a private thought"));
     assert!(!has(&mut frame, "a line of output"));
@@ -719,9 +741,9 @@ fn reasoning_arrives_folded_and_tool_output_with_it() {
 #[test]
 fn ctrl_t_opens_the_reasoning_that_is_still_on_screen() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a private thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
 
     assert_eq!(handle_key(&mut frame, &key("\u{14}")), Typed::FoldReasoning);
     assert!(has(&mut frame, "a private thought"));
@@ -738,21 +760,21 @@ fn ctrl_t_also_says_how_the_next_run_arrives() {
     let mut frame = frame();
     handle_key(&mut frame, &key("\u{14}"));
 
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a later thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a later thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
     assert!(has(&mut frame, "a later thought"));
 }
 
 #[test]
 fn ctrl_o_leaves_the_reasoning_alone_and_the_other_way_round() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
-    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
-    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
-    frame.absorb(&FrameEvent::ToolBodyEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a private thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&tool_body_start("  ok 1.2s\n".to_owned()));
+    frame.absorb(&delta_owned("    a line of output\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ToolBodyEnd);
 
     assert_eq!(handle_key(&mut frame, &key("\u{f}")), Typed::FoldTools);
     assert!(has(&mut frame, "a line of output"));
@@ -764,7 +786,7 @@ fn the_answer_itself_never_folds() {
     // Text outside a run is the thing the reader came for. There is no key for
     // hiding it and no state in which it is hidden.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Text("the answer\n".to_owned()));
+    frame.absorb(&delta_owned("the answer\n".to_owned()));
     handle_key(&mut frame, &key("\u{14}"));
     handle_key(&mut frame, &key("\u{f}"));
     assert!(has(&mut frame, "the answer"));
@@ -775,8 +797,8 @@ fn a_folded_run_of_reasoning_keeps_moving_while_it_runs() {
     // The one thing on screen while the model thinks. A row that never changed
     // would be indistinguishable from a terminal that had stopped.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("thinking hard\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("thinking hard\n".to_owned()));
 
     let before = shown(&mut frame);
     for _ in 0..40 {
@@ -792,12 +814,12 @@ fn the_spinner_survives_a_run_of_reasoning_that_says_nothing_visible() {
     // and stay blank for the length of the run.
     let mut frame = frame();
     frame.start_turn();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a private thought\n".to_owned()));
     assert!(frame.is_waiting());
 
-    frame.absorb(&FrameEvent::ReasoningEnd);
-    frame.absorb(&FrameEvent::Text("the answer".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&delta_owned("the answer".to_owned()));
     assert!(!frame.is_waiting());
 }
 
@@ -845,7 +867,7 @@ fn switching_reasoning_off_mid_session_makes_the_key_say_so() {
     // the key claims there is something folded away after the command that
     // stopped anything arriving.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningShown(false));
+    frame.absorb(&TranscriptEvent::ReasoningShown(false));
     handle_key(&mut frame, &key("\u{14}"));
     assert!(has(&mut frame, "reasoning is off"));
 }
@@ -853,11 +875,11 @@ fn switching_reasoning_off_mid_session_makes_the_key_say_so() {
 #[test]
 fn switching_reasoning_back_on_makes_the_key_work_again() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningShown(false));
-    frame.absorb(&FrameEvent::ReasoningShown(true));
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::ReasoningShown(false));
+    frame.absorb(&TranscriptEvent::ReasoningShown(true));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
 
     assert!(!has(&mut frame, "a thought"));
     handle_key(&mut frame, &key("\u{14}"));
@@ -871,9 +893,9 @@ fn tool_output_arrives_open_when_the_install_asked_for_that() {
         tools: false,
         stats: true,
     });
-    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
-    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
-    frame.absorb(&FrameEvent::ToolBodyEnd);
+    frame.absorb(&tool_body_start("  ok 1.2s\n".to_owned()));
+    frame.absorb(&delta_owned("    a line of output\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ToolBodyEnd);
     assert!(has(&mut frame, "a line of output"));
 }
 
@@ -884,9 +906,9 @@ fn reasoning_arrives_open_when_the_install_asked_for_that() {
         tools: true,
         stats: true,
     });
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
     assert!(has(&mut frame, "a thought"));
 }
 
@@ -912,11 +934,11 @@ fn the_plan_sits_above_the_input_and_not_in_the_conversation() {
     // Frame state, not transcript. A turn that revises its plan six times must
     // leave one list on screen and nothing at all in the scrollback.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Tasks(plan(&[
+    frame.absorb(&TranscriptEvent::Tasks(plan(&[
         (TaskStatus::Done, "inspect auth"),
         (TaskStatus::Doing, "update sessions"),
     ])));
-    frame.absorb(&FrameEvent::Tasks(plan(&[
+    frame.absorb(&TranscriptEvent::Tasks(plan(&[
         (TaskStatus::Done, "inspect auth"),
         (TaskStatus::Done, "update sessions"),
         (TaskStatus::Doing, "add tests"),
@@ -937,7 +959,7 @@ fn a_long_plan_shows_a_window_around_what_is_in_hand() {
     // "Where has this got to" is answered worse by ten rows above the box you
     // type into than by three.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Tasks(plan(&[
+    frame.absorb(&TranscriptEvent::Tasks(plan(&[
         (TaskStatus::Done, "one"),
         (TaskStatus::Done, "two"),
         (TaskStatus::Done, "three"),
@@ -958,10 +980,13 @@ fn a_long_plan_shows_a_window_around_what_is_in_hand() {
 #[test]
 fn an_emptied_plan_leaves_nothing_behind() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Tasks(plan(&[(TaskStatus::Doing, "a task")])));
+    frame.absorb(&TranscriptEvent::Tasks(plan(&[(
+        TaskStatus::Doing,
+        "a task",
+    )])));
     assert!(has(&mut frame, "a task"));
 
-    frame.absorb(&FrameEvent::Tasks(Vec::new()));
+    frame.absorb(&TranscriptEvent::Tasks(Vec::new()));
     assert!(!has(&mut frame, "a task"));
 }
 
@@ -997,30 +1022,31 @@ fn the_interrupt_and_the_end_of_input_are_told_apart() {
 // --------------------------------------------------------------- streaming
 
 #[tokio::test]
-async fn a_sink_hands_every_write_to_whoever_is_draining_it() {
-    use darkwire::render::RenderTarget as _;
+async fn a_sink_hands_every_event_to_whoever_is_draining_it() {
+    use darkwire::render::{PlainPrinter, TranscriptSink as _};
 
     let (mut sink, mut rx) = chunks();
-    sink.write("one");
-    sink.write("two");
+    sink.emit(delta("one"));
+    sink.emit(delta("two"));
     drop(sink);
 
+    let mut printer = PlainPrinter::new();
     let mut seen = String::new();
     while let Some(event) = rx.recv().await {
-        seen.push_str(event.as_text());
+        seen.push_str(&printer.bytes(&event));
     }
     assert_eq!(seen, "onetwo");
 }
 
 #[tokio::test]
-async fn a_write_after_the_drain_is_gone_is_dropped_rather_than_fatal() {
+async fn an_event_after_the_drain_is_gone_is_dropped_rather_than_fatal() {
     // The surface has already been torn down; the turn behind it has nothing
     // useful to do about the loss and must not fail because of it.
-    use darkwire::render::RenderTarget as _;
+    use darkwire::render::TranscriptSink as _;
 
     let (mut sink, rx) = chunks();
     drop(rx);
-    sink.write("nobody is listening");
+    sink.emit(delta("nobody is listening"));
 }
 
 #[test]
@@ -1033,14 +1059,14 @@ fn the_chrome_it_measures_is_the_chrome_it_draws() {
     let mut frame = frame();
     assert_eq!(frame.chrome_rows(80), shown(&mut frame).len());
 
-    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+    frame.absorb(&delta_owned("\n› hi\n".to_owned()));
     assert_eq!(
         frame.chrome_rows(80) + frame.conversation_rows(80),
         shown(&mut frame).len(),
     );
 
     // And mid-line, which used to be the other way the count went wrong.
-    frame.absorb(&FrameEvent::Text("half a sen".to_owned()));
+    frame.absorb(&delta_owned("half a sen".to_owned()));
     assert_eq!(
         frame.chrome_rows(80) + frame.conversation_rows(80),
         shown(&mut frame).len(),
@@ -1053,7 +1079,7 @@ fn one_blank_row_between_the_message_and_the_frame() {
     // here for the whole of the provider's latency, and with reasoning hidden
     // no fold ever opened to collapse them.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+    frame.absorb(&delta_owned("\n› hi\n".to_owned()));
 
     let rows = shown(&mut frame);
     let at = rows.iter().position(|row| row.contains("› hi")).unwrap();
@@ -1066,7 +1092,7 @@ fn the_spinner_sits_one_row_under_the_message() {
     // The shape somebody actually sees: a message, a gap, and the thing that
     // says the model is working.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Text("\n› hi\n".to_owned()));
+    frame.absorb(&delta_owned("\n› hi\n".to_owned()));
     frame.start_turn();
 
     let rows = shown(&mut frame);
@@ -1083,8 +1109,8 @@ fn what_the_turn_cost_arrives_folded_away() {
     // A turn is read for its answer. The figures are worth having and are not
     // worth a row under every one of them.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::Text("the answer\n".to_owned()));
-    frame.absorb(&FrameEvent::TurnStats {
+    frame.absorb(&delta_owned("the answer\n".to_owned()));
+    frame.absorb(&TranscriptEvent::TurnStats {
         line: "  · 2 steps · 26ms\n".to_owned(),
         shown: false,
     });
@@ -1099,7 +1125,7 @@ fn what_the_turn_cost_arrives_folded_away() {
 #[test]
 fn ctrl_y_shows_what_a_turn_that_has_already_run_cost() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::TurnStats {
+    frame.absorb(&TranscriptEvent::TurnStats {
         line: "  · 2 steps · 26ms\n".to_owned(),
         shown: false,
     });
@@ -1118,7 +1144,7 @@ fn ctrl_y_also_says_how_the_next_turn_arrives() {
     // the scrollback cannot be rewritten, so the key sets the default too.
     let mut frame = frame();
     handle_key(&mut frame, &key("\u{19}"));
-    frame.absorb(&FrameEvent::TurnStats {
+    frame.absorb(&TranscriptEvent::TurnStats {
         line: "  · 2 steps · 26ms\n".to_owned(),
         shown: true,
     });
@@ -1129,12 +1155,12 @@ fn ctrl_y_also_says_how_the_next_turn_arrives() {
 #[test]
 fn ctrl_y_leaves_the_other_two_folds_alone() {
     let mut frame = frame();
-    frame.absorb(&FrameEvent::ReasoningStart);
-    frame.absorb(&FrameEvent::Text("a private thought\n".to_owned()));
-    frame.absorb(&FrameEvent::ReasoningEnd);
-    frame.absorb(&FrameEvent::ToolBodyStart("  ok 1.2s\n".to_owned()));
-    frame.absorb(&FrameEvent::Text("    a line of output\n".to_owned()));
-    frame.absorb(&FrameEvent::ToolBodyEnd);
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta_owned("a private thought\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&tool_body_start("  ok 1.2s\n".to_owned()));
+    frame.absorb(&delta_owned("    a line of output\n".to_owned()));
+    frame.absorb(&TranscriptEvent::ToolBodyEnd);
 
     handle_key(&mut frame, &key("\u{19}"));
     assert!(!has(&mut frame, "a private thought"));
@@ -1146,11 +1172,11 @@ fn the_command_and_the_key_are_one_switch() {
     // `/output stats on` reaches the frame through this, and it sets rather
     // than flips: a flip would undo what the command asked for.
     let mut frame = frame();
-    frame.absorb(&FrameEvent::TurnStats {
+    frame.absorb(&TranscriptEvent::TurnStats {
         line: "  · 2 steps · 26ms\n".to_owned(),
         shown: false,
     });
-    frame.absorb(&FrameEvent::StatsShown(true));
+    frame.absorb(&TranscriptEvent::StatsShown(true));
 
     assert!(has(&mut frame, "2 steps"));
     // The command's half arriving must not bounce back to the renderer.

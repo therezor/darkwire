@@ -1,18 +1,25 @@
 //! `AgentEvent` to a terminal.
 //!
 //! This is the first consumer of the event stream, and it is deliberately the
-//! dumbest one possible: a `match` over the event union that writes strings.
-//! There is no CLI-shaped variant of the loop and no token callback, because
-//! the WebSocket hub and the Telegram renderer are the same `match` over the
-//! same union. If rendering needed anything the events do not carry, that is a
-//! missing field on the event, not a reason for a second path out of the loop.
+//! dumbest one possible: a `match` over the event union that emits
+//! [`TranscriptEvent`]s. There is no CLI-shaped variant of the loop and no
+//! token callback, because the WebSocket hub and the Telegram renderer are the
+//! same `match` over the same union. If rendering needed anything the events do
+//! not carry, that is a missing field on the event, not a reason for a second
+//! path out of the loop.
 //!
 //! What the renderer owns, and why each is here rather than in the loop:
 //!
-//!  - **Line discipline.** Assistant text streams in arbitrary chunks that may
-//!    or may not end on a newline, and a tool card printed straight after one
-//!    would land mid-sentence. [`TurnRenderer`] tracks the cursor so a break is
-//!    emitted exactly when one is needed, and never twice.
+//!  - **Kinds, not bytes.** Every line goes out as what it is, and every
+//!    boundary as itself. A consumer that can fold knows where a reasoning run
+//!    ended because it was told, rather than by guessing from where a write
+//!    happened to land, and the blank row above an exchange is a rule read off
+//!    [`LineKind`] rather than a newline somebody remembered to write.
+//!  - **Line discipline belongs to the consumer.** Assistant text streams in
+//!    arbitrary chunks that may or may not end on a newline, so something has
+//!    to decide when a break is owed. That is a question about what has already
+//!    been drawn, which is [`PlainPrinter`]'s to answer for a stream and a
+//!    frame's to answer for its rows.
 //!  - **Colour as an injected boolean.** [`darkwire_tui::palette_for`] answers
 //!    with the same shape and identity styles when colour is off, so tests
 //!    assert on the text rather than on escape sequences, and `--no-color` is
@@ -42,98 +49,253 @@ use serde_json::Value;
 
 use crate::i18n::Translations;
 
-/// Anything that takes a string. Standard output satisfies it; so does a test.
+/// One thing a turn produced, as its own kind rather than as bytes.
+///
+/// The renderer used to write strings and announce four boundaries alongside
+/// them, which meant a fold was a guess about where a write had landed. A
+/// consumer now gets the kind with the text, so where a reasoning run ends is
+/// a fact rather than an inference, and blank rows are a layout rule the
+/// printer owns instead of newlines somebody remembered to emit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TranscriptEvent {
+    /// A chunk of the answer. May start or end mid-line.
+    AssistantDelta {
+        /// The text, exactly as the model produced it.
+        text: String,
+        /// How far in it belongs. `0` for the operator's own turn.
+        depth: usize,
+    },
+    /// A chunk of the model's reasoning, already dimmed.
+    ReasoningDelta {
+        /// The text, styled.
+        text: String,
+        /// How far in it belongs.
+        depth: usize,
+    },
+    /// Whatever line is open has ended.
+    ///
+    /// A stream arrives in chunks that need not end on a newline, so something
+    /// has to say when one is finished. Saying it as an event rather than by
+    /// writing a newline is what lets a pipe add the break and a surface
+    /// holding rows simply close the row it had open.
+    EndLine,
+    /// The model has started reasoning; what follows is that run.
+    ReasoningStart,
+    /// The reasoning run has ended. Whatever follows is not part of it.
+    ReasoningEnd,
+    /// One complete line, styled and indented, ready to print.
+    Line {
+        /// What the line is, which is what decides the space around it.
+        kind: LineKind,
+        /// The line itself, with no trailing newline.
+        text: String,
+    },
+    /// A tool's output follows, under `summary`.
+    ToolBodyStart {
+        /// The row that says how the call went, and the row a fold leaves
+        /// behind when the output under it is hidden.
+        summary: String,
+    },
+    /// The tool's output has ended.
+    ToolBodyEnd,
+    /// The rows announcing a plan, for a surface that does not keep one.
+    TasksCard {
+        /// The card, one line per task, already indented.
+        card: String,
+    },
+    /// The plan is now this. Only ever after a call that succeeded.
+    ///
+    /// Separate from [`TranscriptEvent::TasksCard`], and the separation is the
+    /// point: a `todo` call that is refused still announces itself, and a
+    /// surface that painted its plan from the announcement would show a plan
+    /// nothing is running.
+    Tasks(Vec<(TaskStatus, String)>),
+    /// What the turn cost, as the row that says so.
+    ///
+    /// Built whatever the switch says. A surface that can fold keeps the row
+    /// and hides it; one that only writes bytes reads `shown` and drops it. A
+    /// row that was never built is a row no key can reveal.
+    TurnStats {
+        /// The row itself.
+        line: String,
+        /// Whether a target that only writes bytes prints it.
+        shown: bool,
+    },
+    /// The reasoning channel has been switched on or off for this session.
+    ///
+    /// `/output reasoning off` stops the run reaching a consumer at all, which
+    /// a surface drawing a fold has to know: without it, a key that unfolds the
+    /// reasoning would keep claiming there was some.
+    ReasoningShown(bool),
+    /// The turn's cost has been switched on or off for this session.
+    StatsShown(bool),
+}
+
+/// What a complete line is, which is what decides the space around it.
+///
+/// The printer reads this instead of looking for blank lines in the text. That
+/// is the whole reason it exists: spacing that lives in the string is spacing
+/// nothing can adjust once the string has been built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineKind {
+    /// The operator's own message, which opens an exchange.
+    Echo,
+    /// A tool call announcing itself.
+    ToolCall,
+    /// Anything in the CLI's own voice: a note, a warning, an error.
+    Notice,
+    /// A boundary rule around a delegated turn.
+    Subagent,
+    /// A diagnostic from somewhere else, kept exactly as it arrived.
+    Aside,
+}
+
+/// Anywhere a turn can be drawn. Standard output satisfies it; so does a test.
 ///
 /// A trait of its own rather than [`std::io::Write`] because a renderer has
 /// nothing to do with a write failure: the turn is streaming, the consumer is a
 /// terminal or a pipe, and unwinding an answer half-written because a pager
-/// closed would lose more than it reports. Implementations swallow the error,
-/// and the blanket implementation below does exactly that for every writer.
-pub trait RenderTarget: Send {
-    /// Writes `text`, dropping any failure.
-    fn write(&mut self, text: &str);
+/// closed would lose more than it reports. Implementations swallow the error.
+pub trait TranscriptSink: Send {
+    /// Takes one event, dropping any failure.
+    fn emit(&mut self, event: TranscriptEvent);
+}
 
-    /// The model has started reasoning; what follows is that run.
-    ///
-    /// The first of the four signals below, and they are the whole of what this
-    /// trait says about *structure*. A target that only writes bytes takes the
-    /// defaults and cannot tell they exist; one that draws a frame uses them to
-    /// decide that a run of reasoning is something the reader may fold away.
-    /// That decision belongs to the frame rather than here: a pipe has nowhere
-    /// to put a fold and a log file has no reader to open one.
-    fn reasoning_start(&mut self) {}
+/// A sink that drops everything, for a caller with nowhere to draw.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NullSink;
 
-    /// The reasoning run has ended. Whatever follows is not part of it.
-    fn reasoning_end(&mut self) {}
-
-    /// A tool's output follows, under `summary`.
-    ///
-    /// `summary` is the row that says how the call went, and the default writes
-    /// it because that is what a stream of bytes has always done. A frame keeps
-    /// it as the row to show when the output underneath is folded away.
-    fn tool_body_start(&mut self, summary: &str) {
-        self.write(summary);
-    }
-
-    /// The tool's output has ended.
-    fn tool_body_end(&mut self) {}
-
-    /// The reasoning channel has been switched on or off for this session.
-    ///
-    /// `/output reasoning off` stops the run reaching this target at all, which
-    /// a surface drawing a fold has to know: without it, a key that unfolds the
-    /// reasoning would keep claiming there was some.
-    fn reasoning_shown(&mut self, shown: bool) {
-        let _ = shown;
-    }
-
-    /// What the turn cost, as the row that says so.
-    ///
-    /// A signal rather than prose because it is the one row somebody asks for
-    /// after a turn rather than during it. A target that only writes bytes has
-    /// nowhere to keep a row it is not showing, so the default writes it when
-    /// the switch is on and drops it when it is off, which is what this line
-    /// has always done on a pipe. A frame keeps it either way and lets a key
-    /// decide, because a row that was never sent is a row no key can reveal.
-    fn turn_stats(&mut self, line: &str, shown: bool) {
-        if shown {
-            self.write(line);
-        }
-    }
-
-    /// The turn's cost has been switched on or off for this session.
-    ///
-    /// The counterpart of [`RenderTarget::reasoning_shown`], and it is here for
-    /// the same reason: `/output stats on` has to reach the rows already drawn,
-    /// and only the surface holding them can unfold those.
-    fn stats_shown(&mut self, shown: bool) {
-        let _ = shown;
-    }
-
-    /// The agent is asking for a new plan; `card` is the rows that say so.
-    ///
-    /// Announced, not settled: a call can still be refused or fail. A stream
-    /// writes the card because that is what a stream has always done, and a
-    /// surface keeping a live plan shows nothing yet.
-    fn tasks_card(&mut self, card: &str) {
-        self.write(card);
-    }
-
-    /// The plan is now this. Only ever after a call that succeeded.
-    ///
-    /// Separate from the card above, and the separation is the point: a `todo`
-    /// call that is refused, or that the validator turns away, still announces
-    /// itself. A surface that painted its plan from the announcement would show
-    /// a plan nothing is running, which is worse than showing none.
-    fn tasks(&mut self, tasks: &[(TaskStatus, String)]) {
-        let _ = tasks;
+impl TranscriptSink for NullSink {
+    fn emit(&mut self, event: TranscriptEvent) {
+        let _ = event;
     }
 }
 
-/// Every writer is a render target, with a failed write dropped.
-impl<W: std::io::Write + Send> RenderTarget for W {
-    fn write(&mut self, text: &str) {
-        let _ = std::io::Write::write_all(self, text.as_bytes());
+/// Any writer, taking the byte stream a pipe would have seen.
+///
+/// The printer is held here rather than reached for per call, because the line
+/// discipline is state: whether a newline is owed before the next line depends
+/// on what the last one ended with.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlainSink<W> {
+    out: W,
+    printer: PlainPrinter,
+}
+
+impl<W: std::io::Write + Send> PlainSink<W> {
+    /// A sink writing into `out`.
+    #[must_use]
+    pub fn new(out: W) -> PlainSink<W> {
+        PlainSink {
+            out,
+            printer: PlainPrinter::new(),
+        }
+    }
+}
+
+impl<W: std::io::Write + Send> TranscriptSink for PlainSink<W> {
+    fn emit(&mut self, event: TranscriptEvent) {
+        let bytes = self.printer.bytes(&event);
+        if bytes.is_empty() {
+            return;
+        }
+        let _ = self.out.write_all(bytes.as_bytes());
+    }
+}
+
+/// Turns events back into the byte stream a pipe has always seen.
+///
+/// The line discipline lives here rather than in the renderer, and that is the
+/// point of the split: whether a newline is needed before the next line is a
+/// question about what has been printed, which only the thing printing knows.
+/// A frame asks the same question of its own rows and gets a different answer.
+#[derive(Clone, Copy, Debug)]
+pub struct PlainPrinter {
+    /// Whether the cursor sits at the start of a line.
+    at_line_start: bool,
+}
+
+/// A stream nothing has been written to yet, which is a line start.
+///
+/// Spelled out rather than derived: `bool::default()` is `false`, which would
+/// make a fresh printer think it owed a newline and open every stream with a
+/// blank row.
+impl Default for PlainPrinter {
+    fn default() -> PlainPrinter {
+        PlainPrinter::new()
+    }
+}
+
+impl PlainPrinter {
+    /// A printer for a stream nothing has been written to yet.
+    #[must_use]
+    pub fn new() -> PlainPrinter {
+        PlainPrinter {
+            at_line_start: true,
+        }
+    }
+
+    /// The bytes `event` becomes on a stream that cannot fold anything.
+    pub fn bytes(&mut self, event: &TranscriptEvent) -> String {
+        match event {
+            TranscriptEvent::AssistantDelta { text, depth }
+            | TranscriptEvent::ReasoningDelta { text, depth } => self.stream(text, *depth),
+            TranscriptEvent::Line { kind, text } => {
+                // The one line of space between one exchange and the next. It
+                // is a rule about what an echo is, not a newline the renderer
+                // has to remember to write.
+                let gap = if *kind == LineKind::Echo { "\n" } else { "" };
+                self.whole(&format!("{gap}{text}\n"))
+            }
+            TranscriptEvent::ToolBodyStart { summary } => self.whole(summary),
+            TranscriptEvent::TasksCard { card } => self.whole(card),
+            TranscriptEvent::TurnStats { line, shown } => {
+                if *shown {
+                    self.whole(&format!("{line}\n"))
+                } else {
+                    String::new()
+                }
+            }
+            // A boundary ends whatever line is open. The two streams are told
+            // apart by the break between them rather than by a label, so the
+            // break is what the boundary means on a flat stream.
+            TranscriptEvent::EndLine
+            | TranscriptEvent::ReasoningStart
+            | TranscriptEvent::ReasoningEnd => self.whole(""),
+            TranscriptEvent::ToolBodyEnd
+            | TranscriptEvent::Tasks(_)
+            | TranscriptEvent::ReasoningShown(_)
+            | TranscriptEvent::StatsShown(_) => String::new(),
+        }
+    }
+
+    /// Something that has to start on a line of its own.
+    ///
+    /// The break belongs here rather than at the source: whether one is owed is
+    /// a question about what has already been printed, and a surface drawing
+    /// rows instead of bytes answers it differently.
+    fn whole(&mut self, text: &str) -> String {
+        let break_first = if self.at_line_start { "" } else { "\n" };
+        self.at_line_start = true;
+        format!("{break_first}{text}")
+    }
+
+    /// `text` at `depth`, continuing whatever line is open.
+    fn stream(&mut self, text: &str, depth: usize) -> String {
+        if text.is_empty() {
+            return String::new();
+        }
+        let indent = "  ".repeat(depth);
+        let body = if indent.is_empty() {
+            text.to_owned()
+        } else {
+            indented(text, &indent, self.at_line_start)
+        };
+        // Measured on what a reader sees, not on the bytes. Dimmed reasoning
+        // ends in a closing sequence however its prose ended, so testing the
+        // raw string reports "mid-line" for a chunk that plainly finished one.
+        self.at_line_start = strip_ansi(text).ends_with('\n');
+        body
     }
 }
 
@@ -155,7 +317,7 @@ const RESULT_LINE_CHARS: usize = 100;
 /// How to build a [`TurnRenderer`].
 pub struct TurnRendererOptions {
     /// Where the turn is drawn.
-    pub out: Box<dyn RenderTarget>,
+    pub out: Box<dyn TranscriptSink>,
     /// `None` detects: `NO_COLOR`, `FORCE_COLOR`, `TERM` and whether standard
     /// output is a terminal. A caller with no opinion passes nothing rather
     /// than guessing, which is the whole of the `--no-color` design.
@@ -187,7 +349,7 @@ impl TurnRendererOptions {
     /// constructor that disagreed with the shipped default would be a second
     /// answer to the same question.
     #[must_use]
-    pub fn new(out: Box<dyn RenderTarget>) -> TurnRendererOptions {
+    pub fn new(out: Box<dyn TranscriptSink>) -> TurnRendererOptions {
         TurnRendererOptions {
             out,
             colors: None,
@@ -478,7 +640,7 @@ enum Mode {
 
 /// One turn, drawn onto a terminal.
 pub struct TurnRenderer {
-    out: Box<dyn RenderTarget>,
+    out: Box<dyn TranscriptSink>,
     colors: Palette,
     /// Both flags are settable, because `/output` turns them off part way
     /// through a session. The flags that set them at launch — `--no-reasoning`,
@@ -499,7 +661,6 @@ pub struct TurnRenderer {
     /// subagent can mint the same one its caller just used — and a shared map
     /// would then have the child's result deleting the parent's label.
     calls: HashMap<String, String>,
-    at_line_start: bool,
     mode: Mode,
     /// The session the current top-level turn is on. Set by `turn.start`.
     session_key: String,
@@ -537,7 +698,6 @@ impl TurnRenderer {
             t: options.t,
             calls: HashMap::new(),
             pending_tasks: HashMap::new(),
-            at_line_start: true,
             mode: Mode::Idle,
             session_key: String::new(),
             depth: 0,
@@ -607,7 +767,7 @@ impl TurnRenderer {
                     .unwrap_or_else(|| "tool".to_owned());
                 let elapsed = format_duration(to_ms(progress.elapsed_ms));
                 let text = self.colors.dim.apply(&format!("  … {name} {elapsed}"));
-                self.line(&text);
+                self.line(LineKind::Notice, &text);
             }
             NestedAgentEvent::ToolResult(result) => {
                 self.tool_result(session_key, result);
@@ -622,12 +782,12 @@ impl TurnRenderer {
                     args!["tool" => request.name.as_str()],
                 );
                 let text = self.colors.yellow.apply(&format!("⧗ {sentence}"));
-                self.line(&text);
+                self.line(LineKind::Notice, &text);
             }
             NestedAgentEvent::Notice(notice) => {
                 let mark = self.colors.yellow.apply("⚠");
                 let body = self.colors.yellow.apply(&notice.message);
-                self.line(&format!("{mark} {body}"));
+                self.line(LineKind::Notice, &format!("{mark} {body}"));
             }
             NestedAgentEvent::Error(error) => {
                 self.error(error_code(error.code), &error.message, error.retryable);
@@ -668,7 +828,7 @@ impl TurnRenderer {
                 .t
                 .tr(keys::render::subagent::START, args!["agent" => who]);
             let text = self.colors.dim.apply(&format!("┄ {sentence}"));
-            self.line(&text);
+            self.line(LineKind::Subagent, &text);
             self.depth = previous;
             return;
         }
@@ -686,7 +846,7 @@ impl TurnRenderer {
             .t
             .tr(keys::render::subagent::DONE, args!["agent" => who]);
         let text = self.colors.dim.apply(&format!("┄ {sentence}"));
-        self.line(&text);
+        self.line(LineKind::Subagent, &text);
         self.depth = previous;
     }
 
@@ -702,7 +862,7 @@ impl TurnRenderer {
         // asked to hide.
         self.set_mode(Mode::Idle);
         let line = self.colors.dim.apply(text);
-        self.line(&line);
+        self.line(LineKind::Notice, &line);
     }
 
     /// The operator's own message, printed into the transcript.
@@ -721,11 +881,11 @@ impl TurnRenderer {
     /// starting.
     pub fn echo(&mut self, text: &str) {
         self.set_mode(Mode::Idle);
-        self.write("\n");
         // The same caret the editor draws, in the same colour: scrolling back
         // through a long session, these are what the eye counts exchanges by.
+        // The blank row above it is the printer's, decided by the kind.
         let caret = self.colors.green.apply("›");
-        self.line(&format!("{caret} {text}"));
+        self.line(LineKind::Echo, &format!("{caret} {text}"));
     }
 
     /// A diagnostic from somewhere else, put into the transcript intact.
@@ -742,14 +902,14 @@ impl TurnRenderer {
     /// is a log line that no longer matches what is in the file.
     pub fn aside(&mut self, text: &str) {
         self.set_mode(Mode::Idle);
-        self.write(text);
+        self.line(LineKind::Aside, text.trim_end_matches('\n'));
     }
 
     /// Something the operator should notice, in the CLI's own voice.
     pub fn warn(&mut self, text: &str) {
         self.set_mode(Mode::Idle);
         let mark = self.colors.yellow.apply("⚠");
-        self.line(&format!("{mark} {text}"));
+        self.line(LineKind::Notice, &format!("{mark} {text}"));
     }
 
     /// Puts a plan where the surface keeps one, without printing it.
@@ -760,7 +920,7 @@ impl TurnRenderer {
     /// whatever is drawing a frame. A target that only writes bytes takes the
     /// empty card and writes nothing, which is why the two do not double up.
     pub fn plan(&mut self, tasks: &[(TaskStatus, String)]) {
-        self.out.tasks(tasks);
+        self.out.emit(TranscriptEvent::Tasks(tasks.to_vec()));
     }
 
     /// Whether the model's reasoning is streamed.
@@ -772,7 +932,7 @@ impl TurnRenderer {
     /// Shows or hides the model's reasoning from here on.
     pub fn set_reasoning_shown(&mut self, shown: bool) {
         self.show_reasoning = shown;
-        self.out.reasoning_shown(shown);
+        self.out.emit(TranscriptEvent::ReasoningShown(shown));
     }
 
     /// Whether the token and timing line is printed after a turn.
@@ -784,7 +944,7 @@ impl TurnRenderer {
     /// Shows or hides the token and timing line from here on.
     pub fn set_stats_shown(&mut self, shown: bool) {
         self.show_stats = shown;
-        self.out.stats_shown(shown);
+        self.out.emit(TranscriptEvent::StatsShown(shown));
     }
 
     /// What past turns cost, one line each.
@@ -819,7 +979,7 @@ impl TurnRenderer {
                 parts.push(rate);
             }
             let line = self.colors.dim.apply(&format!("  · {}", parts.join(" · ")));
-            self.line(&line);
+            self.line(LineKind::Notice, &line);
         }
     }
 
@@ -833,13 +993,15 @@ impl TurnRenderer {
         if self.mode == mode {
             return;
         }
-        self.break_line();
+        if self.mode != Mode::Idle {
+            self.out.emit(TranscriptEvent::EndLine);
+        }
         if self.mode == Mode::Reasoning {
-            self.out.reasoning_end();
+            self.out.emit(TranscriptEvent::ReasoningEnd);
         }
         self.mode = mode;
         if mode == Mode::Reasoning {
-            self.out.reasoning_start();
+            self.out.emit(TranscriptEvent::ReasoningStart);
         }
     }
 
@@ -864,12 +1026,19 @@ impl TurnRenderer {
         if text.is_empty() {
             return;
         }
+        let depth = self.depth;
         if mode == Mode::Reasoning {
             // After the trim, or the escape prefix defeats it.
             let dimmed = self.colors.dim.apply(text);
-            self.write(&dimmed);
+            self.out.emit(TranscriptEvent::ReasoningDelta {
+                text: dimmed,
+                depth,
+            });
         } else {
-            self.write(text);
+            self.out.emit(TranscriptEvent::AssistantDelta {
+                text: text.to_owned(),
+                depth,
+            });
         }
     }
 
@@ -897,8 +1066,7 @@ impl TurnRenderer {
                 let row = self.task_line(*status, text);
                 card.push_str(&self.indent_line(&row));
             }
-            self.out.tasks_card(&card);
-            self.at_line_start = true;
+            self.out.emit(TranscriptEvent::TasksCard { card });
             // Held until the result says the call worked. Only the top-level
             // plan is held at all: a subagent keeps its own list in its own
             // session, and hoisting it would overwrite the plan the operator is
@@ -916,7 +1084,7 @@ impl TurnRenderer {
         } else {
             format!("{head} {}", self.colors.dim.apply(&summary))
         };
-        self.line(&line);
+        self.line(LineKind::ToolCall, &line);
     }
 
     /// One task, marked and coloured by where it has got to.
@@ -960,8 +1128,8 @@ impl TurnRenderer {
             format_duration(to_ms(result.duration_ms))
         ));
         let head = self.indent_line(&format!("  {mark} {timing}"));
-        self.out.tool_body_start(&head);
-        self.at_line_start = true;
+        self.out
+            .emit(TranscriptEvent::ToolBodyStart { summary: head });
         let was = self.calls.remove(&call_key(session_key, &result.call_id));
 
         // The plan the call asked for, now that it is known to have landed.
@@ -970,18 +1138,18 @@ impl TurnRenderer {
             .remove(&call_key(session_key, &result.call_id))
             && result.ok
         {
-            self.out.tasks(&tasks);
+            self.out.emit(TranscriptEvent::Tasks(tasks));
         }
 
         // The plan was printed as the call went out, and the result is a
         // sentence counting what is already on screen.
         if was.as_deref() == Some(TODO_TOOL) && result.ok {
-            self.out.tool_body_end();
+            self.out.emit(TranscriptEvent::ToolBodyEnd);
             return;
         }
 
         if self.tool_result_lines == 0 || result.content.is_empty() {
-            self.out.tool_body_end();
+            self.out.emit(TranscriptEvent::ToolBodyEnd);
             return;
         }
         let lines: Vec<&str> = result.content.split('\n').collect();
@@ -990,22 +1158,22 @@ impl TurnRenderer {
                 .colors
                 .dim
                 .apply(&format!("    {}", clip(line, RESULT_LINE_CHARS)));
-            self.line(&text);
+            self.line(LineKind::Notice, &text);
         }
         let hidden = lines.len().saturating_sub(self.tool_result_lines);
         if hidden > 0 {
             let text = self.colors.dim.apply(&format!("    … {hidden} more lines"));
-            self.line(&text);
+            self.line(LineKind::Notice, &text);
         }
-        self.out.tool_body_end();
+        self.out.emit(TranscriptEvent::ToolBodyEnd);
     }
 
     fn error(&mut self, code: &str, message: &str, retryable: bool) {
         let mark = self.colors.red.apply("✖");
-        self.line(&format!("{mark} {message}"));
+        self.line(LineKind::Notice, &format!("{mark} {message}"));
         let retry = if retryable { " · retryable" } else { "" };
         let text = self.colors.dim.apply(&format!("  {code}{retry}"));
-        self.line(&text);
+        self.line(LineKind::Notice, &text);
     }
 
     fn turn_end(
@@ -1021,7 +1189,7 @@ impl TurnRenderer {
         // nothing rather than announcing itself on every single turn.
         if let Some(key) = stop_reason_key(stop_reason) {
             let text = self.colors.yellow.apply(&format!("  {}", self.t.t(key)));
-            self.line(&text);
+            self.line(LineKind::Notice, &text);
         }
         let steps = i64::try_from(iterations).unwrap_or(i64::MAX);
         let mut parts = vec![self.t.tr(keys::render::STEPS, args!["count" => steps])];
@@ -1038,62 +1206,36 @@ impl TurnRenderer {
         // that can fold keeps the row and hides it; one that only writes bytes
         // drops it. A line that was never built is a line no key can reveal.
         let line = self.indent_line(&self.colors.dim.apply(&format!("  · {}", parts.join(" · "))));
-        self.out.turn_stats(&line, self.show_stats);
-        self.at_line_start = true;
+        self.out.emit(TranscriptEvent::TurnStats {
+            line,
+            shown: self.show_stats,
+        });
     }
 
-    fn line(&mut self, text: &str) {
-        self.break_line();
-        self.write(&format!("{text}\n"));
-    }
-
-    /// One line, indented for its depth, ready to be handed somewhere other
-    /// than [`TurnRenderer::write`].
+    /// One complete line, indented for its depth and sent as itself.
     ///
-    /// For the rows that go out through a signal rather than as prose: a target
-    /// keeping one as a summary needs the text, not a call that has already
-    /// written it. The break before it still happens here, because the stream
-    /// has to be at the start of a line either way.
-    fn indent_line(&mut self, text: &str) -> String {
-        self.break_line();
-        let body = format!("{text}\n");
+    /// No break before it and no newline after it. A line is a line here, and
+    /// whether the thing printing owes a newline first is the printer's
+    /// question, not this one's.
+    fn line(&mut self, kind: LineKind, text: &str) {
+        let indent = "  ".repeat(self.depth);
+        let body = if indent.is_empty() {
+            text.to_owned()
+        } else {
+            indented(text, &indent, true)
+        };
+        self.out.emit(TranscriptEvent::Line { kind, text: body });
+    }
+
+    /// One line indented for its depth, for the rows that travel inside an
+    /// event of their own rather than as a line.
+    fn indent_line(&self, text: &str) -> String {
         let indent = "  ".repeat(self.depth);
         if indent.is_empty() {
-            body
+            format!("{text}\n")
         } else {
-            indented(&body, &indent, true)
+            indented(&format!("{text}\n"), &indent, true)
         }
-    }
-
-    /// A newline only when the cursor is not already at the start of one.
-    fn break_line(&mut self) {
-        if !self.at_line_start {
-            self.write("\n");
-        }
-    }
-
-    /// The one place text reaches the stream, and therefore the one place
-    /// indent belongs.
-    ///
-    /// Indenting per line would be simpler and wrong: assistant text arrives as
-    /// arbitrary chunks, so a subagent's answer would be indented on whichever
-    /// line a chunk happened to start and flush left on every line it wrapped
-    /// onto. Rewriting newlines here catches both.
-    fn write(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
-        }
-        let indent = "  ".repeat(self.depth);
-        if indent.is_empty() {
-            self.out.write(text);
-        } else {
-            self.out.write(&indented(text, &indent, self.at_line_start));
-        }
-        // Measured on what a reader sees, not on the bytes. Dimmed reasoning
-        // ends in a closing sequence however its prose ended, so testing the
-        // raw string reports "mid-line" for a chunk that plainly finished one —
-        // and the next break then writes a newline nobody asked for.
-        self.at_line_start = strip_ansi(text).ends_with('\n');
     }
 }
 
@@ -1118,7 +1260,7 @@ fn to_ms(value: u64) -> f64 {
 /// an indent is never written onto a line nothing has been put on yet: it would
 /// become trailing whitespace the moment the next chunk is a newline of its
 /// own.
-fn indented(text: &str, indent: &str, at_line_start: bool) -> String {
+pub(crate) fn indented(text: &str, indent: &str, at_line_start: bool) -> String {
     let broken = format!("\n{indent}");
     let body = text.replace('\n', &broken);
     let trimmed = body
