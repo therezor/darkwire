@@ -14,15 +14,19 @@
 //! accumulates in an ordinary block, which is what a transcript with no folds
 //! at all is: exactly one of them.
 //!
-//! **What is on screen, and what is behind it.** A frame holding the whole
-//! session costs the whole session on every draw, which at a token a frame is
-//! the difference between a prompt that types and one that stutters. So the
-//! transcript hands its oldest blocks to the terminal's own scrollback and stops
-//! holding them: [`Transcript::take_committable`] returns the logical lines to
-//! print above the frame, and what is left is a bounded live region. Committed
-//! text is the terminal's now. It reflows on a resize for free, and nothing
-//! here can rewrite it, which is why a block stops being foldable once it has
-//! gone.
+//! **What is on screen, and what is behind it.** Everything that can go, goes,
+//! on every draw. [`Transcript::take_committable`] returns the logical lines to
+//! print above the frame, and what is left is the run still open and the line
+//! still being written. Printed text is the terminal's now. It reflows on a
+//! resize for free, it can be selected and searched with the emulator's own
+//! tools, and nothing here can rewrite it, which is why a block stops being
+//! foldable once it has gone.
+//!
+//! That last part is the trade, and it is deliberate. A fold is decided before
+//! a block is printed rather than after, so the keys that fold reach the run
+//! still open and set the default for what follows. The alternative is holding
+//! the session in a buffer this program redraws, which is what made a resize
+//! something it could get wrong.
 //!
 //! One block is exempt and deliberately so: the one still being written to. Its
 //! *finished* lines commit as they complete, so a long answer does not grow the
@@ -44,20 +48,11 @@
 
 use crate::block::Block;
 use crate::component::Component;
-use crate::text::wrap_to_width;
 
 /// Past this many logical lines the oldest are dropped.
 const LIMIT: usize = 10_000;
 /// How many go at once when it does, so the redraw is paid rarely.
 const DROP: usize = 2_000;
-
-/// How many committed logical lines are kept for a repaint after a resize.
-///
-/// Enough to fill a tall window twice over. A resize erases the screen, and
-/// what was on it but had not yet scrolled into the history is gone with it,
-/// because most terminals do not push erased rows up. Reprinting this much puts the
-/// screen back; anything older is already in the scrollback where it belongs.
-const RING: usize = 200;
 
 /// How many finished lines of the open block go to the scrollback at once.
 const COMMIT_BATCH: usize = 16;
@@ -69,8 +64,13 @@ pub struct Transcript {
     blocks: Vec<Block>,
     /// How many logical lines the whole transcript holds, for the bound.
     total: usize,
-    /// Lines already printed above the frame, newest last. See [`RING`].
-    ring: std::collections::VecDeque<String>,
+    /// Whether anything has been printed above the frame yet.
+    ///
+    /// A flag rather than the two hundred lines this used to keep. Those were
+    /// there to reprint after a repaint erased the screen, and nothing erases
+    /// the screen any more: what has been printed belongs to the terminal, and
+    /// printing it again is a second copy of the session in the history.
+    committed: bool,
 }
 
 impl Default for Transcript {
@@ -78,7 +78,7 @@ impl Default for Transcript {
         Self {
             blocks: vec![Block::prose()],
             total: 0,
-            ring: std::collections::VecDeque::new(),
+            committed: false,
         }
     }
 }
@@ -204,7 +204,7 @@ impl Transcript {
         self.blocks.clear();
         self.blocks.push(Block::prose());
         self.total = 0;
-        self.ring.clear();
+        self.committed = false;
     }
 
     /// A tail block nothing was written to is not worth keeping.
@@ -284,12 +284,7 @@ impl Transcript {
                 break;
             }
         }
-        for line in &out {
-            self.ring.push_back(line.clone());
-        }
-        while self.ring.len() > RING {
-            self.ring.pop_front();
-        }
+        self.committed |= !out.is_empty();
         out
     }
 
@@ -320,12 +315,7 @@ impl Transcript {
             self.total = self.total.saturating_sub(lines.len());
             out.extend(lines);
         }
-        for line in &out {
-            self.ring.push_back(line.clone());
-        }
-        while self.ring.len() > RING {
-            self.ring.pop_front();
-        }
+        self.committed |= !out.is_empty();
         out
     }
 
@@ -337,33 +327,7 @@ impl Transcript {
     /// is free to pad itself to the window; once it is true the terminal has
     /// scrolled and padding would push real conversation off the top.
     pub fn committed_anything(&self) -> bool {
-        !self.ring.is_empty()
-    }
-
-    /// The most recently committed lines that fill `rows`, oldest first.
-    ///
-    /// What a resize reprints above the frame. Erasing the screen takes with it
-    /// the committed rows that were *on* it. Those had not yet scrolled into the
-    /// history, and most terminals do not push erased rows up, so without this a
-    /// resize would delete the last screenful of the conversation.
-    ///
-    /// Measured in rows rather than in lines, and that is the whole care in it.
-    /// Reprinting more than the screen held would put a second copy of
-    /// something that *is* already in the history right under the first, and a
-    /// line that wrapped to three rows is three rows of that mistake.
-    pub fn committed_tail(&self, rows: usize, width: usize) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        let mut used = 0;
-        for line in self.ring.iter().rev() {
-            let height = wrap_to_width(line, width).len().max(1);
-            if used + height > rows {
-                break;
-            }
-            used += height;
-            out.push(line.clone());
-        }
-        out.reverse();
-        out
+        self.committed
     }
 
     /// Hands over the next thing that may go, or says nothing may.

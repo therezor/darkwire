@@ -519,38 +519,6 @@ fn an_open_run_holds_the_line_rather_than_freezing_a_summary_that_moves() {
 }
 
 #[test]
-fn the_ring_keeps_enough_to_repaint_and_no_more() {
-    // What a resize reprints. Erasing the screen takes the rows that had not
-    // yet scrolled into the history with them, so they have to be held.
-    let mut transcript = Transcript::new();
-    for at in 0..2_000 {
-        transcript.write(&format!("line {at}\n"));
-        transcript.take_committable(10, 40);
-    }
-
-    let tail = transcript.committed_tail(20, 40);
-    assert!(!tail.is_empty());
-    // As many rows as the screen held and not one more: a line that is already
-    // in the terminal's history would otherwise be printed a second time,
-    // directly under the first.
-    assert!(tail.len() <= 20, "held {} lines", tail.len());
-    // The newest committed lines, not the oldest: they are the ones the screen
-    // had on it.
-    assert!(tail.iter().any(|line| line.starts_with("line 19")));
-}
-
-#[test]
-fn clearing_forgets_the_history_it_was_holding_for_a_repaint() {
-    let mut transcript = Transcript::new();
-    for at in 0..60 {
-        transcript.write(&format!("line {at}\n"));
-    }
-    transcript.take_committable(4, 40);
-    transcript.clear();
-    assert!(transcript.committed_tail(20, 40).is_empty());
-}
-
-#[test]
 fn a_run_that_said_nothing_leaves_no_summary_behind() {
     // A provider opening and closing its reasoning channel with nothing in it
     // is ordinary. A fold that opens onto an empty body is not.
@@ -578,28 +546,6 @@ fn an_expanded_run_puts_no_blank_row_between_its_summary_and_its_body() {
     let rows = transcript.render(40);
     assert_eq!(rows[0], "  ok 1.2s");
     assert_eq!(rows[1], "    first line of output");
-}
-
-#[test]
-fn the_repaint_counts_rows_rather_than_lines() {
-    // A line that wraps to three rows fills three rows of the screen it is
-    // being put back onto, and counting it as one would reprint three times
-    // what was erased.
-    let mut transcript = Transcript::new();
-    for at in 0..200 {
-        transcript.write(&format!(
-            "line {at} with enough words on it to wrap at forty\n"
-        ));
-        transcript.take_committable(6, 40);
-    }
-
-    let tail = transcript.committed_tail(6, 40);
-    let rows: usize = tail
-        .iter()
-        .map(|line| darkwire_tui::wrap_to_width(line, 40).len().max(1))
-        .sum();
-    assert!(rows <= 6, "{rows} rows for a six-row window");
-    assert!(!tail.is_empty());
 }
 
 #[test]

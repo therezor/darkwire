@@ -1863,47 +1863,19 @@ impl FrameState {
         }
     }
 
-    /// Throws the screen away and draws it again.
+    /// Draws the strip again, trusting nothing about where it was.
     ///
     /// What a resize needs, and what Ctrl-L is. The renderer notices a width
     /// change on its own, but a window that changed only in height, or one
-    /// whose rows some other program scribbled on, looks identical to it. So the
-    /// frame is printed whole rather than diffed against a belief about the
-    /// screen that is already wrong.
+    /// whose rows some other program scribbled on, looks identical to it.
+    ///
+    /// The conversation above is not reprinted and must not be. It was printed
+    /// to the terminal, which is where it lives: the terminal rewraps it on a
+    /// resize better than this could, and reprinting it is what used to put a
+    /// second copy of the session in the history every time the window moved.
     fn redraw(&mut self) {
         self.renderer.invalidate();
-        // Erasing the screen takes the committed rows that were on it. Those
-        // are not in the terminal's history, where only what has scrolled past
-        // lives, so they are reprinted above the frame.
-        //
-        // Only as many as are left over after the frame itself, and *the frame*
-        // is the measure rather than its chrome: the live region holds recent
-        // conversation as well as the editor. Sizing this against the chrome
-        // printed more rows than the window has, which scrolls, which puts the
-        // overflow into the history that the next resize's erase cannot reach.
-        // One stranded copy per resize, which is the bug this comment is here
-        // to stop somebody reintroducing.
-        let width = self.renderer.columns();
-        // Committing first, exactly as an ordinary draw does. A narrower window
-        // wraps the same conversation onto more rows, so the live region grows
-        // on every narrowing: without this it outgrows the window, the print
-        // scrolls, and what scrolls off is stranded in a history the next
-        // resize cannot erase.
-        let cap = self
-            .renderer
-            .rows()
-            .saturating_sub(self.frame.chrome_rows(width));
-        self.frame.transcript.take_committable(cap, width);
-
-        let frame_rows = Component::render(&mut self.frame, width).len();
-        // A row of margin, because the terminal is the one wrapping these and
-        // its arithmetic is not quite ours: a line exactly as wide as the window
-        // leaves some emulators in a pending-wrap state that costs a row. Being
-        // one row short of the window is invisible. Being one row over scrolls,
-        // and scrolling is the whole fault.
-        let above = self.renderer.rows().saturating_sub(frame_rows + 1);
-        let tail = self.frame.transcript.committed_tail(above, width);
-        self.renderer.print_above(&tail, &mut self.frame);
+        self.draw();
     }
 
     /// One thing the turn said, into the transcript.
