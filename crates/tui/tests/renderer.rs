@@ -179,7 +179,7 @@ fn the_first_marker_wins_and_every_marker_is_removed() {
     assert!(!text.contains(CURSOR_MARKER));
     assert!(text.contains("ab\r\nc"));
     assert_eq!(ups(text), [1]);
-    assert!(text.ends_with(&format!("\r{ESC}[1C{ESC}[?2026l")));
+    assert!(text.ends_with(&format!("\r{ESC}[1C{ESC}[?7h{ESC}[?2026l")));
 }
 
 #[test]
@@ -190,7 +190,9 @@ fn can_run_without_synchronized_output() {
     };
     let mut renderer = Renderer::new(FakeOutput::new(20, 10), options);
     renderer.render(&mut rows(&["one"]));
-    assert_eq!(renderer.output().text(), "one\r");
+    // Autowrap still brackets the rows: the synchronized bracket is about
+    // tearing, and this one is about a row staying a row.
+    assert_eq!(renderer.output().text(), format!("{ESC}[?7lone\r{ESC}[?7h"));
 }
 
 #[test]
@@ -425,6 +427,50 @@ fn parks_the_cursor_the_same_distance_up_at_every_width() {
     seen.sort_unstable();
     seen.dedup();
     assert_eq!(seen, [1]);
+}
+
+#[test]
+fn draws_the_strip_with_autowrap_off_and_leaves_it_on() {
+    // One entry is one row. Cutting each row to the window nearly gets there,
+    // and a row exactly as wide as the window leaves some emulators in a
+    // pending-wrap state that costs a row anyway. With autowrap off there is no
+    // such state. It goes back on at the end of every paint, because the
+    // conversation printed above the strip is the terminal's to fold.
+    let mut renderer = renderer(4, 10);
+    renderer.render(&mut rows(&["abcd", "x"]));
+
+    let text = renderer.output().text();
+    let off = text
+        .find(&format!("{ESC}[?7l"))
+        .expect("autowrap is turned off");
+    let on = text
+        .rfind(&format!("{ESC}[?7h"))
+        .expect("autowrap is put back");
+    assert!(off < text.find("abcd").expect("the row is drawn"));
+    assert!(on > off);
+}
+
+#[test]
+fn a_commit_wraps_the_conversation_and_not_the_strip() {
+    // The two halves need opposite answers. A committed line is the terminal's
+    // from then on, so it has to wrap and reflow; a strip row is addressed by
+    // this renderer, so it must not.
+    let mut renderer = renderer(20, 10);
+    let mut view = rows(&["rule", "> ed"]);
+    renderer.render(&mut view);
+
+    renderer.output_mut().reset();
+    renderer.print_above(&rows(&["a committed line"]), &mut view);
+
+    let text = renderer.output().text();
+    let committed = text.find("a committed line").expect("the line is printed");
+    let off = text
+        .find(&format!("{ESC}[?7l"))
+        .expect("autowrap is turned off");
+    assert!(
+        committed < off,
+        "the conversation goes out before autowrap is off"
+    );
 }
 
 #[test]

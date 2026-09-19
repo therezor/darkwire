@@ -74,6 +74,20 @@ const HIDE_CURSOR: &str = "\x1b[?25l";
 const SHOW_CURSOR: &str = "\x1b[?25h";
 const SYNC_ON: &str = "\x1b[?2026h";
 const SYNC_OFF: &str = "\x1b[?2026l";
+/// Autowrap off, for the rows this renderer addresses.
+///
+/// One `Vec` entry has to be one physical row, or every later row's address is
+/// out by one. Cutting each row to the window nearly gets there: a row exactly
+/// as wide as the window leaves some emulators in a pending-wrap state that
+/// costs a row anyway. With autowrap off there is no such state, so a full
+/// width rule is safe to draw and the invariant is a fact rather than a hope.
+///
+/// It also keeps the strip out of a rewrap when the window widens, which is
+/// what lets the repaint walk up to its first row and find it there.
+const AUTOWRAP_OFF: &str = "\x1b[?7l";
+/// Autowrap back on, which is where every terminal starts and where the
+/// conversation needs it: those lines are the terminal's to fold and refold.
+const AUTOWRAP_ON: &str = "\x1b[?7h";
 
 /// How many physical rows `line` takes at `columns`.
 ///
@@ -337,11 +351,13 @@ impl<O: TerminalOutput> Renderer<O> {
         true
     }
 
+    /// One paint, bracketed so the terminal shows all of it or none of it, and
+    /// left with autowrap on however the body used it.
     fn frame(&self, body: &str) -> String {
         if self.options.synchronized {
-            format!("{SYNC_ON}{body}{SYNC_OFF}")
+            format!("{SYNC_ON}{body}{AUTOWRAP_ON}{SYNC_OFF}")
         } else {
-            body.to_owned()
+            format!("{body}{AUTOWRAP_ON}")
         }
     }
 
@@ -430,6 +446,7 @@ impl<O: TerminalOutput> Renderer<O> {
         self.hardware_row = lines.len().saturating_sub(1);
         let (cursor_row, cursor_column) = cursor_of(built);
         let mut body = erase;
+        body.push_str(AUTOWRAP_OFF);
         body.push_str(
             &lines
                 .iter()
@@ -527,7 +544,7 @@ impl<O: TerminalOutput> Renderer<O> {
         // per tick and six.
         let end = last_changed.min(lines.len().saturating_sub(1));
 
-        let mut body = String::new();
+        let mut body = String::from(AUTOWRAP_OFF);
         if !lines.is_empty() && end >= anchor {
             body.push_str(&self.move_to(anchor, 0));
             for at in anchor..=end {
@@ -627,6 +644,9 @@ impl<O: TerminalOutput> Renderer<O> {
         self.full_redraws += 1;
         self.hardware_row = built.lines.len().saturating_sub(1);
         self.viewport_top = built.lines.len().saturating_sub(screen_rows);
+        // The committed lines above went out with autowrap on, because they are
+        // the terminal's to fold and refold. From here down is the strip.
+        body.push_str(AUTOWRAP_OFF);
         body.push_str(
             &built
                 .lines
