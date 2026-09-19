@@ -70,6 +70,14 @@ pub struct Transcript {
     blocks: Vec<Block>,
     /// How many logical lines the whole transcript holds, for the bound.
     total: usize,
+    /// The first block that may not be printed yet.
+    ///
+    /// Everything before it is a finished exchange and goes to the terminal;
+    /// from here on is the exchange on screen, which is held so the keys that
+    /// fold can still reach it. Without this a run was printed the moment
+    /// anything followed it, and `ctrl-t` stopped working on a fold the reader
+    /// could still see.
+    hold_from: usize,
     /// Whether anything has been printed above the frame yet.
     ///
     /// A flag rather than the two hundred lines this used to keep. Those were
@@ -84,6 +92,7 @@ impl Default for Transcript {
         Self {
             blocks: vec![Block::prose()],
             total: 0,
+            hold_from: 0,
             committed: false,
         }
     }
@@ -185,6 +194,21 @@ impl Transcript {
         self.blocks.push(Block::prose());
     }
 
+    /// Ends the exchange on screen and starts a new one.
+    ///
+    /// The boundary the printing rule turns on. Everything written before this
+    /// may go to the terminal; everything after it is held on screen, which is
+    /// what lets `ctrl-t` and `ctrl-o` reach a fold the reader can still see
+    /// rather than only the run still being written to.
+    pub fn start_turn(&mut self) {
+        if let Some(tail) = self.blocks.last_mut() {
+            tail.trim_open_line();
+        }
+        self.drop_empty_tail();
+        self.blocks.push(Block::prose());
+        self.hold_from = self.blocks.len().saturating_sub(1);
+    }
+
     /// Replaces the open run's summary, for one that counts up while it runs.
     pub fn set_summary(&mut self, summary: &str) {
         if let Some(block) = self.blocks.last_mut() {
@@ -210,6 +234,7 @@ impl Transcript {
         self.blocks.clear();
         self.blocks.push(Block::prose());
         self.total = 0;
+        self.hold_from = 0;
         self.committed = false;
     }
 
@@ -246,6 +271,7 @@ impl Transcript {
             // land.
             if held <= owed && self.blocks.len() > 1 {
                 self.blocks.remove(0);
+                self.hold_from = self.hold_from.saturating_sub(1);
                 owed -= held;
                 self.total -= held;
                 continue;
@@ -307,15 +333,26 @@ impl Transcript {
     pub fn give_up_the_fold(&mut self, cap: usize, width: usize) -> Vec<String> {
         let mut out = Vec::new();
         while self.height(width) > cap {
-            // Only the block being written to can still fold; anything else has
-            // already been offered to `commit_one`, which took it.
-            let Some(tail) = self.blocks.last_mut() else {
-                break;
-            };
+            // Oldest first, which is the part the reader has finished with.
+            if self.blocks.len() > 1 {
+                let mut going = self.blocks.remove(0);
+                let held = going.len();
+                out.extend(going.take());
+                self.total = self.total.saturating_sub(held);
+                self.hold_from = self.hold_from.saturating_sub(1);
+                continue;
+            }
+            // The only block left. Its finished lines may go; the line still
+            // being written to may not, because there has to be somewhere for
+            // the next write to land.
+            let tail = &mut self.blocks[0];
             let finished = tail.len().saturating_sub(1);
             if finished == 0 {
                 break;
             }
+            // In batches, because a commit repaints what is under it and doing
+            // that once per line of a streamed answer is the cost this whole
+            // arrangement exists to avoid. A batch is one write either way.
             let take = finished.min(COMMIT_BATCH);
             let lines = tail.take_front(take);
             self.total = self.total.saturating_sub(lines.len());
@@ -366,6 +403,7 @@ impl Transcript {
     fn drop_empty_front(&mut self) {
         while self.blocks.len() > 1 && self.blocks[0].is_empty() {
             self.blocks.remove(0);
+            self.hold_from = self.hold_from.saturating_sub(1);
         }
     }
 
@@ -382,34 +420,19 @@ impl Transcript {
 
     /// Hands over the next thing that may go, or says nothing may.
     fn commit_one(&mut self, out: &mut Vec<String>) -> bool {
-        // Everything except the block being written to goes whole. Half a block
-        // in the history and half on screen is a fold nobody can open and a
-        // summary that describes rows in two places.
-        if self.blocks.len() > 1 {
-            let mut going = self.blocks.remove(0);
-            let held = going.len();
-            out.extend(going.take());
-            self.total = self.total.saturating_sub(held);
-            return true;
-        }
-
-        // The last one. Its finished lines may go; the line still open may not,
-        // and neither may a summary that is still counting up.
-        let tail = &mut self.blocks[0];
-        if tail.folds() {
+        // Only a finished exchange. What is on screen stays on screen until the
+        // next one starts, because a fold the reader can see is a fold the keys
+        // have to reach.
+        if self.hold_from == 0 || self.blocks.len() <= 1 {
             return false;
         }
-        let finished = tail.len().saturating_sub(1);
-        if finished == 0 {
-            return false;
-        }
-        // In batches, because a commit repaints the live region under it and
-        // doing that once per line of a streamed answer is the cost this whole
-        // arrangement exists to avoid. A batch is one write either way.
-        let take = finished.min(COMMIT_BATCH);
-        let lines = tail.take_front(take);
-        self.total = self.total.saturating_sub(lines.len());
-        out.extend(lines);
+        // Whole blocks. Half a block in the history and half on screen is a
+        // fold nobody can open and a summary that describes rows in two places.
+        let mut going = self.blocks.remove(0);
+        let held = going.len();
+        out.extend(going.take());
+        self.total = self.total.saturating_sub(held);
+        self.hold_from -= 1;
         true
     }
 }

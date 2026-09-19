@@ -1340,10 +1340,15 @@ impl Frame {
                 self.stream(text, *depth);
             }
             TranscriptEvent::Line { kind, text } => {
-                // The one row of space between one exchange and the next. A
-                // layout rule read off the kind, not a newline the renderer had
-                // to remember to write.
+                // A new exchange starts here, and the one before it may now go
+                // to the terminal. Until it does, the keys that fold can still
+                // reach every run on screen.
                 if *kind == LineKind::Echo {
+                    self.transcript.start_turn();
+                    self.at_line_start = true;
+                    // The one row of space between one exchange and the next. A
+                    // layout rule read off the kind, not a newline the renderer
+                    // had to remember to write.
                     self.write_line("");
                 }
                 self.write_line(text);

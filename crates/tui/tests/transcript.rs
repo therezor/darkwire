@@ -450,17 +450,38 @@ fn the_open_line_never_goes_even_when_the_frame_is_over() {
 }
 
 #[test]
-fn committing_keeps_the_live_region_inside_its_cap() {
+fn a_turn_too_tall_for_the_window_is_kept_inside_its_cap() {
+    // The exchange on screen is held so its folds stay reachable, and a turn
+    // longer than the window cannot be. Past the cap the oldest of it goes,
+    // which is the part the reader has finished with.
     let mut transcript = Transcript::new();
     for at in 0..200 {
         transcript.write(&format!("line {at}\n"));
-        transcript.take_committable(10, 40);
+        transcript.give_up_the_fold(10, 40);
         assert!(
             transcript.height(40) <= 10,
-            "live region grew to {} rows",
+            "what is held grew to {} rows",
             transcript.height(40),
         );
     }
+}
+
+#[test]
+fn what_is_on_screen_stays_until_the_next_exchange_starts() {
+    // The whole point of the boundary. `ctrl-t` unfolds a run the reader can
+    // see, so a run they can see has to still be here to unfold.
+    let mut transcript = Transcript::new();
+    transcript.open_block("reasoning", "thought for 4s", true);
+    transcript.write("a private thought\n");
+    transcript.close_block();
+    transcript.write("the answer\n");
+
+    assert!(transcript.take_committable(0, 40).is_empty());
+    transcript.set_collapsed("reasoning", false);
+    assert!(transcript.lines().contains(&"a private thought"));
+
+    transcript.start_turn();
+    assert!(!transcript.take_committable(0, 40).is_empty());
 }
 
 #[test]
@@ -469,6 +490,7 @@ fn what_is_committed_is_what_was_on_screen_in_order() {
     for at in 0..60 {
         transcript.write(&format!("line {at}\n"));
     }
+    transcript.start_turn();
     let committed = transcript.take_committable(8, 40);
 
     // The history and the screen are one conversation cut in two, not two views
@@ -496,6 +518,9 @@ fn a_folded_run_commits_the_row_that_was_showing_and_not_the_body() {
     }
     transcript.close_block();
     transcript.write("the answer\n");
+    // The exchange is over, so it may go. Until it is, the fold stays on screen
+    // where the keys can still reach it.
+    transcript.start_turn();
 
     let committed = transcript.take_committable(1, 40);
     assert!(committed.iter().any(|line| line == "thought for 4s"));
@@ -515,6 +540,9 @@ fn an_open_run_holds_the_line_rather_than_freezing_a_summary_that_moves() {
     assert!(transcript.take_committable(4, 40).is_empty());
     transcript.close_block();
     transcript.write("done\n");
+    // Still nothing: the exchange is on screen until the next one starts.
+    assert!(transcript.take_committable(4, 40).is_empty());
+    transcript.start_turn();
     assert!(!transcript.take_committable(4, 40).is_empty());
 }
 
@@ -629,6 +657,7 @@ fn a_run_that_shows_nothing_does_not_pin_the_live_region() {
     for at in 0..40 {
         transcript.write(&format!("line {at}\n"));
     }
+    transcript.start_turn();
 
     let committed = transcript.take_committable(2, 40);
     assert!(!committed.is_empty());
@@ -661,6 +690,7 @@ fn says_whether_anything_has_gone_to_the_scrollback() {
     for at in 0..60 {
         transcript.write(&format!("line {at}\n"));
     }
+    transcript.start_turn();
     assert!(!transcript.take_committable(4, 40).is_empty());
     assert!(transcript.committed_anything());
 
@@ -679,6 +709,7 @@ fn a_window_that_shrank_forgets_the_rows_it_scrolled_away() {
         transcript.write(&format!("line {at}\n"));
     }
     transcript.forget_front(3, 40);
+    transcript.start_turn();
 
     let left = transcript.take_committable(0, 40);
     assert!(!left.iter().any(|line| line.contains("line 0")));
@@ -697,6 +728,7 @@ fn forgetting_counts_rows_rather_than_lines() {
         ));
     }
     transcript.forget_front(3, 40);
+    transcript.start_turn();
 
     let left = transcript.take_committable(0, 40);
     // Each of those wraps to two rows, so three rows takes two lines and a
