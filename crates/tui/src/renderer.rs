@@ -89,23 +89,6 @@ const AUTOWRAP_OFF: &str = "\x1b[?7l";
 /// conversation needs it: those lines are the terminal's to fold and refold.
 const AUTOWRAP_ON: &str = "\x1b[?7h";
 
-/// How many physical rows `line` takes at `columns`.
-///
-/// Trailing blanks are trimmed first, because an emulator rewrapping a row
-/// drops them: counting them would put the strip's top a row too far up and
-/// erase a line of conversation that is still on screen.
-fn rows_needed(line: &str, columns: usize) -> usize {
-    if columns == 0 {
-        return 1;
-    }
-    let width = visible_width(line.trim_end());
-    if width == 0 {
-        1
-    } else {
-        width.div_ceil(columns)
-    }
-}
-
 fn cursor_up(rows: usize) -> String {
     format!("\x1b[{rows}A")
 }
@@ -405,107 +388,41 @@ impl<O: TerminalOutput> Renderer<O> {
         self.previous_height = screen_rows;
     }
 
-    /// How far above the cursor the strip's first row is, at `columns`.
+    /// Moves to the strip's first row, erases from there down, and comes back
+    /// to where a strip of `height` rows ends on the last row.
     ///
-    /// The whole of the resize arithmetic, and it needs no reply from the
-    /// terminal. Every width this renderer drew at is known, so the rows each
-    /// drawn line occupies at the new width is arithmetic; the cursor is
-    /// somewhere inside the row it was left on, and a rewrap carries it along
-    /// with its own cell.
+    /// The anchor is the row the last paint left the cursor on, counted within
+    /// the strip. That is exact rather than estimated, and the reason is
+    /// [`AUTOWRAP_OFF`]: a row this renderer drew is one physical row and was
+    /// never soft wrapped, so a terminal rewrapping its screen has nothing to
+    /// rewrap here. The rows above the strip are the conversation and they do
+    /// reflow, but they are above, and the anchor is relative.
     ///
-    /// A terminal that does not rewrap at all, which is xterm and Alacritty,
-    /// is overcounted here. That erases rows of conversation from the visible
-    /// screen rather than stranding fragments of a strip on it, and the
-    /// conversation is still in the history where it was printed. Of the two
-    /// ways to be wrong it is the one that tidies up after itself.
-    fn rows_above_cursor(&self, columns: usize) -> usize {
-        let (row, column) = self.previous_cursor;
-        let above: usize = self
-            .previous
-            .iter()
-            .take(row)
-            .map(|line| rows_needed(line, columns))
-            .sum();
-        let into = column.checked_div(columns).unwrap_or(0);
-        above + into
-    }
-
-    /// Moves to the strip's first row and erases it and everything below.
+    /// The erase covers the whole of what was drawn, not only the part the new
+    /// strip will cover. A shorter strip that erased its own rows alone left
+    /// the rest of the old one on screen above it, which after closing `/help`
+    /// is most of a screenful of help, and after a resize is one stranded rule
+    /// per step of the drag.
     ///
-    /// What used to be `\x1b[2J`. Erasing the whole screen is the one thing
-    /// that cannot be done here: most emulators move the erased rows into the
-    /// scrollback, so a repaint left a copy of the conversation in the history
-    /// every time the window moved, one per resize. Erasing downward from a row
-    /// this renderer owns never touches the history at all.
-    fn erase_strip(&mut self, columns: usize, height: usize) -> String {
-        let above = self.rows_above_cursor(columns);
-        let footprint = self.footprint(columns);
-        let below = footprint.saturating_sub(above + 1);
+    /// Rows the strip no longer needs are left blank rather than scrolled
+    /// away. Scrolling would take the conversation up with them and nothing can
+    /// bring it back down: the terminal's history only goes one way. They fill
+    /// again with the next thing printed.
+    fn erase_strip(&mut self, height: usize) -> String {
+        let above = self.previous_cursor.0.min(self.previous.len());
+        let footprint = self.previous.len();
         self.hardware_row = 0;
 
         let mut body = String::new();
-        // A strip that is about to get shorter has to give its rows back at the
-        // top, not at the bottom. Drawing a shorter strip from the same first
-        // row leaves blank rows under it and lifts the composer off the last
-        // one, which is what closing the command list used to do.
-        //
-        // So the screen is scrolled by the difference first. What leaves the
-        // top is conversation that was printed there and is in the terminal's
-        // history already, so nothing is lost and nothing is duplicated.
-        if height < footprint {
-            if below > 0 {
-                body.push_str(&cursor_down(below));
-            }
-            for _ in 0..footprint - height {
-                body.push_str("\r\n");
-            }
-            if height > 1 {
-                body.push_str(&cursor_up(height - 1));
-            }
-        } else if above > 0 {
+        if above > 0 {
             body.push_str(&cursor_up(above));
         }
         body.push('\r');
         body.push_str(ERASE_BELOW);
-        body
-    }
-
-    /// Erases downward from wherever the cursor is and retakes the last rows.
-    ///
-    /// What a width change gets, and it deliberately counts nothing. A terminal
-    /// rewraps its own screen before the process hears about the resize, and
-    /// whether it rewraps a row that was hard terminated differs between
-    /// emulators. Walking up by a computed number of rows is therefore a guess,
-    /// and a guess that is too large erases a band of the conversation and
-    /// leaves a stripe of blank rows where it was.
-    ///
-    /// So nothing is walked. Everything below the cursor goes, the screen is
-    /// scrolled until the strip has the bottom again, and whatever the reflow
-    /// left above the cursor stays: a fragment to scroll past, which is what
-    /// this model has always cost. The alternative is owning the screen, and
-    /// that costs the scrollback.
-    fn retake_the_bottom(&mut self, height: usize) -> String {
-        self.hardware_row = 0;
-        let mut body = String::from("\r");
-        body.push_str(ERASE_BELOW);
-        // Enough to reach the last row from anywhere at or below the strip's
-        // first, scrolling for the rows that are not there yet.
-        for _ in 0..height {
-            body.push_str("\r\n");
+        if height < footprint {
+            body.push_str(&cursor_down(footprint - height));
         }
-        if height > 1 {
-            body.push_str(&cursor_up(height - 1));
-        }
-        body.push('\r');
         body
-    }
-
-    /// How many physical rows the last strip occupies at `columns`.
-    fn footprint(&self, columns: usize) -> usize {
-        self.previous
-            .iter()
-            .map(|line| rows_needed(line, columns))
-            .sum()
     }
 
     /// Prints every row, after the erase asked for.
@@ -515,8 +432,7 @@ impl<O: TerminalOutput> Renderer<O> {
         self.hardware_row = lines.len().saturating_sub(1);
         self.viewport_top = lines.len().saturating_sub(screen_rows);
         let erase = match clear {
-            Clear::Strip => self.erase_strip(columns, lines.len()),
-            Clear::Reflowed => self.retake_the_bottom(lines.len()),
+            Clear::Strip | Clear::Reflowed => self.erase_strip(lines.len()),
             Clear::Screen => "\n".repeat(screen_rows),
             Clear::None => String::new(),
         };
@@ -556,16 +472,19 @@ impl<O: TerminalOutput> Renderer<O> {
         // address. A launch erases the screen only if asked; everything else
         // erases it because the alternative is drawing over a reflow.
         let forced = std::mem::replace(&mut self.pending, Pending::None) == Pending::Whole;
-        // Nothing measured at the old size survives the new one. The rows this
-        // renderer drew, where it left the cursor and how much had scrolled off
-        // were all true of a window that no longer exists, and a terminal
-        // rewraps its own screen before the process hears about the resize, so
-        // none of it can be corrected either. Throwing it away is what stops a
-        // stale number being used as if it were a measurement. A resize happens
-        // once in a while; the buffer is a few dozen strings.
+        // Nothing drawn at the old size is drawn again at the new one: a resize
+        // takes the whole print below, never the diff, so no row measured in a
+        // window that no longer exists can reach the screen. The buffer is
+        // replaced wholesale a few lines later.
+        //
+        // One number does cross the resize, and it has to. The erase needs to
+        // know how far above the cursor the strip's first row is, and that is
+        // the row the last paint parked on. It survives because the strip does:
+        // `AUTOWRAP_OFF` means a row this renderer drew was never soft wrapped,
+        // so a terminal rewrapping its screen has nothing to rewrap here, and
+        // the count is a fact rather than an estimate. Clearing it first is
+        // what left one stranded rule per step of a window drag.
         if width_changed || height_changed {
-            self.previous.clear();
-            self.previous_cursor = (0, 0);
             self.viewport_top = 0;
         }
         // A strip that is about to get shorter cannot be patched. Patching
@@ -732,7 +651,7 @@ impl<O: TerminalOutput> Renderer<O> {
             up.push_str(ERASE_BELOW);
             up
         } else {
-            self.erase_strip(columns, built.lines.len())
+            self.erase_strip(built.lines.len())
         };
         for line in lines {
             body.push_str(line);

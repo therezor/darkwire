@@ -430,13 +430,12 @@ fn parks_the_cursor_the_same_distance_up_at_every_width() {
 }
 
 #[test]
-fn a_shorter_strip_gives_its_rows_back_at_the_top() {
-    // Closing the command list used to lift the composer off the last row: the
-    // strip was drawn from the same first row and simply got shorter, leaving
-    // blank rows underneath it. The rows have to come off the top instead, and
-    // what leaves the top is conversation the terminal already has.
+fn a_shorter_strip_erases_all_of_the_old_one_and_keeps_the_last_row() {
+    // Closing `/help` used to leave most of a screenful of help above the
+    // composer: the erase covered only the rows the new strip would occupy,
+    // so the rest of the old one stayed on screen.
     let mut renderer = renderer(20, 10);
-    let mut tall = rows(&["one", "two", "three", "rule", "> ed"]);
+    let mut tall = rows(&["one", "two", "three", "four", "rule", "> ed"]);
     renderer.render(&mut tall);
 
     renderer.output_mut().reset();
@@ -444,21 +443,29 @@ fn a_shorter_strip_gives_its_rows_back_at_the_top() {
     renderer.render(&mut short);
 
     let text = renderer.output().text();
-    // Three rows fewer, so the screen scrolls three before the strip is drawn.
-    assert!(text.matches("\r\n").count() >= 3, "{text:?}");
-    assert!(text.contains("rule"));
-    assert!(text.contains("> ed"));
+    // Up to the first row of the *old* strip, not the new one. The cursor was
+    // parked on its last row, so that is five rows of a six row strip.
+    assert_eq!(ups(text).first().copied(), Some(5), "{text:?}");
+    assert!(text.contains(ERASE_BELOW));
+    // Then down to where two rows end on the last row the old strip ended on.
+    assert_eq!(downs(text).first().copied(), Some(4), "{text:?}");
+    assert!(!text.contains("three"), "the old rows are gone: {text:?}");
 }
 
 #[test]
-fn a_width_change_counts_nothing_and_takes_the_bottom_again() {
-    // A terminal rewraps its own screen before the process hears about the
-    // resize, and whether it rewraps a hard terminated row differs between
-    // emulators. Counting rows to walk up by is a guess, and a guess that is
-    // too large erases a band of the conversation and leaves blank rows where
-    // it was. So the width change path counts nothing.
+fn a_width_change_erases_from_the_top_of_the_strip_it_drew() {
+    // One stranded rule per step of a window drag was this: the repaint erased
+    // downward from wherever the cursor happened to be, which is inside the
+    // strip, so every row above the cursor survived.
+    //
+    // The anchor is exact rather than estimated, and autowrap is why. A row
+    // this renderer drew was never soft wrapped, so a terminal rewrapping its
+    // screen has nothing to rewrap here.
     let mut renderer = renderer(40, 10);
-    let mut view = rows(&["a".repeat(38).as_str(), "rule", "> ed"]);
+    let mut view = Ruled {
+        head: "head",
+        foot: "foot",
+    };
     renderer.render(&mut view);
 
     renderer.output_mut().reset();
@@ -467,14 +474,11 @@ fn a_width_change_counts_nothing_and_takes_the_bottom_again() {
 
     let text = renderer.output().text();
     assert!(!clears_the_screen(text));
-    assert!(text.contains(ERASE_BELOW));
-    // No walk up before the erase: the first thing it does is erase downward.
     let erase = text.find(ERASE_BELOW).expect("it erases downward");
     let before = &text[..erase];
-    assert!(
-        !before.contains(&format!("{ESC}[")) || !before.contains('A'),
-        "{before:?}"
-    );
+    // It walks up before erasing, rather than erasing where it stands.
+    assert!(before.contains(&format!("{ESC}[")), "{before:?}");
+    assert!(text.contains(&"-".repeat(20)), "redrawn at the new width");
 }
 
 #[test]
