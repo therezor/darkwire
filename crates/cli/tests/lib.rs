@@ -163,3 +163,28 @@ async fn the_interrupt_code_is_the_conventional_one() {
     // reads the same number from this program as from `cat`.
     assert_eq!(darkwire::INTERRUPTED, 130);
 }
+
+#[tokio::test]
+#[cfg(not(feature = "test-hooks"))]
+async fn a_build_without_the_seams_refuses_to_be_armed() {
+    // The e2e harness sets this to say "use the key file, not the operator's
+    // keychain". A build without the feature used to ignore it and go to the
+    // real credential store, which on macOS is an authorisation prompt per boot
+    // aimed at whoever is at the machine. The refusal names the build command.
+    let mut env = Env::empty();
+    env.set("DARKWIRE_TEST_HOOKS", "1");
+    let ran = ran(&["--version"], &env).await;
+
+    assert_eq!(ran.code, 2);
+    assert!(ran.out.is_empty(), "{}", ran.out);
+    assert!(ran.err.contains("--features test-hooks"), "{}", ran.err);
+}
+
+#[tokio::test]
+#[cfg(not(feature = "test-hooks"))]
+async fn an_unarmed_build_is_left_alone() {
+    let mut env = Env::empty();
+    env.set("DARKWIRE_TEST_HOOKS", "0");
+    let ran = ran(&["--version"], &env).await;
+    assert_eq!(ran.code, 0);
+}

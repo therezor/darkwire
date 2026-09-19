@@ -81,6 +81,38 @@ impl std::fmt::Debug for Streams {
     }
 }
 
+/// The refusal for a build that was asked for the test seams and has none.
+///
+/// `DARKWIRE_TEST_HOOKS=1` is how the e2e harness says "use the key file, not
+/// the operator's keychain". A build without the feature ignored it silently and
+/// went to the real keychain instead, which on macOS is one authorisation
+/// prompt per boot, aimed at whoever happened to be at the machine. Refusing is
+/// the only honest answer: the caller asked for something this binary cannot do.
+///
+/// Compiled to a constant `None` when the feature is on, so the check costs a
+/// branch that is never taken in the build that matters.
+#[cfg(feature = "test-hooks")]
+fn hooks_were_asked_for_and_are_not_here(env: &Env) -> Option<String> {
+    let _ = env;
+    None
+}
+
+/// See the `test-hooks` twin above.
+#[cfg(not(feature = "test-hooks"))]
+fn hooks_were_asked_for_and_are_not_here(env: &Env) -> Option<String> {
+    if env.get("DARKWIRE_TEST_HOOKS") != Some("1") {
+        return None;
+    }
+    Some(
+        "✖ DARKWIRE_TEST_HOOKS=1 asks for the test seams, and this binary was \
+         built without them.\n  It would fall back to the real credential \
+         store, which on macOS prompts for keychain access.\n  Build it with \
+         `cargo build --release -p darkwire --features test-hooks`, or unset \
+         DARKWIRE_TEST_HOOKS.\n"
+            .to_owned(),
+    )
+}
+
 /// Runs one command line and answers with the process exit code.
 ///
 /// Never exits the process: the caller sets the code and lets the streams
@@ -95,6 +127,12 @@ where
     // before any subcommand has loaded a config, so `config.ui.locale` does not
     // exist yet — see the seam documented in `i18n.rs`.
     let translations = Translations::for_env(env, None);
+
+    if let Some(text) = hooks_were_asked_for_and_are_not_here(env) {
+        let _ = streams.err.write_all(text.as_bytes());
+        let _ = streams.err.flush();
+        return 2;
+    }
 
     match program::parse(argv, env, &translations) {
         Parsed::Printed(text, code) => {
