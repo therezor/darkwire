@@ -36,7 +36,7 @@ pub use block::Block;
 pub use component::{CURSOR_MARKER, Component};
 pub use editor::{Editor, EditorOutcome};
 pub use keys::{Key, KeyName, is_ctrl, parse_key, parse_keys};
-pub use renderer::{CLEAR_SCREEN, FRAME_INTERVAL_MS, Renderer, RendererOptions};
+pub use renderer::{FRAME_INTERVAL_MS, Renderer, RendererOptions};
 pub use select::{
     CHROME_ROWS, DEFAULT_MAX_ROWS, Select, SelectLabels, SelectOptions, SelectOutcome,
 };

@@ -1,29 +1,39 @@
-//! Draws a frame, and redraws it when it changes.
+//! Draws the strip at the bottom of the screen, and redraws it when it changes.
 //!
-//! The frame is the *whole* of what this program has put on the screen — the
-//! transcript, the editor, the status rows — held as one `Vec` of drawn rows.
-//! Everything else follows from holding all of it rather than only the part
-//! that moves, and the reason to hold all of it is a resize.
+//! The strip is everything this program still owns: the run a turn has open,
+//! the line being typed, the status rows. Finished conversation is not in it.
+//! That went to the terminal with [`Renderer::print_above`] and belongs to the
+//! terminal from then on, which is what lets it reflow on a resize, be selected
+//! with a mouse and be found with the emulator's own search.
 //!
-//! ## Why a footer cannot be patched in place
+//! The strip is held as one `Vec` of drawn rows so a redraw can diff against
+//! what is on screen rather than repaint.
+//!
+//! ## Why a repaint never clears the screen
 //!
 //! A terminal rewraps its own screen when the window changes width, and it
 //! does that *before* the process is told anything: by the time `SIGWINCH`
-//! arrives, every row the program drew has already been folded or joined,
-//! moved up or down, and the cursor is somewhere the program has no way to ask
-//! about. An erase is relative to the cursor, so it reaches whatever the reflow
-//! left below it and cannot touch what the reflow carried above it. Measured
-//! on a narrowing from 120 to 80 columns, a three-row footer became six rows,
-//! three of which were now above the cursor — and stayed on screen, one
-//! stranded copy per resize. No amount of arithmetic fixes that, because the
-//! arithmetic is applied to coordinates the reflow already invalidated.
+//! arrives, every row the program drew has already been folded or joined, and
+//! the cursor has moved with the cell it was on. An erase is relative to the
+//! cursor, so a repaint has to know where the cursor now is.
 //!
-//! So a width change is not patched here. It erases the screen and prints the
-//! frame again at the new width. That is only possible because the frame is all
-//! of it; a renderer holding just a footer would have nothing to print the
-//! transcript back from. The scrollback is left alone: a reflow can strand a
-//! fragment of an old frame up there, and scrolling past one is cheaper than
-//! losing the conversation to be sure it is gone.
+//! It is not asked. Every width this renderer drew at is known, so how many
+//! rows each drawn line takes at the *new* width is arithmetic, and the cursor
+//! sits a computable number of rows below the strip's first one. The repaint
+//! walks up by that number and erases downward from there.
+//!
+//! What it must never do is erase the whole screen. `\x1b[2J` moves the rows it
+//! erases into the scrollback on most emulators, including every one shipped on
+//! macOS, so a repaint left a copy of whatever was on screen in the history
+//! every time the window moved. On a young session that is the welcome banner,
+//! once per resize, for as long as the session lasts. Erasing downward from a
+//! row this renderer owns cannot reach the history at all.
+//!
+//! A terminal that does not rewrap, which is xterm and Alacritty, is
+//! overcounted by that arithmetic. It erases rows of conversation from the
+//! visible screen rather than stranding fragments of a strip on it, and the
+//! conversation is still in the history where it was printed. Of the two ways
+//! to be wrong it is the one that tidies up after itself.
 //!
 //! ## The rest of the time
 //!
@@ -60,19 +70,27 @@ use crate::text::{truncate_to_width, visible_width};
 
 const ERASE_ROW: &str = "\x1b[2K";
 const ERASE_BELOW: &str = "\x1b[0J";
-/// Clear the screen and go home, leaving the scrollback alone.
-///
-/// Deliberately without `3J`. A rewrap can strand fragments of a frame this
-/// renderer drew up in the history, and dropping the scrollback is the only way
-/// to be certain they are gone. It also drops the conversation, which is
-/// the thing the operator scrolls back to read, plus whatever their shell
-/// printed before the program started. A stale fragment costs a scroll past it.
-/// A wiped history costs the session.
-pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H";
 const HIDE_CURSOR: &str = "\x1b[?25l";
 const SHOW_CURSOR: &str = "\x1b[?25h";
 const SYNC_ON: &str = "\x1b[?2026h";
 const SYNC_OFF: &str = "\x1b[?2026l";
+
+/// How many physical rows `line` takes at `columns`.
+///
+/// Trailing blanks are trimmed first, because an emulator rewrapping a row
+/// drops them: counting them would put the strip's top a row too far up and
+/// erase a line of conversation that is still on screen.
+fn rows_needed(line: &str, columns: usize) -> usize {
+    if columns == 0 {
+        return 1;
+    }
+    let width = visible_width(line.trim_end());
+    if width == 0 {
+        1
+    } else {
+        width.div_ceil(columns)
+    }
+}
 
 fn cursor_up(rows: usize) -> String {
     format!("\x1b[{rows}A")
@@ -137,8 +155,10 @@ impl Default for RendererOptions {
 /// What a whole print erases first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Clear {
+    /// Print over whatever is there. Only a first frame does this.
     None,
-    Screen,
+    /// Erase the strip and everything under it, then print.
+    Strip,
 }
 
 /// What the next draw owes the screen.
@@ -201,6 +221,13 @@ pub struct Renderer<O: TerminalOutput> {
     previous: Vec<String>,
     previous_width: usize,
     previous_height: usize,
+    /// Where the last paint left the cursor, in frame coordinates.
+    ///
+    /// Kept because it is the only fixed point a resize has. The terminal
+    /// rewraps the strip before the program hears about the window, and the
+    /// cursor moves with the cell it was on, so its offset from the top of the
+    /// strip is the one thing that can be worked out at the new width.
+    previous_cursor: (usize, usize),
     /// Where the terminal's cursor sits, as a row of the frame.
     hardware_row: usize,
     /// How many rows of the frame have scrolled off the top.
@@ -220,6 +247,7 @@ impl<O: TerminalOutput> Renderer<O> {
             previous: Vec::new(),
             previous_width: 0,
             previous_height: 0,
+            previous_cursor: (0, 0),
             hardware_row: 0,
             viewport_top: 0,
             full_redraws: 0,
@@ -318,7 +346,13 @@ impl<O: TerminalOutput> Renderer<O> {
     }
 
     /// Moves from `hardware_row` to `row`, then to `column`.
+    ///
+    /// Records where it landed. A resize has nothing else to measure from: the
+    /// terminal has already rewrapped the strip by the time the program hears
+    /// about the window, and the cursor is the one cell whose new position
+    /// follows from where it was.
     fn move_to(&mut self, row: usize, column: usize) -> String {
+        self.previous_cursor = (row, column);
         let vertical = match row.cmp(&self.hardware_row) {
             Ordering::Greater => cursor_down(row - self.hardware_row),
             Ordering::Less => cursor_up(self.hardware_row - row),
@@ -339,6 +373,47 @@ impl<O: TerminalOutput> Renderer<O> {
         self.previous_height = screen_rows;
     }
 
+    /// How far above the cursor the strip's first row is, at `columns`.
+    ///
+    /// The whole of the resize arithmetic, and it needs no reply from the
+    /// terminal. Every width this renderer drew at is known, so the rows each
+    /// drawn line occupies at the new width is arithmetic; the cursor is
+    /// somewhere inside the row it was left on, and a rewrap carries it along
+    /// with its own cell.
+    ///
+    /// A terminal that does not rewrap at all, which is xterm and Alacritty,
+    /// is overcounted here. That erases rows of conversation from the visible
+    /// screen rather than stranding fragments of a strip on it, and the
+    /// conversation is still in the history where it was printed. Of the two
+    /// ways to be wrong it is the one that tidies up after itself.
+    fn rows_above_cursor(&self, columns: usize) -> usize {
+        let (row, column) = self.previous_cursor;
+        let above: usize = self
+            .previous
+            .iter()
+            .take(row)
+            .map(|line| rows_needed(line, columns))
+            .sum();
+        let into = column.checked_div(columns).unwrap_or(0);
+        above + into
+    }
+
+    /// Moves to the strip's first row and erases it and everything below.
+    ///
+    /// What used to be `\x1b[2J`. Erasing the whole screen is the one thing
+    /// that cannot be done here: most emulators move the erased rows into the
+    /// scrollback, so a repaint left a copy of the conversation in the history
+    /// every time the window moved, one per resize. Erasing downward from a row
+    /// this renderer owns never touches the history at all.
+    fn erase_strip(&mut self, columns: usize) -> String {
+        let up = self.rows_above_cursor(columns);
+        self.hardware_row = 0;
+        let mut body = if up > 0 { cursor_up(up) } else { String::new() };
+        body.push('\r');
+        body.push_str(ERASE_BELOW);
+        body
+    }
+
     /// Prints every row, after the erase asked for.
     fn print_whole(&mut self, built: &Built, clear: Clear, columns: usize, screen_rows: usize) {
         let lines = &built.lines;
@@ -346,11 +421,14 @@ impl<O: TerminalOutput> Renderer<O> {
         self.hardware_row = lines.len().saturating_sub(1);
         self.viewport_top = lines.len().saturating_sub(screen_rows);
         let erase = match clear {
-            Clear::Screen => CLEAR_SCREEN,
-            Clear::None => "",
+            Clear::Strip => self.erase_strip(columns),
+            Clear::None => String::new(),
         };
+        // After the erase the cursor is on the strip's first row, which is
+        // where the rows below are about to be written from.
+        self.hardware_row = lines.len().saturating_sub(1);
         let (cursor_row, cursor_column) = cursor_of(built);
-        let mut body = String::from(erase);
+        let mut body = erase;
         body.push_str(
             &lines
                 .iter()
@@ -387,7 +465,7 @@ impl<O: TerminalOutput> Renderer<O> {
             // scrolls back to read.
             let clear = if forced || !self.previous.is_empty() || self.options.clear_on_first_frame
             {
-                Clear::Screen
+                Clear::Strip
             } else {
                 Clear::None
             };
@@ -408,7 +486,7 @@ impl<O: TerminalOutput> Renderer<O> {
         // A row that has scrolled into the scrollback cannot be moved to, so
         // the only honest answer is to print the frame again.
         if first_changed < self.viewport_top {
-            self.print_whole(&built, Clear::Screen, columns, screen_rows);
+            self.print_whole(&built, Clear::Strip, columns, screen_rows);
             self.settle(built.lines, columns, screen_rows);
             return;
         }
@@ -528,13 +606,16 @@ impl<O: TerminalOutput> Renderer<O> {
         // on every frame keeps that from happening; one that has not yet caught
         // up gets the screen erased instead, which is correct and merely
         // expensive.
+        // Up to the strip's first row, then erase from there down. A forced
+        // repaint and an ordinary commit take the same route now: there is no
+        // second, more violent erase to fall back to, because erasing the
+        // screen is what put copies of the conversation in the history.
         let mut body = if !forced && self.viewport_top == 0 {
             let mut up = self.move_to(0, 0);
             up.push_str(ERASE_BELOW);
             up
         } else {
-            self.hardware_row = 0;
-            String::from(CLEAR_SCREEN)
+            self.erase_strip(columns)
         };
         for line in lines {
             body.push_str(line);

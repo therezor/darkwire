@@ -3,9 +3,29 @@
 mod common;
 
 use common::FakeOutput;
-use darkwire_tui::{CLEAR_SCREEN, CURSOR_MARKER, Component, Renderer, RendererOptions};
+use darkwire_tui::{CURSOR_MARKER, Component, Renderer, RendererOptions};
 
 const ESC: &str = "\x1b";
+
+/// `\x1b[0J`, which erases from the cursor down and never touches the history.
+const ERASE_BELOW: &str = "\x1b[0J";
+
+/// Whether `text` repainted by erasing the strip rather than the screen.
+///
+/// The distinction this whole file now turns on. `\x1b[2J` moves the erased rows
+/// into the scrollback on most emulators, so a repaint left a copy of the
+/// conversation in the history every time the window moved. Erasing downward
+/// from a row the renderer owns cannot.
+fn erases_the_strip(text: impl AsRef<str>) -> bool {
+    let text = text.as_ref();
+    text.contains(ERASE_BELOW) && !clears_the_screen(text)
+}
+
+/// Whether `text` erases the whole screen, in either of its two spellings.
+fn clears_the_screen(text: impl AsRef<str>) -> bool {
+    let text = text.as_ref();
+    text.contains(&format!("{ESC}[2J")) || text.contains(&format!("{ESC}[3J"))
+}
 
 /// Every `\x1b[<n>A` (or `B`) in the output, as the numbers.
 fn moves(text: &str, letter: char) -> Vec<usize> {
@@ -84,7 +104,7 @@ fn the_first_frame_takes_the_screen_when_asked_and_not_the_history() {
     renderer.render(&mut rows(&["one", "two", "three"]));
 
     let text = renderer.output().text();
-    assert!(text.contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(text));
     // `3J` erases the scrollback *buffer*, and nothing here ever sends it: what
     // is up there is the conversation, and the operator's own shell history
     // before it.
@@ -271,7 +291,7 @@ fn reprints_the_frame_when_a_row_in_the_scrollback_changes() {
     renderer.render(&mut view);
 
     assert_eq!(renderer.full_redraws(), 2);
-    assert!(renderer.output().text().contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(renderer.output().text()));
 }
 
 #[test]
@@ -308,7 +328,7 @@ fn a_resize_prints_the_whole_frame_again_rather_than_patching_it() {
 
     let text = renderer.output().text();
     assert_eq!(renderer.full_redraws(), before + 1);
-    assert!(text.contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(text));
     assert!(text.contains("head"));
     assert!(text.contains("foot"));
     assert!(text.contains(&"-".repeat(20)));
@@ -328,7 +348,7 @@ fn a_resize_drops_the_scrollback_because_the_reflow_may_have_put_a_fragment_ther
     renderer.output_mut().resize_to(20, 24);
     renderer.render(&mut view);
 
-    assert!(renderer.output().text().contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(renderer.output().text()));
 }
 
 #[test]
@@ -342,15 +362,20 @@ fn a_height_change_alone_reprints_too() {
     renderer.render(&mut view);
 
     assert_eq!(renderer.full_redraws(), 2);
-    assert!(renderer.output().text().contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(renderer.output().text()));
 }
 
 #[test]
-fn moves_by_the_same_amount_at_every_width_in_both_directions() {
+fn parks_the_cursor_the_same_distance_up_at_every_width() {
     // The property the old footer could not hold. A frame whose height is a
     // function of the window width makes every cursor move a guess; asserting
     // the number would only pin today's arithmetic, so what is asserted is
     // that the number does not move.
+    //
+    // Only the *last* move, which is the one that parks the cursor on the
+    // editor row. The move before it is the repaint reaching the top of the
+    // strip, and that one is meant to vary: it is how many rows the strip takes
+    // at the new width, which is the whole of the resize arithmetic.
     struct Chat;
     impl Component for Chat {
         fn render(&mut self, width: usize) -> Vec<String> {
@@ -372,13 +397,14 @@ fn moves_by_the_same_amount_at_every_width_in_both_directions() {
         renderer.output_mut().reset();
         renderer.output_mut().resize_to(width, 30);
         renderer.render(&mut view);
-        seen.extend(ups(renderer.output().text()));
-        seen.extend(downs(renderer.output().text()));
+        let text = renderer.output().text();
+        assert!(downs(text).is_empty(), "the editor row is above the last");
+        seen.push(*ups(text).last().expect("a paint parks the cursor"));
     }
 
     seen.sort_unstable();
     seen.dedup();
-    assert_eq!(seen.len(), 1);
+    assert_eq!(seen, [1]);
 }
 
 #[test]
@@ -492,7 +518,7 @@ fn invalidate_prints_the_frame_whole_without_dropping_the_history() {
 
     let text = renderer.output().text();
     assert_eq!(renderer.full_redraws(), 2);
-    assert!(text.contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(text));
     assert!(text.contains("one\r\ntwo\r\nthree"));
     // The scrollback is the conversation. A screen that needs repainting is no
     // reason to forget it.
@@ -542,7 +568,7 @@ fn invalidate_is_honoured_through_the_requested_path_too() {
     renderer.output_mut().reset();
     renderer.invalidate();
     assert!(renderer.render_if_requested(&mut view));
-    assert!(renderer.output().text().contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(renderer.output().text()));
 }
 
 #[test]
@@ -630,16 +656,16 @@ fn a_commit_still_honours_an_invalidation_that_was_waiting() {
     renderer.print_above(&rows(&["committed"]), &mut view);
 
     let text = renderer.output().text();
-    assert!(text.contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(text));
     assert!(text.contains("committed"));
     assert!(text.contains("> ed"));
 }
 
 #[test]
-fn an_ordinary_commit_does_not_clear_the_screen() {
-    // The common path, and the reason the one above is worth distinguishing:
-    // erasing the screen on every batch of a streamed answer would be a flash
-    // per batch.
+fn an_ordinary_commit_erases_only_the_strip() {
+    // The common path. Erasing the screen on every batch of a streamed answer
+    // would be a flash per batch, and on most emulators a copy of the
+    // conversation in the history per batch as well.
     let mut renderer = renderer(20, 10);
     let mut view = rows(&["rule", "> ed"]);
     renderer.render(&mut view);
@@ -647,7 +673,33 @@ fn an_ordinary_commit_does_not_clear_the_screen() {
     renderer.output_mut().reset();
     renderer.print_above(&rows(&["committed"]), &mut view);
 
-    assert!(!renderer.output().text().contains(CLEAR_SCREEN));
+    assert!(erases_the_strip(renderer.output().text()));
+}
+
+#[test]
+fn nothing_it_ever_writes_clears_the_screen() {
+    // The regression guard for the welcome banner appearing again and again in
+    // the scrollback. Most emulators, including every one shipped on macOS,
+    // move the rows `\x1b[2J` erases into the history rather than dropping them,
+    // so a repaint duplicated whatever was on screen. There is no path here
+    // that may emit it: not a first frame, not a resize, not an invalidation,
+    // not a commit.
+    let options = RendererOptions {
+        clear_on_first_frame: true,
+        ..RendererOptions::default()
+    };
+    let mut renderer = Renderer::new(FakeOutput::new(20, 6), options);
+    let mut view = rows(&["one", "two", "three"]);
+    renderer.render(&mut view);
+    renderer.invalidate();
+    renderer.render(&mut view);
+    renderer.output_mut().resize_to(12, 6);
+    renderer.render(&mut view);
+    renderer.output_mut().resize_to(12, 4);
+    renderer.render(&mut view);
+    renderer.print_above(&rows(&["committed"]), &mut view);
+
+    assert!(!clears_the_screen(renderer.output().text()));
 }
 
 #[test]

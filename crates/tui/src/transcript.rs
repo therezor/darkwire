@@ -293,6 +293,42 @@ impl Transcript {
         out
     }
 
+    /// Commits a run that is still open, because it no longer fits.
+    ///
+    /// The one case where a fold is taken away rather than offered. A block is
+    /// held while it is open so the reader can still change its mind about it,
+    /// and a tool printing ten thousand lines would hold the whole screen on
+    /// that promise. Past `cap` rows the promise is the thing that goes: the
+    /// lines are printed, and what is printed is history.
+    ///
+    /// Returns nothing when the live region already fits, which is every frame
+    /// that is not a tool being noisy.
+    pub fn give_up_the_fold(&mut self, cap: usize, width: usize) -> Vec<String> {
+        let mut out = Vec::new();
+        while self.height(width) > cap {
+            // Only the block being written to can still fold; anything else has
+            // already been offered to `commit_one`, which took it.
+            let Some(tail) = self.blocks.last_mut() else {
+                break;
+            };
+            let finished = tail.len().saturating_sub(1);
+            if finished == 0 {
+                break;
+            }
+            let take = finished.min(COMMIT_BATCH);
+            let lines = tail.take_front(take);
+            self.total = self.total.saturating_sub(lines.len());
+            out.extend(lines);
+        }
+        for line in &out {
+            self.ring.push_back(line.clone());
+        }
+        while self.ring.len() > RING {
+            self.ring.pop_front();
+        }
+        out
+    }
+
     /// Whether anything has gone to the terminal's own scrollback yet.
     ///
     /// The question a caller asks to know whether the screen above the frame is

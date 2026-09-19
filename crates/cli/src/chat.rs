@@ -1825,20 +1825,27 @@ impl FrameState {
             .max(1)
     }
 
-    /// Hands finished conversation to the scrollback, then draws what is left.
+    /// Prints finished conversation, then draws what is left.
     ///
-    /// The commit happens here rather than inside the frame because only this
-    /// pair knows both halves: the frame knows how tall its chrome is, and the
-    /// renderer knows how tall the window is and owns the bytes that put a line
-    /// above it. A frame that fits commits nothing, which is every frame of a
-    /// short session.
+    /// Everything that can go, goes, which is what makes the frame a strip
+    /// rather than a screen. What is left is the run still open, the line still
+    /// being written, and the chrome. The conversation above belongs to the
+    /// terminal from here on: it reflows on a resize for free, it can be
+    /// selected and searched, and nothing redraws it.
+    ///
+    /// A run that is still open is held, because its fold is still the reader's
+    /// to change and a block half in the history is a fold nobody can open. One
+    /// too tall to sit above the composer loses the fold instead of the screen.
     fn draw(&mut self) {
         let width = self.renderer.columns();
-        let cap = self
+        let mut committed = self.frame.transcript.take_committable(0, width);
+        let room = self
             .renderer
             .rows()
             .saturating_sub(self.frame.chrome_rows(width));
-        let committed = self.frame.transcript.take_committable(cap, width);
+        if self.frame.transcript.height(width) > room {
+            committed.extend(self.frame.transcript.give_up_the_fold(room, width));
+        }
         if committed.is_empty() {
             self.renderer.render(&mut self.frame);
         } else {
