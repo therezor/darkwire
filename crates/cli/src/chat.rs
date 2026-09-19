@@ -1999,7 +1999,7 @@ impl FramedSurface {
         let mut renderer = Renderer::new(
             StandardOutput,
             RendererOptions {
-                clear_on_first_frame: true,
+                take_screen_on_open: true,
                 ..RendererOptions::default()
             },
         );

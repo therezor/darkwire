@@ -95,26 +95,46 @@ fn the_first_frame_prints_its_rows_and_erases_nothing() {
 }
 
 #[test]
-fn the_first_frame_takes_the_screen_when_asked_and_not_the_history() {
+fn the_first_frame_scrolls_the_screen_away_and_erases_nothing() {
+    // A screenful of newlines, so the strip lands on the last row and whatever
+    // the shell had printed goes into the history. An erase would either lose
+    // it or, on most emulators, copy it into the history twice over.
     let options = RendererOptions {
-        clear_on_first_frame: true,
+        take_screen_on_open: true,
         ..RendererOptions::default()
     };
     let mut renderer = Renderer::new(FakeOutput::new(20, 10), options);
     renderer.render(&mut rows(&["one", "two", "three"]));
 
     let text = renderer.output().text();
-    assert!(erases_the_strip(text));
-    // `3J` erases the scrollback *buffer*, and nothing here ever sends it: what
-    // is up there is the conversation, and the operator's own shell history
-    // before it.
-    assert!(!text.contains(&format!("{ESC}[3J")));
+    assert!(text.contains(&"\n".repeat(10)));
+    assert!(!clears_the_screen(text));
+    assert!(!text.contains(ERASE_BELOW));
+}
+
+#[test]
+fn the_strip_ends_on_the_last_row_it_was_given() {
+    // The pin. Nothing is padded and nothing is measured against the window:
+    // the screen was scrolled away once, the cursor is on the last row, and
+    // the conversation only ever grows downward from there.
+    let options = RendererOptions {
+        take_screen_on_open: true,
+        ..RendererOptions::default()
+    };
+    let mut renderer = Renderer::new(FakeOutput::new(20, 8), options);
+    let mut view = rows(&["rule", "> ed", "status"]);
+    renderer.render(&mut view);
+
+    let text = renderer.output().text();
+    let taken = text.find(&"\n".repeat(8)).expect("the screen is taken");
+    let drawn = &text[taken + 8..];
+    assert!(drawn.contains("rule\r\n> ed\r\nstatus"));
 }
 
 #[test]
 fn clears_once_not_on_every_frame_after_it() {
     let options = RendererOptions {
-        clear_on_first_frame: true,
+        take_screen_on_open: true,
         ..RendererOptions::default()
     };
     let mut renderer = Renderer::new(FakeOutput::new(20, 10), options);
@@ -685,7 +705,7 @@ fn nothing_it_ever_writes_clears_the_screen() {
     // that may emit it: not a first frame, not a resize, not an invalidation,
     // not a commit.
     let options = RendererOptions {
-        clear_on_first_frame: true,
+        take_screen_on_open: true,
         ..RendererOptions::default()
     };
     let mut renderer = Renderer::new(FakeOutput::new(20, 6), options);

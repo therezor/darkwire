@@ -122,23 +122,21 @@ pub struct RendererOptions {
     pub rows: Option<usize>,
     /// Synchronized output around each frame. Default `true`.
     pub synchronized: bool,
-    /// Clear the screen for the first frame, as a width change already does.
+    /// Scroll the screen away on the first frame, so the strip sits at the
+    /// bottom of the window.
     ///
-    /// Off by default, and that default is the library's answer rather than
-    /// the chat's: a renderer drawing four rows of a picker under a shell
-    /// prompt has no business erasing what the shell printed. A caller that
-    /// owns the window for the whole session does, and the frame then starts
-    /// at the top of it instead of wherever the prompt happened to leave the
-    /// cursor — which is the difference between "it laid out properly once I
-    /// resized" and "it laid out".
+    /// A screenful of newlines, and deliberately not an erase. It moves
+    /// whatever the shell had printed into the terminal's own history on every
+    /// emulator, where an erase either loses it or, on most of them, copies it.
+    /// The cursor lands on the last row, and because the conversation only ever
+    /// grows downward from there, it stays on the last row for the rest of the
+    /// session. That is the whole of the composer being pinned to the bottom.
     ///
-    /// It also makes the row arithmetic true rather than usually-true. A whole
-    /// print sets `viewport_top` from `lines.len() - screen_rows`, which
-    /// assumes the frame begins at screen row 0; only a homed cursor makes
-    /// that so. Without it a shell that had filled the window scrolls the frame
-    /// further than `viewport_top` records, and a later differential render
-    /// can address a row that is already in the scrollback.
-    pub clear_on_first_frame: bool,
+    /// Off by default, and that default is the library's answer rather than the
+    /// chat's: a renderer drawing four rows of a picker under a shell prompt has
+    /// no business scrolling away what the shell printed. A caller that owns the
+    /// window for the whole session does.
+    pub take_screen_on_open: bool,
 }
 
 impl Default for RendererOptions {
@@ -147,7 +145,7 @@ impl Default for RendererOptions {
             columns: None,
             rows: None,
             synchronized: true,
-            clear_on_first_frame: false,
+            take_screen_on_open: false,
         }
     }
 }
@@ -159,6 +157,8 @@ enum Clear {
     None,
     /// Erase the strip and everything under it, then print.
     Strip,
+    /// Scroll the screen into the history, then print at the bottom of it.
+    Screen,
 }
 
 /// What the next draw owes the screen.
@@ -422,6 +422,7 @@ impl<O: TerminalOutput> Renderer<O> {
         self.viewport_top = lines.len().saturating_sub(screen_rows);
         let erase = match clear {
             Clear::Strip => self.erase_strip(columns),
+            Clear::Screen => "\n".repeat(screen_rows),
             Clear::None => String::new(),
         };
         // After the erase the cursor is on the strip's first row, which is
@@ -463,9 +464,10 @@ impl<O: TerminalOutput> Renderer<O> {
             // The screen, never the scrollback. What is up there is the
             // conversation this program printed, and it is what the operator
             // scrolls back to read.
-            let clear = if forced || !self.previous.is_empty() || self.options.clear_on_first_frame
-            {
+            let clear = if forced || !self.previous.is_empty() {
                 Clear::Strip
+            } else if self.options.take_screen_on_open {
+                Clear::Screen
             } else {
                 Clear::None
             };
