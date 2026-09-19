@@ -205,3 +205,37 @@ fn input_rule_matches_the_one_under_the_editor() {
     let bar = status_bar(&view(), 37, &PLAIN_THEME);
     assert_eq!(input_rule(37, &PLAIN_THEME), bar[0]);
 }
+
+#[test]
+fn the_name_is_drawn_when_the_window_can_hold_it() {
+    let header = startup_header(&view(), 80, &PLAIN_THEME, &Translations::default(), false);
+    let rows: Vec<&str> = header.lines().collect();
+    assert!(rows[0].contains("┌┬┐"), "{rows:?}");
+    assert!(rows[2].contains("─┴┘"), "{rows:?}");
+    // Three rows of it and no more; the rest of the block is the install.
+    assert!(rows[3].contains("agent"), "{rows:?}");
+}
+
+#[test]
+fn a_narrow_window_gets_the_name_written_rather_than_cut() {
+    // A wordmark cut in half is unreadable in a way a plain word never is, and
+    // the window that cannot hold it is the one where every row is worth more.
+    let header = startup_header(&view(), 20, &PLAIN_THEME, &Translations::default(), false);
+    let rows: Vec<&str> = header.lines().collect();
+    assert_eq!(rows[0], "  darkwire");
+    assert!(!header.contains("┌┬┐"), "{header}");
+}
+
+#[test]
+fn every_row_of_the_drawn_name_is_the_same_width() {
+    // They are one picture. A row a column short leans.
+    let widths: Vec<usize> = [
+        "┌┬┐┌─┐┬─┐┬┌─┬ ┬┬┬─┐┌─┐",
+        " ││├─┤├┬┘├┴┐││││├┬┘├┤ ",
+        "─┴┘┴ ┴┴└─┴ ┴└┴┘┴┴└─└─┘",
+    ]
+    .iter()
+    .map(|row| visible_width(row))
+    .collect();
+    assert_eq!(widths, [22, 22, 22]);
+}

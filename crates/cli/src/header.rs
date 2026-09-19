@@ -29,6 +29,33 @@ use crate::i18n::Translations;
 /// is a second thing to change.
 pub const RULE_GLYPH: &str = "─";
 
+/// The name, drawn.
+///
+/// Three rows of box drawing rather than a font: the glyphs are the ones the
+/// rules and the task markers already use, so a terminal that can draw the rest
+/// of this program can draw the name too. Nothing here is translated, because a
+/// wordmark is not copy.
+const WORDMARK: [&str; 3] = [
+    "┌┬┐┌─┐┬─┐┬┌─┬ ┬┬┬─┐┌─┐",
+    " ││├─┤├┬┘├┴┐││││├┬┘├┤ ",
+    "─┴┘┴ ┴┴└─┴ ┴└┴┘┴┴└─└─┘",
+];
+
+/// How wide the drawn name is, plus the two columns of indent it sits in.
+const WORDMARK_COLUMNS: usize = 24;
+
+/// The name for a window this wide: drawn if it fits, written if it does not.
+///
+/// The fallback is not a lesser mode. A name cut in half is unreadable in a way
+/// a plain word never is, and the window that cannot hold twenty-four columns is
+/// the one where every row is worth more.
+fn wordmark(width: usize) -> Vec<String> {
+    if width < WORDMARK_COLUMNS {
+        return vec!["  darkwire".to_owned()];
+    }
+    WORDMARK.iter().map(|row| format!("  {row}")).collect()
+}
+
 /// What a cut label is marked with when the window is too narrow for it.
 const ELLIPSIS: &str = "…";
 
@@ -101,8 +128,10 @@ pub fn startup_header(
         .max()
         .unwrap_or(0);
 
-    let mut lines = Vec::with_capacity(labels.len() + 4);
-    lines.push(theme.title.apply(&theme.accent.apply("  darkwire")));
+    let mut lines = Vec::with_capacity(labels.len() + 6);
+    for row in wordmark(width) {
+        lines.push(theme.title.apply(&theme.accent.apply(&row)));
+    }
     for (label, (_, value)) in labels.iter().zip(rows_for(view)) {
         let padded = theme.dim.apply(&pad_to_width(label, column));
         lines.push(truncate_to_width(
