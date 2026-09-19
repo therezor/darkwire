@@ -1361,12 +1361,17 @@ impl Frame {
                 let collapsed = self.folds.reasoning != ReasoningDisplay::Expanded;
                 self.transcript
                     .open_block(REASONING_FOLD, &summary, collapsed);
+                // Opening a block closes the line the last one left open, so
+                // the debt is settled whether or not `EndLine` came first. A
+                // stale `false` here puts a blank row inside the new run.
+                self.at_line_start = true;
             }
             TranscriptEvent::ReasoningEnd => {
                 let summary = self.reasoning_summary(true);
                 self.transcript.set_summary(&summary);
                 self.transcript.close_block();
                 self.reasoning_since = None;
+                self.at_line_start = true;
             }
             TranscriptEvent::ToolBodyStart { summary } => {
                 self.transcript.open_block(
@@ -1838,6 +1843,13 @@ impl FrameState {
     /// too tall to sit above the composer loses the fold instead of the screen.
     fn draw(&mut self) {
         let width = self.renderer.columns();
+        // A window that has lost rows scrolled that many off the top to keep
+        // the cursor visible, and what went up there is the terminal's now.
+        // Printing them again is a second copy directly under the first.
+        let lost = self.renderer.rows_lost();
+        if lost > 0 {
+            self.frame.transcript.forget_front(lost, width);
+        }
         let mut committed = self.frame.transcript.take_committable(0, width);
         let room = self
             .renderer

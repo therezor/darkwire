@@ -667,3 +667,86 @@ fn says_whether_anything_has_gone_to_the_scrollback() {
     transcript.clear();
     assert!(!transcript.committed_anything());
 }
+
+#[test]
+fn a_window_that_shrank_forgets_the_rows_it_scrolled_away() {
+    // The terminal moved them into its history to keep the cursor visible, so
+    // they are already up there. Committing them would print a second copy
+    // directly under the first, which is the duplicate this whole rewrite is
+    // about.
+    let mut transcript = Transcript::new();
+    for at in 0..10 {
+        transcript.write(&format!("line {at}\n"));
+    }
+    transcript.forget_front(3, 40);
+
+    let left = transcript.take_committable(0, 40);
+    assert!(!left.iter().any(|line| line.contains("line 0")));
+    assert!(!left.iter().any(|line| line.contains("line 2")));
+    assert!(left.iter().any(|line| line.contains("line 3")));
+}
+
+#[test]
+fn forgetting_counts_rows_rather_than_lines() {
+    // A line that wraps to three rows accounts for three of the rows the window
+    // lost. Counting it as one drops three times too much.
+    let mut transcript = Transcript::new();
+    for at in 0..6 {
+        transcript.write(&format!(
+            "line {at} with enough words on it to wrap at forty\n"
+        ));
+    }
+    transcript.forget_front(3, 40);
+
+    let left = transcript.take_committable(0, 40);
+    // Each of those wraps to two rows, so three rows takes two lines and a
+    // row's worth of the third is forgotten with them. Lines go whole: half a
+    // line in the history and half on screen is worse than a row that is only
+    // in the history, which is where it already was.
+    assert!(!left.iter().any(|line| line.starts_with("line 0")));
+    assert!(!left.iter().any(|line| line.starts_with("line 1")));
+    assert!(left.iter().any(|line| line.starts_with("line 2")));
+}
+
+#[test]
+fn forgetting_never_takes_the_line_still_being_written() {
+    let mut transcript = Transcript::new();
+    transcript.write("half a sen");
+    transcript.forget_front(20, 40);
+
+    assert_eq!(transcript.lines(), ["half a sen"]);
+}
+
+#[test]
+fn a_run_too_tall_to_hold_gives_up_its_fold() {
+    // A tool printing more than the window was holding the screen on a promise
+    // that the reader could still change its mind. Past the cap the promise is
+    // what goes: the lines are printed, and what is printed is history.
+    let mut transcript = Transcript::new();
+    // Expanded, because a folded run is one row and never outgrows anything.
+    transcript.open_block("tool", "ok 1.2s", false);
+    for at in 0..40 {
+        transcript.write(&format!("output {at}\n"));
+    }
+
+    // Nothing may go while the run is open, however tall it is.
+    assert!(transcript.take_committable(0, 40).is_empty());
+
+    let given = transcript.give_up_the_fold(4, 40);
+    assert!(!given.is_empty());
+    assert!(given.iter().any(|line| line.contains("output 0")));
+    assert!(transcript.height(40) <= 4);
+}
+
+#[test]
+fn giving_up_the_fold_keeps_the_line_still_open() {
+    let mut transcript = Transcript::new();
+    transcript.open_block("tool", "ok 1.2s", false);
+    for at in 0..40 {
+        transcript.write(&format!("output {at}\n"));
+    }
+    transcript.write("still writing");
+
+    transcript.give_up_the_fold(1, 40);
+    assert_eq!(transcript.lines().last(), Some(&"still writing"));
+}

@@ -296,6 +296,20 @@ impl<O: TerminalOutput> Renderer<O> {
         self.full_redraws
     }
 
+    /// How many rows the window has lost since the last paint, if any.
+    ///
+    /// A window that loses rows scrolls the strip's top into the history to
+    /// keep the cursor visible. Anything up there is the terminal's now, so a
+    /// caller holding rows that were on screen has to let that many go rather
+    /// than print them a second time.
+    #[must_use]
+    pub fn rows_lost(&self) -> usize {
+        if self.previous_height == 0 {
+            return 0;
+        }
+        self.previous_height.saturating_sub(self.rows())
+    }
+
     /// How many rows of the frame have scrolled off the top of the window.
     pub fn viewport_top(&self) -> usize {
         self.viewport_top

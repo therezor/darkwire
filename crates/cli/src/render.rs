@@ -897,9 +897,11 @@ impl TurnRenderer {
     /// break. Measured without it:
     /// `- **Edit{"level":40,…,"msg":"mcp server unavailable"} files**`.
     ///
-    /// The text keeps its own newline and its own shape. It is not this
-    /// renderer's to reformat, and a structured log line that has been prettied
-    /// is a log line that no longer matches what is in the file.
+    /// The text keeps its own shape. It is not this renderer's to reformat, and
+    /// a structured log line that has been prettied is a log line that no
+    /// longer matches what is in the file. Its trailing newline is the
+    /// printer's, like every other line's, so it is trimmed here rather than
+    /// sent twice.
     pub fn aside(&mut self, text: &str) {
         self.set_mode(Mode::Idle);
         self.line(LineKind::Aside, text.trim_end_matches('\n'));

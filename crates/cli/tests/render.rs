@@ -151,6 +151,25 @@ fn aside_adds_no_break_when_a_line_has_just_ended() {
     assert_eq!(sink.text(), "a note\na log\n");
 }
 
+#[test]
+fn aside_keeps_a_multi_line_diagnostic_as_multiple_lines() {
+    // A log record is not this renderer's to reformat. The trailing newline is
+    // the printer's now, but everything inside the text is still the text's.
+    let (mut renderer, sink) = renderer();
+    renderer.aside("first line\nsecond line\n");
+
+    assert_eq!(sink.text(), "first line\nsecond line\n");
+}
+
+#[test]
+fn aside_does_not_double_a_trailing_newline() {
+    let (mut renderer, sink) = renderer();
+    renderer.aside("a log\n");
+    renderer.aside("another\n");
+
+    assert_eq!(sink.text(), "a log\nanother\n");
+}
+
 // ---------------------------------------------------------------- clip
 
 #[test]

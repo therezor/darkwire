@@ -48,11 +48,17 @@
 
 use crate::block::Block;
 use crate::component::Component;
+use crate::text::wrap_to_width;
 
 /// Past this many logical lines the oldest are dropped.
 const LIMIT: usize = 10_000;
 /// How many go at once when it does, so the redraw is paid rarely.
 const DROP: usize = 2_000;
+
+/// How many rows a logical line takes at `width`, as the terminal folds it.
+fn wrapped_rows(line: &str, width: usize) -> usize {
+    wrap_to_width(line, width).len().max(1)
+}
 
 /// How many finished lines of the open block go to the scrollback at once.
 const COMMIT_BATCH: usize = 16;
@@ -317,6 +323,50 @@ impl Transcript {
         }
         self.committed |= !out.is_empty();
         out
+    }
+
+    /// Drops the oldest `rows` rows without printing them.
+    ///
+    /// For a window that shrank. The terminal scrolled that many rows off the
+    /// top to keep the cursor visible, so they are already in the history:
+    /// committing them would put a second copy directly under the first.
+    ///
+    /// Counted in rows rather than lines, because that is what the window lost,
+    /// and a line that wrapped to three of them accounts for three. Lines still
+    /// go whole, so this can forget a row more than the window took. That
+    /// direction is the safe one: the row is in the history either way, and the
+    /// other direction prints it a second time.
+    pub fn forget_front(&mut self, rows: usize, width: usize) {
+        let mut owed = rows;
+        while owed > 0 {
+            // The block being written to keeps its open line; there has to be
+            // somewhere for the next write to land.
+            let only = self.blocks.len() == 1;
+            let Some(first) = self.blocks.first_mut() else {
+                break;
+            };
+            let available = if only {
+                first.len().saturating_sub(1)
+            } else {
+                first.len()
+            };
+            if available == 0 {
+                break;
+            }
+            let went = first.take_front(1);
+            self.total = self.total.saturating_sub(went.len());
+            let height: usize = went.iter().map(|line| wrapped_rows(line, width)).sum();
+            owed = owed.saturating_sub(height.max(1));
+            self.committed = true;
+            self.drop_empty_front();
+        }
+    }
+
+    /// A leading block that has lost every line is a summary over nothing.
+    fn drop_empty_front(&mut self) {
+        while self.blocks.len() > 1 && self.blocks[0].is_empty() {
+            self.blocks.remove(0);
+        }
     }
 
     /// Whether anything has gone to the terminal's own scrollback yet.

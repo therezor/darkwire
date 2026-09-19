@@ -739,6 +739,98 @@ fn reasoning_arrives_folded_and_tool_output_with_it() {
 }
 
 #[test]
+fn a_run_that_starts_mid_line_leaves_exactly_one_blank_row_behind_it() {
+    // The stray blank rows after the model thinks. The old renderer wrote a
+    // newline to say a stream had ended and another to open a run, and the
+    // second landed inside the new block. `EndLine` settles the debt once, and
+    // opening a block settles it again if nothing did, so neither shows.
+    let mut frame = frame();
+    // No `EndLine` in front of the run on purpose. The renderer sends one, and
+    // opening a block has to settle the debt anyway: the transcript closes the
+    // open line when a block opens, so a frame that still believed one was open
+    // would write a newline into the run.
+    frame.absorb(&delta("half a sen"));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta("a thought\n"));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::Line {
+        kind: darkwire::render::LineKind::Notice,
+        text: "after".to_owned(),
+    });
+
+    let drawn = shown(&mut frame);
+    let after = drawn
+        .iter()
+        .position(|row| row.contains("after"))
+        .expect("the line after the run is drawn");
+    let sentence = drawn
+        .iter()
+        .position(|row| row.contains("half a sen"))
+        .expect("the sentence before it is drawn");
+    // One row for the folded run, and no blank between any of the three.
+    assert_eq!(after - sentence, 2, "{drawn:?}");
+}
+
+#[test]
+fn a_run_opened_after_a_half_written_line_holds_no_blank_row() {
+    // The narrow one. Opening a block closes whatever line the last one left
+    // open, so the debt is already settled by the time anything is written into
+    // the new run. A frame that still believed a line was open would pay it
+    // again, into the run, and the row shows the moment the run is unfolded.
+    let mut frame = frame();
+    frame.absorb(&delta("half a sen"));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&TranscriptEvent::Line {
+        kind: darkwire::render::LineKind::Notice,
+        text: "a warning mid-run".to_owned(),
+    });
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    handle_key(&mut frame, &key("\u{14}"));
+
+    let drawn = shown(&mut frame);
+    let opened = drawn
+        .iter()
+        .position(|row| row.contains("a warning mid-run"))
+        .expect("the unfolded run is drawn");
+    let sentence = drawn
+        .iter()
+        .position(|row| row.contains("half a sen"))
+        .expect("the sentence before it is drawn");
+    // The run's own summary row sits between them, and nothing else.
+    assert!(
+        drawn[sentence + 1..opened]
+            .iter()
+            .all(|row| !row.is_empty()),
+        "{drawn:?}"
+    );
+    assert_eq!(opened - sentence, 2, "{drawn:?}");
+}
+
+#[test]
+fn a_run_that_starts_on_a_line_boundary_does_not_add_one_either() {
+    let mut frame = frame();
+    frame.absorb(&delta("a whole line\n"));
+    frame.absorb(&TranscriptEvent::ReasoningStart);
+    frame.absorb(&delta("a thought\n"));
+    frame.absorb(&TranscriptEvent::ReasoningEnd);
+    frame.absorb(&TranscriptEvent::Line {
+        kind: darkwire::render::LineKind::Notice,
+        text: "after".to_owned(),
+    });
+
+    let drawn = shown(&mut frame);
+    let after = drawn
+        .iter()
+        .position(|row| row.contains("after"))
+        .expect("the line after the run is drawn");
+    let line = drawn
+        .iter()
+        .position(|row| row.contains("a whole line"))
+        .expect("the line before it is drawn");
+    assert_eq!(after - line, 2, "{drawn:?}");
+}
+
+#[test]
 fn ctrl_t_opens_the_reasoning_that_is_still_on_screen() {
     let mut frame = frame();
     frame.absorb(&TranscriptEvent::ReasoningStart);
