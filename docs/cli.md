@@ -80,11 +80,19 @@ inside it. Reaching for the wrong one moves your files rather than switching fol
 `--json` is the scripting surface. Each line is one event from the same stream the web UI
 consumes, so a script can watch tool calls go by rather than waiting for prose.
 
-The prompt takes the window on the way in: the frame is drawn from the top of a cleared
-screen rather than from wherever the shell left the cursor. It clears the screen only —
-whatever your shell had printed is still in the scrollback, one scroll up. A pipe gets
-none of this: a stdout that is not a terminal gets a plain prompt and no escape sequences
-at all.
+The prompt takes the window on the way in by scrolling it, not by clearing it: whatever
+your shell had printed goes into the scrollback, one scroll up, and the composer lands on
+the bottom row and stays there.
+
+What the program draws after that is a strip at the bottom of the window: the composer,
+the status rows, the menu when one is open, and the run a turn currently has open.
+Everything else has been **printed**. The conversation belongs to the terminal, which
+means it rewraps itself when you resize the window, you can select and copy it with the
+mouse, and your emulator's own search can find it. Nothing redraws it, so nothing can
+duplicate it.
+
+A pipe gets none of this: a stdout that is not a terminal gets a plain prompt and no
+escape sequences at all.
 
 ### Slash commands
 
@@ -159,11 +167,15 @@ line of the working out buries the one thing you came for.
 The fold that is still running counts up (`⠋ thinking… 4s`), so a long run of
 reasoning never reads as a terminal that has stopped.
 
-`ctrl-t` and `ctrl-o` flip them. Each does two things: it opens or closes what is
-on screen, and it decides how the next run arrives. The second half is the one
-that matters, because a run that has scrolled into the terminal's own history
-cannot be rewritten. Press the key once and everything after it arrives the way
-you asked.
+`ctrl-t` and `ctrl-o` flip them. Each does two things: it opens or closes the run
+that is still open, and it decides how the next one arrives. The second half is
+the one that matters, because a run is printed in the state it was in when it
+finished, and printed text belongs to the terminal. Press the key once and
+everything after it arrives the way you asked.
+
+A run too long to sit above the composer is printed before it finishes and loses
+its fold with the rest. A tool that prints ten thousand lines would otherwise
+hold the window on a promise you could still change your mind about.
 
 `ui.reasoning` in the config file is where that choice lives across runs. It has
 three values rather than two: `collapsed` is the default, `expanded` prints it as

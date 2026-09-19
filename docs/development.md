@@ -262,6 +262,38 @@ to get a stable image, and the surprising one is not the clock or the fonts: it 
 seed rows written in a loop share a millisecond often enough to make a list ordered
 `time DESC, id ASC` reshuffle between runs.
 
+### What a pty cannot tell you about a terminal
+
+Everything the chat TUI draws is asserted from the bytes a completed paint emitted, in
+`crates/tui/tests/renderer.rs` against an in-memory terminal. That catches what the
+program wrote. It cannot catch what an emulator does with it, and two of those behaviours
+decide whether the screen is right:
+
+- **What `\x1b[2J` does with the rows it erases.** iTerm2, Terminal.app, VTE, WezTerm and
+  kitty move them into the scrollback; xterm and Alacritty drop them. That split is why
+  nothing here may emit it: on most terminals a repaint left a copy of whatever was on
+  screen in the history, and a young session's screen is the welcome banner. The test that
+  holds the line is `nothing_it_ever_writes_clears_the_screen`.
+- **Whether a resize rewraps rows that were hard terminated.** The repaint walks up to the
+  strip's first row by counting how many rows each drawn line needs at the new width. A
+  terminal that does not rewrap is overcounted, which erases rows of conversation from the
+  visible screen rather than stranding a fragment of the strip on it. The conversation is
+  still in the history, so it is the harmless direction to be wrong in.
+
+A pty is not an emulator, so neither is testable here. After a change to
+`crates/tui/src/renderer.rs`, run the binary in iTerm2, Terminal.app, Ghostty, kitty,
+WezTerm and Alacritty, and in each one: narrow the window a column at a time eight times,
+press `ctrl-l` three times, scroll up, then select and copy a line of the conversation.
+One banner, no stranded fragments, no duplicated conversation, the composer on the last
+row throughout.
+
+What a pty _does_ check is the sequences themselves. `scripts/ptyrec.py` records a real
+session, and the cast is a plain list of the bytes the binary wrote:
+
+```bash
+python3 scripts/ptyrec.py 92 24 /tmp/chat.cast /tmp/keys.json -- ./target/release/darkwire chat
+```
+
 ### The terminal cast
 
 `pnpm demo` regenerates `docs/screenshots/demo.svg`, the animated recording at the top of
