@@ -455,7 +455,11 @@ async fn choosing_a_model_is_refused_for_a_non_administrator() {
 }
 
 #[tokio::test]
-async fn deleting_a_session_from_a_confirmation_button_detaches_this_chat() {
+async fn deleting_a_session_from_its_row_takes_two_taps_and_detaches_this_chat() {
+    // `/delete` drops the last exchange now, so deleting the conversation is a
+    // bin beside its name in `/session` — where the thing being deleted is
+    // named and counted in front of you. Two taps, because a fingertip lands
+    // on the wrong row of a scrolling list easily and this cannot be undone.
     let bot = bot().await;
     bot.console
         .store()
@@ -467,11 +471,21 @@ async fn deleting_a_session_from_a_confirmation_button_detaches_this_chat() {
             },
         )
         .expect("created");
-    bot.api.push(message_update("/delete", USER, None));
+    bot.api.push(message_update("/session", USER, None));
     flush().await;
-    let token = first_token(&bot);
+    // The bin sits second, after the button that attaches.
+    let bin = nth_token(&bot, 1);
 
-    bot.api.push(callback_update(&token, USER, None));
+    bot.api.push(callback_update(&bin, USER, None));
+    flush().await;
+    assert!(
+        bot.api.said("This cannot be undone"),
+        "{:?}",
+        bot.api.texts()
+    );
+
+    let confirm = last_token(&bot);
+    bot.api.push(callback_update(&confirm, USER, None));
     flush().await;
 
     assert!(
@@ -501,7 +515,7 @@ async fn a_paging_button_rebuilds_the_listing_rather_than_remembering_it() {
             )
             .expect("created");
     }
-    bot.api.push(message_update("/sessions", USER, None));
+    bot.api.push(message_update("/session", USER, None));
     flush().await;
     // The last button of the last row is the `Next »` arrow.
     let next = last_token(&bot);
@@ -517,6 +531,32 @@ async fn a_paging_button_rebuilds_the_listing_rather_than_remembering_it() {
 }
 
 /// The token on the last button of the last keyboard the bot posted — the
+/// The `at`th button of the most recent keyboard, reading left to right.
+fn nth_token(bot: &Bot, at: usize) -> String {
+    bot.api
+        .calls()
+        .iter()
+        .rev()
+        .find_map(|call| {
+            let rows = call
+                .body
+                .get("reply_markup")?
+                .get("inline_keyboard")?
+                .as_array()?;
+            let buttons: Vec<&serde_json::Value> = rows
+                .iter()
+                .filter_map(|row| row.as_array())
+                .flatten()
+                .collect();
+            buttons
+                .get(at)?
+                .get("callback_data")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .expect("a keyboard was posted")
+}
+
 /// `Next »` arrow, when the listing has one.
 fn last_token(bot: &Bot) -> String {
     bot.api

@@ -47,12 +47,14 @@ darkwire-tui.workspace = true
 # Only `main.rs` may use it; everything else returns `WireError`.
 anyhow.workspace = true
 clap.workspace = true
+crossterm.workspace = true
 futures.workspace = true
 # Definition validation: the schema declares its constraints with `garde`, and a
 # document that parsed but violates one is a refusal with a line per issue.
 garde.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true
+ratatui.workspace = true
 owo-colors.workspace = true
 schemars = { workspace = true, optional = true }
 serde.workspace = true
@@ -72,6 +74,7 @@ darkwire-providers = { workspace = true, features = ["testkit"] }
 darkwire-security = { workspace = true, features = ["testkit"] }
 darkwire-server = { workspace = true, features = ["testkit"] }
 darkwire-tools = { workspace = true, features = ["testkit"] }
+darkwire-tui = { workspace = true, features = ["testkit"] }
 # A real client for the tests that drive a bound listener; everything else in
 # this crate talks to the server in-process.
 reqwest.workspace = true

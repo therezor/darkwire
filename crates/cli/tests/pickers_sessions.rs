@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 use darkwire::i18n::Translations;
 use darkwire::pickers::sessions::{pick_session, session_items};
-use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire::pickers::{MenuAnswer, MenuRequest, NoMenu, PickerMenu};
 use darkwire_core::session_store::{SessionRecord, SessionSummaryRecord};
 
 fn session(key: &str, title: &str, messages: usize) -> SessionSummaryRecord {
@@ -77,10 +77,18 @@ impl PickerMenu for Recording {
     fn choose<'a>(
         &'a self,
         request: MenuRequest,
-    ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
         self.asked.lock().unwrap().push(request);
-        let answer = self.answer;
+        let answer = self.answer.map(|row| MenuAnswer { row, action: None });
         Box::pin(async move { answer })
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: darkwire::pickers::AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(None))
     }
 
     /// Nothing to lay a listing over; a scripted menu has no screen.
@@ -159,7 +167,7 @@ async fn opens_the_menu_on_the_conversation_the_prompt_is_in() {
     let chosen = pick_session(&menu, &sessions(), "cli-9f2ab1", &Translations::default()).await;
 
     assert_eq!(menu.opened_on(), Some(1));
-    assert_eq!(chosen.as_deref(), Some("web:1"));
+    assert_eq!(chosen, Some(("web:1".to_owned(), None)));
 }
 
 #[tokio::test]

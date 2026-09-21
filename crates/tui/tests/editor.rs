@@ -1,8 +1,9 @@
 //! Shell bindings, grapheme-wise movement, history, and folding at the real window edge.
 
+mod common;
+
 use darkwire_tui::{
-    CURSOR_MARKER, Component, Editor, EditorOutcome, Key, KeyName, PLAIN_THEME, parse_key,
-    theme_for,
+    CURSOR_MARKER, Component, Editor, EditorOutcome, Key, KeyName, PLAIN_THEME, theme_for,
 };
 
 const ESC: &str = "\x1b";
@@ -16,25 +17,15 @@ fn editor() -> Editor {
     Editor::new(&PLAIN_THEME)
 }
 
-/// A key the decoder never produces from bytes, for the modified forms.
+/// A word-wise movement, which a terminal sends as an Alt chord.
 fn key(name: KeyName, meta: bool) -> Key {
-    Key {
-        name,
-        character: String::new(),
-        ctrl: false,
-        shift: false,
-        meta,
-        sequence: String::new(),
-    }
+    let key = Key::named(name);
+    if meta { key.with_meta() } else { key }
 }
 
-/// The bytes a terminal would send, decoded the way the real loop decodes them.
-#[allow(
-    clippy::unwrap_used,
-    reason = "a fixture that does not decode is a failing test"
-)]
+/// The key a terminal would have sent these bytes for.
 fn press(subject: &mut Editor, bytes: &str) -> EditorOutcome {
-    subject.handle_key(&parse_key(bytes).unwrap())
+    subject.handle_key(&common::key(bytes))
 }
 
 fn type_text(subject: &mut Editor, text: &str) {
@@ -81,12 +72,8 @@ fn deletes_what_a_person_can_see_not_a_code_point() {
     type_text(&mut subject, "ab");
     let family = "👩\u{200d}👩\u{200d}👧";
     subject.handle_key(&Key {
-        name: KeyName::Char,
         character: family.to_owned(),
-        ctrl: false,
-        shift: false,
-        meta: false,
-        sequence: family.to_owned(),
+        ..Key::named(KeyName::Char)
     });
     press(&mut subject, BACKSPACE);
 
@@ -336,4 +323,155 @@ fn a_window_narrower_than_the_prompt_still_draws_one_column_of_text() {
     assert!(rows.len() >= 2);
     assert!(rows[0].ends_with('a'));
     assert!(rows[1].trim_start().starts_with('b'));
+}
+
+// ---------------------------------------------------- more than one line
+
+#[test]
+fn shift_return_adds_a_line_rather_than_sending_one() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    type_text(&mut editor, "first");
+    assert_eq!(
+        editor.handle_key(&Key::named(KeyName::Enter).with_shift()),
+        EditorOutcome::None,
+        "a message was sent when a line was asked for"
+    );
+    type_text(&mut editor, "second");
+
+    assert_eq!(editor.text(), "first\nsecond");
+}
+
+#[test]
+fn the_terminals_that_cannot_say_shift_return_have_two_spellings_that_work() {
+    for key in [Key::named(KeyName::Enter).with_meta(), Key::ctrl('j')] {
+        let mut editor = Editor::new(&PLAIN_THEME);
+        type_text(&mut editor, "one");
+        assert_eq!(editor.handle_key(&key), EditorOutcome::None, "{key:?}");
+        type_text(&mut editor, "two");
+        assert_eq!(editor.text(), "one\ntwo", "{key:?}");
+    }
+}
+
+#[test]
+fn return_still_sends_the_whole_message() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    type_text(&mut editor, "first");
+    editor.handle_key(&Key::named(KeyName::Enter).with_shift());
+    type_text(&mut editor, "second");
+
+    assert_eq!(
+        editor.handle_key(&Key::named(KeyName::Enter)),
+        EditorOutcome::Submit("first\nsecond".to_owned())
+    );
+    assert_eq!(editor.text(), "");
+}
+
+#[test]
+fn a_line_somebody_asked_for_is_a_row_of_its_own() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("one\ntwo");
+
+    let rows = editor.render(40);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows[0].contains("one"));
+    assert!(rows[1].contains("two"));
+}
+
+#[test]
+fn a_short_line_before_a_break_is_not_run_into_the_next() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("a\nb");
+
+    assert_eq!(editor.render(40).len(), 2);
+}
+
+#[test]
+fn the_arrows_move_between_the_lines_of_a_message() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("first\nsecond");
+    // The caret is at the end of "second".
+    editor.handle_key(&Key::named(KeyName::Up));
+    type_text(&mut editor, "!");
+
+    assert_eq!(editor.text(), "first!\nsecond");
+}
+
+#[test]
+fn the_arrows_keep_their_column_across_a_line() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("abcdef\nxy");
+    // From the end of "xy", column 2, up to column 2 of "abcdef".
+    editor.handle_key(&Key::named(KeyName::Up));
+    type_text(&mut editor, "-");
+
+    assert_eq!(editor.text(), "ab-cdef\nxy");
+}
+
+#[test]
+fn a_caret_on_a_shorter_line_lands_at_its_end() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("ab\nlonger line");
+    editor.handle_key(&Key::named(KeyName::Up));
+    type_text(&mut editor, "!");
+
+    assert_eq!(editor.text(), "ab!\nlonger line");
+}
+
+#[test]
+fn the_history_is_still_reachable_from_the_ends_of_a_message() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.remember("what was asked before");
+    editor.set_text("one\ntwo");
+
+    // Up from the first line, not the last, is what leaves the message.
+    editor.handle_key(&Key::named(KeyName::Up));
+    editor.handle_key(&Key::named(KeyName::Up));
+
+    assert_eq!(editor.text(), "what was asked before");
+}
+
+#[test]
+fn a_message_of_one_line_reaches_the_history_on_the_first_up() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.remember("what was asked before");
+    type_text(&mut editor, "a draft");
+
+    editor.handle_key(&Key::named(KeyName::Up));
+
+    assert_eq!(editor.text(), "what was asked before");
+}
+
+#[test]
+fn the_line_keys_work_on_the_line_the_caret_is_on() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("first\nsecond");
+
+    editor.handle_key(&Key::named(KeyName::Home));
+    type_text(&mut editor, ">");
+    assert_eq!(editor.text(), "first\n>second");
+
+    editor.handle_key(&Key::named(KeyName::End));
+    type_text(&mut editor, "<");
+    assert_eq!(editor.text(), "first\n>second<");
+}
+
+#[test]
+fn clearing_to_the_start_clears_the_line_and_not_the_message() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("keep this\nthrow this");
+
+    editor.handle_key(&Key::ctrl('u'));
+
+    assert_eq!(editor.text(), "keep this\n");
+}
+
+#[test]
+fn clearing_to_the_end_stops_at_the_end_of_the_line() {
+    let mut editor = Editor::new(&PLAIN_THEME);
+    editor.set_text("cut here\nkeep this");
+    editor.handle_key(&Key::named(KeyName::Up));
+    editor.handle_key(&Key::named(KeyName::Home));
+    editor.handle_key(&Key::ctrl('k'));
+
+    assert_eq!(editor.text(), "\nkeep this");
 }

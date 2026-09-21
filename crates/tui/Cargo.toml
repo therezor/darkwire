@@ -1,6 +1,6 @@
 [package]
 name = "darkwire-tui"
-description = "A domain-free terminal toolkit: key decoding, display-width text, a frame renderer"
+description = "A domain-free terminal toolkit: the terminal itself, key mapping, display-width text and widgets that render rows"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,10 +11,25 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# A terminal emulator other crates' tests draw into, reached through
+# `features = ["testkit"]`; kept out of a release build and out of coverage.
+testkit = ["dep:vt100"]
+
 [dependencies]
 crossterm.workspace = true
+# The frame scheduler is a task, and the draw notification is a channel.
+futures.workspace = true
+ratatui.workspace = true
+tokio.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
+vt100 = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The crate's own tests reach its testkit the only way cargo allows.
+darkwire-tui = { workspace = true, features = ["testkit"] }
 proptest.workspace = true
+# The frame scheduler is a timer, and a test of a timer that waits is a test
+# that is slow and flaky. Paused time makes it neither.
+tokio = { workspace = true, features = ["test-util"] }

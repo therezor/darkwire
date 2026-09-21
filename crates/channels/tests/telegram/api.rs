@@ -85,6 +85,7 @@ async fn send_message_carries_the_parse_mode_only_when_it_is_asked_for() {
             text: "hello".to_owned(),
             markdown: true,
             reply_markup: None,
+            force_reply: false,
         },
         &live(),
     )
@@ -96,6 +97,7 @@ async fn send_message_carries_the_parse_mode_only_when_it_is_asked_for() {
             text: "hello".to_owned(),
             markdown: false,
             reply_markup: None,
+            force_reply: false,
         },
         &live(),
     )
@@ -124,6 +126,7 @@ async fn send_message_carries_a_keyboard_when_it_has_one() {
                         callback_data: "t1".to_owned(),
                     }]],
                 }),
+                force_reply: false,
             },
             &live(),
         )
@@ -276,6 +279,7 @@ async fn a_rate_limit_carries_its_retry_after() {
                 text: "hi".to_owned(),
                 markdown: false,
                 reply_markup: None,
+                force_reply: false,
             },
             &live(),
         )
@@ -426,6 +430,7 @@ async fn nothing_a_failure_carries_leaks_the_token() {
                 text: "hi".to_owned(),
                 markdown: false,
                 reply_markup: None,
+                force_reply: false,
             },
             &live(),
         )

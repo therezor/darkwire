@@ -12,12 +12,17 @@
 #![forbid(unsafe_code)]
 
 pub mod agent;
+pub mod app;
 pub mod ask;
+pub mod ask_overlay;
+pub mod bottom_pane;
 pub mod chat;
+pub mod chat_widget;
 pub mod commands;
 pub mod environment;
 pub mod extension;
 pub mod header;
+pub mod history_cell;
 pub mod i18n;
 pub mod init;
 pub mod log_line;
@@ -29,9 +34,12 @@ pub mod program;
 pub mod render;
 pub mod runtime;
 pub mod sandbox_service;
+pub mod select_overlay;
 pub mod serve;
 pub mod server_runtime;
+pub mod stream;
 pub mod telegram;
+pub mod transcript_overlay;
 // Compiled only into a `test-hooks` build, and armed only by the environment on
 // top of that. See the module for the two-switch rule.
 #[cfg(feature = "test-hooks")]

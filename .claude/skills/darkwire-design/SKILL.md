@@ -22,7 +22,7 @@ accent's lightness is chosen so it is _not_ mistakable for `--fg-1`.
 ```
 pnpm --filter @darkwire/web lint    # eslint + the three token gates
 pnpm --filter @darkwire/web test    # includes contrast + stylesheet assertions
-pnpm check                          # typecheck, lint, full suite
+pnpm check                          # the whole CI check job
 ```
 
 ## The four principles

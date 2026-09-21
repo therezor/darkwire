@@ -103,10 +103,22 @@ export const AssistantMessageSchema = z.object({
   toolCalls: z.array(ToolCallSchema).default([]),
   /**
    * Reasoning/thinking text, kept beside the answer rather than inside
-   * `content` so it can be surfaced in a collapsible UI block and excluded
-   * from history replay without re-parsing the content parts.
+   * `content`.
+   *
+   * Its own field so it can be surfaced in a collapsible UI block, and so a
+   * surface replaying a stored conversation can fold it the same way without
+   * re-parsing the content parts to find where the answer starts.
    */
   reasoning: z.string().optional(),
+  /**
+   * How long the model spent on that reasoning, where it was measured.
+   *
+   * Stored beside the text so a replayed turn reads like a live one: the
+   * summary row a folded run shows carries a duration, and a clock that
+   * started when the prompt opened cannot supply it for a run that happened
+   * last week. Absent rather than zero when nothing measured it.
+   */
+  reasoningMs: z.number().int().nonnegative().optional(),
 });
 
 export const ToolMessageSchema = z.object({
@@ -123,6 +135,11 @@ export const ToolMessageSchema = z.object({
   isError: z.boolean().default(false),
   /** Set when the result was head+tail truncated to fit the tool-output cap. */
   truncated: z.boolean().default(false),
+  /**
+   * How long the call took, for the same reason as `reasoningMs`: the card and
+   * the folded row both say it, and nothing can work it out after the fact.
+   */
+  durationMs: z.number().int().nonnegative().optional(),
 });
 
 export const ChatMessageSchema = z.discriminatedUnion('role', [

@@ -506,6 +506,11 @@ impl ToolDispatcher {
             ToolOptions {
                 is_error: execution.is_error,
                 truncated,
+                // The same figure the `tool.result` event above carries. A
+                // reader coming back to this session wants the card to say
+                // what it said while the call was running, and nothing can
+                // work out after the fact how long something took.
+                duration_ms: Some(execution.duration_ms),
             },
         ))
     }

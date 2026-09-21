@@ -229,6 +229,7 @@ async fn reasoning_is_stored_beside_the_answer_and_billed_nothing() {
                 "the answer",
                 AssistantOptions {
                     reasoning: Some("a very long private deliberation".repeat(20)),
+                    reasoning_ms: None,
                     tool_calls: Vec::<ToolCall>::new(),
                 },
             )),

@@ -1,130 +1,66 @@
-//! A terminal that exists entirely in memory.
+//! What a terminal would have sent, as the keys a widget acts on.
 //!
-//! Everything the renderer and the keyboard need from a real one, and nothing
-//! else: an input half to push key bytes into, an output half that accumulates
-//! what was drawn, a size, and a `set_raw_mode` that records whether it was
-//! called. No pty, no child process, no timing.
+//! The keys a widget is driven with are named — Enter, Down, Ctrl-U — and a
+//! test that built them field by field would say less than the byte sequence a
+//! terminal sends for them. This maps the one to the other, so a test reads as
+//! "press Escape" while naming the thing an operator actually pressed.
 //!
-//! This is what makes the escape-sequence assertions durable rather than
-//! transient. A test does not look at a screen and hope the repaint has landed
-//! — it reads back the bytes a completed paint emitted, which are the same
-//! bytes whether the machine is fast or slow.
-
-// Not every test file uses every helper here; the module is shared.
+//! It is a fixture and not a decoder. Crossterm decodes keys in production, on
+//! every platform; this exists because a test should not have to build a
+//! `crossterm::event::KeyEvent` to press a key.
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
-use std::io;
+use darkwire_tui::{Key, KeyName};
 
-use darkwire_tui::{TerminalInput, TerminalOutput};
-
-/// An input half with a script of chunks to hand over.
-#[derive(Debug, Default)]
-pub struct FakeInput {
-    pub is_tty: bool,
-    pub is_raw: bool,
-    /// Every `set_raw_mode` call, in order.
-    pub raw_mode_calls: Vec<bool>,
-    chunks: VecDeque<String>,
-}
-
-impl FakeInput {
-    /// A terminal input, not yet in raw mode.
-    pub fn tty() -> Self {
-        Self {
-            is_tty: true,
-            ..Self::default()
-        }
-    }
-
-    /// A pipe: not a terminal, and no mode to set.
-    pub fn pipe() -> Self {
-        Self::default()
-    }
-
-    /// Queues bytes as if the user had typed them, one chunk per call.
-    pub fn type_text(&mut self, data: &str) {
-        self.chunks.push_back(data.to_owned());
+/// The key a terminal sends `bytes` for.
+///
+/// A sequence this does not know fails the test that used it, which is a
+/// fixture naming something nobody has taught it rather than a case worth
+/// handling.
+#[must_use]
+pub fn key(bytes: &str) -> Key {
+    match bytes {
+        "\r" | "\n" => Key::named(KeyName::Enter),
+        "\t" => Key::named(KeyName::Tab),
+        "\x1b[Z" => Key::named(KeyName::Tab).with_shift(),
+        "\x7f" | "\x08" => Key::named(KeyName::Backspace),
+        "\x1b" => Key::named(KeyName::Escape),
+        "\x1b[A" | "\x1bOA" => Key::named(KeyName::Up),
+        "\x1b[B" | "\x1bOB" => Key::named(KeyName::Down),
+        "\x1b[C" | "\x1bOC" => Key::named(KeyName::Right),
+        "\x1b[D" | "\x1bOD" => Key::named(KeyName::Left),
+        "\x1b[H" | "\x1bOH" | "\x1b[1~" => Key::named(KeyName::Home),
+        "\x1b[F" | "\x1bOF" | "\x1b[4~" => Key::named(KeyName::End),
+        "\x1b[3~" => Key::named(KeyName::Delete),
+        "\x1b[5~" => Key::named(KeyName::PageUp),
+        "\x1b[6~" => Key::named(KeyName::PageDown),
+        other => from_text(other),
     }
 }
 
-impl TerminalInput for FakeInput {
-    fn is_tty(&self) -> bool {
-        self.is_tty
+/// A control byte, an Alt chord, or a character typed on its own.
+#[allow(
+    clippy::expect_used,
+    reason = "a fixture naming nothing is a failing test, said where it happened"
+)]
+fn from_text(bytes: &str) -> Key {
+    let mut chars = bytes.chars();
+    let first = chars.next().expect("a fixture has to name a key");
+    // Alt: the terminal's own spelling is an escape in front of the character.
+    if first == '\x1b' {
+        let Some(letter) = chars.next() else {
+            return Key::named(KeyName::Escape);
+        };
+        assert!(chars.next().is_none(), "unnamed sequence: {bytes:?}");
+        return Key::char(letter).with_meta();
     }
-
-    fn is_raw(&self) -> bool {
-        self.is_raw
+    assert!(chars.next().is_none(), "unnamed sequence: {bytes:?}");
+    if ('\x01'..='\x1a').contains(&first) {
+        // `\x01` is Ctrl-A, and so on up the alphabet. Enter, Tab and
+        // Backspace are named above rather than reaching here, which is what
+        // `is_ctrl` documents about them.
+        let letter = char::from(b'a' + (first as u8) - 1);
+        return Key::ctrl(letter);
     }
-
-    fn supports_raw_mode(&self) -> bool {
-        self.is_tty
-    }
-
-    fn set_raw_mode(&mut self, raw: bool) -> io::Result<()> {
-        self.raw_mode_calls.push(raw);
-        // Mirrors the real device, so the keyboard's "only turn off a mode I
-        // turned on" check is exercised rather than assumed.
-        self.is_raw = raw;
-        Ok(())
-    }
-
-    fn read_chunk(&mut self) -> io::Result<Option<String>> {
-        Ok(self.chunks.pop_front())
-    }
-}
-
-/// An output half that keeps what was written.
-#[derive(Debug)]
-pub struct FakeOutput {
-    pub columns: u16,
-    pub rows: u16,
-    pub is_tty: bool,
-    text: String,
-}
-
-impl FakeOutput {
-    /// A window of the given size.
-    pub fn new(columns: u16, rows: u16) -> Self {
-        Self {
-            columns,
-            rows,
-            is_tty: true,
-            text: String::new(),
-        }
-    }
-
-    /// Everything written so far, concatenated.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    /// Forgets what was written, so an assertion can name one repaint.
-    pub fn reset(&mut self) {
-        self.text.clear();
-    }
-
-    /// Changes the size, the way a real terminal does before anyone is told.
-    pub fn resize_to(&mut self, columns: u16, rows: u16) {
-        self.columns = columns;
-        self.rows = rows;
-    }
-}
-
-impl TerminalOutput for FakeOutput {
-    fn write_str(&mut self, text: &str) {
-        self.text.push_str(text);
-    }
-
-    fn columns(&self) -> Option<u16> {
-        Some(self.columns)
-    }
-
-    fn rows(&self) -> Option<u16> {
-        Some(self.rows)
-    }
-
-    fn is_tty(&self) -> bool {
-        self.is_tty
-    }
+    Key::char(first)
 }

@@ -17,13 +17,18 @@ use std::sync::{Arc, Mutex};
 
 use darkwire::i18n::Translations;
 use darkwire::render::{
-    DEFAULT_ARG_SUMMARY_CHARS, PlainPrinter, TranscriptEvent, TranscriptSink, TurnRenderer,
-    TurnRendererOptions, clip, format_count, format_duration, format_rate, summarise_args,
+    DEFAULT_ARG_SUMMARY_CHARS, LineKind, PlainPrinter, TranscriptEvent, TranscriptSink,
+    TurnRenderer, TurnRendererOptions, clip, format_count, format_duration, format_rate,
+    summarise_args,
 };
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
+use darkwire_core::messages::{
+    AssistantOptions, ToolOptions, assistant_message, system_message, tool_message, user_message,
+};
+use darkwire_core::session_store::StoredMessageRecord;
 use darkwire_protocol::tasks::TaskStatus;
-use darkwire_protocol::{StopReason, TurnTiming, Usage};
+use darkwire_protocol::{ChatMessage, StopReason, ToolCall, ToolRisk, TurnTiming, Usage};
 use serde_json::{Value, json};
 
 /// A sink a test can read back, rendered the way a pipe renders it.
@@ -354,6 +359,45 @@ fn draws_the_plan_a_todo_call_carries() {
     assert!(!text.contains("tasks="));
 }
 
+#[test]
+fn a_todo_call_announces_itself_the_way_every_other_tool_does() {
+    // It used to announce itself only as a card, so a surface keeping its plan
+    // somewhere else — the prompt keeps it above the composer, and drops the
+    // card at the source — showed nothing at all where every other tool showed
+    // a row. A tool that ran and left no trace is the one thing a transcript
+    // must not do.
+    let events = Events::default();
+    let mut renderer = TurnRenderer::new(TurnRendererOptions {
+        colors: Some(false),
+        t: Translations::default(),
+        ..TurnRendererOptions::new(Box::new(events.clone()))
+    });
+    renderer.handle(&event(start()));
+    renderer.handle(&event(json!({
+        "type": "tool.call", "turnId": "t1", "callId": "c1", "name": "todo",
+        "risk": "safe",
+        "args": {"tasks": [{"text": "Inspect auth", "status": "doing"}]},
+    })));
+    drop(renderer);
+
+    let held = events.0.lock().unwrap();
+    let rows: Vec<&String> = held
+        .iter()
+        .filter_map(|held| match held {
+            TranscriptEvent::Line {
+                kind: LineKind::ToolCall,
+                text,
+            } => Some(text),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(rows.len(), 1, "{held:?}");
+    assert!(rows[0].contains("todo"), "{:?}", rows[0]);
+    // And no argument summary: the arguments are the rows of the card.
+    assert!(!rows[0].contains("tasks="), "{:?}", rows[0]);
+}
+
 /// The plan went out with the call, and the result is a sentence counting what
 /// is already on screen.
 #[test]
@@ -486,6 +530,253 @@ fn breaks_between_the_reasoning_and_the_answer_and_labels_neither() {
     ]);
     assert!(text.contains("weighing options\nYes."));
     assert!(!text.contains("thinking"));
+}
+
+/// One stored message, with the storage identity a replay never reads.
+fn stored(seq: i64, message: darkwire_protocol::ChatMessage) -> StoredMessageRecord {
+    StoredMessageRecord {
+        id: format!("m{seq}"),
+        session_key: "s1".to_owned(),
+        seq,
+        created_at_ms: seq,
+        turn_id: Some("t1".to_owned()),
+        message,
+    }
+}
+
+/// Every event a renderer emitted, kept rather than printed.
+///
+/// [`Sink`] turns events back into the bytes a pipe writes, which is what most
+/// of this file asserts on. A field that never reaches a printed row needs the
+/// events themselves.
+#[derive(Clone, Default)]
+struct Events(Arc<Mutex<Vec<TranscriptEvent>>>);
+
+impl TranscriptSink for Events {
+    fn emit(&mut self, event: TranscriptEvent) {
+        self.0.lock().unwrap().push(event);
+    }
+}
+
+/// The events a conversation replays into.
+fn replayed_events(history: &[StoredMessageRecord]) -> Vec<TranscriptEvent> {
+    let events = Events::default();
+    let mut renderer = TurnRenderer::new(TurnRendererOptions {
+        colors: Some(false),
+        t: Translations::default(),
+        ..TurnRendererOptions::new(Box::new(events.clone()))
+    });
+    renderer.replay("s1", history, &|_| ToolRisk::Safe);
+    drop(renderer);
+    let held = events.0.lock().unwrap();
+    held.clone()
+}
+
+/// A conversation, replayed into text the way a pipe would print it.
+fn replayed(history: &[StoredMessageRecord]) -> String {
+    let sink = Sink::default();
+    let mut renderer = TurnRenderer::new(options(sink.clone()));
+    renderer.replay("s1", history, &|_| ToolRisk::Safe);
+    drop(renderer);
+    sink.text()
+}
+
+#[test]
+fn a_replay_draws_the_reasoning_and_the_calls_a_turn_made() {
+    // Everything but the question and the answer used to be dropped, so a
+    // session somebody came back to had no reasoning in it and no sign that a
+    // tool had ever run.
+    let text = replayed(&[
+        stored(1, ChatMessage::User(user_message("read the notes"))),
+        stored(
+            2,
+            ChatMessage::Assistant(assistant_message(
+                "",
+                AssistantOptions {
+                    reasoning: Some("the file is probably notes.md".to_owned()),
+                    reasoning_ms: None,
+                    tool_calls: vec![ToolCall {
+                        id: "c1".to_owned(),
+                        name: "read".to_owned(),
+                        arguments_json: r#"{"path":"notes.md"}"#.to_owned(),
+                    }],
+                },
+            )),
+        ),
+        stored(
+            3,
+            ChatMessage::Tool(tool_message(
+                "c1",
+                "read",
+                "two lines\nof it",
+                ToolOptions::default(),
+            )),
+        ),
+        stored(
+            4,
+            ChatMessage::Assistant(assistant_message(
+                "They say to run the gate.",
+                AssistantOptions::default(),
+            )),
+        ),
+    ]);
+
+    assert!(text.contains("read the notes"), "{text:?}");
+    assert!(text.contains("the file is probably notes.md"), "{text:?}");
+    assert!(text.contains("⚙ read"), "{text:?}");
+    assert!(text.contains(r#"path="notes.md""#), "{text:?}");
+    assert!(text.contains("two lines"), "{text:?}");
+    assert!(text.contains("They say to run the gate."), "{text:?}");
+}
+
+#[test]
+fn a_replayed_call_says_how_it_went_and_claims_no_duration() {
+    // A row written before the figure was stored has none, and `0ms` beside a
+    // tool that ran for a minute last week is a lie the row does not have to
+    // tell.
+    let text = replayed(&[stored(
+        1,
+        ChatMessage::Tool(tool_message("c1", "read", "", ToolOptions::default())),
+    )]);
+    assert!(text.contains('✓'), "{text:?}");
+    assert!(!text.contains("0ms"), "{text:?}");
+
+    let failed = replayed(&[stored(
+        1,
+        ChatMessage::Tool(tool_message(
+            "c1",
+            "read",
+            "ENOENT",
+            ToolOptions {
+                is_error: true,
+                truncated: true,
+                duration_ms: None,
+            },
+        )),
+    )]);
+    assert!(failed.contains('✗'), "{failed:?}");
+    assert!(failed.contains("truncated"), "{failed:?}");
+}
+
+#[test]
+fn a_replayed_call_says_how_long_it_took_when_the_row_kept_it() {
+    // The other half, and the point of storing it: a session somebody came
+    // back to reads the way it read while it was running.
+    let text = replayed(&[stored(
+        1,
+        ChatMessage::Tool(tool_message(
+            "c1",
+            "read",
+            "",
+            ToolOptions {
+                duration_ms: Some(120),
+                ..ToolOptions::default()
+            },
+        )),
+    )]);
+    assert!(text.contains("120ms"), "{text:?}");
+}
+
+#[test]
+fn a_replayed_run_of_reasoning_carries_the_figure_the_row_kept() {
+    // The duration rides on the event rather than on the renderer's clock,
+    // which started when the prompt opened and knows nothing about last week.
+    let events = replayed_events(&[stored(
+        1,
+        ChatMessage::Assistant(assistant_message(
+            "",
+            AssistantOptions {
+                reasoning: Some("weighing it up".to_owned()),
+                reasoning_ms: Some(4200),
+                ..AssistantOptions::default()
+            },
+        )),
+    )]);
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            TranscriptEvent::ReasoningStart {
+                elapsed_ms: Some(4200)
+            }
+        )),
+        "the figure never reached the surface: {events:?}"
+    );
+}
+
+#[test]
+fn a_replayed_run_with_no_stored_figure_carries_none() {
+    let events = replayed_events(&[stored(
+        1,
+        ChatMessage::Assistant(assistant_message(
+            "",
+            AssistantOptions {
+                reasoning: Some("weighing it up".to_owned()),
+                ..AssistantOptions::default()
+            },
+        )),
+    )]);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, TranscriptEvent::ReasoningStart { elapsed_ms: None })),
+        "{events:?}"
+    );
+}
+
+#[test]
+fn a_replay_leaves_out_the_standing_instructions() {
+    // The system prompt is configuration, not something anybody said.
+    let text = replayed(&[
+        stored(1, ChatMessage::System(system_message("you are helpful"))),
+        stored(2, ChatMessage::User(user_message("hello"))),
+    ]);
+    assert!(!text.contains("you are helpful"), "{text:?}");
+    assert!(text.contains("hello"), "{text:?}");
+}
+
+#[test]
+fn a_replay_keeps_two_answers_in_a_row_apart() {
+    // Each message closes its own run. Two that shared one would have the
+    // second one's opening break kept as a blank row, and with reasoning in
+    // between they would fold into one cell.
+    let text = replayed(&[
+        stored(
+            1,
+            ChatMessage::Assistant(assistant_message("first", AssistantOptions::default())),
+        ),
+        stored(
+            2,
+            ChatMessage::Assistant(assistant_message("\n\nsecond", AssistantOptions::default())),
+        ),
+    ]);
+    assert_eq!(text, "first\nsecond\n", "{text:?}");
+}
+
+#[test]
+fn a_replay_of_nothing_writes_nothing() {
+    assert_eq!(replayed(&[]), "");
+}
+
+#[test]
+fn drops_the_newlines_a_run_opens_with_however_they_are_chunked() {
+    // A provider routinely opens a channel with a break, and it does not always
+    // arrive in the same chunk as the first word. Trimming only the chunk that
+    // changed the mode left the rest as blank rows under the summary.
+    let text = plain(&[
+        start(),
+        json!({"type": "reasoning.delta", "turnId": "t1", "text": "\n"}),
+        json!({"type": "reasoning.delta", "turnId": "t1", "text": "\n\nweighing options"}),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\n"}),
+        json!({"type": "assistant.delta", "turnId": "t1", "text": "\n\nYes."}),
+    ]);
+    assert!(
+        text.starts_with("weighing options"),
+        "the reasoning opened with blank rows: {text:?}"
+    );
+    assert!(
+        text.contains("weighing options\nYes."),
+        "the answer opened with blank rows: {text:?}"
+    );
 }
 
 #[test]

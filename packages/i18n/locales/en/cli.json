@@ -11,25 +11,23 @@
     "attachedTo": "attached to {{key}}",
     "description": "Talk to the agent. With no message, opens a prompt.",
     "folds": {
-      "reasoningOff": "reasoning is off for this session. /output reasoning on brings it back",
-      "thinking": "thinking…",
-      "thought": "thought",
-      "toolsFolded": "tool output folded",
-      "toolsShown": "tool output shown",
-      "reasoningFolded": "reasoning folded",
-      "reasoningShown": "reasoning shown"
+      "reasoning": "reasoning",
+      "thinking": "thinking…"
     },
     "generating": "thinking…",
     "header": {
       "agent": "agent",
       "hint": "/help for commands",
       "hintMenu": "/help for commands · ctrl-g for the menu",
+      "key": "key",
       "model": "model",
       "provider": "provider",
       "session": "session",
       "workspaces": "workspaces"
     },
     "interrupted": "interrupted. The prompt is yours again",
+    "transcriptFooter": "esc to close · page-up, page-down to scroll",
+    "newSession": "new session",
     "noProvider": "no provider",
     "options": {
       "agent": "agent this session runs on",
@@ -39,10 +37,11 @@
       "noReasoning": "hide the model’s reasoning stream",
       "noTools": "run the turn with no tools registered",
       "provider": "provider id, overriding the configured default",
-      "session": "session to continue",
+      "session": "a session to continue, instead of starting one",
       "workspaceId": "workspace new sessions land in",
       "workspaces": "folder the workspaces live in, overriding the configured default"
-    }
+    },
+    "tooSmall": "window too small"
   },
   "environment": {
     "description": "List installed environment definitions.",
@@ -91,6 +90,17 @@
     "workspacesDir": "Workspaces directory"
   },
   "menu": {
+    "actions": {
+      "clear": "clear the list",
+      "deleteSession": "delete it",
+      "forget": "stop it remembering",
+      "move": "move its sessions",
+      "remember": "let it remember",
+      "remove": "remove",
+      "rename": "rename",
+      "skillsOff": "stop it using them",
+      "skillsOn": "let it use them"
+    },
     "current": "current",
     "efforts": {
       "default": "send none at all. The provider applies its own",
@@ -100,15 +110,27 @@
     "footer": "↑↓ move · type to filter · enter choose · esc cancel",
     "messages_one": "{{count}} message",
     "messages_other": "{{count}} messages",
+    "newWorkspace": "new workspace…",
+    "no": "no, keep it",
     "noModel": "no model set",
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
     "titles": {
       "agent": "Which agent?",
       "command": "Which command?",
+      "deleteSession": "Delete {{id}}? Everything said in it goes",
       "effort": "How hard should it think?",
+      "memory": "What it remembers",
       "model": "Which model?",
+      "moveTo": "Move its sessions where?",
+      "removeWorkspace": "Detach {{id}}? The files stay where they are",
       "session": "Which session?",
-      "workspace": "Which workspace?"
-    }
+      "skills": "The sheets this workspace holds",
+      "task": "Which task?",
+      "workspace": "Which workspace?",
+      "workspaceName": "What should it be called?"
+    },
+    "yes": "yes, detach it"
   },
   "program": {
     "description": "A self-hosted agent that runs where your files are.",
@@ -190,58 +212,47 @@
     "workspaces": "Workspaces"
   },
   "slash": {
+    "ask": {
+      "footer": "enter saves · esc cancels"
+    },
     "errors": {
       "messageGone": "That message is gone",
       "modelPinned": "--model pinned the model for this run; /model cannot move it",
       "noAgent": "No agent {{id}}",
       "noModel": "No model {{id}}",
-      "noOutputField": "Nothing called {{field}} to show or hide",
       "noSession": "No session {{key}}",
       "noWorkspace": "No workspace {{id}}",
       "notYours": "Message {{seq}} is not one of yours",
-      "usageEdit": "usage: /edit <ref> <text>",
+      "nowhereToMove": "there is nowhere else to move them. Make another workspace first",
+      "usageEdit": "usage: /edit <text>",
       "usageEffort": "no such level. Pick one of {{levels}}, or default",
-      "usageMemory": "usage: /memory, /memory on, or /memory off",
       "usageRename": "usage: /rename <title>",
       "usageTemperature": "usage: /temperature <a number from 0 to 2>, or /temperature default",
-      "usageWorkspaceMove": "usage: /workspace move <from> <to>",
-      "usageWorkspaceNew": "usage: /workspace new <name>",
-      "usageWorkspaceRename": "usage: /workspace rename <id> <name>",
-      "usageWorkspaceRm": "usage: /workspace rm <id>",
       "workspaceInUse_one": "{{count}} session is still in {{id}}. Move it first: /workspace move {{id}} default",
       "workspaceInUse_other": "{{count}} sessions are still in {{id}}. Move them first: /workspace move {{id}} default"
     },
     "help": {
       "agent": "show agents, or move this session onto one",
-      "branch": "fork up to <ref> and attach to the fork",
+      "branch": "fork this session here and carry on in the fork",
       "clear": "forget this session's history",
       "context": "what the next turn would send to the model",
-      "delete": "delete one, defaulting to this one",
-      "edit": "replace a message and re-run from there",
+      "delete": "drop the last exchange, question and answer both",
+      "edit": "replace the last thing you said and run it again",
       "effort": "pick how hard this session's agent is asked to think, or name a level",
       "exit": "leave",
       "footer": "←→ tabs · ↑↓ scroll · esc closes",
       "help": "this list",
-      "memory": "how many memories this workspace holds, and what the index costs",
-      "memoryOnOff": "let this agent remember, or stop it. Changes the agent, not only this session",
-      "messages": "the last n messages, with their seq numbers",
+      "memory": "what this workspace remembers, and a key to stop it",
       "model": "show the models this install can reach, and move this session's agent onto one",
       "new": "start a fresh session and attach to it",
-      "output": "what a turn shows, and what it does not",
-      "outputSet": "flip one: reasoning, stats",
-      "regenerate": "re-run the last turn, or the one <ref> started",
+      "regenerate": "run the last turn again, discarding the answer it gave",
       "rename": "rename this session",
-      "session": "show this session, or attach to another",
-      "sessions": "pick a session to continue, or list them",
+      "session": "pick a session to continue, or attach to one by key",
       "skills": "the sheets this workspace holds",
-      "stats": "the last n turns: model, tokens, tokens/s, time",
-      "tasks": "the plan this session is running on",
-      "tasksClear": "empties the list",
+      "tasks": "the plan this session is running on, and a key to empty it",
       "temperature": "the sampling temperature this session's agent sends, or default to say nothing",
-      "workspace": "show or switch where new sessions land",
-      "workspaceMove": "move sessions between workspaces",
-      "workspaceRm": "detach; refuses while sessions name it",
-      "workspaces": "list them, marking the current one"
+      "transcript": "everything that has been said, with nothing folded away",
+      "workspace": "manage where new sessions land, or switch by id"
     },
     "keys": {
       "cancel": "stop the turn, or leave",
@@ -252,19 +263,18 @@
       "kill": "clear the line, clear to the end, delete a word",
       "leave": "leave",
       "palette": "every command, searchable",
-      "reasoning": "fold or unfold the reasoning",
+      "transcript": "show the whole transcript",
       "redraw": "draw the screen again",
       "run": "run the highlighted command",
-      "stats": "show or hide what the turn cost",
-      "tools": "fold or unfold what tools printed"
+      "stats": "whether the next turn’s cost is printed",
+      "tools": "how the next tool’s output arrives"
     },
     "notes": {
       "created": "created {{id}}",
       "deleted": "deleted {{key}}",
+      "deletedMessage": "dropped the last exchange",
       "detached": "detached {{id}}",
-      "hidden": "hidden",
       "historyCleared": "history cleared",
-      "landIn": "new sessions land in {{workspace}}",
       "memoryCount_one": "{{count}} memory in {{path}}/, indexed in every prompt on this folder for about {{tokens}} tokens",
       "memoryCount_other": "{{count}} memories in {{path}}/, indexed in every prompt on this folder for about {{tokens}} tokens",
       "memoryDisabled": "{{agent}} no longer remembers, and its memory has left the prompt. The files are untouched",
@@ -278,11 +288,9 @@
       "moved_other": "moved {{count}} sessions from {{from}} to {{to}}",
       "noModels": "no endpoint published a model list",
       "noSessions": "no sessions yet",
-      "noTurns": "no turns recorded for this session yet",
+      "noTranscript": "nothing to lay it over here. Every one of those rows is already on the stream",
       "nothingSaid": "nothing said in this session yet",
       "nothingToMeasure": "nothing to measure yet. This session has not started",
-      "outputHidden": "hidden: {{field}}",
-      "outputShown": "shown: {{field}}",
       "providerQuiet": "{{id}} did not answer: {{message}}",
       "renamedTo": "renamed to {{title}}",
       "renamedWorkspace": "renamed {{id}} to {{name}}",
@@ -290,7 +298,8 @@
       "sampleIs": "{{agent}} sends {{field}} {{value}}",
       "sampleSet": "{{agent}} now sends {{field}} {{value}}, saved to your config",
       "sampleUnset": "{{agent}} sends no {{field}} at all. The provider applies its own",
-      "shown": "shown",
+      "skillsCount_one": "{{count}} sheet in {{path}}/",
+      "skillsCount_other": "{{count}} sheets in {{path}}/",
       "skillsEmpty": "no skills yet. A folder with a SKILL.md in {{path}}/ becomes one",
       "skillsOff": "{{agent}} does not have the skill tool, so no catalogue reaches the prompt and it cannot open a sheet",
       "skillsScope": "for {{agents}} only, not this agent",
@@ -300,21 +309,26 @@
       "willLandIn": "new sessions will land in {{workspace}}",
       "willRunOn": "the next session runs on {{agent}}"
     },
-    "refNote": "A <ref> is a seq number from /messages, or a negative offset over your own\n  messages: -1 is the last thing you said. It defaults to -1.",
     "sections": {
       "agents": "agents",
       "context": "context and cost",
       "keys": "keys",
       "memory": "memory",
       "messages": "messages",
-      "output": "what a turn shows",
       "sessions": "sessions",
       "workspaces": "workspaces"
     },
     "tabs": {
       "commands": "commands",
-      "turn": "the turn",
-      "setup": "setup"
+      "index": "index",
+      "live": "live, rebuilt every step",
+      "memories": "memories",
+      "messages": "messages",
+      "setup": "setup",
+      "summary": "summary",
+      "system": "system",
+      "tools": "tools",
+      "turn": "the turn"
     }
   }
 }

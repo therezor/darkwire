@@ -854,6 +854,7 @@ fn writes_nothing_when_any_message_in_the_block_is_invalid() {
         content: "x".to_owned(),
         is_error: false,
         truncated: false,
+        duration_ms: None,
     });
     let error = store
         .append_many("s", vec![user_message("good"), bad], &NO_OPTIONS)

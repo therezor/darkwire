@@ -196,11 +196,22 @@ pub struct AssistantMessage {
     #[serde(default)]
     #[garde(dive)]
     pub tool_calls: Vec<ToolCall>,
-    /// Reasoning text, kept beside the answer rather than inside `content` so
-    /// it can be shown in its own collapsible block and left out of history
-    /// replay without re-parsing the content parts.
+    /// Reasoning text, kept beside the answer rather than inside `content`.
+    ///
+    /// Its own field so it can be shown in its own collapsible block, and so a
+    /// surface replaying a stored conversation can fold it the same way without
+    /// re-parsing the content parts to find where the answer starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    /// How long the model spent on that reasoning, where it was measured.
+    ///
+    /// Stored beside the text so a replayed turn reads like a live one: the
+    /// summary row a folded run shows carries a duration, and a clock that
+    /// started when the prompt opened cannot supply it for a run that happened
+    /// last week. Absent rather than zero when nothing measured it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub reasoning_ms: Option<u64>,
 }
 
 /// A tool's answer to one call.
@@ -227,6 +238,12 @@ pub struct ToolMessage {
     /// Set when the result was head+tail truncated to fit the tool-output cap.
     #[serde(default)]
     pub truncated: bool,
+    /// How long the call took, for the same reason as [`AssistantMessage::reasoning_ms`]:
+    /// the card and the folded row both say it, and nothing can work it out
+    /// after the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub duration_ms: Option<u64>,
 }
 
 tagged_union! {

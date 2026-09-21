@@ -35,13 +35,8 @@ fn rows() -> Vec<PaletteRow> {
         PaletteRow::new("/exit, /quit", keys::slash::help::EXIT),
         PaletteRow::new("/agent [id]", keys::slash::help::AGENT),
         PaletteRow::new("/rename <title>", keys::slash::help::RENAME),
-        PaletteRow::new("/workspaces", keys::slash::help::WORKSPACES),
-        PaletteRow::new("/workspace <id>", keys::slash::help::WORKSPACE),
+        PaletteRow::new("/workspace [id]", keys::slash::help::WORKSPACE),
         PaletteRow::variant("/workspace new <name>"),
-        PaletteRow::new(
-            "/workspace move <from> <to>",
-            keys::slash::help::WORKSPACE_MOVE,
-        ),
     ]
 }
 
@@ -129,8 +124,8 @@ fn leaves_a_variant_row_without_a_description_rather_than_inventing_one() {
 fn completes_a_slash_command_from_the_same_table_the_help_page_uses() {
     let (hits, line) = complete_command("/work", &rows());
     assert_eq!(line, "/work");
-    assert!(hits.iter().any(|hit| hit == "/workspaces"));
-    assert!(hits.iter().any(|hit| hit == "/workspace move"));
+    assert!(hits.iter().any(|hit| hit == "/workspace"));
+    assert!(hits.iter().any(|hit| hit == "/workspace new"));
 }
 
 #[test]

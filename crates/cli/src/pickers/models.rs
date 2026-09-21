@@ -16,7 +16,7 @@ use darkwire_protocol::ModelsResponse;
 use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
-use crate::pickers::{PickerMenu, choose_from, position_of, with_current};
+use crate::pickers::{PickerMenu, Placement, choose_from, position_of, with_current};
 
 /// One row per model, in the order the catalogue lists them.
 pub fn model_items(
@@ -86,5 +86,13 @@ pub async fn pick_model(
 ) -> Option<String> {
     let items = model_items(catalogue, current, t);
     let at = position_of(&items, &current.to_owned());
-    choose_from(menu, items, &t.t(keys::menu::titles::MODEL), at, t).await
+    choose_from(
+        menu,
+        items,
+        &t.t(keys::menu::titles::MODEL),
+        at,
+        t,
+        Placement::Prompt,
+    )
+    .await
 }

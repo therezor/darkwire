@@ -62,7 +62,7 @@ git log --oneline -20 | darkwire chat "what changed"   # a pipe target
 
 | Flag                      | Does                                                     |
 | ------------------------- | -------------------------------------------------------- |
-| `-s, --session <key>`     | The session to continue. Default `cli:default`.          |
+| `-s, --session <key>`     | A session to continue. Without it, a new one is started. |
 | `-a, --agent <id>`        | The agent this session runs on.                          |
 | `-m, --model <id>`        | Model id, overriding the configured default.             |
 | `-p, --provider <id>`     | Provider instance id, overriding the configured default. |
@@ -80,16 +80,43 @@ inside it. Reaching for the wrong one moves your files rather than switching fol
 `--json` is the scripting surface. Each line is one event from the same stream the web UI
 consumes, so a script can watch tool calls go by rather than waiting for prose.
 
-The prompt takes the window on the way in by scrolling it, not by clearing it: whatever
-your shell had printed goes into the scrollback, one scroll up, and the composer lands on
-the bottom row and stays there.
+The prompt draws a small live area on the **last few rows of your ordinary screen**.
+Everything an exchange finishes with is printed above it and belongs to the terminal from
+then on: its scrollback, its wheel, its selection, its search, whatever your accessibility
+tools do with a terminal. When you leave, the conversation is still there, above the shell
+prompt, the way the output of any other command would be.
 
-What the program draws after that is a strip at the bottom of the window: the composer,
-the status rows, the menu when one is open, and the run a turn currently has open.
-Everything else has been **printed**. The conversation belongs to the terminal, which
-means it rewraps itself when you resize the window, you can select and copy it with the
-mouse, and your emulator's own search can find it. Nothing redraws it, so nothing can
-duplicate it.
+That is one decision, and most of the prompt's good behaviour follows from it. There is no
+scrollback of our own to be worse than the emulator's, no scroll keys to learn, and nothing
+to lose on exit.
+
+The live area holds only what is still changing: the answer as it arrives, the composer,
+the plan, the command list, a picker when one is open, and the status rows. It is sized
+from its contents every frame and never takes more than half the window, so the
+conversation above stays visible. A resize lays it out again at whatever the window now
+is, rather than patching it.
+
+**The prompt never takes the alternate screen.** A program that takes the second buffer
+owns the whole window, which means implementing scrolling, selection and search itself,
+and the session vanishing when it exits.
+
+What does take it is anything opened _over_ the prompt: `ctrl-t`, `/help`, `/context`,
+`/memory`, `/session` and `/workspace`. Each is a document or a list read as one, and
+those take the second buffer honestly — they are opened, read, and closed, and the
+conversation is exactly where it was. The alternative is laying twenty rows over the
+prompt, and the live area grows by scrolling the conversation into the terminal's
+scrollback, which closing it again cannot undo.
+
+**A resize redraws the window.** The rows above the prompt belong to the terminal, and an
+emulator that reflows them when the width changes puts them where the new width says
+rather than where they were. So the window is cleared and the end of the conversation
+written again at the new width. Without that, dragging a window narrower leaves a copy of
+the composer behind for every step of the drag.
+
+**The mouse is left alone.** Nothing asks the terminal for mouse events, so selecting a
+line of an answer and copying it works the way it does in every other program, with no
+modifier held. The wheel scrolls the conversation because the conversation is the
+terminal's.
 
 A pipe gets none of this: a stdout that is not a terminal gets a plain prompt and no
 escape sequences at all.
@@ -100,23 +127,29 @@ Type `/` in the prompt. Tab completes a slash command and nothing else — never
 filename, never a session key — so the completion list can never be a guess about what
 you meant.
 
-| Command          | What it does                                |
-| ---------------- | ------------------------------------------- |
-| `/help`          | This list                                   |
-| `/messages [n]`  | The last n messages, with their seq numbers |
-| `/clear`         | Forget this session's history               |
-| `/exit`, `/quit` | Leave                                       |
+| Command          | What it does                  |
+| ---------------- | ----------------------------- |
+| `/help`          | This list                     |
+| `/clear`         | Forget this session's history |
+| `/exit`, `/quit` | Leave                         |
 
 **Sessions**
 
-| Command           | What it does                              |
-| ----------------- | ----------------------------------------- |
-| `/sessions [n]`   | Pick a session to continue, or list them  |
-| `/new [title]`    | Start a fresh session and attach to it    |
-| `/session [key]`  | Show this session, or attach to another   |
-| `/rename <title>` | Rename this session                       |
-| `/delete [key]`   | Delete one, defaulting to this one        |
-| `/branch [ref]`   | Fork up to `<ref>` and attach to the fork |
+| Command           | What it does                               |
+| ----------------- | ------------------------------------------ |
+| `/session [key]`  | Pick one over the prompt, or attach by key |
+| `/new [title]`    | Start a fresh session and attach to it     |
+| `/rename <title>` | Rename this session                        |
+| `/delete [key]`   | Delete one, defaulting to this one         |
+| `/branch [ref]`   | Fork up to `<ref>` and attach to the fork  |
+
+A session is written when you say something in it, not when you start one. `/new`,
+`/session <key>` and the prompt you get on launch all move you to a name; the row appears
+on the first message, in the workspace and on the agent the turn actually ran under. So
+opening a prompt, thinking better of it and leaving puts nothing in `/session`, and the
+listing holds conversations rather than the debris of changing your mind. `/new <title>`
+and `/rename` before that first message hold the name and put it on the row when it is
+written, over the one derived from what you asked.
 
 **Messages**
 
@@ -131,19 +164,23 @@ cache, so what these drop is always a suffix — see
 
 **Context and cost**
 
-| Command        | What it does                                    |
-| -------------- | ----------------------------------------------- |
-| `/context`     | What the next turn would send to the model      |
-| `/tasks`       | The plan this session is running on             |
-| `/tasks clear` | Empties the list                                |
-| `/stats [n]`   | The last n turns: model, tokens, tokens/s, time |
+| Command    | What it does                               |
+| ---------- | ------------------------------------------ |
+| `/context` | What the next turn would send to the model |
+| `/tasks`   | The plan this session is running on        |
 
-`/context` prints the same measurement the browser's context inspector draws and
-`GET /api/sessions/:key/context` returns, so all three agree.
+`/context` **opens over the prompt**, with four tabs: the numbers, the system prompt in
+full, one row per tool with what it costs, and one row per message in the window. The
+numbers are the same measurement the browser's context inspector draws and
+`GET /api/sessions/:key/context` returns, so all three agree. The other three tabs are
+the follow-up question: the only thing anyone asks after "tools: 4,102" is _which_ tools.
 
-`/tasks` prints the list the agent's [`todo`](tools.md#todo) tool writes, in the markers
-the prompt uses, so what it shows is what the model reads. The list belongs to the
-session, so it survives `/clear` and a restart.
+`/tasks` **opens over the prompt** too, one row per task in the markers the prompt uses,
+so what it shows is what the model reads. `ctrl-x` drops the one under the cursor and the
+list stays up, so three can go in one gesture; escape closes it. A delete acts rather than
+asking, because the model rewrites the whole list on its next planning step anyway. If a
+turn rewrote the plan while the list was open, nothing is dropped and it says so. The list
+belongs to the session, so it survives `/clear` and a restart.
 
 The tokens/s figure divides by the time the model spent generating, not by the
 turn's wall clock — so a cold local model that spent thirty seconds loading its
@@ -153,76 +190,56 @@ frame, still divide by the wall clock and read as they always did. The browser's
 turn-info popover breaks the same turn down further, including the wait before
 the first token.
 
-**What a turn shows**
-
-| Command                     | What it does                            |
-| --------------------------- | --------------------------------------- |
-| `/output`                   | What a turn shows, and what it does not |
-| `/output <field> [on\|off]` | Flip one — `reasoning`, `stats`         |
-
-Reasoning and tool output arrive **folded**: one labelled row each, which opens
-on a keystroke. A turn is read for its answer, and a terminal that prints every
-line of the working out buries the one thing you came for.
-
-The fold that is still running counts up (`⠋ thinking… 4s`), so a long run of
-reasoning never reads as a terminal that has stopped.
-
-`ctrl-t` and `ctrl-o` flip them. Each does two things: it opens or closes the run
-that is still open, and it decides how the next one arrives. The second half is
-the one that matters, because a run is printed in the state it was in when it
-finished, and printed text belongs to the terminal. Press the key once and
-everything after it arrives the way you asked.
-
-A run too long to sit above the composer is printed before it finishes and loses
-its fold with the rest. A tool that prints ten thousand lines would otherwise
-hold the window on a promise you could still change your mind about.
-
-`ui.reasoning` in the config file is where that choice lives across runs. It has
-three values rather than two: `collapsed` is the default, `expanded` prints it as
-it streams, and `hidden` stops it reaching the terminal at all. `--no-reasoning`
-means `hidden` for one run. `ui.expandToolOutput` is the switch for the other
-half, and it is a switch because tool output is written either way.
-
-What a turn cost is the third of these, and it arrives hidden rather than
-summarised. `· 2 steps · 3.9k in / 134 out · 2.5s · 68.9 tok/s` is worth having
-and is not worth a row under every answer, and unlike the other two there is
-nothing to promise: it is on screen or it is not. `ctrl-y` shows it, and so does
-`/output stats on`, which is the same switch spelled twice. `ui.expandTurnStats`
-is where the choice lives across runs.
-
-On a pipe, on a dumb terminal or under `--json` there is nothing to fold, so
-`collapsed` prints as it always did, only `hidden` silences anything, and a
-turn's cost prints when `ui.expandTurnStats` is on.
-
 **Keys**
 
-| Key                          | What it does                                    |
-| ---------------------------- | ----------------------------------------------- |
-| `ctrl-g`                     | Every command, searchable                       |
-| `/`                          | The command list, filtered as you type          |
-| `tab`                        | Take the highlighted command                    |
-| `return`                     | Run the highlighted command                     |
-| `ctrl-t`                     | Fold or unfold the reasoning                    |
-| `ctrl-o`                     | Fold or unfold what tools printed               |
-| `ctrl-y`                     | Show or hide what the turn cost                 |
-| `ctrl-l`                     | Draw the screen again                           |
-| `ctrl-c`                     | Stop the turn, or leave                         |
-| `ctrl-d`                     | Leave                                           |
-| `up`, `down`                 | The last thing you asked, and the one before    |
-| `ctrl-a`, `ctrl-e`           | Start of line, end of line                      |
-| `ctrl-b`, `ctrl-f`           | Back, forward                                   |
-| `alt-left`, `alt-right`      | Back a word, forward a word                     |
-| `ctrl-u`, `ctrl-k`, `ctrl-w` | Clear the line, clear to the end, delete a word |
+| Key                          | What it does                                     |
+| ---------------------------- | ------------------------------------------------ |
+| `ctrl-g`                     | Every command, searchable                        |
+| `/`                          | The command list, filtered as you type           |
+| `tab`                        | Take the highlighted command                     |
+| `return`                     | Run the highlighted command                      |
+| `ctrl-t`                     | Show the whole transcript, or `/transcript`      |
+| `ctrl-o`                     | How the next tool's output arrives               |
+| `ctrl-y`                     | Whether the next turn's cost is printed          |
+| `ctrl-l`                     | Draw the screen again                            |
+| `ctrl-c`                     | Stop the turn, or leave                          |
+| `ctrl-d`                     | Leave                                            |
+| `shift-return`               | A new line in the message, rather than sending   |
+| `up`, `down`                 | Between the lines, then the last thing you asked |
+| `ctrl-a`, `ctrl-e`           | Start of line, end of line                       |
+| `ctrl-b`, `ctrl-f`           | Back, forward                                    |
+| `alt-left`, `alt-right`      | Back a word, forward a word                      |
+| `ctrl-u`, `ctrl-k`, `ctrl-w` | Clear the line, clear to the end, delete a word  |
 
-`/help` opens over the prompt rather than printing into the conversation, with
-four tabs: commands, the turn, setup and keys. Left and right move between them,
-the arrows and page keys scroll, and escape closes it. So the keys are
-discoverable from inside the prompt rather than only from here, and reading them
-does not leave sixty rows of reference in your scrollback between the question
-and the answer to it.
+**Reasoning and what a turn cost live in the transcript**, in full and whatever
+the switches say. That is what `ctrl-t` and `/transcript` are for, and why there
+is no `/output` or `/stats` command any more: one place to look, rather than two
+commands deciding what the conversation is allowed to carry. `ctrl-o` and
+`ctrl-y` still flip what the _next_ turn prints inline.
+
+`/help` takes the window rather than printing into the conversation, with four
+tabs: commands, the turn, setup and keys. Left and right move between them, the
+arrows and page keys scroll, and escape closes it, and the conversation is
+exactly where you left it. It is a document, which is the one thing worth the
+second screen buffer: laying twenty rows over the prompt instead would mean
+growing the live area, and the live area grows by scrolling the conversation
+into the terminal's scrollback, which closing it again cannot undo.
 
 On a pipe, under `--json` or on a dumb terminal there is nowhere to lay an
 overlay, so the same table is written to the stream exactly as it always was.
+
+The command list takes the status bar's rows rather than pushing anything down,
+and it is the same size whatever you type into it. Both of those are about the
+conversation above: the prompt sits at the foot of the ordinary screen, so a
+live area that grew would scroll the conversation into the scrollback, and
+shrinking it again cannot bring those rows back. A list that is one size and
+takes rows that were already there costs the conversation nothing.
+
+`shift-return` puts a new line in the message you are writing; `return` still
+sends it. On a terminal too old to tell `return` and `shift-return` apart,
+`alt-return` and `ctrl-j` do the same thing and need nothing of the terminal.
+While a message has more than one line, `up` and `down` move between them and
+reach the history from the ends.
 
 Typing `/` opens the command list **beside** the line rather than over it: what
 you typed stays visible and editable while the list filters under it. `ctrl-g`
@@ -234,8 +251,8 @@ typing. It opens the whole table, searchable, in place of the prompt.
 An agent doing multi-step work writes one with its `todo` tool, and it sits
 above the box you type into, three tasks at a time around whatever is in hand
 with a `+N more` when the list is longer. It is rewritten rather than appended,
-so a turn that revises its plan six times leaves one list on screen and nothing
-in the scrollback. `/tasks` prints it in full and `/tasks clear` empties it.
+so a turn that revises its plan six times leaves one list on screen and no trail
+of older ones. `/tasks` opens it in full, with `ctrl-x` to empty it.
 
 **Agents and models**
 
@@ -269,25 +286,35 @@ worse than one that will not.
 
 **Memory and skills**
 
-| Command           | What it does                                                     |
-| ----------------- | ---------------------------------------------------------------- |
-| `/memory`         | How many memories this workspace holds, and what the index costs |
-| `/memory on\|off` | Let this agent remember, or stop it                              |
-| `/skills`         | The sheets this workspace holds                                  |
+| Command           | What it does                                            |
+| ----------------- | ------------------------------------------------------- |
+| `/memory`         | What this workspace remembers, and what the index costs |
+| `/memory on\|off` | Let this agent remember, or stop it                     |
+| `/skills`         | The sheets this workspace holds                         |
+
+`/memory` **opens over the prompt**, with two tabs: the index exactly as every prompt on
+this folder carries it, and what it costs. Nothing remembered yet is a sentence instead,
+because two empty tabs are a worse answer than one line.
 
 `/memory on|off` **changes the agent, not just this session** — it is the `memory` tool's
 permission, which is the one switch rather than two. See [Memory](memory.md).
 
 **Workspaces**
 
-| Command                         | What it does                              |
-| ------------------------------- | ----------------------------------------- |
-| `/workspaces`                   | List them, marking the current one        |
-| `/workspace <id>`               | Show or switch where new sessions land    |
-| `/workspace new <name>`         | Create one                                |
-| `/workspace rename <id> <name>` | Rename the label, without moving anything |
-| `/workspace rm <id>`            | Detach; refuses while sessions name it    |
-| `/workspace move <from> <to>`   | Move sessions between workspaces          |
+| Command           | What it does                   |
+| ----------------- | ------------------------------ |
+| `/workspace`      | Manage them, over the prompt   |
+| `/workspace <id>` | Switch where new sessions land |
+
+Bare `/workspace` opens the manager: one row per workspace with its id and how many
+sessions are in it, which is the number that decides whether a removal will be refused.
+Return switches. `ctrl-r` renames it on a line you type into, `ctrl-x` detaches it after
+asking, `ctrl-v` sends its sessions to another one, and the `+ new workspace…` row makes
+one. The list stays up between them, so three renames are one visit.
+
+**There are no verbs in the command**, which is what makes `/workspace <id>` mean one
+thing. The token after `/workspace` is always an id, so a workspace called `new` is
+switched to with `/workspace new` and that means exactly what it looks like.
 
 An extension can add commands of its own; they appear in this list and in `/help` from
 the same table, so one cannot exist in the completer and not the listing. See

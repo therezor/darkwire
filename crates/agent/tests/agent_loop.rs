@@ -102,6 +102,81 @@ async fn it_reports_reasoning_apart_from_the_answer() {
 }
 
 #[tokio::test]
+async fn it_stores_how_long_a_tool_call_took() {
+    // The same figure the `tool.result` event carries. A card read back from
+    // storage says what it said while the call was running.
+    let harness = Harness::build(Setup::with(vec![
+        ScriptedTurn {
+            tool_calls: vec![tool_call("c1", "read", &json!({}))],
+            ..ScriptedTurn::default()
+        },
+        ScriptedTurn {
+            deltas: vec!["done".to_owned()],
+            ..ScriptedTurn::default()
+        },
+    ]));
+
+    let (_, _) = harness.say("web:1", "hi").await;
+
+    let duration_ms = harness
+        .stored("web:1")
+        .into_iter()
+        .find_map(|message| match message {
+            darkwire_protocol::ChatMessage::Tool(tool) => Some(tool.duration_ms),
+            _ => None,
+        })
+        .expect("the result was stored");
+    assert!(duration_ms.is_some(), "no figure was written");
+}
+
+#[tokio::test]
+async fn it_stores_how_long_the_reasoning_took() {
+    // Nothing can work it out afterwards: a provider reports tokens, and the
+    // prompt's own clock starts when the prompt opens. So the window between
+    // the first chunk of reasoning and the first word of the answer is
+    // measured here and written with the message.
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn {
+        deltas: vec!["The answer.".to_owned()],
+        reasoning: vec!["Thinking".to_owned()],
+        ..ScriptedTurn::default()
+    }]));
+
+    let (_, _) = harness.say("web:1", "hi").await;
+
+    let reasoning_ms = harness
+        .stored("web:1")
+        .into_iter()
+        .find_map(|message| match message {
+            darkwire_protocol::ChatMessage::Assistant(assistant) => Some(assistant.reasoning_ms),
+            _ => None,
+        })
+        .expect("the answer was stored");
+    assert!(reasoning_ms.is_some(), "no figure was written");
+}
+
+#[tokio::test]
+async fn a_turn_that_never_reasoned_stores_no_figure_for_it() {
+    // Absent rather than zero. A row saying `0ms` is a row claiming it timed
+    // something, and a reader cannot tell that from a run that was instant.
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn {
+        deltas: vec!["The answer.".to_owned()],
+        ..ScriptedTurn::default()
+    }]));
+
+    let (_, _) = harness.say("web:1", "hi").await;
+
+    let reasoning_ms = harness
+        .stored("web:1")
+        .into_iter()
+        .find_map(|message| match message {
+            darkwire_protocol::ChatMessage::Assistant(assistant) => Some(assistant.reasoning_ms),
+            _ => None,
+        })
+        .expect("the answer was stored");
+    assert_eq!(reasoning_ms, None);
+}
+
+#[tokio::test]
 async fn an_empty_delta_is_never_sent() {
     let harness = Harness::build(Setup::with(vec![ScriptedTurn {
         deltas: vec![String::new(), "x".to_owned()],

@@ -151,6 +151,7 @@ mod constructors {
             AssistantOptions {
                 tool_calls: vec![call()],
                 reasoning: Some("thinking".to_owned()),
+                reasoning_ms: None,
             },
         );
         assert_eq!(message.tool_calls, vec![call()]);
@@ -192,6 +193,7 @@ mod constructors {
             ToolOptions {
                 is_error: true,
                 truncated: false,
+                duration_ms: None,
             },
         );
         assert!(message.is_error);
@@ -338,6 +340,7 @@ mod without_images_tests {
                 AssistantOptions {
                     tool_calls: vec![call()],
                     reasoning: None,
+                    reasoning_ms: None,
                 },
             )
             .into(),

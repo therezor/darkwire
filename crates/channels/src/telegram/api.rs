@@ -384,6 +384,13 @@ pub struct SendMessageInput {
     pub markdown: bool,
     /// The buttons under it, when it has any.
     pub reply_markup: Option<InlineKeyboardMarkup>,
+    /// Opens the chat's keyboard with this message quoted, so the next thing
+    /// typed is plainly an answer to it.
+    ///
+    /// The one thing a button cannot do is supply a name. Mutually exclusive
+    /// with `reply_markup` in the API, and here too: a prompt asking to be
+    /// typed into has nothing to tap.
+    pub force_reply: bool,
 }
 
 /// What one `editMessageText` carries.
@@ -540,6 +547,11 @@ impl BotApi {
         }
         if let Some(markup) = &input.reply_markup {
             body.insert("reply_markup".to_owned(), json!(markup));
+        } else if input.force_reply {
+            body.insert(
+                "reply_markup".to_owned(),
+                json!({ "force_reply": true, "selective": true }),
+            );
         }
         let result = self
             .call("sendMessage", &Value::Object(body), token)

@@ -34,6 +34,7 @@ fn result(text: &str, tool_calls: Vec<ToolCall>) -> ChatResult {
             },
             tool_calls,
             reasoning: None,
+            reasoning_ms: None,
         },
         finish_reason: FinishReason::Stop,
         usage: Usage::default(),

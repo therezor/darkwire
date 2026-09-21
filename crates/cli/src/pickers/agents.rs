@@ -14,7 +14,7 @@ use darkwire_runtime::EffectiveAgent;
 use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
-use crate::pickers::{PickerMenu, choose_from, position_of, with_current};
+use crate::pickers::{PickerMenu, Placement, choose_from, position_of, with_current};
 
 /// What the row's right-hand column says about an agent.
 fn hint_for(agent: &EffectiveAgent, t: &Translations) -> String {
@@ -89,5 +89,13 @@ pub async fn pick_agent(
 ) -> Option<String> {
     let items = agent_items(agents, current, t);
     let at = current.and_then(|id| position_of(&items, &id.to_owned()));
-    choose_from(menu, items, &t.t(keys::menu::titles::AGENT), at, t).await
+    choose_from(
+        menu,
+        items,
+        &t.t(keys::menu::titles::AGENT),
+        at,
+        t,
+        Placement::Prompt,
+    )
+    .await
 }

@@ -17,7 +17,7 @@ use std::sync::Mutex;
 
 use darkwire::i18n::Translations;
 use darkwire::pickers::agents::{agent_items, agent_listing, pick_agent};
-use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire::pickers::{MenuAnswer, MenuRequest, NoMenu, PickerMenu};
 use darkwire_protocol::config::{AgentEnvironment, AgentSettings, PromptMode};
 use darkwire_runtime::EffectiveAgent;
 use indexmap::IndexMap;
@@ -89,10 +89,18 @@ impl PickerMenu for Recording {
     fn choose<'a>(
         &'a self,
         request: MenuRequest,
-    ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
         self.asked.lock().unwrap().push(request);
-        let answer = self.answer;
+        let answer = self.answer.map(|row| MenuAnswer { row, action: None });
         Box::pin(async move { answer })
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: darkwire::pickers::AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(None))
     }
 
     /// Nothing to lay a listing over; a scripted menu has no screen.

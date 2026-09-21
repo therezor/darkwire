@@ -40,6 +40,8 @@ pub enum MenuKind {
     Models,
     /// The workspaces on this install.
     Workspaces,
+    /// The plan a conversation is running on.
+    Tasks,
 }
 
 /// What a button does when it is pressed.
@@ -76,9 +78,58 @@ pub enum CallbackPayload {
         /// The workspace.
         workspace_id: String,
     },
+    /// Ask for a name, and make a workspace with it.
+    WorkspaceNew,
+    /// Ask for another name for this one.
+    WorkspaceRename {
+        /// The workspace.
+        workspace_id: String,
+    },
+    /// Ask whether to detach this one.
+    WorkspaceRemoveAsk {
+        /// The workspace.
+        workspace_id: String,
+    },
+    /// Detach it, having asked.
+    WorkspaceRemove {
+        /// The workspace.
+        workspace_id: String,
+    },
+    /// Offer somewhere to send this one's sessions.
+    WorkspaceMoveAsk {
+        /// The workspace they are leaving.
+        workspace_id: String,
+    },
+    /// Send them there.
+    WorkspaceMove {
+        /// The workspace they are leaving.
+        from: String,
+        /// The one they are going to.
+        to: String,
+    },
     /// Delete a conversation, having confirmed.
     Delete {
         /// The conversation.
+        session_key: String,
+    },
+    /// Ask whether to delete a conversation, from its row in `/session`.
+    ///
+    /// Two taps rather than one, because this is the one thing here that
+    /// cannot be undone — and the row it is fired from is a list somebody is
+    /// scrolling, where a fingertip lands on the wrong name easily.
+    DeleteAsk {
+        /// The conversation.
+        session_key: String,
+        /// What it is called, for the question.
+        title: String,
+    },
+    /// Empty a conversation's plan.
+    ///
+    /// The whole list rather than one task: the `todo` tool replaces it
+    /// wholesale on its next planning step, so a task dropped by hand comes
+    /// straight back and the gesture taught nothing.
+    TasksClear {
+        /// The conversation whose plan it is.
         session_key: String,
     },
     /// Toggle one rendering preference.
@@ -98,10 +149,15 @@ pub enum CallbackPayload {
 impl CallbackPayload {
     /// Whether a hit is consumed rather than left live.
     ///
-    /// An approval answers once; a menu's paging buttons stay live so the
-    /// reader can go back a page.
+    /// An approval answers once, and so does a task delete: both name
+    /// something that is gone after the press, and a second tap on the same
+    /// button would drop whatever had taken its place. A menu's paging buttons
+    /// stay live so the reader can go back a page.
     fn is_one_shot(&self) -> bool {
-        matches!(self, CallbackPayload::Approve { .. })
+        matches!(
+            self,
+            CallbackPayload::Approve { .. } | CallbackPayload::TasksClear { .. }
+        )
     }
 }
 

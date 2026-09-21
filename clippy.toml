@@ -33,5 +33,5 @@ doc-valid-idents = [
   "LLM", "MCP", "SSE", "UUIDv7", "OpenAI", "GitHub", "TypeScript", "JavaScript",
   "PKCE", "Telegram", "macOS", "TurnLog", "PuTTY",
   "OpenRouter", "DeepSeek", "vLLM", "xAI", "LM", "IPv4", "IPv6",
-  "MarkdownV2",
+  "MarkdownV2", "Ratatui", "PageUp", "PageDown",
 ]

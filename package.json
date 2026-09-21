@@ -21,7 +21,7 @@
     "test:coverage": "vitest run --coverage",
     "screenshots": "pnpm build && cargo build -p darkwire --features test-hooks && pnpm --filter @darkwire/e2e exec playwright install chromium && pnpm --filter @darkwire/e2e screenshots",
     "demo": "pnpm build && cargo build --release -p darkwire && node scripts/demo-cast.mjs",
-    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "check": "pnpm typecheck && pnpm lint && pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts && pnpm format:check && shellcheck -s sh install.sh && pnpm i18n:check && pnpm protocol:check && pnpm test && pnpm build",
     "i18n:extract": "i18next 'packages/web/src/**/*.{ts,tsx}' --config i18next-parser.web.js",
     "i18n:check": "pnpm i18n:extract && git diff --exit-code -- 'packages/i18n/locales/*/web.json'",
     "protocol:check": "pnpm --filter @darkwire/protocol exec tsx scripts/emit-schemas.ts && git diff --exit-code -- packages/protocol/schema"

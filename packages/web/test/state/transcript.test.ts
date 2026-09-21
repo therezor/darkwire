@@ -657,6 +657,60 @@ describe('session frames', () => {
     });
   });
 
+  it('carries the stored duration onto a replayed tool card', () => {
+    // Nothing can work out afterwards how long a call took, so the figure is
+    // stored with the result. A card read back says what it said live.
+    const built = fromStoredMessages([
+      stored('m0', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: 'read it' }],
+      }),
+      stored('m1', 't1', {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{}' }],
+      }),
+      stored('m2', 't1', {
+        role: 'tool',
+        toolCallId: 'c1',
+        name: 'read',
+        content: 'contents',
+        isError: false,
+        truncated: false,
+        durationMs: 120,
+      }),
+    ]);
+
+    expect(toolOf(built)).toMatchObject({ kind: 'tool', durationMs: 120 });
+  });
+
+  it('leaves the card silent when the row kept no duration', () => {
+    const built = fromStoredMessages([
+      stored('m0', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: 'read it' }],
+      }),
+      stored('m1', 't1', {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{}' }],
+      }),
+      stored('m2', 't1', {
+        role: 'tool',
+        toolCallId: 'c1',
+        name: 'read',
+        content: 'contents',
+        isError: false,
+        truncated: false,
+      }),
+    ]);
+
+    expect(toolOf(built)).toMatchObject({
+      kind: 'tool',
+      durationMs: undefined,
+    });
+  });
+
   it('seats the replayed turn after its question, not before it', () => {
     // The tail of a running turn ends in a tool row as often as in an assistant
     // one — a delegation's result is written when the iteration closes. A tool
@@ -1385,6 +1439,16 @@ describe('merging a fetched history', () => {
  * spelled out only where a test asserts one.
  */
 let nextSeq = 1;
+
+/** The one tool card a built transcript holds. */
+function toolOf(transcript: Transcript): ToolPart | undefined {
+  for (const item of transcript) {
+    if (item.kind !== 'turn') continue;
+    const part = item.parts.find((candidate) => candidate.kind === 'tool');
+    if (part !== undefined) return part;
+  }
+  return undefined;
+}
 
 function stored(
   id: string,

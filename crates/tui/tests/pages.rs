@@ -2,8 +2,8 @@
 
 mod common;
 
+use darkwire_tui::visible_width;
 use darkwire_tui::{Component, Key, KeyName, Page, Pages, PagesLabels, PagesOptions, PagesOutcome};
-use darkwire_tui::{parse_key, visible_width};
 
 fn page(title: &str, rows: &[&str]) -> Page {
     Page {
@@ -28,14 +28,7 @@ fn pages(max_rows: usize) -> Pages {
 }
 
 fn key(name: KeyName) -> Key {
-    Key {
-        name,
-        character: String::new(),
-        ctrl: false,
-        meta: false,
-        shift: false,
-        sequence: String::new(),
-    }
+    Key::named(name)
 }
 
 #[test]
@@ -115,15 +108,9 @@ fn escape_return_and_q_all_close_it() {
         assert_eq!(view.handle_key(&closing), PagesOutcome::Closed);
     }
     let mut view = pages(10);
-    assert_eq!(
-        view.handle_key(&parse_key("q").unwrap()),
-        PagesOutcome::Closed
-    );
+    assert_eq!(view.handle_key(&common::key("q")), PagesOutcome::Closed);
     let mut view = pages(10);
-    assert_eq!(
-        view.handle_key(&parse_key("\u{3}").unwrap()),
-        PagesOutcome::Closed
-    );
+    assert_eq!(view.handle_key(&common::key("\u{3}")), PagesOutcome::Closed);
 }
 
 #[test]

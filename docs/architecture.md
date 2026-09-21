@@ -25,7 +25,7 @@ tests and its own coverage bar.
 | `darkwire-extension-host` | Discovery, the approval check, the JSON-RPC subprocess host, and what an extension contributed                                    |
 | `darkwire-runtime`        | The composition root: config → provider, jail, store, registry, one loop per agent                                                |
 | `darkwire-server`         | axum: REST, the WebSocket hub, auth, the embedded UI, OpenAPI                                                                     |
-| `darkwire-tui`            | A domain-free terminal toolkit: key decoding, display-width text, a transient selection region                                    |
+| `darkwire-tui`            | A domain-free terminal toolkit: the terminal itself, key mapping, display-width text and widgets that render rows                 |
 | `darkwire`                | **The binary.** Every command and flag, and the UI compiled into it.                                                              |
 
 | Still TypeScript     | Does                                                 |

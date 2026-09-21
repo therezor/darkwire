@@ -20,13 +20,16 @@
 //! a reference: a method generic over the row's type could not be, and every
 //! caller already holds the list it offered.
 
-use darkwire_tui::{SelectItem, SelectLabels, TerminalInput, TerminalOutput, columns_of};
+use darkwire_tui::{SelectItem, SelectLabels};
 
 use crate::i18n::Env;
 
 /// A terminal narrower than this cannot hold a label and a cursor marker, so a
 /// menu on it would be a column of ellipses.
 pub const MIN_COLUMNS: usize = 12;
+
+/// What a terminal that will not say how wide it is is treated as.
+const DEFAULT_COLUMNS: usize = 80;
 
 /// One row of a menu, already translated: the toolkit holds no keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -123,90 +126,43 @@ impl MenuRequest {
     }
 }
 
-/// Somewhere a menu can be shown.
-pub trait Menu {
-    /// `false` when there is no terminal to draw one on.
-    fn available(&self) -> bool;
-
-    /// The index of the chosen row, or `None` for a cancelled menu — and for
-    /// every unavailable one.
-    fn choose(&mut self, request: MenuRequest) -> Option<usize>;
-}
-
-/// Never draws, always answers nothing.
-///
-/// What every scripted path gets by construction, rather than by an `if`
-/// somebody has to remember to write.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct NoMenu;
-
-impl Menu for NoMenu {
-    fn available(&self) -> bool {
-        false
-    }
-
-    fn choose(&mut self, request: MenuRequest) -> Option<usize> {
-        let _ = request;
-        None
-    }
-}
-
-/// A menu drawn into the frame somebody else owns.
-///
-/// The opener puts the rows into the frame and answers when it closes. The
-/// frame's owner supplies it, because only that code knows where a menu belongs
-/// among the rows and which keystrokes should reach it.
-pub struct FrameMenu<F> {
-    open: F,
-}
-
-impl<F> FrameMenu<F>
-where
-    F: FnMut(MenuRequest) -> Option<usize>,
-{
-    /// A menu over one opener.
-    pub fn new(open: F) -> FrameMenu<F> {
-        FrameMenu { open }
-    }
-}
-
-impl<F> std::fmt::Debug for FrameMenu<F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("FrameMenu")
-    }
-}
-
-impl<F> Menu for FrameMenu<F>
-where
-    F: FnMut(MenuRequest) -> Option<usize>,
-{
-    fn available(&self) -> bool {
-        true
-    }
-
-    fn choose(&mut self, request: MenuRequest) -> Option<usize> {
-        (self.open)(request)
-    }
-}
-
 /// What deciding whether a menu is possible needs to look at.
+///
+/// Plain facts rather than the devices they came from. Whether stdin is a
+/// terminal is a question about the process, and a predicate that took a
+/// terminal to answer it would need one in every test that asks.
+#[derive(Debug)]
 pub struct MenuAvailable<'a> {
-    /// Where keystrokes would come from.
-    pub input: &'a dyn TerminalInput,
-    /// Where the rows would be drawn.
-    pub output: &'a dyn TerminalOutput,
+    /// Whether keystrokes would come from a terminal.
+    pub stdin_tty: bool,
+    /// Whether the rows would be drawn on one.
+    pub stdout_tty: bool,
+    /// How wide it says it is, if it says.
+    pub columns: Option<u16>,
     /// `--json`: stdout carries one event per line and nothing else.
     pub json: bool,
     /// The environment, for `TERM`.
     pub env: &'a Env,
 }
 
-impl std::fmt::Debug for MenuAvailable<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MenuAvailable")
-            .field("json", &self.json)
-            .finish_non_exhaustive()
+/// How wide the terminal is, treating a reported zero as "no idea".
+///
+/// `columns.unwrap_or(80)` is the obvious spelling and it is wrong: a device
+/// can report **zero**, which is a value, and every width then collapses to
+/// nothing. It is not hypothetical — `script(1)` allocates a pty with no size,
+/// and a terminal mid-resize can answer zero as well.
+#[must_use]
+pub fn columns_or_default(reported: Option<u16>) -> usize {
+    match reported {
+        Some(columns) if columns > 0 => usize::from(columns),
+        _ => DEFAULT_COLUMNS,
     }
+}
+
+/// What the terminal says it is, for a caller with no frame open.
+#[must_use]
+pub fn terminal_columns() -> Option<u16> {
+    crossterm::terminal::size().ok().map(|(columns, _)| columns)
 }
 
 /// Whether this invocation can draw a menu at all.
@@ -221,15 +177,13 @@ pub fn menu_available(options: &MenuAvailable<'_>) -> bool {
     if options.json {
         return false;
     }
-    if !options.input.is_tty() || !options.output.is_tty() {
+    if !options.stdin_tty || !options.stdout_tty {
         return false;
     }
     if options.env.get("TERM") == Some("dumb") {
         return false;
     }
-    // `columns_of` rather than a plain fallback on `None`, because a stream can
-    // report zero and zero is not absent — a pty allocated by `script(1)` does
-    // exactly that, and the naive spelling refuses to draw a menu on a terminal
-    // that is fine.
-    columns_of(options.output, None) >= MIN_COLUMNS
+    // Zero is not absent: a terminal that will not say how wide it is gets the
+    // benefit of the doubt rather than a refusal to draw.
+    columns_or_default(options.columns) >= MIN_COLUMNS
 }

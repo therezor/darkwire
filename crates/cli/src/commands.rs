@@ -32,24 +32,21 @@
 //! process into a layer that has neither. A terminal's selection *is* its copy
 //! mechanism.
 //!
-//! ## Which menu trait this consumes
+//! ## How a command opens a menu
 //!
-//! [`crate::pickers::PickerMenu`], not [`crate::menu::Menu`]. The pickers are
-//! written against it, its `choose` is asynchronous — a menu opens *inside* a
-//! running frame and answers keystrokes later — and it takes `&self`, so a
-//! command can open one while still holding the renderer. [`SyncMenu`] adapts
-//! the other direction for a frame owner that has a [`crate::menu::Menu`]
-//! already.
+//! Through [`crate::pickers::PickerMenu`]. Its `choose` is asynchronous,
+//! because a menu opens inside a running prompt and answers keystrokes later,
+//! and it takes `&self`, so a command can open one while still holding the
+//! renderer. What is on the other end is a channel to the loop, which is what
+//! keeps the prompt reading the keyboard while the command waits.
 
-use std::sync::Mutex;
-
-use darkwire_agent::skills::{SKILLS_DIRNAME, read_skills};
+use darkwire_agent::skills::{SKILLS_DIRNAME, Skill, read_skills};
 use darkwire_agent::{PromptPreviewInput, describe_context};
 use darkwire_core::memory::{MEMORY_DIRNAME, index_line, read_memories};
 use darkwire_core::session_store::{
-    CreateSession, ForkSession, ListSessions, ReadMessages, UpdateSession,
+    ForkSession, ListSessions, ReadMessages, SessionSummaryRecord, UpdateSession,
 };
-use darkwire_core::workspace_store::CreateWorkspace;
+use darkwire_core::workspace_store::{CreateWorkspace, WorkspaceRecord};
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, text_of};
 use darkwire_i18n::{args, format_number, keys};
 use darkwire_protocol::config::{AgentSettingsChange, agent_settings_patch};
@@ -58,39 +55,40 @@ use darkwire_protocol::{
     DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, ModelsResponse, ReasoningEffort, ToolPermission,
     new_uuid,
 };
-use darkwire_providers::estimate_tokens;
+use darkwire_providers::{estimate_message_tokens, estimate_tokens, estimate_tool_tokens};
 use darkwire_security::random::{OsRandom, RandomSource};
 use darkwire_server::agent_for_turn;
-use darkwire_tui::{Page, PagesLabels, pad_to_width, visible_width};
+use darkwire_tui::{
+    Page, PagesLabels, SelectItem, pad_to_width, truncate_to_width, visible_width, wrap_to_width,
+};
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
 use crate::i18n::Translations;
-use crate::menu::Menu;
-use crate::messages::{DEFAULT_MESSAGE_LINES, recent_messages, resolve_seq};
+use crate::menu::{columns_or_default, terminal_columns};
+use crate::messages::resolve_seq;
 use crate::models::ModelCatalogue;
-use crate::pickers::ListingRequest;
+use crate::pickers::PickerMenu;
 use crate::pickers::agents::{agent_listing, pick_agent};
 use crate::pickers::effort::{DEFAULT_LEVEL, LEVELS, effort_listing, effort_value, pick_effort};
+use crate::pickers::memories::{MemoryChoice, show_memories};
 use crate::pickers::models::{model_errors, model_listing, pick_model};
 use crate::pickers::palette::PaletteRow;
-use crate::pickers::sessions::pick_session;
-use crate::pickers::workspaces::pick_workspace;
-use crate::pickers::{MenuRequest, PickerMenu};
-use crate::render::{TurnRenderer, clip};
+use crate::pickers::sessions::{SessionVerb, pick_session};
+use crate::pickers::skills::{SkillChoice, out_of_scope, show_skills, skill_items};
+use crate::pickers::tasks::show_tasks;
+use crate::pickers::workspaces::{
+    WorkspaceRow, WorkspaceVerb, manage_workspaces, pick_destination,
+};
+use crate::pickers::{AskRequest, ListingRequest, Placement, choose_from};
+use crate::render::TurnRenderer;
 use crate::runtime::{ChatRuntime, save_settings, settings_of};
-
-/// How much of a message `/messages` shows on its one line.
-const MESSAGE_CLIP_CHARS: usize = 72;
 
 /// How many sessions `/sessions` lists when no count is given.
 const DEFAULT_SESSION_LINES: usize = 20;
 
-/// How many turns `/stats` lists when no count is given.
-const DEFAULT_STATS_LINES: usize = 10;
-
-/// The width of the `seq` column in `/messages`.
-const SEQ_COLUMN: usize = 4;
+/// How much of an overlay's width the two-space indent and a margin take.
+const OVERLAY_GUTTER: usize = 4;
 
 /// The label column in `/context`.
 const CONTEXT_LABEL_COLUMN: usize = 10;
@@ -110,6 +108,16 @@ pub enum SlashOutcome {
     /// words somebody wrote, and a re-run of an attachment is the attachment's
     /// own message being replayed rather than rebuilt here.
     Turn(String),
+    /// Lay the whole transcript over the prompt.
+    Transcript,
+    /// Hand this back to the composer for the operator to finish.
+    ///
+    /// What a modal answers with instead of doing the thing. A rename needs a
+    /// name typed and a removal deserves a look before it happens, and the
+    /// prompt is already a place to type and to look. Nothing is put anywhere
+    /// on a surface with no composer, which is why the modal that offers this
+    /// never opens on one.
+    Compose(String),
 }
 
 /// What the slash commands need of a model catalogue.
@@ -153,6 +161,11 @@ pub struct SlashContext<'a> {
     pub workspace_id: &'a mut Option<String>,
     /// Which agent a *new* conversation runs on. `None` is the default.
     pub agent_id: &'a mut Option<String>,
+    /// A name for the conversation being started, until there is one to name.
+    ///
+    /// `/new <title>` is a decision made before the row exists, and the row is
+    /// written by the first turn. This is where the decision waits.
+    pub pending_title: &'a mut Option<String>,
     /// How a command asks a question with arrow keys.
     ///
     /// Unavailable on a pipe, under `--json` and on a dumb terminal, so a
@@ -247,7 +260,7 @@ fn key_layout() -> Vec<(&'static str, &'static str)> {
         ("ctrl-g", keys::slash::keys::PALETTE),
         ("tab", keys::slash::keys::COMPLETE),
         ("return", keys::slash::keys::RUN),
-        ("ctrl-t", keys::slash::keys::REASONING),
+        ("ctrl-t", keys::slash::keys::TRANSCRIPT),
         ("ctrl-o", keys::slash::keys::TOOLS),
         ("ctrl-y", keys::slash::keys::STATS),
         ("ctrl-l", keys::slash::keys::REDRAW),
@@ -270,7 +283,7 @@ fn help_layout() -> Vec<HelpSection> {
             heading: None,
             rows: vec![
                 CommandRow::new("/help", keys::slash::help::HELP),
-                CommandRow::new("/messages [n]", keys::slash::help::MESSAGES),
+                CommandRow::new("/transcript", keys::slash::help::TRANSCRIPT),
                 CommandRow::new("/clear", keys::slash::help::CLEAR),
                 CommandRow::new("/exit, /quit", keys::slash::help::EXIT),
             ],
@@ -278,19 +291,18 @@ fn help_layout() -> Vec<HelpSection> {
         HelpSection {
             heading: Some(keys::slash::sections::SESSIONS),
             rows: vec![
-                CommandRow::new("/sessions [n]", keys::slash::help::SESSIONS),
-                CommandRow::new("/new [title]", keys::slash::help::NEW),
                 CommandRow::new("/session [key]", keys::slash::help::SESSION),
+                CommandRow::new("/new [title]", keys::slash::help::NEW),
                 CommandRow::new("/rename <title>", keys::slash::help::RENAME),
-                CommandRow::new("/delete [key]", keys::slash::help::DELETE),
-                CommandRow::new("/branch [ref]", keys::slash::help::BRANCH),
+                CommandRow::new("/delete", keys::slash::help::DELETE),
+                CommandRow::new("/branch", keys::slash::help::BRANCH),
             ],
         },
         HelpSection {
             heading: Some(keys::slash::sections::MESSAGES),
             rows: vec![
-                CommandRow::new("/edit <ref> <text>", keys::slash::help::EDIT),
-                CommandRow::new("/regenerate [ref]", keys::slash::help::REGENERATE),
+                CommandRow::new("/edit <text>", keys::slash::help::EDIT),
+                CommandRow::new("/regenerate", keys::slash::help::REGENERATE),
             ],
         },
         HelpSection {
@@ -298,15 +310,6 @@ fn help_layout() -> Vec<HelpSection> {
             rows: vec![
                 CommandRow::new("/context", keys::slash::help::CONTEXT),
                 CommandRow::new("/tasks", keys::slash::help::TASKS),
-                CommandRow::new("/tasks clear", keys::slash::help::TASKS_CLEAR),
-                CommandRow::new("/stats [n]", keys::slash::help::STATS),
-            ],
-        },
-        HelpSection {
-            heading: Some(keys::slash::sections::OUTPUT),
-            rows: vec![
-                CommandRow::new("/output", keys::slash::help::OUTPUT),
-                CommandRow::new("/output <field> [on|off]", keys::slash::help::OUTPUT_SET),
             ],
         },
         HelpSection {
@@ -322,23 +325,15 @@ fn help_layout() -> Vec<HelpSection> {
             heading: Some(keys::slash::sections::MEMORY),
             rows: vec![
                 CommandRow::new("/memory", keys::slash::help::MEMORY),
-                CommandRow::new("/memory on|off", keys::slash::help::MEMORY_ON_OFF),
                 CommandRow::new("/skills", keys::slash::help::SKILLS),
             ],
         },
         HelpSection {
             heading: Some(keys::slash::sections::WORKSPACES),
-            rows: vec![
-                CommandRow::new("/workspaces", keys::slash::help::WORKSPACES),
-                CommandRow::new("/workspace <id>", keys::slash::help::WORKSPACE),
-                CommandRow::variant("/workspace new <name>"),
-                CommandRow::variant("/workspace rename <id> <name>"),
-                CommandRow::new("/workspace rm <id>", keys::slash::help::WORKSPACE_RM),
-                CommandRow::new(
-                    "/workspace move <from> <to>",
-                    keys::slash::help::WORKSPACE_MOVE,
-                ),
-            ],
+            rows: vec![CommandRow::new(
+                "/workspace [id]",
+                keys::slash::help::WORKSPACE,
+            )],
         },
     ]
 }
@@ -443,11 +438,7 @@ pub fn help_text(t: &Translations) -> String {
         key_rows.join("\n")
     );
 
-    format!(
-        "{}\n\n{key_block}\n\n  {}",
-        blocks.join("\n\n"),
-        t.t(keys::slash::REF_NOTE)
-    )
+    format!("{}\n\n{key_block}", blocks.join("\n\n"))
 }
 
 /// `/help` as tabs, for a terminal that can lay an overlay over the prompt.
@@ -477,10 +468,7 @@ pub fn help_pages(t: &Translations) -> Vec<Page> {
         Some(keys::slash::sections::SESSIONS),
         Some(keys::slash::sections::MESSAGES),
     ];
-    let turn = [
-        Some(keys::slash::sections::CONTEXT),
-        Some(keys::slash::sections::OUTPUT),
-    ];
+    let turn = [Some(keys::slash::sections::CONTEXT)];
 
     let mut tabs = vec![
         Page {
@@ -580,6 +568,8 @@ async fn dispatch(
     match name {
         "exit" | "quit" => Ok(SlashOutcome::Exit),
 
+        "transcript" => Ok(SlashOutcome::Transcript),
+
         "help" => {
             // The overlay when there is a screen to lay it over, and the same
             // rows written to the stream when there is not. A pipe, `--json`
@@ -607,29 +597,24 @@ async fn dispatch(
             Ok(SlashOutcome::Continue)
         }
 
-        "messages" => messages_command(argv, ctx),
-
         // ── Sessions ──────────────────────────────────────────────
-        "sessions" => sessions_command(argv, ctx).await,
-        "new" => new_command(tail, ctx),
-        "session" => session_command(argv, ctx),
+        "new" => Ok(new_command(tail, ctx)),
+        "session" => session_command(argv, ctx).await,
         "rename" => rename_command(tail, ctx),
-        "delete" => delete_command(argv, ctx),
-        "branch" => branch_command(argv, ctx),
+        "delete" => delete_command(ctx),
+        "branch" => branch_command(ctx),
 
         // ── Messages ──────────────────────────────────────────────
-        "edit" => edit_command(argv, tail, ctx),
-        "regenerate" => regenerate_command(argv, ctx),
+        "edit" => edit_command(tail, ctx),
+        "regenerate" => regenerate_command(ctx),
 
         // ── Context and cost ──────────────────────────────────────
         "context" => context_command(ctx).await,
-        "tasks" => tasks_command(argv.first().map(String::as_str), ctx),
-        "memory" => memory_command(argv, ctx),
-        "skills" => skills_command(ctx),
-        "stats" => stats_command(argv, ctx),
+        "tasks" => tasks_command(ctx).await,
+        "memory" => memory_command(ctx).await,
+        "skills" => skills_command(ctx).await,
 
         // ── Workspaces ────────────────────────────────────────────
-        "workspaces" => workspaces_command(ctx),
         "workspace" => workspace_command(argv, ctx).await,
 
         // ── Agents ────────────────────────────────────────────────
@@ -647,13 +632,6 @@ async fn dispatch(
             .await
         }
 
-        // ── What a turn shows ─────────────────────────────────────
-        "output" => output_command(
-            argv.first().map(String::as_str),
-            argv.get(1).map(String::as_str),
-            ctx,
-        ),
-
         // Before the refusal, not instead of it: an extension's command reaches
         // the terminal through the *host* rather than through this table,
         // because there is one definition of it and three surfaces that have to
@@ -666,75 +644,106 @@ async fn dispatch(
 
 // Messages and sessions
 
-fn messages_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let count = positive_count(argv.first()).unwrap_or(DEFAULT_MESSAGE_LINES);
-    let rows = recent_messages(ctx.runtime.store(), ctx.session_key, count)?;
-    if rows.is_empty() {
-        let note = ctx.t.t(keys::slash::notes::NOTHING_SAID);
-        ctx.renderer.note(&note);
-        return Ok(SlashOutcome::Continue);
+/// `/session` — this one, another by key, or a picker over all of them.
+///
+/// One name for one subject. It used to be two: `/sessions` listed and
+/// `/session` — this one, another by key, or a picker over all of them.
+///
+/// One name for one subject. It used to be two: `/sessions` listed and
+/// `/session` showed, so the plural and the singular were a guess about which
+/// half you wanted rather than a difference in what you were asking about.
+/// Bare opens the picker, which is the listing you can act on; a key attaches.
+///
+/// The same shape `/agent`, `/model` and `/workspace` take.
+async fn session_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    if let Some(target) = argv.first() {
+        // Named, not created: a key nobody has spoken under is a name for a
+        // conversation that has not happened, and the turn writes the row.
+        return Ok(SlashOutcome::Attach(target.clone()));
     }
-    let text = rows
-        .iter()
-        .map(|row| {
-            format!(
-                "{:>SEQ_COLUMN$}  {}  {}",
-                row.seq,
-                row.role,
-                clip(&row.text, MESSAGE_CLIP_CHARS)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+
+    let mut rows = recent_sessions(ctx)?;
+
+    if ctx.menu.available() && !rows.is_empty() {
+        loop {
+            let Some((target, verb)) = pick_session(ctx.menu, &rows, ctx.session_key, ctx.t).await
+            else {
+                return Ok(SlashOutcome::Continue);
+            };
+            match verb {
+                // Picked out of the listing, so the row is there by
+                // construction.
+                None => return Ok(SlashOutcome::Attach(target)),
+                Some(SessionVerb::Delete) => {
+                    // Deleting the one the prompt is on moves it somewhere and
+                    // the window is done. Deleting any other leaves the prompt
+                    // where it is, so the list comes back — read again, because
+                    // the copy it was drawn from is a row out of date.
+                    let outcome = delete_session(&target, ctx).await?;
+                    if !matches!(outcome, SlashOutcome::Continue) {
+                        return Ok(outcome);
+                    }
+                    rows = recent_sessions(ctx)?;
+                    if rows.is_empty() {
+                        return Ok(SlashOutcome::Continue);
+                    }
+                }
+            }
+        }
+    }
+
+    // No screen to draw a picker on, so the question is answered in prose:
+    // where you are, and then what else there is.
+    let here = current_session(ctx)?;
+    ctx.renderer.note(&here);
+    let text = if rows.is_empty() {
+        ctx.t.t(keys::slash::notes::NO_SESSIONS)
+    } else {
+        session_listing(&rows, ctx.session_key)
+    };
     ctx.renderer.note(&text);
     Ok(SlashOutcome::Continue)
 }
 
-/// `/sessions` — a picker on a terminal, the listing on a pipe.
-///
-/// The same shape `/agent` and `/workspace` take. The argument is the page size
-/// either way, so a script and a person are asking the same question of the
-/// same rows.
-async fn sessions_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let limit = positive_count(argv.first()).unwrap_or(DEFAULT_SESSION_LINES);
+/// The newest conversations in this one's workspace.
+fn recent_sessions(ctx: &SlashContext<'_>) -> Result<Vec<SessionSummaryRecord>> {
     let store = ctx.runtime.store();
     let workspace_id = store
         .get_session(ctx.session_key)?
         .map(|session| session.workspace_id);
-    let rows = store.list_sessions(&ListSessions {
-        limit: Some(limit),
+    store.list_sessions(&ListSessions {
+        limit: Some(DEFAULT_SESSION_LINES),
         workspace_id,
         ..ListSessions::default()
-    })?;
-    if rows.is_empty() {
-        let note = ctx.t.t(keys::slash::notes::NO_SESSIONS);
-        ctx.renderer.note(&note);
-        return Ok(SlashOutcome::Continue);
-    }
+    })
+}
 
-    if ctx.menu.available() {
-        let target = pick_session(ctx.menu, &rows, ctx.session_key, ctx.t).await;
-        if let Some(target) = target {
-            store.ensure_session(
-                &target,
-                CreateSession {
-                    origin: Some("cli".to_owned()),
-                    ..CreateSession::default()
-                },
-            )?;
-            return Ok(SlashOutcome::Attach(target));
-        }
-        return Ok(SlashOutcome::Continue);
-    }
+/// The conversation the prompt is on, as a couple of lines.
+fn current_session(ctx: &SlashContext<'_>) -> Result<String> {
+    let store = ctx.runtime.store();
+    let session = store.get_session(ctx.session_key)?;
+    let title = match session.as_ref() {
+        Some(session) if !session.title.is_empty() => session.title.clone(),
+        _ => "(unnamed)".to_owned(),
+    };
+    // The session's *own* workspace, not the pending one. They differ after a
+    // `/workspace` switch, and showing the pending one here would report where
+    // the next conversation lands as though it were where this one is.
+    let workspace = session
+        .as_ref()
+        .map_or_else(|| "—".to_owned(), |session| session.workspace_id.clone());
+    let count = store.message_count(ctx.session_key)?;
+    Ok(format!(
+        "{title}\n  {}  ·  {count} messages  ·  workspace {workspace}",
+        ctx.session_key
+    ))
+}
 
-    let text = rows
-        .iter()
+/// Every conversation as one row, with the current one marked.
+fn session_listing(rows: &[SessionSummaryRecord], current: &str) -> String {
+    rows.iter()
         .map(|row| {
-            let mark = if row.session.key == ctx.session_key {
-                '*'
-            } else {
-                ' '
-            };
+            let mark = if row.session.key == current { '*' } else { ' ' };
             let title = if row.session.title.is_empty() {
                 "(unnamed)"
             } else {
@@ -746,68 +755,53 @@ async fn sessions_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result
             )
         })
         .collect::<Vec<_>>()
-        .join("\n");
-    ctx.renderer.note(&text);
-    Ok(SlashOutcome::Continue)
+        .join("\n")
 }
 
-fn new_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+/// `/new [title]` — a key to talk under, and nothing stored yet.
+///
+/// The row is written by the first turn, not here. A `/new` that created one
+/// left an empty untitled session behind every time somebody opened a prompt,
+/// changed their mind and closed it, and those are indistinguishable in the
+/// listing from conversations that mattered. The turn creates it with the
+/// workspace and the agent it actually ran under, which is the same path the
+/// browser and Telegram take.
+///
+/// A title given here is held rather than written, and applied once the row
+/// exists. The loop names a session after its first message; a name somebody
+/// typed on purpose wins over one derived from what they happened to ask.
+fn new_command(tail: &str, ctx: &mut SlashContext<'_>) -> SlashOutcome {
     let key = format!("cli-{}", random_key());
-    ctx.runtime.store().ensure_session(
-        &key,
-        CreateSession {
-            origin: Some("cli".to_owned()),
-            title: if tail.is_empty() {
-                None
-            } else {
-                Some(tail.to_owned())
-            },
-            workspace_id: ctx.workspace_id.clone(),
-            ..CreateSession::default()
-        },
-    )?;
-    Ok(SlashOutcome::Attach(key))
+    if tail.is_empty() {
+        return SlashOutcome::Attach(key);
+    }
+    // A title is a decision, and it has to outlive a row that does not exist
+    // yet. The loop names a session after its first message, so this is held
+    // and applied over that: whoever typed a name meant it.
+    *ctx.pending_title = Some(tail.to_owned());
+    SlashOutcome::Attach(key)
 }
 
-fn session_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let store = ctx.runtime.store();
-    let Some(target) = argv.first() else {
-        let session = store.get_session(ctx.session_key)?;
-        let title = match session.as_ref() {
-            Some(session) if !session.title.is_empty() => session.title.clone(),
-            _ => "(unnamed)".to_owned(),
-        };
-        // The session's *own* workspace, not the pending one. They differ after
-        // a `/workspace` switch, and showing the pending one here would report
-        // where the next conversation lands as though it were where this one is.
-        let workspace = session
-            .as_ref()
-            .map_or_else(|| "—".to_owned(), |session| session.workspace_id.clone());
-        let count = store.message_count(ctx.session_key)?;
-        let text = format!(
-            "{title}\n  {}  ·  {count} messages  ·  workspace {workspace}",
-            ctx.session_key
-        );
-        ctx.renderer.note(&text);
-        return Ok(SlashOutcome::Continue);
-    };
-
-    store.ensure_session(
-        target,
-        CreateSession {
-            origin: Some("cli".to_owned()),
-            ..CreateSession::default()
-        },
-    )?;
-    Ok(SlashOutcome::Attach(target.clone()))
-}
-
+/// `/rename <title>` — the name, on the row if there is one.
+///
+/// A conversation nobody has spoken in has no row, and naming one must not
+/// conjure it: that is the empty session this whole arrangement exists to
+/// avoid. The name waits with the one `/new` takes, and the first turn puts
+/// both on the row it writes.
 fn rename_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     if tail.is_empty() {
         return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_RENAME),
         ));
+    }
+    if ctx.runtime.store().get_session(ctx.session_key)?.is_none() {
+        *ctx.pending_title = Some(tail.to_owned());
+        let note = ctx
+            .t
+            .tr(keys::slash::notes::RENAMED_TO, args!["title" => tail]);
+        ctx.renderer.note(&note);
+        return Ok(SlashOutcome::Continue);
     }
     ctx.runtime.store().update_session(
         ctx.session_key,
@@ -816,6 +810,8 @@ fn rename_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome
             ..UpdateSession::default()
         },
     )?;
+    // The row has the name now, so nothing is waiting to give it one.
+    *ctx.pending_title = None;
     let note = ctx
         .t
         .tr(keys::slash::notes::RENAMED_TO, args!["title" => tail]);
@@ -823,42 +819,56 @@ fn rename_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome
     Ok(SlashOutcome::Continue)
 }
 
-fn delete_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let key = argv
-        .first()
-        .cloned()
-        .unwrap_or_else(|| ctx.session_key.to_owned());
-    if !ctx.runtime.store().delete_session(&key)? {
+/// Deletes one conversation, having asked. A verb on the row in `/session`.
+///
+/// The prompt has to be somewhere afterwards, and somewhere is a key rather
+/// than a row: deleting a conversation and immediately storing an empty one in
+/// its place is the listing filling up with the debris of housekeeping.
+async fn delete_session(key: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    if !confirm(ctx, keys::menu::titles::DELETE_SESSION, key).await {
+        return Ok(SlashOutcome::Continue);
+    }
+    if !ctx.runtime.store().delete_session(key)? {
         return Err(WireError::new(
             ErrorKind::NotFound,
-            ctx.t.tr(
-                keys::slash::errors::NO_SESSION,
-                args!["key" => key.as_str()],
-            ),
+            ctx.t
+                .tr(keys::slash::errors::NO_SESSION, args!["key" => key]),
         ));
     }
-    let note = ctx
-        .t
-        .tr(keys::slash::notes::DELETED, args!["key" => key.as_str()]);
+    let note = ctx.t.tr(keys::slash::notes::DELETED, args!["key" => key]);
     ctx.renderer.note(&note);
     if key != ctx.session_key {
         return Ok(SlashOutcome::Continue);
     }
-    // The one it was attached to is gone, so it needs somewhere to be.
-    let next = format!("cli-{}", random_key());
-    ctx.runtime.store().ensure_session(
-        &next,
-        CreateSession {
-            origin: Some("cli".to_owned()),
-            ..CreateSession::default()
-        },
-    )?;
-    Ok(SlashOutcome::Attach(next))
+    Ok(SlashOutcome::Attach(format!("cli-{}", random_key())))
 }
 
-fn branch_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+/// `/delete` — drop the last exchange.
+///
+/// **A message, not a session.** It used to take a session key and delete the
+/// whole conversation, which put the most destructive thing the prompt can do
+/// behind the shortest word — and left the message commands without the one
+/// verb the set was missing. Deleting a session is a verb on the row in
+/// `/session` now, where the thing being deleted is named and on screen.
+///
+/// The exchange, not the message: dropping a question and leaving the answer
+/// to it is a transcript that reads as though the model volunteered it.
+fn delete_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let store = ctx.runtime.store();
-    let seq = resolve_seq(store, ctx.session_key, argv.first().map(String::as_str))?;
+    let seq = resolve_seq(store, ctx.session_key, None)?;
+    let seq = require_user_message(store, ctx.session_key, seq, ctx.t)?;
+    // Below the question, which takes the answer with it. History is
+    // append-only for the provider's cache, so what this drops is a suffix.
+    store.truncate_after(ctx.session_key, seq - 1)?;
+    let note = ctx.t.t(keys::slash::notes::DELETED_MESSAGE);
+    ctx.renderer.note(&note);
+    Ok(SlashOutcome::Continue)
+}
+
+/// `/branch` — fork the conversation here and carry on in the fork.
+fn branch_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    let store = ctx.runtime.store();
+    let seq = resolve_seq(store, ctx.session_key, None)?;
     let fork = store.fork_session(
         ctx.session_key,
         seq,
@@ -875,21 +885,24 @@ fn branch_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOu
     Ok(SlashOutcome::Attach(fork.session.key))
 }
 
-fn edit_command(argv: &[String], tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let reference = argv.first();
-    let text = reference
-        .and_then(|reference| tail.strip_prefix(reference.as_str()))
-        .unwrap_or("")
-        .trim();
-    let (Some(reference), false) = (reference, text.is_empty()) else {
+/// `/edit <text>` — replace the last thing you said, and run it again.
+///
+/// **No message reference any more.** It took a seq number, and the only place
+/// to read one was `/messages`, which was a listing of a conversation the
+/// terminal is already showing. One command reading a number off another
+/// command's output is a workflow, not an interface. A reference to something
+/// further back belongs where the message is on screen and can be pointed at.
+fn edit_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    let text = tail.trim();
+    if text.is_empty() {
         return Err(WireError::new(
             ErrorKind::InvalidInput,
             ctx.t.t(keys::slash::errors::USAGE_EDIT),
         ));
-    };
+    }
 
     let store = ctx.runtime.store();
-    let seq = resolve_seq(store, ctx.session_key, Some(reference.as_str()))?;
+    let seq = resolve_seq(store, ctx.session_key, None)?;
     let seq = require_user_message(store, ctx.session_key, seq, ctx.t)?;
     // Below the edited message: the loop appends the replacement itself, so
     // cutting *at* it would leave the old wording above the new one.
@@ -897,9 +910,10 @@ fn edit_command(argv: &[String], tail: &str, ctx: &mut SlashContext<'_>) -> Resu
     Ok(SlashOutcome::Turn(text.to_owned()))
 }
 
-fn regenerate_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+/// `/regenerate` — run the last turn again, discarding the answer it gave.
+fn regenerate_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let store = ctx.runtime.store();
-    let seq = resolve_seq(store, ctx.session_key, argv.first().map(String::as_str))?;
+    let seq = resolve_seq(store, ctx.session_key, None)?;
     let seq = require_user_message(store, ctx.session_key, seq, ctx.t)?;
     let records = store.messages(
         ctx.session_key,
@@ -975,9 +989,123 @@ async fn context_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
         ctx.renderer.note(&note);
         return Ok(SlashOutcome::Continue);
     };
-    let text = format_context(&report, ctx.t.locale().as_str());
-    ctx.renderer.note(&text);
+
+    let summary = format_context(&report, ctx.t.locale().as_str());
+    let shown = ctx
+        .menu
+        .show(ListingRequest {
+            pages: context_pages(&report, &summary, ctx.t),
+            labels: PagesLabels {
+                footer: ctx.t.t(keys::slash::help::FOOTER),
+            },
+        })
+        .await;
+    if !shown {
+        ctx.renderer.note(&summary);
+    }
     Ok(SlashOutcome::Continue)
+}
+
+/// `/context` as four tabs: the numbers, and the three things behind them.
+///
+/// The summary is the six lines this command has always printed, unchanged, so
+/// a pipe and a terminal agree. The other three exist because the numbers are
+/// only ever the start of the question: the one thing anybody asks after
+/// "tools: 4,102" is *which* tools, and the report already carries the answer.
+/// It used to be measured and thrown away.
+fn context_pages(
+    report: &darkwire_agent::ContextReport,
+    summary: &str,
+    t: &Translations,
+) -> Vec<Page> {
+    let width = columns_or_default(terminal_columns())
+        .saturating_sub(OVERLAY_GUTTER)
+        .max(20);
+    let locale = t.locale();
+    let locale = locale.as_str();
+    let n = |value: usize| format_number(i64::try_from(value).unwrap_or(i64::MAX), locale);
+    let fold = |text: &str| -> Vec<String> {
+        text.lines()
+            .flat_map(|line| wrap_to_width(line, width))
+            .map(|line| format!("  {line}"))
+            .collect()
+    };
+
+    let mut system = fold(&report.system_prompt);
+    if !report.runtime_block.is_empty() {
+        system.push(String::new());
+        system.push(format!("  {}", t.t(keys::slash::tabs::LIVE)));
+        system.push(String::new());
+        system.extend(fold(&report.runtime_block));
+    }
+
+    let name_width = report
+        .tools
+        .iter()
+        .map(|tool| visible_width(&tool.name))
+        .max()
+        .unwrap_or(0);
+    let tools = report
+        .tools
+        .iter()
+        .map(|tool| {
+            // Priced one at a time here and all at once in the breakdown, so
+            // these sum to slightly less than the figure on the summary tab:
+            // the brackets and separators of the array are billed once and
+            // belong to none of the rows.
+            let cost = estimate_tool_tokens(std::slice::from_ref(tool));
+            let head = tool.description.lines().next().unwrap_or_default();
+            format!(
+                "  {}  {:>8}  {head}",
+                pad_to_width(&tool.name, name_width),
+                n(cost)
+            )
+        })
+        .collect();
+
+    let messages = report
+        .messages
+        .iter()
+        .map(|record| {
+            let text = text_of(&record.message).replace('\n', " ");
+            format!(
+                "  {:>5}  {:<9}  {:>8}  {}",
+                record.seq,
+                role_of(&record.message),
+                n(estimate_message_tokens(&record.message)),
+                truncate_to_width(text.trim(), width.saturating_sub(28), "…")
+            )
+        })
+        .collect();
+
+    vec![
+        Page {
+            title: t.t(keys::slash::tabs::SUMMARY),
+            rows: summary.lines().map(|line| format!("  {line}")).collect(),
+        },
+        Page {
+            title: t.t(keys::slash::tabs::SYSTEM),
+            rows: system,
+        },
+        Page {
+            title: t.t(keys::slash::tabs::TOOLS),
+            rows: tools,
+        },
+        Page {
+            title: t.t(keys::slash::tabs::MESSAGES),
+            rows: messages,
+        },
+    ]
+}
+
+/// Which side of the conversation a stored message is, for a column.
+fn role_of(message: &darkwire_protocol::ChatMessage) -> &'static str {
+    match message {
+        darkwire_protocol::ChatMessage::System(_) => "system",
+        darkwire_protocol::ChatMessage::User(_) => "user",
+        darkwire_protocol::ChatMessage::Assistant(_) => "assistant",
+        darkwire_protocol::ChatMessage::Tool(_) => "tool",
+    }
 }
 
 /// The `/context` breakdown.
@@ -1028,121 +1156,6 @@ fn format_context(report: &darkwire_agent::ContextReport, locale: &str) -> Strin
         ),
     ]
     .join("\n")
-}
-
-fn stats_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let limit = positive_count(argv.first()).unwrap_or(DEFAULT_STATS_LINES);
-    let rows = ctx
-        .runtime
-        .store()
-        .turn_stats(ctx.session_key, Some(limit))?;
-    if rows.is_empty() {
-        let note = ctx.t.t(keys::slash::notes::NO_TURNS);
-        ctx.renderer.note(&note);
-        return Ok(SlashOutcome::Continue);
-    }
-    ctx.renderer.stats(&rows);
-    Ok(SlashOutcome::Continue)
-}
-
-// What a turn shows
-
-/// The parts of a turn that can be turned off, and how to read each one.
-///
-/// A table rather than a `match`, because `/output` with no argument has to
-/// list them — and a listing derived from the same place the command reads
-/// cannot go out of step with what the command accepts.
-///
-/// The names are what an operator types, so they are syntax and not prose.
-const OUTPUT_FIELDS: [&str; 2] = ["reasoning", "stats"];
-
-/// Whether one field is currently shown.
-fn output_shown(field: &str, renderer: &TurnRenderer) -> Option<bool> {
-    match field {
-        "reasoning" => Some(renderer.reasoning_shown()),
-        "stats" => Some(renderer.stats_shown()),
-        _ => None,
-    }
-}
-
-/// Shows or hides one field. Silently ignores a name nothing knows, which the
-/// caller has already refused.
-fn output_set(field: &str, renderer: &mut TurnRenderer, on: bool) {
-    match field {
-        "reasoning" => renderer.set_reasoning_shown(on),
-        "stats" => renderer.set_stats_shown(on),
-        _ => {}
-    }
-}
-
-/// `/output` — what a turn prints, and what it does not.
-///
-/// One command rather than one per switch. The next thing worth hiding is then
-/// a row in the table above rather than a new verb, a new help line and a new
-/// pair of keys — and the bare form listing what is on is what makes the
-/// switches discoverable at all, which two separate commands never were.
-///
-/// Naming a field with no word flips it, which is what a hand reaching for a
-/// switch expects; `on` and `off` say it outright, for one that has lost track.
-/// The setting lasts as long as the process: `--no-reasoning` is how a script
-/// says it once, and a prompt asking to see less for the next few turns has not
-/// made a decision worth writing to `config.yaml`.
-fn output_command(
-    field: Option<&str>,
-    word: Option<&str>,
-    ctx: &mut SlashContext<'_>,
-) -> Result<SlashOutcome> {
-    let Some(field) = field else {
-        let column = OUTPUT_FIELDS
-            .iter()
-            .map(|name| visible_width(name))
-            .max()
-            .unwrap_or(0);
-        let text = OUTPUT_FIELDS
-            .iter()
-            .map(|name| {
-                let shown = output_shown(name, ctx.renderer).unwrap_or(false);
-                let state = ctx.t.t(if shown {
-                    keys::slash::notes::SHOWN
-                } else {
-                    keys::slash::notes::HIDDEN
-                });
-                format!("  {}  {state}", pad_to_width(name, column))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        ctx.renderer.note(&text);
-        return Ok(SlashOutcome::Continue);
-    };
-
-    let Some(shown) = output_shown(field, ctx.renderer) else {
-        return Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.tr(
-                keys::slash::errors::NO_OUTPUT_FIELD,
-                args!["field" => field],
-            ),
-        ));
-    };
-
-    let wanted = match word {
-        Some("on") => true,
-        Some("off") => false,
-        // A word it does not know is a flip rather than a refusal: the hand
-        // reaching for the switch has already said which switch.
-        _ => !shown,
-    };
-    output_set(field, ctx.renderer, wanted);
-    let note = ctx.t.tr(
-        if wanted {
-            keys::slash::notes::OUTPUT_SHOWN
-        } else {
-            keys::slash::notes::OUTPUT_HIDDEN
-        },
-        args!["field" => field],
-    );
-    ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
 }
 
 // Agents
@@ -1578,25 +1591,132 @@ fn parse_sample(field: SampleField, raw: &str, t: &Translations) -> Result<Sampl
 
 // Memory and skills
 
-/// `/memory`, and its two verbs.
+/// `/memory` — what this workspace remembers, and the key that stops it.
 ///
-/// The switch is the `memory` tool's permission, not a setting of its own. That
-/// is why `on`/`off` reconfigure rather than writing to the session row: the
-/// capability belongs to the agent, and a session-scoped override would be a
-/// second source of truth for one question.
+/// **`/memory on|off` is gone.** The switch lives on the window now, beside the
+/// thing it switches: a command spelled out to do what a key does while you are
+/// looking at the list is the second name for one thing, which is what
+/// `/sessions`, `/workspaces` and `/tasks clear` just lost.
+///
+/// The switch is the `memory` tool's permission, not a setting of its own, so
+/// flipping it reconfigures the agent rather than writing to the session row:
+/// the capability belongs to the agent, and a session-scoped override would be
+/// a second source of truth for one question.
 ///
 /// There is no verb that folds a conversation into memory. The memory folder
 /// holds facts about a workspace, and a summary of one session is not one of
 /// those.
-fn memory_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    match argv.first().map(String::as_str) {
-        None => memory_status(ctx),
-        Some(verb @ ("on" | "off")) => set_memory_permission(verb == "on", ctx),
-        Some(_) => Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.t(keys::slash::errors::USAGE_MEMORY),
-        )),
+async fn memory_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    let agent_id = memory_agent_id(ctx)?;
+    let granted = tool_granted(ctx, &agent_id, "memory");
+
+    let memories = if granted {
+        let workspace = workspace_of_session(ctx)?;
+        let jail = ctx.runtime.jails().for_workspace(&workspace);
+        read_memories(jail.root())
+    } else {
+        Vec::new()
+    };
+
+    // A pipe gets the sentence it always got, and no way to flip the switch:
+    // the switch is a key on a window, and there is no window.
+    //
+    // Nothing remembered gets the sentence too, but only while the tool is on.
+    // A window whose one row is "nothing here" is a screenful saying nothing —
+    // except when it is off, because then that row is the only way to reach
+    // the switch that turns it on. Same rule the skills window follows.
+    if !ctx.menu.available() || (granted && memories.is_empty()) {
+        ctx.renderer
+            .note(&memory_summary(&agent_id, &memories, granted, ctx));
+        return Ok(SlashOutcome::Continue);
     }
+
+    let summary = memory_summary(&agent_id, &memories, granted, ctx);
+    let mut at = None;
+    loop {
+        match show_memories(ctx.menu, &memories, &summary, granted, at, ctx.t).await {
+            None => return Ok(SlashOutcome::Continue),
+            Some(MemoryChoice::Toggle) => return set_tool_permission("memory", !granted, ctx),
+            Some(MemoryChoice::Read(row)) => {
+                let Some(memory) = memories.get(row) else {
+                    return Ok(SlashOutcome::Continue);
+                };
+                read_document(&memory.key, &memory.content, ctx).await;
+                // Back on the row it was read from, rather than at the top.
+                at = Some(row);
+            }
+        }
+    }
+}
+
+/// One document, over the window, exactly as it is on disk.
+///
+/// Its own overlay rather than a tab of the list it came from: the list is
+/// reminders and this is the thing itself, and laying every file out as a tab
+/// would be a tab bar as long as the folder.
+///
+/// Shared by the memories and the skills windows, which ask the same question
+/// of two folders.
+async fn read_document(title: &str, body: &str, ctx: &SlashContext<'_>) {
+    let width = columns_or_default(terminal_columns())
+        .saturating_sub(OVERLAY_GUTTER)
+        .max(20);
+    let rows = body
+        .lines()
+        .flat_map(|line| wrap_to_width(line, width))
+        .map(|line| format!("  {line}"))
+        .collect();
+    ctx.menu
+        .show(ListingRequest {
+            pages: vec![Page {
+                title: title.to_owned(),
+                rows,
+            }],
+            labels: PagesLabels {
+                footer: ctx.t.t(keys::slash::help::FOOTER),
+            },
+        })
+        .await;
+}
+
+/// The count and what the index costs, or why there is neither.
+fn memory_summary(
+    agent_id: &str,
+    memories: &[darkwire_core::memory::Memory],
+    granted: bool,
+    ctx: &SlashContext<'_>,
+) -> String {
+    if !granted {
+        return ctx
+            .t
+            .tr(keys::slash::notes::MEMORY_OFF, args!["agent" => agent_id]);
+    }
+    if memories.is_empty() {
+        return ctx.t.tr(
+            keys::slash::notes::MEMORY_EMPTY,
+            args!["path" => MEMORY_DIRNAME],
+        );
+    }
+    let index = memories
+        .iter()
+        .map(index_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let tokens = format_number(
+        i64::try_from(estimate_tokens(&index)).unwrap_or(i64::MAX),
+        ctx.t.locale().as_str(),
+    );
+    // A count and what the index costs, which are the two numbers an operator
+    // can act on. The line this replaced measured one file, and there is no one
+    // file.
+    ctx.t.tr(
+        keys::slash::notes::MEMORY_COUNT,
+        args![
+            "count" => memories.len(),
+            "path" => MEMORY_DIRNAME,
+            "tokens" => tokens.as_str(),
+        ],
+    )
 }
 
 /// Which agent this conversation runs on, whether or not it has spoken yet.
@@ -1633,60 +1753,13 @@ fn tool_granted(ctx: &SlashContext<'_>, agent_id: &str, tool: &str) -> bool {
         .is_some_and(|permission| permission != ToolPermission::Deny)
 }
 
-fn memory_status(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let agent_id = memory_agent_id(ctx)?;
-
-    if !tool_granted(ctx, &agent_id, "memory") {
-        let note = ctx.t.tr(
-            keys::slash::notes::MEMORY_OFF,
-            args!["agent" => agent_id.as_str()],
-        );
-        ctx.renderer.note(&note);
-        return Ok(SlashOutcome::Continue);
-    }
-
-    let workspace = workspace_of_session(ctx)?;
-    let jail = ctx.runtime.jails().for_workspace(&workspace);
-    let memories = read_memories(jail.root());
-
-    // A count and what the index costs, which are the two numbers an operator
-    // can act on. The line this replaced measured one file, and there is no one
-    // file.
-    let note = if memories.is_empty() {
-        ctx.t.tr(
-            keys::slash::notes::MEMORY_EMPTY,
-            args!["path" => MEMORY_DIRNAME],
-        )
-    } else {
-        let index = memories
-            .iter()
-            .map(index_line)
-            .collect::<Vec<_>>()
-            .join("\n");
-        let tokens = format_number(
-            i64::try_from(estimate_tokens(&index)).unwrap_or(i64::MAX),
-            ctx.t.locale().as_str(),
-        );
-        ctx.t.tr(
-            keys::slash::notes::MEMORY_COUNT,
-            args![
-                "count" => memories.len(),
-                "path" => MEMORY_DIRNAME,
-                "tokens" => tokens.as_str(),
-            ],
-        )
-    };
-    ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
-}
-
-/// Flips the `memory` permission on this conversation's agent.
+/// Flips one tool's permission on this conversation's agent.
 ///
 /// **The whole entry is rewritten, not patched.** `agents.list.*` replaces
 /// wholesale, so sending the one permission would delete every other permission
 /// and every other override this agent holds. The effective map is read back
 /// first and written whole.
-fn set_memory_permission(on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+fn set_tool_permission(tool: &str, on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let agent_id = memory_agent_id(ctx)?;
     let agents = ctx.runtime.agents();
     let Some(agent) = agents.iter().find(|entry| entry.id == agent_id) else {
@@ -1708,7 +1781,7 @@ fn set_memory_permission(on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOu
         .unwrap_or_default();
     let mut tools = agent.tools.clone();
     tools.insert(
-        "memory".to_owned(),
+        tool.to_owned(),
         if on {
             ToolPermission::Allow
         } else {
@@ -1737,63 +1810,109 @@ fn set_memory_permission(on: bool, ctx: &mut SlashContext<'_>) -> Result<SlashOu
     Ok(SlashOutcome::Continue)
 }
 
-/// The workspace's skills, as a list.
+/// `/skills` — the sheets this workspace holds, and the key that stops them.
 ///
 /// The catalogue is already in the prompt, so this is not what tells the
-/// *model* about a skill — the agent opens the sheet itself when the
-/// description says it applies. It is what tells the person which sheets this
-/// workspace holds.
-fn skills_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+/// *model* about a sheet — the agent opens one itself when the description says
+/// it applies. It is what tells the person which sheets this workspace holds,
+/// and lets them read one.
+///
+/// **Read-only.** There is no `save_skill` or `delete_skill` to call: a skill
+/// is a directory a person commits beside the project it describes, and it may
+/// hold a checklist or a script beside its `SKILL.md`. Removing one means
+/// removing a tree somebody put files in, which is not a keystroke.
+async fn skills_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     let agent_id = memory_agent_id(ctx)?;
-
     // The same gate the contributor uses, and the same reason: a denial takes
-    // the catalogue out of the prompt, so listing sheets would be listing
-    // something this agent cannot reach. Absent counts as denied.
-    if !tool_granted(ctx, &agent_id, "skill") {
-        let note = ctx.t.tr(
-            keys::slash::notes::SKILLS_OFF,
-            args!["agent" => agent_id.as_str()],
-        );
-        ctx.renderer.note(&note);
-        return Ok(SlashOutcome::Continue);
-    }
+    // the catalogue out of the prompt. Absent counts as denied.
+    let granted = tool_granted(ctx, &agent_id, "skill");
 
     let workspace = workspace_of_session(ctx)?;
     let jail = ctx.runtime.jails().for_workspace(&workspace);
     let skills = read_skills(jail.root());
+    let summary = skills_summary(&agent_id, &skills, granted, ctx);
 
-    let text = if skills.is_empty() {
-        ctx.t.tr(
+    if !ctx.menu.available() || skills.is_empty() {
+        ctx.renderer.note(&if skills.is_empty() {
+            summary
+        } else {
+            skills_listing(&skills, &agent_id, ctx)
+        });
+        return Ok(SlashOutcome::Continue);
+    }
+
+    // Built once: the scope note is the same on every opening, and a sheet is
+    // not going to change scope while somebody is reading it.
+    let items: Vec<SelectItem<usize>> = skill_items(&skills, &agent_id, &summary)
+        .into_iter()
+        .enumerate()
+        .map(|(row, mut item)| {
+            // The first row is the summary, so a sheet's own index is one less.
+            let Some(skill) = row.checked_sub(1).and_then(|at| skills.get(at)) else {
+                return item;
+            };
+            if let Some(note) = out_of_scope(skill, &agent_id, ctx.t) {
+                item.hint = Some(format!("{}  ·  {note}", skill.description));
+            }
+            item
+        })
+        .collect();
+
+    let mut at = None;
+    loop {
+        match show_skills(ctx.menu, items.clone(), granted, at, ctx.t).await {
+            None => return Ok(SlashOutcome::Continue),
+            Some(SkillChoice::Toggle) => return set_tool_permission("skill", !granted, ctx),
+            Some(SkillChoice::Read(row)) => {
+                let Some(skill) = skills.get(row) else {
+                    return Ok(SlashOutcome::Continue);
+                };
+                read_document(&skill.name, &skill.body, ctx).await;
+                at = Some(row);
+            }
+        }
+    }
+}
+
+/// How many sheets there are, or why there are none to reach.
+fn skills_summary(
+    agent_id: &str,
+    skills: &[Skill],
+    granted: bool,
+    ctx: &SlashContext<'_>,
+) -> String {
+    if !granted {
+        return ctx
+            .t
+            .tr(keys::slash::notes::SKILLS_OFF, args!["agent" => agent_id]);
+    }
+    if skills.is_empty() {
+        return ctx.t.tr(
             keys::slash::notes::SKILLS_EMPTY,
             args!["path" => SKILLS_DIRNAME],
-        )
-    } else {
-        skills
-            .iter()
-            .map(|skill| {
-                // Every sheet, with the ones out of scope marked rather than
-                // hidden. This is what the workspace holds, and somebody
-                // running `/skills` because a sheet is not working needs to see
-                // it and be told why — not to find it missing from a list too.
-                let scoped = !skill.agents.is_empty() && !skill.agents.contains(&agent_id);
-                let suffix = if scoped {
-                    format!(
-                        "  ·  {}",
-                        ctx.t.tr(
-                            keys::slash::notes::SKILLS_SCOPE,
-                            args!["agents" => skill.agents.join(", ")],
-                        )
-                    )
-                } else {
-                    String::new()
-                };
-                format!("{}  ·  {}{suffix}", skill.name, skill.description)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    ctx.renderer.note(&text);
-    Ok(SlashOutcome::Continue)
+        );
+    }
+    ctx.t.tr(
+        keys::slash::notes::SKILLS_COUNT,
+        args!["count" => skills.len(), "path" => SKILLS_DIRNAME],
+    )
+}
+
+/// Every sheet as one row, with the ones out of this agent's catalogue marked.
+///
+/// Marked rather than hidden. This is what the workspace holds, and somebody
+/// running `/skills` because a sheet is not working needs to see it and be told
+/// why — not to find it missing from a list too.
+fn skills_listing(skills: &[Skill], agent_id: &str, ctx: &SlashContext<'_>) -> String {
+    skills
+        .iter()
+        .map(|skill| {
+            let suffix = out_of_scope(skill, agent_id, ctx.t)
+                .map_or_else(String::new, |note| format!("  ·  {note}"));
+            format!("{}  ·  {}{suffix}", skill.name, skill.description)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // Tasks
@@ -1806,7 +1925,7 @@ fn plan_rows(tasks: &[darkwire_protocol::tasks::TaskItem]) -> Vec<(TaskStatus, S
         .collect()
 }
 
-/// `/tasks`, and `/tasks clear`.
+/// `/tasks` — the plan, over the prompt, with a key that empties it.
 ///
 /// The store directly, with no loop involved, for the reason `/context` reaches
 /// its primitive: the list is a property of the conversation, and a terminal
@@ -1815,103 +1934,151 @@ fn plan_rows(tasks: &[darkwire_protocol::tasks::TaskItem]) -> Vec<(TaskStatus, S
 /// The markers are the ones the prompt uses rather than the terminal's ticks,
 /// because this answers "what does the model see" and the answer should look
 /// like it.
-fn tasks_command(action: Option<&str>, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let store = ctx.runtime.store();
+///
+/// **`/tasks clear` is gone, and so is dropping one task.** The verb lives on
+/// the list now: a command spelled out to do what a key in the window does is
+/// the second name for one thing that `/session` and `/workspace` just lost.
+/// Dropping a single task went with it — the `todo` tool replaces the whole
+/// list on its next planning step, so a task removed by hand comes straight
+/// back, and a gesture that does not hold is worse than no gesture.
+async fn tasks_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    let tasks = ctx.runtime.store().tasks(ctx.session_key)?;
+    ctx.renderer.plan(&plan_rows(&tasks));
 
-    if action == Some("clear") {
-        store.set_tasks(ctx.session_key, &[])?;
-        // The store and the frame both, because the frame's copy is not read
-        // from the store on every draw: clearing one and not the other leaves
-        // a plan above the composer that nothing is running.
-        ctx.renderer.plan(&[]);
-        let note = ctx.t.t(keys::slash::notes::TASKS_CLEARED);
-        ctx.renderer.note(&note);
+    // An empty plan is a sentence, not a screen. A list drawn over the window
+    // to say "nothing matches" is a screenful saying nothing.
+    if !ctx.menu.available() || tasks.is_empty() {
+        let text = if tasks.is_empty() {
+            ctx.t.t(keys::slash::notes::TASKS_EMPTY)
+        } else {
+            render_tasks(&tasks)
+        };
+        ctx.renderer.note(&text);
         return Ok(SlashOutcome::Continue);
     }
 
-    let tasks = store.tasks(ctx.session_key)?;
-    ctx.renderer.plan(&plan_rows(&tasks));
-    let text = if tasks.is_empty() {
-        ctx.t.t(keys::slash::notes::TASKS_EMPTY)
-    } else {
-        render_tasks(&tasks)
-    };
-    ctx.renderer.note(&text);
+    if !show_tasks(ctx.menu, &tasks, ctx.t).await {
+        return Ok(SlashOutcome::Continue);
+    }
+
+    ctx.runtime.store().set_tasks(ctx.session_key, &[])?;
+    // The store and the frame both, because the frame's copy is not read from
+    // the store on every draw: clearing one and not the other leaves a plan
+    // above the composer that nothing is running.
+    ctx.renderer.plan(&[]);
+    let note = ctx.t.t(keys::slash::notes::TASKS_CLEARED);
+    ctx.renderer.note(&note);
     Ok(SlashOutcome::Continue)
 }
 
 // Workspaces
 
-fn workspaces_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let store = ctx.runtime.store();
-    let current = match ctx.workspace_id.clone() {
-        Some(id) => Some(id),
-        None => store
-            .get_session(ctx.session_key)?
-            .map(|session| session.workspace_id),
-    };
-    let mut lines = Vec::new();
-    for workspace in ctx.runtime.workspaces().list()? {
-        let mark = if Some(&workspace.id) == current.as_ref() {
-            '*'
-        } else {
-            ' '
-        };
-        let count = store.count_by_workspace(&workspace.id)?;
-        lines.push(format!(
-            "{mark} {}  ·  {}  ·  {count} sessions",
-            workspace.id, workspace.name
-        ));
-    }
-    let text = lines.join("\n");
-    ctx.renderer.note(&text);
-    Ok(SlashOutcome::Continue)
-}
-
+/// `/workspace`, and `/workspace <id>`.
+///
+/// **The verbs are gone from the command.** `new`, `rename`, `rm` and `move`
+/// were four spellings of things the manager can do while you are looking at
+/// the rows they act on, which is the same duplication `/sessions` and
+/// `/workspaces` were. What is left is the window, and an id for a script.
 async fn workspace_command(argv: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let verb = argv.first().map(String::as_str);
-    let rest = argv.get(1..).unwrap_or(&[]);
-
-    match verb {
-        None => workspace_pending(ctx).await,
-        Some("new") => workspace_new(rest, ctx),
-        Some("rename") => workspace_rename(rest, ctx),
-        Some("rm") => workspace_rm(rest, ctx),
-        Some("move") => workspace_move(rest, ctx),
-        // Not a verb, so it is an id: `/workspace <id>` switches.
+    match argv.first() {
+        None => workspace_manager(ctx).await,
         Some(id) => switch_workspace(id, ctx),
     }
 }
 
-/// Bare `/workspace` — a picker on a terminal, the note everywhere else.
-async fn workspace_pending(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let pending = ctx
-        .workspace_id
-        .clone()
-        .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned());
-    if ctx.menu.available() {
-        let workspaces = ctx.runtime.workspaces().list()?;
-        let chosen = pick_workspace(ctx.menu, &workspaces, Some(&pending), ctx.t).await;
-        if let Some(chosen) = chosen {
-            return switch_workspace(&chosen, ctx);
+/// Bare `/workspace` — the manager on a terminal, the listing on a pipe.
+///
+/// One name for one subject, the way `/session` is. `/workspaces` listed and
+/// `/workspace` switched, which put the answer to "what is there" and the way
+/// to act on it behind two names; now the listing is the thing you act on.
+async fn workspace_manager(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    if !ctx.menu.available() {
+        let pending = pending_workspace(ctx);
+        let (workspaces, counts) = workspace_rows(ctx)?;
+        ctx.renderer
+            .note(&workspace_listing(&workspaces, &counts, &pending));
+        return Ok(SlashOutcome::Continue);
+    }
+
+    // Re-read and re-open after every verb. The picker layer holds no store on
+    // purpose, so a verb closes the window and this applies it; reopening is
+    // what makes renaming three workspaces one visit rather than three.
+    loop {
+        let pending = pending_workspace(ctx);
+        let (workspaces, counts) = workspace_rows(ctx)?;
+        let Some((row, verb)) =
+            manage_workspaces(ctx.menu, &workspaces, &counts, Some(&pending), ctx.t).await
+        else {
+            return Ok(SlashOutcome::Continue);
+        };
+
+        let id = match row {
+            WorkspaceRow::New => {
+                workspace_new(ctx).await?;
+                continue;
+            }
+            WorkspaceRow::Workspace(id) => id,
+        };
+        match verb {
+            // Switching is the answer to the question the list asks, so it is
+            // the one verb that closes it.
+            None => return switch_workspace(&id, ctx),
+            Some(WorkspaceVerb::Rename) => workspace_rename(&id, &workspaces, ctx).await?,
+            // Whether it went or was refused, the list comes back: the loop
+            // re-reads it either way, so there is nothing to answer with.
+            Some(WorkspaceVerb::Remove) => workspace_remove(&id, ctx).await?,
+            Some(WorkspaceVerb::Move) => workspace_move(&id, &workspaces, ctx).await?,
         }
     }
-    let note = ctx.t.tr(
-        keys::slash::notes::LAND_IN,
-        args!["workspace" => pending.as_str()],
-    );
-    ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
 }
 
-fn workspace_new(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let name = rest.join(" ").trim().to_owned();
-    if name.is_empty() {
-        return Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_NEW),
-        ));
+/// Where new sessions land, which is what the list marks.
+fn pending_workspace(ctx: &SlashContext<'_>) -> String {
+    ctx.workspace_id
+        .clone()
+        .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned())
+}
+
+/// Every workspace and how many sessions are in it, in registry order.
+fn workspace_rows(ctx: &SlashContext<'_>) -> Result<(Vec<WorkspaceRecord>, Vec<usize>)> {
+    let workspaces = ctx.runtime.workspaces().list()?;
+    let mut counts = Vec::with_capacity(workspaces.len());
+    for workspace in &workspaces {
+        counts.push(ctx.runtime.store().count_by_workspace(&workspace.id)?);
     }
+    Ok((workspaces, counts))
+}
+
+/// Every workspace as one row, with the one new sessions land in marked.
+fn workspace_listing(workspaces: &[WorkspaceRecord], counts: &[usize], current: &str) -> String {
+    workspaces
+        .iter()
+        .enumerate()
+        .map(|(at, workspace)| {
+            let mark = if workspace.id == current { '*' } else { ' ' };
+            let count = counts.get(at).copied().unwrap_or_default();
+            format!(
+                "{mark} {}  ·  {}  ·  {count} sessions",
+                workspace.id, workspace.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The name of the workspace `id`, for a question to open on.
+fn name_of(workspaces: &[WorkspaceRecord], id: &str) -> String {
+    workspaces
+        .iter()
+        .find(|workspace| workspace.id == id)
+        .map_or_else(|| id.to_owned(), |workspace| workspace.name.clone())
+}
+
+/// Asks for a name and makes one. A blank answer makes nothing.
+async fn workspace_new(ctx: &mut SlashContext<'_>) -> Result<()> {
+    let Some(name) = ask_for(ctx, keys::menu::titles::WORKSPACE_NAME, "").await else {
+        return Ok(());
+    };
     let created = ctx.runtime.workspaces().create(CreateWorkspace {
         name,
         ..CreateWorkspace::default()
@@ -1921,83 +2088,117 @@ fn workspace_new(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOut
         args!["id" => created.id.as_str()],
     );
     ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
+    Ok(())
 }
 
-fn workspace_rename(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let id = rest.first();
-    let name = rest.get(1..).unwrap_or(&[]).join(" ").trim().to_owned();
-    let (Some(id), false) = (id, name.is_empty()) else {
-        return Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_RENAME),
-        ));
+/// Asks for another name and puts it on. Nothing on disk moves.
+async fn workspace_rename(
+    id: &str,
+    workspaces: &[WorkspaceRecord],
+    ctx: &mut SlashContext<'_>,
+) -> Result<()> {
+    // Opened on the name it has: a rename is nearly always a correction to the
+    // name being replaced rather than a different one altogether.
+    let was = name_of(workspaces, id);
+    let Some(name) = ask_for(ctx, keys::menu::titles::WORKSPACE_NAME, &was).await else {
+        return Ok(());
     };
     ctx.runtime.workspaces().rename(id, &name)?;
     let note = ctx.t.tr(
         keys::slash::notes::RENAMED_WORKSPACE,
-        args!["id" => id.as_str(), "name" => name.as_str()],
+        args!["id" => id, "name" => name.as_str()],
     );
     ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
+    Ok(())
 }
 
-/// `/workspace rm <id>` — detach, and only when nothing still names it.
+/// Asks, then detaches — and only when nothing still names it.
 ///
 /// The same refusal the web manager makes, and for the same reason: a detached
 /// workspace whose conversations still name it would leave them resolving to
-/// files nothing lists. Two explicit steps, not one silent one.
-fn workspace_rm(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let Some(id) = rest.first() else {
-        return Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_RM),
-        ));
-    };
+/// files nothing lists. The count is on the row, so the refusal is visible
+/// before the key is pressed rather than after.
+async fn workspace_remove(id: &str, ctx: &mut SlashContext<'_>) -> Result<()> {
     let count = ctx.runtime.store().count_by_workspace(id)?;
     if count > 0 {
-        return Err(WireError::new(
-            ErrorKind::Conflict,
-            ctx.t.tr(
-                keys::slash::errors::WORKSPACE_IN_USE,
-                args!["count" => count, "id" => id.as_str()],
-            ),
-        ));
+        let warning = ctx.t.tr(
+            keys::slash::errors::WORKSPACE_IN_USE,
+            args!["count" => count, "id" => id],
+        );
+        ctx.renderer.warn(&warning);
+        return Ok(());
+    }
+    if !confirm(ctx, keys::menu::titles::REMOVE_WORKSPACE, id).await {
+        return Ok(());
     }
     ctx.runtime.workspaces().delete(id)?;
-    let note = ctx
-        .t
-        .tr(keys::slash::notes::DETACHED, args!["id" => id.as_str()]);
+    let note = ctx.t.tr(keys::slash::notes::DETACHED, args!["id" => id]);
     ctx.renderer.note(&note);
-    if ctx.workspace_id.as_deref() == Some(id.as_str()) {
+    if ctx.workspace_id.as_deref() == Some(id) {
         *ctx.workspace_id = None;
     }
-    Ok(SlashOutcome::Continue)
+    Ok(())
 }
 
-fn workspace_move(rest: &[String], ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
-    let (Some(from), Some(to)) = (rest.first(), rest.get(1)) else {
-        return Err(WireError::new(
-            ErrorKind::InvalidInput,
-            ctx.t.t(keys::slash::errors::USAGE_WORKSPACE_MOVE),
-        ));
-    };
-    if ctx.runtime.workspaces().get(to)?.is_none() {
-        return Err(WireError::new(
-            ErrorKind::NotFound,
-            ctx.t.tr(
-                keys::slash::errors::NO_WORKSPACE,
-                args!["id" => to.as_str()],
-            ),
-        ));
+/// Asks where to, then sends every session there.
+async fn workspace_move(
+    from: &str,
+    workspaces: &[WorkspaceRecord],
+    ctx: &mut SlashContext<'_>,
+) -> Result<()> {
+    let elsewhere: Vec<WorkspaceRecord> = workspaces
+        .iter()
+        .filter(|workspace| workspace.id != from)
+        .cloned()
+        .collect();
+    if elsewhere.is_empty() {
+        ctx.renderer
+            .warn(&ctx.t.t(keys::slash::errors::NOWHERE_TO_MOVE));
+        return Ok(());
     }
-    let moved = ctx.runtime.store().reassign_workspace(from, to)?;
+    let Some(to) = pick_destination(ctx.menu, &elsewhere, ctx.t).await else {
+        return Ok(());
+    };
+    let moved = ctx.runtime.store().reassign_workspace(from, &to)?;
     let note = ctx.t.tr(
         keys::slash::notes::MOVED,
-        args!["count" => moved, "from" => from.as_str(), "to" => to.as_str()],
+        args!["count" => moved, "from" => from, "to" => to.as_str()],
     );
     ctx.renderer.note(&note);
-    Ok(SlashOutcome::Continue)
+    Ok(())
+}
+
+/// One line typed into the window, trimmed, or nothing for a blank answer.
+async fn ask_for(ctx: &SlashContext<'_>, title: &'static str, initial: &str) -> Option<String> {
+    let answer = ctx
+        .menu
+        .ask(AskRequest {
+            title: ctx.t.t(title),
+            initial: initial.to_owned(),
+        })
+        .await?;
+    let trimmed = answer.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// A yes or a no, as two rows rather than a typed word.
+async fn confirm(ctx: &SlashContext<'_>, title: &'static str, id: &str) -> bool {
+    let items = vec![
+        SelectItem::new(false, &ctx.t.t(keys::menu::NO)),
+        SelectItem::new(true, &ctx.t.t(keys::menu::YES)),
+    ];
+    // Opened on "no". A confirmation whose dangerous answer is one Return away
+    // is a confirmation in name only.
+    choose_from(
+        ctx.menu,
+        items,
+        &ctx.t.tr(title, args!["id" => id]),
+        Some(0),
+        ctx.t,
+        Placement::Window,
+    )
+    .await
+    .unwrap_or(false)
 }
 
 /// `/workspace <id>`, and what the picker resolves to.
@@ -2079,81 +2280,6 @@ async fn extension_command(
 }
 
 // Adapters and small helpers
-
-/// A [`crate::menu::Menu`] behind the asynchronous trait the pickers use.
-///
-/// The frame's own menu is synchronous and takes `&mut self`, because the frame
-/// owner draws rows and reads keystrokes in one place. The pickers need `&self`
-/// and a future, because a command holds the renderer while it opens one. The
-/// lock is what reconciles the two, and it is never contended: a prompt opens
-/// one menu at a time by construction.
-pub struct SyncMenu<M> {
-    inner: Mutex<M>,
-}
-
-impl<M: Menu + Send> SyncMenu<M> {
-    /// Wraps one frame menu.
-    pub fn new(menu: M) -> SyncMenu<M> {
-        SyncMenu {
-            inner: Mutex::new(menu),
-        }
-    }
-}
-
-impl<M> std::fmt::Debug for SyncMenu<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SyncMenu")
-    }
-}
-
-impl<M: Menu + Send> PickerMenu for SyncMenu<M> {
-    fn available(&self) -> bool {
-        self.inner.lock().is_ok_and(|menu| menu.available())
-    }
-
-    fn choose<'a>(
-        &'a self,
-        request: MenuRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<usize>> + Send + 'a>> {
-        let rows = request
-            .items
-            .iter()
-            .map(|item| crate::menu::MenuRow {
-                label: item.label.clone(),
-                hint: item.hint.clone(),
-                keywords: item.keywords.clone(),
-                disabled: item.disabled,
-            })
-            .collect();
-        let mut framed = crate::menu::MenuRequest::new(rows, request.labels);
-        framed.index = request.index;
-        let chosen = self
-            .inner
-            .lock()
-            .ok()
-            .and_then(|mut menu| menu.choose(framed));
-        Box::pin(std::future::ready(chosen))
-    }
-
-    /// Nothing. This wrapper exists for the scripted paths, which have a menu
-    /// they can answer and no screen to lay a listing over.
-    fn show<'a>(
-        &'a self,
-        request: crate::pickers::ListingRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        drop(request);
-        Box::pin(std::future::ready(false))
-    }
-}
-
-/// A count an operator typed, or nothing when it was not one.
-///
-/// Only a whole number above zero: `/messages 0` and `/messages -3` are
-/// mistakes rather than requests, and falling back to the default is what a
-/// person meant by typing the command at all.
-fn positive_count(value: Option<&String>) -> Option<usize> {
-    value?.parse::<usize>().ok().filter(|count| *count > 0)
-}
 
 /// The same shape the create route mints: an origin and a uuid.
 ///

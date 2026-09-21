@@ -20,7 +20,7 @@ use darkwire_i18n::keys;
 use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
-use crate::pickers::{PickerMenu, choose_from};
+use crate::pickers::{PickerMenu, Placement, choose_from};
 
 /// One command, as the palette needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,7 +111,15 @@ pub async fn pick_command(
     t: &Translations,
 ) -> Option<CommandChoice> {
     let items = command_items(rows, t);
-    choose_from(menu, items, &t.t(keys::menu::titles::COMMAND), None, t).await
+    choose_from(
+        menu,
+        items,
+        &t.t(keys::menu::titles::COMMAND),
+        None,
+        t,
+        Placement::Prompt,
+    )
+    .await
 }
 
 /// Tab completion over the same table the help page uses.

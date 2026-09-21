@@ -32,7 +32,7 @@
 //! exist yet: the wizard is asking about an endpoint the operator has just
 //! typed and has not saved.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::sync::{Arc, Mutex};
 
 use darkwire_core::{
@@ -48,7 +48,7 @@ use darkwire_providers::{
 };
 use darkwire_runtime::{PROVIDER_CREDENTIAL_NAMESPACE, open_vault};
 use darkwire_security::CredentialVault;
-use darkwire_tui::{Palette, TerminalInput, palette_for};
+use darkwire_tui::{Palette, palette_for};
 use tokio_util::sync::CancellationToken;
 
 use crate::Streams;
@@ -232,7 +232,7 @@ pub async fn run(globals: &Globals, env: &Env, streams: &mut Streams) -> Result<
             home: globals.home.clone(),
             env,
             colors: globals.color,
-            interactive: darkwire_tui::StandardInput.is_tty(),
+            interactive: std::io::stdin().is_terminal(),
             reader: &mut reader,
             models: &models,
             credentials: &mut credentials,

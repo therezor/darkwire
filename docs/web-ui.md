@@ -177,7 +177,7 @@ first writes a list and disappears when the list is emptied.
 
 It is fetched from `GET /api/sessions/:key/tasks` rather than read out of the transcript,
 and that is the whole design decision. A `todo` call carries the list in its arguments, so
-reading it there would be one fewer request — but `/tasks clear` from the terminal or a
+reading it there would be one fewer request — but emptying it from the terminal or a
 chat app writes the store and leaves no tool call behind, and a panel built on the
 transcript would go on showing a plan nothing is running. The transcript is used only as
 the signal that the list has moved: the last top-level `todo` call that succeeded.
@@ -185,7 +185,7 @@ the signal that the list has moved: the last top-level `todo` call that succeede
 Top-level, because a subagent runs its own list on its own session, and its calls are
 nested inside the delegating card rather than beside them.
 
-**Clear** empties the list without touching the conversation, which is `/tasks clear` at a
+**Clear** empties the list without touching the conversation, which is `ctrl-x` in `/tasks` at a
 terminal. It is in the body rather than beside the heading because the heading is a
 `summary`, and a `summary` is already a button: a second one inside it would have to
 cancel the disclosure on every click to work at all.

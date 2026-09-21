@@ -37,8 +37,13 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The levels `--log-level` accepts, in the order the help text lists them.
 pub const LOG_LEVELS: [&str; 6] = ["trace", "debug", "info", "warn", "error", "fatal"];
 
-/// The session a `chat` with no `-s` continues.
-pub const DEFAULT_SESSION_KEY: &str = "cli:default";
+/// What a minted conversation key starts with.
+///
+/// A `chat` with no `-s` starts a new conversation rather than continuing one,
+/// so there is no fixed key to name here any more. What there is instead is
+/// the prefix the minted ones carry, which is what makes a conversation
+/// started at the prompt recognisable beside one started anywhere else.
+pub const CLI_SESSION_PREFIX: &str = "cli";
 
 /// Options that apply to every subcommand.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -106,8 +111,8 @@ impl Globals {
 pub struct ChatArgs {
     /// A single turn to run, instead of opening the prompt.
     pub message: Option<String>,
-    /// `-s, --session <key>`.
-    pub session_key: String,
+    /// `-s, --session <key>`, or `None` to start a new conversation.
+    pub session_key: Option<String>,
     /// `-a, --agent <id>`.
     pub agent_id: Option<String>,
     /// `-m, --model <id>`.
@@ -132,7 +137,7 @@ impl Default for ChatArgs {
     fn default() -> ChatArgs {
         ChatArgs {
             message: None,
-            session_key: DEFAULT_SESSION_KEY.to_owned(),
+            session_key: None,
             agent_id: None,
             model: None,
             provider: None,
@@ -460,7 +465,6 @@ fn chat_args(t: &Translations, hidden: bool) -> Vec<Arg> {
             .short('s')
             .long("session")
             .value_name("key")
-            .default_value(DEFAULT_SESSION_KEY)
             .help(t.t(keys::chat::options::SESSION)),
         Arg::new("agent")
             .short('a')
@@ -682,8 +686,7 @@ fn chat_args_of(matches: &ArgMatches) -> ChatArgs {
         } else {
             Some(message)
         },
-        session_key: string_of(matches, "session")
-            .unwrap_or_else(|| DEFAULT_SESSION_KEY.to_owned()),
+        session_key: string_of(matches, "session"),
         agent_id: string_of(matches, "agent"),
         model: string_of(matches, "model"),
         provider: string_of(matches, "provider"),

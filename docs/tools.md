@@ -86,7 +86,9 @@ the other's plan.
 
 Reading it back from somewhere other than the prompt:
 
-- `/tasks`, and `/tasks clear`, at the terminal and in a Telegram chat.
+- `/tasks`, at the terminal and in a Telegram chat. Both open the list to be acted on as
+  well as read: `ctrl-x` at the terminal empties it, and a Telegram chat gets a button
+  that does the same.
 - `GET /api/sessions/{key}/tasks`, which the web UI's panel above the composer reads, and
   `DELETE` on the same path, which its Clear button calls.
 
@@ -101,7 +103,10 @@ transcript has a record of.
 into the fork: the stamp is in the source's sequence space and a fork reseats from 1, so
 the number would point at the wrong message.
 
-Emptying it by hand is `todo` with `tasks: []`, `/tasks clear`, or Clear on the panel.
+Emptying it by hand is `todo` with `tasks: []`, `ctrl-x` in `/tasks`, its button in a
+chat, or Clear on the panel. There is no way to drop a single task, and that is the
+decision rather than the gap: the tool replaces the whole list on its next planning step,
+so one removed by hand is back a moment later.
 
 ### `automation`
 

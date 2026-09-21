@@ -47,8 +47,9 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { SearchFilter } from '@/components/ui/search-filter.js';
-import { newSession } from '@/lib/connection.js';
+import { newSession, startFreshSession } from '@/lib/connection.js';
 import { useFormat } from '@/lib/use-format.js';
+import { useTurnStore } from '@/state/turn.js';
 import { useAgent } from '@/agents/agent-context.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 import {
@@ -109,6 +110,9 @@ export function SessionsRoute(): JSX.Element {
 
   const rename = useRenameSession();
   const remove = useDeleteSession();
+
+  // The session the socket is on, which is not necessarily one of these rows.
+  const attached = useTurnStore((state) => state.sessionKey);
 
   const total = sessions.data?.total ?? 0;
   const pagination = page.withTotal(total);
@@ -283,9 +287,14 @@ export function SessionsRoute(): JSX.Element {
         pending={remove.pending}
         onConfirm={() => {
           if (pendingDelete === undefined) return;
-          remove.mutate(pendingDelete.key, {
+          const { key } = pendingDelete;
+          remove.mutate(key, {
             onSuccess: () => {
               setPendingDelete(undefined);
+              // Attached but not on screen: this page is a list, not the
+              // conversation. Moving the socket clears the transcript without
+              // moving the reader off the list they are working through.
+              if (key === attached) startFreshSession(workspaceId, agentId);
             },
           });
         }}

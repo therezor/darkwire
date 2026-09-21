@@ -1836,6 +1836,14 @@ impl AgentLoop {
         let token = turn.scope.token.clone();
         let mut stream = self.inner.provider.stream(request, token.clone());
         let mut result: Option<ChatResult> = None;
+        // The reasoning window: opened by the first chunk of it and closed by
+        // the first word of the answer, which is where a reader watching the
+        // stream sees the run end. Measured here because this is the only
+        // place the chunks are timed at all. A provider reports tokens, and a
+        // clock started when a prompt opened cannot time a run from last week,
+        // so a replayed turn has no figure unless one was stored.
+        let mut reasoning_from: Option<Duration> = None;
+        let mut reasoning_ms: Option<u64> = None;
 
         loop {
             let next = tokio::select! {
@@ -1849,6 +1857,9 @@ impl AgentLoop {
             match event {
                 Ok(ChatStreamEvent::Text(text)) => {
                     if !text.is_empty() {
+                        if let Some(from) = reasoning_from.take() {
+                            reasoning_ms = Some(self.since(from));
+                        }
                         sink.emit(AssistantDelta {
                             tag: darkwire_protocol::AssistantDeltaTag,
                             turn_id: turn.turn_id.clone(),
@@ -1859,6 +1870,7 @@ impl AgentLoop {
                 }
                 Ok(ChatStreamEvent::Reasoning(text)) => {
                     if !text.is_empty() {
+                        reasoning_from.get_or_insert_with(|| self.inner.clock.monotonic());
                         sink.emit(ReasoningDelta {
                             tag: darkwire_protocol::ReasoningDeltaTag,
                             turn_id: turn.turn_id.clone(),
@@ -1909,7 +1921,26 @@ impl AgentLoop {
                 return Streamed::Failed(message);
             }
         };
+        // A turn that reasoned and then called a tool without saying anything
+        // closes its run here instead.
+        if let Some(from) = reasoning_from {
+            reasoning_ms = Some(self.since(from));
+        }
+        let mut result = result;
+        result.message.reasoning_ms = reasoning_ms;
         Streamed::Result(result)
+    }
+
+    /// Milliseconds since a monotonic reading, rounded the way a turn's are.
+    fn since(&self, from: Duration) -> u64 {
+        u64::try_from(
+            self.inner
+                .clock
+                .monotonic()
+                .saturating_sub(from)
+                .as_millis(),
+        )
+        .unwrap_or(u64::MAX)
     }
 
     /// The model answered without calling a tool.

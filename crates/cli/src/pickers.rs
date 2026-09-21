@@ -17,15 +17,18 @@
 
 pub mod agents;
 pub mod effort;
+pub mod memories;
 pub mod models;
 pub mod palette;
 pub mod sessions;
+pub mod skills;
+pub mod tasks;
 pub mod workspaces;
 
 use std::future::Future;
 use std::pin::Pin;
 
-use darkwire_tui::{Page, PagesLabels, SelectItem, SelectLabels};
+use darkwire_tui::{Page, PagesLabels, SelectAction, SelectItem, SelectLabels};
 
 use crate::i18n::Translations;
 
@@ -43,6 +46,51 @@ pub struct MenuRequest {
     pub labels: SelectLabels,
     /// Where the cursor starts.
     pub index: Option<usize>,
+    /// How much of the screen it is worth.
+    pub placement: Placement,
+    /// The verbs a row offers. Empty for a menu that only chooses.
+    pub actions: Vec<SelectAction>,
+}
+
+/// What came back from a menu.
+///
+/// A row, and which of the menu's verbs was fired on it. `None` for the verb
+/// means the row was simply chosen, which is what every menu without actions
+/// ever answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MenuAnswer {
+    /// Which row, by position.
+    pub row: usize,
+    /// Which action, by position among the request's.
+    pub action: Option<usize>,
+}
+
+/// Where a menu is drawn.
+///
+/// A short vocabulary is read at a glance and belongs beside the prompt that
+/// asked for it, where the conversation above stays visible. A long list is
+/// searched instead of read, and five rows of it is a list you filter blind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Placement {
+    /// In the rows under the composer.
+    #[default]
+    Prompt,
+    /// Over the whole window, the way a listing goes.
+    Window,
+}
+
+/// What a question asks a frame to put on the window.
+///
+/// The answer is a line of text, or nothing for a question somebody left. An
+/// empty line is an answer, and refusing it is the caller's business: only the
+/// caller knows whether a blank name is a mistake or a way of saying "no
+/// change".
+#[derive(Debug)]
+pub struct AskRequest {
+    /// The question, already translated.
+    pub title: String,
+    /// Already on the line when it opens, for a rename.
+    pub initial: String,
 }
 
 /// What a listing asks a frame to show.
@@ -73,7 +121,17 @@ pub trait PickerMenu: Send + Sync {
     fn choose<'a>(
         &'a self,
         request: MenuRequest,
-    ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>>;
+
+    /// Puts a question on the window and answers with the line typed into it.
+    ///
+    /// `None` for a question that was left, and for every unavailable one —
+    /// which is why the commands that ask one never open where there is no
+    /// screen to draw it on.
+    fn ask<'a>(
+        &'a self,
+        request: AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>>;
 
     /// Puts a listing into the frame and answers when it closes.
     ///
@@ -102,7 +160,15 @@ impl PickerMenu for NoMenu {
     fn choose<'a>(
         &'a self,
         request: MenuRequest,
-    ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(None))
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
         drop(request);
         Box::pin(std::future::ready(None))
     }
@@ -132,7 +198,7 @@ fn indexed<T>(items: &[SelectItem<T>]) -> Vec<SelectItem<usize>> {
 }
 
 /// The prose every menu in this module carries, differing only in its title.
-fn labels(title: &str, t: &Translations) -> SelectLabels {
+pub fn labels(title: &str, t: &Translations) -> SelectLabels {
     SelectLabels {
         title: title.to_owned(),
         empty: t.t(darkwire_i18n::keys::menu::EMPTY),
@@ -145,20 +211,43 @@ fn labels(title: &str, t: &Translations) -> SelectLabels {
 ///
 /// The one place positions become values again, so no picker has to write the
 /// conversion and none of them can get it wrong in a different way.
-async fn choose_from<T: Clone>(
+pub(crate) async fn choose_from<T: Clone>(
     menu: &dyn PickerMenu,
     items: Vec<SelectItem<T>>,
     title: &str,
     index: Option<usize>,
     t: &Translations,
+    placement: Placement,
 ) -> Option<T> {
+    let (value, _) = act_on(menu, items, title, index, t, placement, Vec::new()).await?;
+    Some(value)
+}
+
+/// The same, for a menu whose rows offer verbs.
+///
+/// Answers the row's value and which verb was fired on it, `None` for a row
+/// that was simply chosen. The caller applies the verb and decides whether to
+/// open the menu again: this layer holds no store, and a picker that could
+/// write to one would be a picker that could run a turn.
+pub(crate) async fn act_on<T: Clone>(
+    menu: &dyn PickerMenu,
+    items: Vec<SelectItem<T>>,
+    title: &str,
+    index: Option<usize>,
+    t: &Translations,
+    placement: Placement,
+    actions: Vec<SelectAction>,
+) -> Option<(T, Option<usize>)> {
     let request = MenuRequest {
         items: indexed(&items),
         labels: labels(title, t),
         index,
+        placement,
+        actions,
     };
-    let at = menu.choose(request).await?;
-    items.get(at).map(|item| item.value.clone())
+    let answer = menu.choose(request).await?;
+    let value = items.get(answer.row).map(|item| item.value.clone())?;
+    Some((value, answer.action))
 }
 
 /// Where a value sits among the rows, for opening the menu on it.

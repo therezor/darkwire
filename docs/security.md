@@ -387,7 +387,7 @@ lets them fill a disk. That single line is also the intended onboarding path —
 bot, read the log, add the id.
 
 Beyond the allowlist, `admins` narrows the commands that reach past one conversation:
-`/model` moves the whole install onto another model, and `/workspace rm|move` rewrites
+`/model` moves the whole install onto another model, and the workspace manager rewrites
 where sessions live. Empty means every allowed sender is an admin, so a single-operator
 install pays nothing for the distinction.
 

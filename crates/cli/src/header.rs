@@ -6,12 +6,10 @@
 //! caller does the looking-up.
 //!
 //! **The frame has a rule above the editor and one below, and they are drawn by
-//! different things.** The one below is part of the status bar, under the
-//! cursor, where a prompt string cannot reach. The one above *is* the prompt —
-//! the only part of the frame written into the scrollback — so the caller takes
-//! the whole prompt block down again when a turn starts and prints the message
-//! itself. That is why the rule is a function here rather than a constant in
-//! the prompt: both halves are the same width, measured the same way.
+//! different things.** The one below is the first row of the status bar; the
+//! one above is [`input_rule`], drawn by the frame itself. That is why the rule
+//! is a function rather than a constant: both halves are the same width,
+//! measured the same way, at whatever width the window is this frame.
 //!
 //! The two rows are laid out with [`justify`], so the fields that change — the
 //! context budget and the model — are the ones anchored to the right edge and
@@ -89,18 +87,26 @@ pub struct HeaderView {
     pub workspace_name: String,
     /// The conversation's title, falling back to its key.
     pub session: String,
+    /// The key itself, which is what every command naming a session takes.
+    ///
+    /// Beside the title rather than instead of it. The title is what a person
+    /// recognises and the key is what `/session <key>`, `--session` and the
+    /// REST path want, so the startup block shows both and nobody has to run
+    /// a command to find out where they are.
+    pub session_key: String,
     /// Absent until a turn has run and there is something to measure.
     pub context: Option<ContextUsage>,
 }
 
-/// The five labelled rows, in the order they are printed.
-fn rows_for(view: &HeaderView) -> [(&'static str, &str); 5] {
+/// The six labelled rows, in the order they are printed.
+fn rows_for(view: &HeaderView) -> [(&'static str, &str); 6] {
     [
         (keys::chat::header::AGENT, view.agent.as_str()),
         (keys::chat::header::MODEL, view.model.as_str()),
         (keys::chat::header::PROVIDER, view.provider.as_str()),
         (keys::chat::header::WORKSPACES, view.workspaces.as_str()),
         (keys::chat::header::SESSION, view.session.as_str()),
+        (keys::chat::header::KEY, view.session_key.as_str()),
     ]
 }
 

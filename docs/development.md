@@ -52,24 +52,17 @@ one.
 
 ## The gate
 
-**`pnpm check` is not the CI gate.** It runs `typecheck`, `lint` and `test`; CI runs five
-more things in that job alone and three more jobs after it — most local sessions that end
-green and then fail CI fail on `format:check`, which `pnpm check` never calls.
+**`pnpm check` is the check job, not the whole gate.** It runs that job's nine steps in
+order, and CI is four jobs. Run all of it before calling something done.
 
-CI is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), and it is four jobs.
-Run all of it before calling something done:
+CI is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). It spells the check job
+out as named steps rather than calling `pnpm check`, so a failure names the gate on the
+summary page without anyone opening the log. The two lists have to be edited together.
 
 ```bash
-# job: check
-pnpm typecheck
-pnpm lint
-pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts   # design token gates
-pnpm format:check                                             # ← the usual failure
-shellcheck -s sh install.sh                                   # the line the README pipes into a shell
-pnpm i18n:check
-pnpm protocol:check                                           # emit the zod JSON Schemas, then diff them
-pnpm test
-pnpm build
+# job: check: typecheck, lint, the design token gates, format:check, shellcheck over
+# install.sh, i18n:check, protocol:check, test, build
+pnpm check
 
 # job: coverage — per-package thresholds, stricter than the default
 pnpm test:coverage                                            # the crates' bars are in the rust job
@@ -90,8 +83,8 @@ node scripts/coverage-gate.mjs coverage.json                  # per-crate bars
 
 Notes that save a cycle:
 
-- **`pnpm format:check` fails, `pnpm format` fixes it.** Prettier is not wired into
-  `lint`. When it reports files you did not touch, format only your own.
+- **`pnpm format` fixes the `format:check` step.** Prettier is not wired into `lint`.
+  When it reports files you did not touch, format only your own.
 - **e2e needs both builds first.** The suite spawns `darkwire serve` as a subprocess and
   the binary embeds the SPA, so `pnpm build` comes before `cargo build`;
   a missing binary fails with a sentence naming `cargo build`, and a missing bundle
@@ -110,6 +103,7 @@ Notes that save a cycle:
 
 | Command                                 | Does                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------- |
+| `pnpm check`                            | The whole CI `check` job, in order                                         |
 | `pnpm typecheck`                        | `tsc -b` across all project references                                     |
 | `pnpm lint` / `lint:fix`                | ESLint with type-aware rules                                               |
 | `pnpm format` / `format:check`          | Prettier                                                                   |
@@ -264,31 +258,59 @@ seed rows written in a loop share a millisecond often enough to make a list orde
 
 ### What a pty cannot tell you about a terminal
 
-Everything the chat TUI draws is asserted from the bytes a completed paint emitted, in
-`crates/tui/tests/renderer.rs` against an in-memory terminal. That catches what the
-program wrote. It cannot catch what an emulator does with it, and two of those behaviours
-decide whether the screen is right:
+The prompt draws a live area on the last rows of the ordinary screen and prints finished
+rows above it with escape sequences — a scroll region, a cursor move, a run of styled
+spans. What the program _meant_ to draw and what the screen _ends up showing_ are
+therefore two different questions, and only the second one matters.
 
-- **What `\x1b[2J` does with the rows it erases.** iTerm2, Terminal.app, VTE, WezTerm and
-  kitty move them into the scrollback; xterm and Alacritty drop them. That split is why
-  nothing here may emit it: on most terminals a repaint left a copy of whatever was on
-  screen in the history, and a young session's screen is the welcome banner. The test that
-  holds the line is `nothing_it_ever_writes_clears_the_screen`.
-- **Whether a resize rewraps rows that were hard terminated.** The repaint walks up to the
-  strip's first row by counting how many rows each drawn line needs at the new width. A
-  terminal that does not rewrap is overcounted, which erases rows of conversation from the
-  visible screen rather than stranding a fragment of the strip on it. The conversation is
-  still in the history, so it is the harmless direction to be wrong in.
+So the bytes go through a real VT parser. `darkwire_tui::testkit::VT100Backend` is a
+terminal emulator in memory: it implements Ratatui's `Backend`, the same code writes to it
+that writes to a tty, and what comes back is the screen a terminal would be showing, cell
+by cell, with the styles it would have applied. `crates/tui/tests/insert_history.rs` and
+`crates/tui/tests/terminal.rs` are the ones that matter — a row wider than the window, a
+live area that grew, a live area that shrank, a style that must not leak onto the row
+after it. `crates/cli/tests/chat_widget.rs` uses a plain `Buffer` for the layout, because
+the layout is a question about cells rather than about escape sequences.
+
+That catches what the escape sequences do to a screen. It cannot catch what a particular
+emulator does with them, and two behaviours decide whether the screen is right:
+
+- **Whether a partial scroll region moves rows into scrollback or discards them.** This
+  is the whole mechanism: rows scrolled out of a region above the live area have to land
+  in the emulator's scrollback. Windows Terminal discards them, which is why
+  `InsertMode::Repaint` exists and why `WT_SESSION` selects it.
+- **Whether a resize arrives at all.** It comes through Crossterm's event stream as an
+  event rather than as a signal, and the live area is re-anchored at the bottom and
+  repainted. Nothing counts rows across a resize.
+
+`scripts/ptyrec.py` records a session on a real pty, and the cast is a plain list of the
+bytes the binary wrote. Those bytes can be replayed through the same emulator the tests
+use, which answers "what would a terminal be showing" without squinting at escape
+sequences:
+
+```bash
+python3 scripts/ptyrec.py 92 24 /tmp/chat.cast /tmp/keys.json -- ./target/release/darkwire chat
+python3 -c 'import json,sys; sys.stdout.buffer.write("".join(json.loads(l)[2] for l in open("/tmp/chat.cast").read().strip().split("\n")[1:] if json.loads(l)[1]=="o").encode())' \
+  | cargo run -q -p darkwire-tui --features testkit --example replay
+```
+
+That is how the two defects this section exists for were found: a notice holding newlines
+became one row the terminal broke at column zero, and a run of spaces rode a row past the
+right edge so the terminal folded it again.
 
 A pty is not an emulator, so neither is testable here. After a change to
-`crates/tui/src/renderer.rs`, run the binary in iTerm2, Terminal.app, Ghostty, kitty,
-WezTerm and Alacritty, and in each one: narrow the window a column at a time eight times,
-press `ctrl-l` three times, scroll up, then select and copy a line of the conversation.
-One banner, no stranded fragments, no duplicated conversation, the composer on the last
-row throughout.
+`crates/tui/src/insert_history.rs`, `crates/tui/src/tui.rs` or `crates/tui/src/terminal.rs`,
+run the binary in iTerm2, Terminal.app, Ghostty, kitty, WezTerm and Alacritty, and once
+under tmux, and in each one: ask something long enough to scroll, then scroll back with
+the wheel and confirm the whole answer is there; narrow the window a column at a time
+eight times and widen it again; open and close `/help`, `/model` and `ctrl-t`; press
+`ctrl-l`; select and copy a line of the answer; then leave with `ctrl-d`. No stranded
+fragments at any width, the composer on the last row throughout, the conversation intact
+in the scrollback, and a shell afterwards sitting under it with echo working.
 
-What a pty _does_ check is the sequences themselves. `scripts/ptyrec.py` records a real
-session, and the cast is a plain list of the bytes the binary wrote:
+What a pty _does_ check is that the program drives a real terminal at all.
+`scripts/ptyrec.py` records a session on one, and the cast is a plain list of the bytes
+the binary wrote:
 
 ```bash
 python3 scripts/ptyrec.py 92 24 /tmp/chat.cast /tmp/keys.json -- ./target/release/darkwire chat

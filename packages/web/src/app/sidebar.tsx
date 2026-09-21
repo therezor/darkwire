@@ -435,7 +435,13 @@ export function Sidebar({
               // Only when the deleted conversation is the one on screen.
               // Navigating away from a different session would move someone who
               // was reading it.
-              if (key === attached) void navigate({ to: '/', search: {} });
+              //
+              // `startChat`, not `/`. The chat route renders from the turn
+              // store rather than from the URL, and the only thing that clears
+              // the transcript is attaching to a key that is defined. See the
+              // note at the top of this file: dropping the key was already
+              // tried, and it left the deleted conversation on screen.
+              if (key === attached) startChat();
             },
           });
         }}

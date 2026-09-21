@@ -1202,6 +1202,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                                     arguments_json: "{}".into(),
                                 }],
                                 reasoning: None,
+                                reasoning_ms: None,
                             },
                         )),
                         ChatMessage::Tool(tool_message(

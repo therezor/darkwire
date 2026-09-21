@@ -354,6 +354,11 @@ export function fromStoredMessages(
                   status: message.isError ? 'error' : 'ok',
                   content: unwrapToolOutput(message.content),
                   truncated: message.truncated,
+                  // Stored beside the result, because nothing can work out
+                  // afterwards how long a call took. A row written before it
+                  // was kept leaves the card saying nothing, which is what the
+                  // card already does for a call still running.
+                  durationMs: message.durationMs,
                 }
               : part,
           ),

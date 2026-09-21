@@ -259,18 +259,20 @@ fn shows_the_last_rows_when_the_cursor_wraps_to_the_end() {
 }
 
 #[test]
-fn adds_a_counter_only_once_some_rows_are_off_screen() {
+fn counts_the_rows_only_once_some_are_off_screen() {
     let roomy = SelectList::new(items(&["a", "b"]), Some(5), None);
+    assert_eq!(roomy.counter(), None);
+
+    let cramped = SelectList::new(items(&["a", "b", "c"]), Some(2), None);
+    assert_eq!(cramped.counter(), Some((1, 3)));
+    // The count is not a row of its own. Whoever draws the footer places it,
+    // because a list in a prompt cannot spare a row to say how long it is.
     assert!(
-        !roomy
+        !cramped
             .render(40, &PLAIN_THEME)
             .iter()
             .any(|line| line.contains('/'))
     );
-
-    let cramped = SelectList::new(items(&["a", "b", "c"]), Some(2), None);
-    let rendered = cramped.render(40, &PLAIN_THEME);
-    assert!(rendered.last().unwrap().contains("(1/3)"));
 }
 
 #[test]

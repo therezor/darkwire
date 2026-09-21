@@ -75,7 +75,7 @@ pub enum PagesOutcome {
 /// Tabs and the rows under the one that is showing.
 #[derive(Debug)]
 pub struct Pages {
-    pages: Vec<Page>,
+    tabs: Vec<Page>,
     labels: PagesLabels,
     theme: Theme,
     max_rows: usize,
@@ -89,7 +89,7 @@ impl Pages {
     #[must_use]
     pub fn new(options: PagesOptions) -> Pages {
         Pages {
-            pages: options.pages,
+            tabs: options.pages,
             labels: options.labels,
             theme: options.theme.unwrap_or(PLAIN_THEME),
             max_rows: options.max_rows.unwrap_or(20).max(CHROME_ROWS + 1),
@@ -117,7 +117,7 @@ impl Pages {
 
     /// The rows of the tab that is showing.
     fn rows(&self) -> &[String] {
-        self.pages
+        self.tabs
             .get(self.current)
             .map_or(&[][..], |page| &page.rows[..])
     }
@@ -133,11 +133,16 @@ impl Pages {
     /// comes back to a tab wants the start of it, not wherever they had got to
     /// before they went looking somewhere else.
     fn go_to(&mut self, at: usize) {
-        if self.pages.is_empty() {
+        if self.tabs.is_empty() {
             return;
         }
-        self.current = at % self.pages.len();
+        self.current = at % self.tabs.len();
         self.top = 0;
+    }
+
+    /// The tab before the current one, as an index `go_to` takes modulo.
+    fn previous(&self) -> usize {
+        self.current + self.tabs.len().saturating_sub(1)
     }
 
     /// One keystroke.
@@ -154,12 +159,17 @@ impl Pages {
                 return PagesOutcome::Closed;
             }
             KeyName::Char if !key.ctrl && key.character == "q" => return PagesOutcome::Closed,
-            KeyName::Right => self.go_to(self.current + 1),
-            KeyName::Left => self.go_to(self.current + self.pages.len().saturating_sub(1)),
-            KeyName::Tab if key.shift => {
-                self.go_to(self.current + self.pages.len().saturating_sub(1));
+            // Tab goes both ways depending on Shift, so it is one arm rather
+            // than two that would each repeat one of the neighbours below.
+            KeyName::Tab => {
+                if key.shift {
+                    self.go_to(self.previous());
+                } else {
+                    self.go_to(self.current + 1);
+                }
             }
-            KeyName::Tab => self.go_to(self.current + 1),
+            KeyName::Right => self.go_to(self.current + 1),
+            KeyName::Left => self.go_to(self.previous()),
             KeyName::Down => self.top = (self.top + 1).min(self.last_top()),
             KeyName::Up => self.top = self.top.saturating_sub(1),
             KeyName::PageDown => self.top = (self.top + self.body_rows()).min(self.last_top()),
@@ -174,7 +184,7 @@ impl Pages {
     /// The row of tab names, with the one showing marked.
     fn tab_row(&self, width: usize) -> String {
         let names: Vec<String> = self
-            .pages
+            .tabs
             .iter()
             .enumerate()
             .map(|(at, page)| {

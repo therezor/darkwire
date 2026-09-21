@@ -35,6 +35,7 @@ use std::time::Duration;
 
 use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
 use darkwire_core::messages::text_part;
+use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ApprovalScope, ContentPart, ToolApproveMessage, ToolApproveTag, ToolRisk};
 use parking_lot::Mutex;
@@ -50,14 +51,14 @@ use crate::telegram::api::{
     BotApi, BotApiError, HttpClient, ReqwestHttpClient, TelegramCallbackQuery, TelegramMessage,
     TelegramUpdate, TelegramUser,
 };
-use crate::telegram::chats::{ChatBook, ChatState, default_session_key};
+use crate::telegram::chats::{ChatBook, ChatState, Pending, default_session_key};
 use crate::telegram::commands::{
     CommandInput, CommandResult, bot_commands, parse_command, run_command,
 };
 use crate::telegram::console::TelegramConsole;
 use crate::telegram::menus::{
     CallbackLookup, CallbackPayload, CallbackRefusal, CallbackStore, MenuKind, PickerRow,
-    approval_keyboard, picker_keyboard,
+    approval_keyboard, confirm_keyboard, picker, picker_keyboard,
 };
 use crate::telegram::render::{RenderRequest, TelegramRenderer};
 use crate::telegram::settings::{TelegramSettings, parse_telegram_settings};
@@ -339,6 +340,22 @@ impl Telegram {
 
         let chat = self.chats.lock().snapshot(chat_id);
         let username = self.username();
+
+        // A question the chat was asked is answered before anything else looks
+        // at the message. Ahead of the command parse on purpose: a workspace
+        // may perfectly well be called `/help`, and what was asked for was a
+        // name, not a command.
+        if chat.pending.is_some() {
+            let pending = self.chats.lock().take_pending(chat_id);
+            if let Some(pending) = pending {
+                let answer = self
+                    .answer(pending, text.trim())
+                    .unwrap_or_else(|error| CommandResult::say(error.message));
+                self.say(chat_id, answer).await;
+                return Ok(());
+            }
+        }
+
         let Some(command) = parse_command(&text, &message.entities, username.as_deref()) else {
             // An ordinary message. The manager stamps the Telegram message id
             // as the frame's idempotency key, so a redelivered update is acked
@@ -552,18 +569,18 @@ impl Telegram {
                 Ok(Some(format!("This session now lives in `{workspace_id}`.")))
             }
 
-            CallbackPayload::Delete {
-                session_key: doomed,
-            } => {
-                self.console.store().delete_session(&doomed)?;
-                if session_key == doomed {
-                    self.chats
-                        .lock()
-                        .attach(chat_id, default_session_key(&self.id, chat_id));
-                }
-                Ok(Some("Deleted.".to_owned()))
+            // Two more of their own, for the same reason as the workspace six:
+            // one of them posts a question and the other answers it.
+            CallbackPayload::DeleteAsk { .. } | CallbackPayload::Delete { .. } => {
+                self.delete(payload, chat_id, &session_key).await
             }
 
+            CallbackPayload::TasksClear {
+                session_key: plan_of,
+            } => {
+                self.console.store().set_tasks(&plan_of, &[])?;
+                Ok(Some("Task list cleared.".to_owned()))
+            }
             CallbackPayload::Output { field } => {
                 let mut book = self.chats.lock();
                 let state = book.for_chat(chat_id);
@@ -576,6 +593,16 @@ impl Telegram {
                 };
                 Ok(Some(format!("{name}: {}", if next { "on" } else { "off" })))
             }
+
+            // Six arms of their own, because `apply` is one match over every
+            // button this channel posts and the workspace manager is most of
+            // them.
+            CallbackPayload::WorkspaceNew
+            | CallbackPayload::WorkspaceRename { .. }
+            | CallbackPayload::WorkspaceRemoveAsk { .. }
+            | CallbackPayload::WorkspaceRemove { .. }
+            | CallbackPayload::WorkspaceMoveAsk { .. }
+            | CallbackPayload::WorkspaceMove { .. } => self.workspace(payload, chat_id).await,
 
             CallbackPayload::Page { menu, offset } => self.page(menu, offset, chat_id).await,
         }
@@ -590,6 +617,226 @@ impl Telegram {
             },
         )?;
         Ok(())
+    }
+
+    /// What a typed answer to a posted question does.
+    ///
+    /// A blank line is an answer too, and the answer is "never mind": there is
+    /// no way to cancel a `force_reply` except by sending something, so the
+    /// empty one has to mean that.
+    fn answer(&self, pending: Pending, text: &str) -> Result<CommandResult> {
+        if text.is_empty() {
+            return Ok(CommandResult::say("Never mind."));
+        }
+        match pending {
+            Pending::NewWorkspace => {
+                let created = self.console.workspaces().create(CreateWorkspace {
+                    name: text.to_owned(),
+                    ..CreateWorkspace::default()
+                })?;
+                Ok(CommandResult::say(format!("Created `{}`.", created.id)))
+            }
+            Pending::RenameWorkspace { id } => {
+                self.console.workspaces().rename(&id, text)?;
+                Ok(CommandResult::say(format!("Renamed `{id}` to “{text}”.")))
+            }
+        }
+    }
+
+    /// Asking whether to delete a conversation, and doing it.
+    async fn delete(
+        &self,
+        payload: CallbackPayload,
+        chat_id: i64,
+        session_key: &str,
+    ) -> Result<Option<String>> {
+        match payload {
+            CallbackPayload::DeleteAsk {
+                session_key: doomed,
+                title,
+            } => {
+                let keyboard = confirm_keyboard(
+                    chat_id,
+                    &self.menus,
+                    CallbackPayload::Delete {
+                        session_key: doomed,
+                    },
+                    None,
+                );
+                self.render(
+                    chat_id,
+                    RenderRequest {
+                        chat_id,
+                        text: format!("Delete “{title}”? This cannot be undone."),
+                        kind: OutboundKind::Notice,
+                        turn_id: None,
+                        keyboard: Some(keyboard),
+                        force_reply: false,
+                    },
+                )
+                .await;
+                Ok(None)
+            }
+
+            CallbackPayload::Delete {
+                session_key: doomed,
+            } => {
+                self.console.store().delete_session(&doomed)?;
+                if session_key == doomed {
+                    self.chats
+                        .lock()
+                        .attach(chat_id, default_session_key(&self.id, chat_id));
+                }
+                Ok(Some("Deleted.".to_owned()))
+            }
+            // Every other payload is handled by the caller, which is the only
+            // thing that routes here.
+            _ => Ok(None),
+        }
+    }
+
+    /// What one of the workspace manager's buttons does.
+    ///
+    /// Split out of [`Self::apply`] rather than inlined there: that match
+    /// covers every button this channel posts, and these six are most of them.
+    async fn workspace(&self, payload: CallbackPayload, chat_id: i64) -> Result<Option<String>> {
+        match payload {
+            // The two a tap cannot do: a name has to be typed, so the button
+            // posts a prompt the chat's own keyboard opens on, and the next
+            // message answers it. See `Pending`.
+            CallbackPayload::WorkspaceNew => {
+                self.chats.lock().ask(chat_id, Pending::NewWorkspace);
+                self.prompt(chat_id, "What should the new workspace be called?")
+                    .await;
+                Ok(None)
+            }
+
+            CallbackPayload::WorkspaceRename { workspace_id } => {
+                let was = self
+                    .console
+                    .workspaces()
+                    .get(&workspace_id)?
+                    .map_or_else(|| workspace_id.clone(), |row| row.name);
+                self.chats.lock().ask(
+                    chat_id,
+                    Pending::RenameWorkspace {
+                        id: workspace_id.clone(),
+                    },
+                );
+                self.prompt(chat_id, &format!("What should “{was}” be called instead?"))
+                    .await;
+                Ok(None)
+            }
+
+            CallbackPayload::WorkspaceRemoveAsk { workspace_id } => {
+                // The refusal before the question rather than after it: a
+                // workspace its sessions still name cannot go, and asking
+                // first would be asking about something that will not happen.
+                let held = self.console.store().count_by_workspace(&workspace_id)?;
+                if held > 0 {
+                    return Ok(Some(format!(
+                        "`{workspace_id}` still holds {held} sessions. Move them first."
+                    )));
+                }
+                let keyboard = confirm_keyboard(
+                    chat_id,
+                    &self.menus,
+                    CallbackPayload::WorkspaceRemove {
+                        workspace_id: workspace_id.clone(),
+                    },
+                    None,
+                );
+                self.post(
+                    chat_id,
+                    format!("Detach `{workspace_id}`? The files stay where they are."),
+                    Some(keyboard),
+                )
+                .await;
+                Ok(None)
+            }
+
+            CallbackPayload::WorkspaceRemove { workspace_id } => {
+                self.console.workspaces().delete(&workspace_id)?;
+                Ok(Some(format!("Detached `{workspace_id}`.")))
+            }
+
+            CallbackPayload::WorkspaceMoveAsk { workspace_id } => {
+                let elsewhere: Vec<PickerRow> = self
+                    .console
+                    .workspaces()
+                    .list()?
+                    .iter()
+                    .filter(|row| row.id != workspace_id)
+                    .map(|row| PickerRow {
+                        label: row.name.clone(),
+                        current: false,
+                        payload: CallbackPayload::WorkspaceMove {
+                            from: workspace_id.clone(),
+                            to: row.id.clone(),
+                        },
+                    })
+                    .collect();
+                if elsewhere.is_empty() {
+                    return Ok(Some(
+                        "There is nowhere else to move them. Make another workspace first."
+                            .to_owned(),
+                    ));
+                }
+                let keyboard = picker(&elsewhere, MenuKind::Workspaces, chat_id, &self.menus);
+                self.post(
+                    chat_id,
+                    format!("Move everything in `{workspace_id}` where?"),
+                    Some(keyboard),
+                )
+                .await;
+                Ok(None)
+            }
+
+            CallbackPayload::WorkspaceMove { from, to } => {
+                let moved = self.console.store().reassign_workspace(&from, &to)?;
+                Ok(Some(format!("Moved {moved} sessions to `{to}`.")))
+            }
+            // Every other payload is handled by the caller, which is the only
+            // thing that routes here.
+            _ => Ok(None),
+        }
+    }
+
+    /// Posts a message, with buttons under it when there are any.
+    async fn post(
+        &self,
+        chat_id: i64,
+        text: String,
+        keyboard: Option<crate::telegram::api::InlineKeyboardMarkup>,
+    ) {
+        self.render(
+            chat_id,
+            RenderRequest {
+                chat_id,
+                text,
+                kind: OutboundKind::Notice,
+                turn_id: None,
+                keyboard,
+                force_reply: false,
+            },
+        )
+        .await;
+    }
+
+    /// Posts a question the chat's keyboard opens on, quoting it.
+    async fn prompt(&self, chat_id: i64, text: &str) {
+        self.render(
+            chat_id,
+            RenderRequest {
+                chat_id,
+                text: text.to_owned(),
+                kind: OutboundKind::Notice,
+                turn_id: None,
+                keyboard: None,
+                force_reply: true,
+            },
+        )
+        .await;
     }
 
     /// Another screen of a listing, rebuilt rather than remembered.
@@ -657,6 +904,7 @@ impl Telegram {
                 kind: OutboundKind::Notice,
                 turn_id: None,
                 keyboard: Some(keyboard),
+                force_reply: false,
             },
         )
         .await;
@@ -697,6 +945,7 @@ impl Telegram {
                 kind: OutboundKind::Notice,
                 turn_id: None,
                 keyboard: outcome.keyboard,
+                force_reply: false,
             },
         )
         .await;
@@ -715,6 +964,7 @@ impl Telegram {
                 kind: OutboundKind::Notice,
                 turn_id: None,
                 keyboard: None,
+                force_reply: false,
             },
         )
         .await;
@@ -806,6 +1056,7 @@ impl Channel for Telegram {
                         kind: message.kind,
                         turn_id: None,
                         keyboard: Some(keyboard),
+                        force_reply: false,
                     },
                 )
                 .await;
@@ -824,6 +1075,7 @@ impl Channel for Telegram {
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     keyboard: None,
+                    force_reply: false,
                 },
             )
             .await;

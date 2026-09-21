@@ -4,9 +4,15 @@
  * Its own file rather than more of the sidebar, and that is the point of the
  * change: renaming and deleting a conversation lived inline in `sidebar.tsx`,
  * so the management page could not reuse them and would have been a second
- * implementation of both — with its own toasts, its own invalidations, and its
- * own answer to what happens when you delete the conversation you are reading.
- * There is now one of each, and the sidebar calls them too.
+ * implementation of both, with its own toasts and its own invalidations. There
+ * is now one of each, and the sidebar calls them too.
+ *
+ * What is deliberately *not* here is where you land after deleting the
+ * conversation you are reading. The two callers want different answers: the
+ * sidebar starts a new chat and goes to it, and the sessions page moves the
+ * socket without moving the reader off the list. Both have to end on a defined
+ * session key, because attaching to one is the only thing that clears a
+ * transcript.
  *
  * **The listing is paged on the server**, unlike every other list in this app.
  * The others hold a config tree that arrives whole, so `filterRows` over what is

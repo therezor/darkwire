@@ -29,7 +29,7 @@ use darkwire_protocol::ReasoningEffort;
 use darkwire_tui::SelectItem;
 
 use crate::i18n::Translations;
-use crate::pickers::{PickerMenu, choose_from, position_of, with_current};
+use crate::pickers::{PickerMenu, Placement, choose_from, position_of, with_current};
 
 /// The word for "send nothing and let the provider decide".
 ///
@@ -160,5 +160,13 @@ pub async fn pick_effort(
 ) -> Option<String> {
     let items = effort_items(current, t);
     let at = position_of(&items, &current_value(current).to_owned());
-    choose_from(menu, items, &t.t(keys::menu::titles::EFFORT), at, t).await
+    choose_from(
+        menu,
+        items,
+        &t.t(keys::menu::titles::EFFORT),
+        at,
+        t,
+        Placement::Prompt,
+    )
+    .await
 }

@@ -174,7 +174,7 @@ fn maps_every_flag_onto_the_chat_options() {
     ]);
 
     assert_eq!(args.message.as_deref(), Some("go"));
-    assert_eq!(args.session_key, "work");
+    assert_eq!(args.session_key.as_deref(), Some("work"));
     assert_eq!(args.model.as_deref(), Some("qwen3"));
     assert_eq!(args.provider.as_deref(), Some("ollama"));
     assert_eq!(args.agent_id.as_deref(), Some("reviewer"));
@@ -193,9 +193,11 @@ fn leaves_the_agent_unset_when_no_flag_named_one() {
 }
 
 #[test]
-fn defaults_the_session_and_leaves_unset_overrides_absent() {
+fn names_no_session_when_no_flag_named_one() {
+    // A prompt with no `-s` starts a conversation of its own, so there is no
+    // key to parse here: minting one needs the runtime's clock.
     let (_, args) = chat(&["chat", "hello"]);
-    assert_eq!(args.session_key, "cli:default");
+    assert_eq!(args.session_key, None);
     // Absent, not empty: the runtime distinguishes "no override" from a value.
     assert_eq!(args.model, None);
 }

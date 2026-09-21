@@ -208,7 +208,23 @@ impl<T> SelectList<T> {
         self.follow();
     }
 
-    /// The visible rows, and a `(n/total)` counter when some are off-screen.
+    /// Where the cursor is and how many rows there are, when some are off
+    /// screen.
+    ///
+    /// `None` when the whole list is visible, because a count of the rows
+    /// somebody can see is a count they did not need. Handed out rather than
+    /// rendered: it is one short phrase, and whoever draws the footer has a
+    /// better row for it than one of its own.
+    #[must_use]
+    pub fn counter(&self) -> Option<(usize, usize)> {
+        let visible = self.row_count.min(self.filtered.len());
+        if self.filtered.len() <= visible {
+            return None;
+        }
+        Some((self.cursor + 1, self.filtered.len()))
+    }
+
+    /// The visible rows.
     ///
     /// Never returns a line wider than `width`: every cell is measured and cut
     /// before it is coloured, because a line that wraps is a row the
@@ -219,8 +235,7 @@ impl<T> SelectList<T> {
         }
 
         let visible = self.row_count.min(self.filtered.len());
-        let mut lines: Vec<String> = self
-            .filtered
+        self.filtered
             .iter()
             .enumerate()
             .skip(self.start)
@@ -228,14 +243,7 @@ impl<T> SelectList<T> {
             .map(|(row, &index)| {
                 self.render_row(&self.all_items[index], row == self.cursor, width, theme)
             })
-            .collect();
-
-        if self.filtered.len() > visible {
-            let counter = format!("  ({}/{})", self.cursor + 1, self.filtered.len());
-            lines.push(theme.dim.apply(&truncate_to_width(&counter, width, "…")));
-        }
-
-        lines
+            .collect()
     }
 
     fn render_row(

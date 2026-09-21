@@ -121,6 +121,40 @@ pub struct MessageLine {
     pub text: String,
 }
 
+/// Every stored message in a session, oldest first, whole.
+///
+/// What the prompt replays when it opens on a conversation that already exists.
+/// [`MessageLine`] is the `/messages` listing's shape and drops what it cannot
+/// print in one row: the reasoning beside an answer, the calls a turn made. A
+/// prompt coming back to a session wants those, so it reads the messages
+/// themselves.
+///
+/// Unbounded on purpose: the point is to come back to the session as you left
+/// it, and the transcript applies its own limit to a conversation too long to
+/// hold.
+pub fn session_messages(
+    store: &SessionStore,
+    session_key: &str,
+) -> Result<Vec<darkwire_core::session_store::StoredMessageRecord>> {
+    store.messages(session_key, &ReadMessages::default())
+}
+
+/// Everything said in a session, oldest first.
+///
+/// The `/messages` listing, one row a message with everything else dropped.
+/// Tool traffic is in here and the caller decides what to do with it.
+pub fn session_history(store: &SessionStore, session_key: &str) -> Result<Vec<MessageLine>> {
+    Ok(store
+        .messages(session_key, &ReadMessages::default())?
+        .into_iter()
+        .map(|record| MessageLine {
+            seq: record.seq,
+            role: record.message.tag(),
+            text: text_of(&record.message),
+        })
+        .collect())
+}
+
 /// The last `count` messages, oldest first, as the listing renders them.
 pub fn recent_messages(
     store: &SessionStore,

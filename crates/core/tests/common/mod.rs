@@ -67,6 +67,7 @@ pub fn assistant_message(text: &str, tool_calls: Vec<ToolCall>) -> ChatMessage {
         },
         tool_calls,
         reasoning: None,
+        reasoning_ms: None,
     })
 }
 
@@ -79,6 +80,7 @@ pub fn tool_message(tool_call_id: &str, name: &str, content: &str) -> ChatMessag
         content: content.to_owned(),
         is_error: false,
         truncated: false,
+        duration_ms: None,
     })
 }
 

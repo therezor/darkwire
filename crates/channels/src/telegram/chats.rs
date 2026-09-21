@@ -43,6 +43,26 @@ impl Default for RenderPrefs {
     }
 }
 
+/// A question the chat has been asked, waiting for the next message.
+///
+/// The one thing a button cannot do is supply a name, and a chat's only text
+/// field is the chat. So the button posts a prompt with `force_reply` and the
+/// next message answers it rather than starting a turn.
+///
+/// Not persisted, like everything else here: a restart drops the question, and
+/// a dropped question is a message that runs as a turn instead. That is the
+/// right failure — it is what the operator typed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pending {
+    /// A name for a workspace that does not exist yet.
+    NewWorkspace,
+    /// Another name for one that does.
+    RenameWorkspace {
+        /// Which workspace.
+        id: String,
+    },
+}
+
 /// One chat's mutable state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatState {
@@ -56,6 +76,8 @@ pub struct ChatState {
     pub last_edit_ms: i64,
     /// How this chat wants answers rendered.
     pub prefs: RenderPrefs,
+    /// What the next message answers, if it answers something.
+    pub pending: Option<Pending>,
 }
 
 /// The default conversation for a chat: stable, so it survives a restart.
@@ -106,12 +128,23 @@ impl ChatBook {
             live_turn_id: None,
             last_edit_ms: 0,
             prefs: RenderPrefs::default(),
+            pending: None,
         })
     }
 
     /// A copy of the chat's state, created on first sight.
     pub fn snapshot(&mut self, chat_id: i64) -> ChatState {
         self.for_chat(chat_id).clone()
+    }
+
+    /// Asks the chat something; the next message is the answer.
+    pub fn ask(&mut self, chat_id: i64, pending: Pending) {
+        self.for_chat(chat_id).pending = Some(pending);
+    }
+
+    /// Takes the question back, answered or abandoned.
+    pub fn take_pending(&mut self, chat_id: i64) -> Option<Pending> {
+        self.for_chat(chat_id).pending.take()
     }
 
     /// Points a chat at another conversation.
@@ -123,5 +156,8 @@ impl ChatBook {
         // to.
         state.live_message_id = None;
         state.live_turn_id = None;
+        // A question asked of the old conversation is not a question about
+        // this one.
+        state.pending = None;
     }
 }

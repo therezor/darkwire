@@ -248,6 +248,11 @@
                   },
                   "reasoning": {
                     "type": "string"
+                  },
+                  "reasoningMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -280,6 +285,11 @@
                   "truncated": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

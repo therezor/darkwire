@@ -16,11 +16,9 @@
 //! Three commands differ from their terminal spelling on purpose, and each says
 //! why at its own definition: `/exit`, `/output` and the admin-gated verbs.
 
-use darkwire_core::messages::text_of;
 use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, SessionSummaryRecord, UpdateSession,
 };
-use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{ErrorKind, Result, SessionStore, WireError};
 use darkwire_protocol::tasks::render_tasks;
 use darkwire_protocol::{
@@ -32,16 +30,11 @@ use crate::telegram::api::{BotCommand, InlineKeyboardMarkup};
 use crate::telegram::chats::{ChatState, default_session_key, new_session_key, owns_session_key};
 use crate::telegram::console::TelegramConsole;
 use crate::telegram::menus::{
-    CallbackPayload, CallbackStore, MenuKind, PickerRow, confirm_keyboard, picker,
+    CallbackPayload, CallbackStore, MenuKind, PickerRow, picker, picker_keyboard,
 };
 
-/// Rows `/messages` and `/stats` show when no count is given.
-const DEFAULT_LINES: usize = 12;
 /// How far back a negative message reference looks for what you said.
 const LOOKBACK: usize = 400;
-/// How much of a message body a listing shows before it stops.
-const CLIP: usize = 90;
-
 /// A frame on this chat's conversation. The channel supplies the envelope.
 pub type ControlSink<'a> = &'a (dyn Fn(ChannelControlFrame) + Send + Sync);
 /// Points the chat at another conversation.
@@ -119,7 +112,7 @@ pub struct CommandResult {
 
 impl CommandResult {
     /// A plain reply.
-    fn say(text: impl Into<String>) -> CommandResult {
+    pub(crate) fn say(text: impl Into<String>) -> CommandResult {
         CommandResult {
             text: text.into(),
             keyboard: None,
@@ -156,22 +149,6 @@ struct TelegramCommand {
 }
 
 // Reading arguments
-
-fn positive(value: Option<&str>, fallback: usize) -> usize {
-    value
-        .and_then(|raw| raw.parse::<usize>().ok())
-        .filter(|parsed| *parsed > 0)
-        .unwrap_or(fallback)
-}
-
-fn clip(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() <= CLIP {
-        return flat;
-    }
-    let head: String = flat.chars().take(CLIP - 1).collect();
-    format!("{head}…")
-}
 
 fn invalid(message: impl Into<String>) -> WireError {
     WireError::new(ErrorKind::InvalidInput, message)
@@ -324,34 +301,6 @@ sync_command!(run_start, |input| Ok(CommandResult::say(format!(
     helped(input.is_admin)
 ))));
 
-sync_command!(run_messages, |input| {
-    let count = positive(input.arg(0), DEFAULT_LINES);
-    let rows = input.store().messages(
-        input.session_key(),
-        &ReadMessages {
-            limit: Some(count),
-            from_end: true,
-            ..ReadMessages::default()
-        },
-    )?;
-    if rows.is_empty() {
-        return Ok(CommandResult::say("Nothing said here yet."));
-    }
-    Ok(CommandResult::say(
-        rows.iter()
-            .map(|row| {
-                format!(
-                    "`{}` {}: {}",
-                    row.seq,
-                    role_of(&row.message),
-                    clip(&text_of(&row.message))
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    ))
-});
-
 sync_command!(run_clear, |input| {
     input.store().clear_messages(input.session_key())?;
     Ok(CommandResult::say("History cleared."))
@@ -364,16 +313,25 @@ sync_command!(run_clear, |input| {
 // them. `clear` is the one argument, matching the terminal, because emptying a
 // stale list is the only edit anybody wants from a chat app.
 sync_command!(run_tasks, |input| {
-    if input.arg(0) == Some("clear") {
-        input.store().set_tasks(input.session_key(), &[])?;
-        return Ok(CommandResult::say("Task list cleared."));
-    }
+    // No `clear` word any more, and no per-task button. Dropping one task was
+    // the wrong verb: the `todo` tool replaces the whole list on its next
+    // planning step, so a task removed by hand is back a moment later. The
+    // edit that holds is emptying it, and that is one button.
     let tasks = input.store().tasks(input.session_key())?;
-    Ok(CommandResult::say(if tasks.is_empty() {
-        "No plan on this conversation yet.".to_owned()
-    } else {
-        render_tasks(&tasks)
-    }))
+    if tasks.is_empty() {
+        return Ok(CommandResult::say("No plan on this conversation yet."));
+    }
+    let rows = vec![PickerRow {
+        label: "Clear the list".to_owned(),
+        current: false,
+        payload: CallbackPayload::TasksClear {
+            session_key: input.session_key().to_owned(),
+        },
+    }];
+    Ok(CommandResult::menu(
+        render_tasks(&tasks),
+        picker_keyboard(&rows, MenuKind::Tasks, input.chat_id, input.menus, 0, 1),
+    ))
 });
 
 sync_command!(run_exit, |input| {
@@ -381,27 +339,6 @@ sync_command!(run_exit, |input| {
     (input.attach)(&default_session_key(&input.channel_id, input.chat_id));
     Ok(CommandResult::say(
         "Detached. The next message starts here again.",
-    ))
-});
-
-sync_command!(run_sessions, |input| {
-    let sessions = own_sessions(input, positive(input.arg(0), 20))?;
-    if sessions.is_empty() {
-        return Ok(CommandResult::say("No sessions here yet."));
-    }
-    let rows: Vec<PickerRow> = sessions
-        .iter()
-        .map(|session| PickerRow {
-            label: format!("{} · {}", title_of(session), session.message_count),
-            current: session.session.key == input.chat.session_key,
-            payload: CallbackPayload::Session {
-                session_key: session.session.key.clone(),
-            },
-        })
-        .collect();
-    Ok(CommandResult::menu(
-        "Which session?",
-        picker(&rows, MenuKind::Sessions, input.chat_id, input.menus),
     ))
 });
 
@@ -424,6 +361,10 @@ sync_command!(run_new, |input| {
 });
 
 sync_command!(run_session, |input| {
+    // One name for one subject, the way the terminal spells it. `/sessions`
+    // listed and `/session` showed, so the plural and the singular were a guess
+    // about which half you wanted rather than a difference in what you asked
+    // about. Bare shows where you are and offers the rest; a key attaches.
     if input.tail.is_empty() {
         let session = input.store().get_session(input.session_key())?;
         let count = input.store().message_count(input.session_key())?;
@@ -438,10 +379,43 @@ sync_command!(run_session, |input| {
             },
         );
         let workspace = session.map_or_else(|| "default".to_owned(), |row| row.workspace_id);
-        return Ok(CommandResult::say(format!(
+        let here = format!(
             "{title}\n`{}` · {count} messages · workspace {workspace}",
             input.chat.session_key
-        )));
+        );
+
+        let sessions = own_sessions(input, 20)?;
+        if sessions.is_empty() {
+            return Ok(CommandResult::say(here));
+        }
+        // Two buttons a row: the name attaches, the bin asks. The terminal
+        // spells the second one `ctrl-x` on the same list.
+        let rows: Vec<PickerRow> = sessions
+            .iter()
+            .flat_map(|session| {
+                [
+                    PickerRow {
+                        label: format!("{} · {}", title_of(session), session.message_count),
+                        current: session.session.key == input.chat.session_key,
+                        payload: CallbackPayload::Session {
+                            session_key: session.session.key.clone(),
+                        },
+                    },
+                    PickerRow {
+                        label: "🗑".to_owned(),
+                        current: false,
+                        payload: CallbackPayload::DeleteAsk {
+                            session_key: session.session.key.clone(),
+                            title: title_of(session).clone(),
+                        },
+                    },
+                ]
+            })
+            .collect();
+        return Ok(CommandResult::menu(
+            here,
+            picker(&rows, MenuKind::Sessions, input.chat_id, input.menus),
+        ));
     }
 
     // Refused rather than namespaced. The manager would happily turn `web-abc`
@@ -449,7 +423,7 @@ sync_command!(run_session, |input| {
     // explains.
     if !owns_session_key(&input.channel_id, &input.tail) {
         return Err(invalid(
-            "That session belongs to another channel. Use /sessions to pick one here.",
+            "That session belongs to another channel. Use /session to pick one here.",
         ));
     }
     (input.attach)(&input.tail);
@@ -470,38 +444,26 @@ sync_command!(run_rename, |input| {
     Ok(CommandResult::say(format!("Renamed to “{}”.", input.tail)))
 });
 
+// A message, not a session. Deleting the conversation is a button on its row
+// in `/session` now, where the thing being deleted is named and on screen; the
+// shortest word here belongs to the commonest act, which is taking back what
+// was just said.
+//
+// The exchange, not the message: dropping a question and leaving the answer to
+// it is a transcript that reads as though the model volunteered it.
 sync_command!(run_delete, |input| {
-    let key = if input.tail.is_empty() {
-        input.chat.session_key.clone()
-    } else {
-        input.tail.clone()
-    };
-    if !owns_session_key(&input.channel_id, &key) {
-        return Err(invalid("That session belongs to another channel."));
-    }
-    let Some(session) = input.store().get_session(&key)? else {
-        return Err(missing(format!("No session `{key}`.")));
-    };
-    let title = if session.title.is_empty() {
-        session.key.clone()
-    } else {
-        session.title.clone()
-    };
-    // A button rather than a second command, because this is the one thing here
-    // that cannot be undone.
-    Ok(CommandResult::menu(
-        format!("Delete “{title}”? This cannot be undone."),
-        confirm_keyboard(
-            input.chat_id,
-            input.menus,
-            CallbackPayload::Delete { session_key: key },
-            None,
-        ),
-    ))
+    let seq = resolve_seq(input.store(), input.session_key(), None)?;
+    input
+        .store()
+        .truncate_after(input.session_key(), seq.saturating_sub(1))?;
+    Ok(CommandResult::say("Dropped the last exchange."))
 });
 
+// The last message, with no reference. A seq number could only be read off
+// `/messages`, which was a listing of a conversation the chat is already
+// showing — one command reading a number out of another command's output.
 sync_command!(run_branch, |input| {
-    let seq = resolve_seq(input.store(), input.session_key(), input.arg(0))?;
+    let seq = resolve_seq(input.store(), input.session_key(), None)?;
     let fork = input.store().fork_session(
         input.session_key(),
         seq,
@@ -523,18 +485,11 @@ sync_command!(run_branch, |input| {
 });
 
 sync_command!(run_edit, |input| {
-    let reference = input.arg(0);
-    let content = input
-        .args
-        .iter()
-        .skip(1)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if reference.is_none() || content.is_empty() {
-        return Err(invalid("Usage: /edit <ref> <text>"));
+    let content = input.tail.clone();
+    if content.is_empty() {
+        return Err(invalid("Usage: /edit <text>"));
     }
-    let seq = resolve_seq(input.store(), input.session_key(), reference)?;
+    let seq = resolve_seq(input.store(), input.session_key(), None)?;
     // Through the hub, not through the store: an edit is one frame because
     // truncating and re-running are a single intent, and splitting them leaves
     // a window for another client's queued message.
@@ -551,7 +506,7 @@ sync_command!(run_edit, |input| {
 });
 
 sync_command!(run_regenerate, |input| {
-    let seq = resolve_seq(input.store(), input.session_key(), input.arg(0))?;
+    let seq = resolve_seq(input.store(), input.session_key(), None)?;
     (input.control)(ChannelControlFrame::Regenerate(RegenerateMessage {
         tag: RegenerateTag,
         session_key: input.chat.session_key.clone(),
@@ -664,67 +619,6 @@ fn run_skills<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandRe
     })
 }
 
-sync_command!(run_stats, |input| {
-    let rows = input.store().turn_stats(
-        input.session_key(),
-        Some(positive(input.arg(0), DEFAULT_LINES)),
-    )?;
-    if rows.is_empty() {
-        return Ok(CommandResult::say("No turns recorded here yet."));
-    }
-    Ok(CommandResult::say(
-        rows.iter()
-            .map(|row| {
-                #[allow(
-                    clippy::cast_precision_loss,
-                    reason = "a millisecond count below 2^53, rendered to one decimal"
-                )]
-                let seconds = (row.ended_at_ms - row.started_at_ms) as f64 / 1000.0;
-                format!(
-                    "`{}` · {} steps · {} in / {} out · {seconds:.1}s · {}",
-                    row.model,
-                    row.iterations,
-                    row.usage.prompt_tokens,
-                    row.usage.completion_tokens,
-                    stop_reason_of(row.stop_reason)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    ))
-});
-
-// The terminal's two fields are `reasoning` and `stats`, and neither is
-// expressible here: the projection never emits a reasoning delta to any
-// channel, and nothing projects turn stats. `sendProgress` and `sendToolHints`
-// are the manager's, read once from the global config. So the command keeps its
-// shape and names the two things a chat owns.
-sync_command!(run_output, |input| {
-    let prefs = input.chat.prefs;
-    let Some(field) = input.arg(0) else {
-        return Ok(CommandResult::say(format!(
-            "progress: {}. A turn fills in one message\n\
-             markdown: {}. Formatted, or plain text",
-            on_off(prefs.progress),
-            on_off(prefs.markdown)
-        )));
-    };
-    if field != "progress" && field != "markdown" {
-        return Err(invalid("Usage: /output [progress|markdown] [on|off]"));
-    }
-    let current = if field == "progress" {
-        prefs.progress
-    } else {
-        prefs.markdown
-    };
-    let next = match input.arg(1) {
-        None => !current,
-        Some(value) => value == "on",
-    };
-    (input.set_pref)(field, next);
-    Ok(CommandResult::say(format!("{field}: {}", on_off(next))))
-});
-
 sync_command!(run_agent, |input| {
     let agents = input.console.agents();
     let session = input.store().get_session(input.session_key())?;
@@ -788,28 +682,7 @@ fn run_model<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandRes
     })
 }
 
-sync_command!(run_workspaces, |input| {
-    let current = workspace_of(input)?;
-    Ok(CommandResult::say(
-        input
-            .console
-            .workspaces()
-            .list()?
-            .iter()
-            .map(|workspace| {
-                let marker = if workspace.id == current {
-                    "• "
-                } else {
-                    "  "
-                };
-                format!("{marker}`{}`: {}", workspace.id, workspace.name)
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    ))
-});
-
-sync_command!(run_workspace, run_workspace_verbs);
+sync_command!(run_workspace, run_workspace_manager);
 
 /// Everything dispatchable, in the order `/help` lists it.
 static COMMANDS: &[TelegramCommand] = &[
@@ -830,14 +703,6 @@ static COMMANDS: &[TelegramCommand] = &[
         run: run_start,
     },
     TelegramCommand {
-        name: "messages",
-        usage: "[n]",
-        description: "The last few messages, with the seq numbers /edit takes",
-        admin: false,
-        aliases: &[],
-        run: run_messages,
-    },
-    TelegramCommand {
         name: "clear",
         usage: "",
         description: "Forget this session’s history, keeping the session",
@@ -854,14 +719,6 @@ static COMMANDS: &[TelegramCommand] = &[
         run: run_exit,
     },
     TelegramCommand {
-        name: "sessions",
-        usage: "[n]",
-        description: "Pick a session",
-        admin: false,
-        aliases: &[],
-        run: run_sessions,
-    },
-    TelegramCommand {
         name: "new",
         usage: "[title]",
         description: "Start a fresh session",
@@ -872,7 +729,7 @@ static COMMANDS: &[TelegramCommand] = &[
     TelegramCommand {
         name: "session",
         usage: "[key]",
-        description: "Show this session, or attach to another by key",
+        description: "Where you are, and a picker for everywhere else",
         admin: false,
         aliases: &[],
         run: run_session,
@@ -951,27 +808,11 @@ static COMMANDS: &[TelegramCommand] = &[
     },
     TelegramCommand {
         name: "tasks",
-        usage: "[clear]",
-        description: "The plan this conversation is running on",
+        usage: "",
+        description: "The plan this conversation is running on, and a button to empty it",
         admin: false,
         aliases: &[],
         run: run_tasks,
-    },
-    TelegramCommand {
-        name: "stats",
-        usage: "[n]",
-        description: "What the last few turns cost",
-        admin: false,
-        aliases: &[],
-        run: run_stats,
-    },
-    TelegramCommand {
-        name: "output",
-        usage: "[progress|markdown] [on|off]",
-        description: "How answers are rendered in this chat",
-        admin: false,
-        aliases: &[],
-        run: run_output,
     },
     TelegramCommand {
         name: "agent",
@@ -990,17 +831,9 @@ static COMMANDS: &[TelegramCommand] = &[
         run: run_model,
     },
     TelegramCommand {
-        name: "workspaces",
-        usage: "",
-        description: "The workspaces on this install",
-        admin: false,
-        aliases: &[],
-        run: run_workspaces,
-    },
-    TelegramCommand {
         name: "workspace",
-        usage: "[id] | new <name> | rename <id> <name> | rm <id> | move <from> <to>",
-        description: "Move this session, or manage workspaces (verbs: admin)",
+        usage: "[id]",
+        description: "Where you are, the rest, and the buttons to manage them",
         admin: false,
         aliases: &[],
         run: run_workspace,
@@ -1015,86 +848,91 @@ fn find(name: &str) -> Option<&'static TelegramCommand> {
 
 // /workspace, which is four commands wearing one name
 
-fn require_admin(input: &CommandInput<'_>, verb: &str) -> Result<()> {
-    if input.is_admin {
-        return Ok(());
+/// Bare `/workspace`, and `/workspace <id>`.
+///
+/// **No verbs.** `new`, `rename`, `rm` and `move` were four words that had to
+/// be spelled correctly to act on something already on screen, and reserving
+/// them as ids so the parse stayed unambiguous was a rule the whole install
+/// had to carry. The token after `/workspace` is an id now and nothing else,
+/// so a workspace called `new` is switched to with `/workspace new` and that
+/// means exactly what it looks like.
+///
+/// What replaces them is the keyboard: a button per workspace that switches,
+/// its verbs beside it, and one that makes another. The two a tap cannot do —
+/// a new name and a replacement one — post a question the chat's own keyboard
+/// opens on, because a chat's only text field is the chat. See
+/// [`Pending`](crate::telegram::chats::Pending).
+fn run_workspace_manager(input: &CommandInput<'_>) -> Result<CommandResult> {
+    if let Some(id) = input.arg(0) {
+        return switch_workspace(input, id);
     }
-    Err(WireError::new(
-        ErrorKind::PermissionDenied,
-        format!("`/workspace {verb}` is for an administrator of this install."),
+
+    let current = workspace_of(input)?;
+    let all = input.console.workspaces().list()?;
+    let listing = all
+        .iter()
+        .map(|workspace| {
+            let marker = if workspace.id == current {
+                "• "
+            } else {
+                "  "
+            };
+            format!("{marker}`{}`: {}", workspace.id, workspace.name)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut rows: Vec<PickerRow> = Vec::new();
+    for workspace in &all {
+        rows.push(PickerRow {
+            label: workspace.name.clone(),
+            current: workspace.id == current,
+            payload: CallbackPayload::Workspace {
+                workspace_id: workspace.id.clone(),
+            },
+        });
+        // The verbs sit beside the row they act on, so nothing has to name a
+        // workspace that is already under the finger.
+        rows.push(PickerRow {
+            label: "✏".to_owned(),
+            current: false,
+            payload: CallbackPayload::WorkspaceRename {
+                workspace_id: workspace.id.clone(),
+            },
+        });
+        rows.push(PickerRow {
+            label: "→".to_owned(),
+            current: false,
+            payload: CallbackPayload::WorkspaceMoveAsk {
+                workspace_id: workspace.id.clone(),
+            },
+        });
+        rows.push(PickerRow {
+            label: "🗑".to_owned(),
+            current: false,
+            payload: CallbackPayload::WorkspaceRemoveAsk {
+                workspace_id: workspace.id.clone(),
+            },
+        });
+    }
+    rows.push(PickerRow {
+        label: "＋ New workspace".to_owned(),
+        current: false,
+        payload: CallbackPayload::WorkspaceNew,
+    });
+    let size = rows.len();
+
+    Ok(CommandResult::menu(
+        listing,
+        picker_keyboard(
+            &rows,
+            MenuKind::Workspaces,
+            input.chat_id,
+            input.menus,
+            0,
+            size,
+        ),
     ))
-}
-
-fn run_workspace_verbs(input: &CommandInput<'_>) -> Result<CommandResult> {
-    let workspaces = input.console.workspaces();
-    let Some(verb) = input.arg(0) else {
-        let current = workspace_of(input)?;
-        let rows: Vec<PickerRow> = workspaces
-            .list()?
-            .iter()
-            .map(|workspace| PickerRow {
-                label: workspace.name.clone(),
-                current: workspace.id == current,
-                payload: CallbackPayload::Workspace {
-                    workspace_id: workspace.id.clone(),
-                },
-            })
-            .collect();
-        return Ok(CommandResult::menu(
-            "Which workspace should this session live in?",
-            picker(&rows, MenuKind::Workspaces, input.chat_id, input.menus),
-        ));
-    };
-    let rest: Vec<&str> = input.args.iter().skip(1).map(String::as_str).collect();
-
-    match verb {
-        "new" => {
-            require_admin(input, "new")?;
-            let name = rest.join(" ");
-            if name.is_empty() {
-                return Err(invalid("Usage: /workspace new <name>"));
-            }
-            let created = workspaces.create(CreateWorkspace {
-                name,
-                ..CreateWorkspace::default()
-            })?;
-            Ok(CommandResult::say(format!("Created `{}`.", created.id)))
-        }
-        "rename" => {
-            require_admin(input, "rename")?;
-            let (Some(id), true) = (rest.first(), rest.len() > 1) else {
-                return Err(invalid("Usage: /workspace rename <id> <name>"));
-            };
-            workspaces.rename(id, &rest[1..].join(" "))?;
-            Ok(CommandResult::say(format!("Renamed `{id}`.")))
-        }
-        "rm" => {
-            require_admin(input, "rm")?;
-            let Some(id) = rest.first() else {
-                return Err(invalid("Usage: /workspace rm <id>"));
-            };
-            let held = input.store().count_by_workspace(id)?;
-            if held > 0 {
-                return Err(invalid(format!(
-                    "`{id}` still holds {held} sessions. Move them first with /workspace move."
-                )));
-            }
-            workspaces.delete(id)?;
-            Ok(CommandResult::say(format!("Removed `{id}`.")))
-        }
-        "move" => {
-            require_admin(input, "move")?;
-            let (Some(from), Some(to)) = (rest.first(), rest.get(1)) else {
-                return Err(invalid("Usage: /workspace move <from> <to>"));
-            };
-            let moved = input.store().reassign_workspace(from, to)?;
-            Ok(CommandResult::say(format!(
-                "Moved {moved} sessions to `{to}`."
-            )))
-        }
-        // Not a verb, so it is an id — the same reading the terminal gives it.
-        id => switch_workspace(input, id),
-    }
 }
 
 fn switch_workspace(input: &CommandInput<'_>, id: &str) -> Result<CommandResult> {
@@ -1242,27 +1080,4 @@ fn helped(is_admin: bool) -> String {
         lines.push(format!("`{syntax}`\n   {}", command.description));
     }
     lines.join("\n")
-}
-
-fn on_off(value: bool) -> &'static str {
-    if value { "on" } else { "off" }
-}
-
-fn role_of(message: &darkwire_protocol::ChatMessage) -> &'static str {
-    match message {
-        darkwire_protocol::ChatMessage::System(_) => "system",
-        darkwire_protocol::ChatMessage::User(_) => "user",
-        darkwire_protocol::ChatMessage::Assistant(_) => "assistant",
-        darkwire_protocol::ChatMessage::Tool(_) => "tool",
-    }
-}
-
-fn stop_reason_of(reason: darkwire_protocol::StopReason) -> &'static str {
-    match reason {
-        darkwire_protocol::StopReason::Complete => "complete",
-        darkwire_protocol::StopReason::Aborted => "aborted",
-        darkwire_protocol::StopReason::MaxIterations => "max_iterations",
-        darkwire_protocol::StopReason::WallTimeout => "wall_timeout",
-        darkwire_protocol::StopReason::Error => "error",
-    }
 }

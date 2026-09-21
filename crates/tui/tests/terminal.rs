@@ -1,109 +1,205 @@
-//! Sizes that treat zero as unknown, and a keyboard that owns only the raw mode it set.
+//! The live area, asserted against what a terminal emulator would be showing.
 
-mod common;
+use std::io::Write;
 
-use common::{FakeInput, FakeOutput};
-use darkwire_tui::{KeyName, columns_of, open_keyboard, rows_of};
+use darkwire_tui::terminal::Terminal;
+use darkwire_tui::testkit::VT100Backend;
+use ratatui::layout::{Position, Rect, Size};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Widget;
 
-#[test]
-fn takes_the_device_at_its_word_when_it_reports_a_size() {
-    let out = FakeOutput::new(132, 43);
-    assert_eq!(columns_of(&out, None), 132);
-    assert_eq!(rows_of(&out, None), 43);
+/// A terminal `width` by `height` with its live area at `top`, `rows` tall.
+fn open(width: u16, height: u16, top: u16, rows: u16) -> Terminal<VT100Backend> {
+    let backend = VT100Backend::new(width, height);
+    let mut terminal =
+        Terminal::anchored(backend, Size { width, height }, Position { x: 0, y: top });
+    terminal.set_viewport_area(Rect::new(0, top, width, rows));
+    terminal
 }
 
-#[test]
-fn falls_back_when_the_device_reports_zero() {
-    // Zero is a value, so `unwrap_or(80)` reads it as a real answer and every
-    // width collapses to nothing. `script(1)` allocates a pty with no size, and
-    // a terminal mid-resize can answer 0 as well.
-    let out = FakeOutput::new(0, 0);
-    assert_eq!(columns_of(&out, None), 80);
-    assert_eq!(rows_of(&out, None), 24);
-    assert_eq!(columns_of(&out, Some(100)), 100);
-    assert_eq!(rows_of(&out, Some(50)), 50);
-    assert!(out.is_tty);
-}
-
-#[test]
-fn delivers_a_decoded_key_for_each_keystroke_in_a_chunk() {
-    // A terminal hands over `\x1b[B\x1b[B\r` as one chunk routinely, and a
-    // reader that answered one key per chunk would drop the rest of a paste.
-    let mut input = FakeInput::tty();
-    input.type_text("\x1b[B\x1b[B\r");
-    let mut keyboard = open_keyboard(input, None).unwrap();
-
-    let names: Vec<KeyName> = keyboard
-        .read_keys()
-        .unwrap()
+/// Draws these rows into the live area, one per row.
+#[allow(
+    clippy::expect_used,
+    reason = "a frame the backend refused is the failure the test is looking for"
+)]
+fn draw_rows(terminal: &mut Terminal<VT100Backend>, rows: &[&str]) {
+    let rows: Vec<Line<'static>> = rows
         .iter()
-        .map(|key| key.name)
+        .map(|row| Line::from((*row).to_owned()))
         .collect();
-    assert_eq!(names, [KeyName::Down, KeyName::Down, KeyName::Enter]);
-    // End of input reads as no keys, not as an error.
-    assert!(keyboard.read_keys().unwrap().is_empty());
-    keyboard.stop().unwrap();
+    terminal
+        .draw(|frame| {
+            let area = frame.area;
+            for (offset, line) in rows.iter().enumerate() {
+                let Ok(offset) = u16::try_from(offset) else {
+                    break;
+                };
+                if offset >= area.height {
+                    break;
+                }
+                Widget::render(
+                    line,
+                    Rect::new(area.x, area.y + offset, area.width, 1),
+                    frame.buffer,
+                );
+            }
+        })
+        .expect("draw");
 }
 
 #[test]
-fn turns_raw_mode_on_for_a_terminal_and_off_again_on_the_way_out() {
-    let mut keyboard = open_keyboard(FakeInput::tty(), None).unwrap();
-    assert_eq!(keyboard.input().raw_mode_calls, [true]);
-    assert!(keyboard.input().is_raw);
+fn a_frame_lands_where_the_live_area_is() {
+    let mut terminal = open(20, 6, 3, 3);
+    draw_rows(&mut terminal, &["first", "second", "third"]);
 
-    keyboard.stop().unwrap();
-    assert_eq!(keyboard.input().raw_mode_calls, [true, false]);
-    assert!(!keyboard.input().is_raw);
-    assert!(keyboard.is_stopped());
+    let screen = terminal.backend().rows();
+    assert_eq!(screen[0], "");
+    assert_eq!(screen[3], "first");
+    assert_eq!(screen[4], "second");
+    assert_eq!(screen[5], "third");
 }
 
 #[test]
-fn leaves_a_mode_somebody_else_set_exactly_where_it_found_it() {
-    // Toggling raw mode underneath whatever set it is how a terminal ends up
-    // with no echo after the process exits.
-    let mut input = FakeInput::tty();
-    input.is_raw = true;
-    let mut keyboard = open_keyboard(input, None).unwrap();
-    keyboard.stop().unwrap();
+fn nothing_is_written_above_the_live_area() {
+    let mut terminal = open(20, 6, 3, 3);
+    // Something the shell left behind.
+    write!(terminal.backend_mut(), "\x1b[H$ ls").expect("prefill");
+    terminal
+        .set_cursor_position(Position { x: 0, y: 3 })
+        .expect("cursor");
 
-    assert!(keyboard.input().raw_mode_calls.is_empty());
-    assert!(keyboard.input().is_raw);
+    draw_rows(&mut terminal, &["a frame"]);
+
+    assert_eq!(terminal.backend().row(0), "$ ls");
 }
 
 #[test]
-fn does_not_touch_the_mode_of_something_that_is_not_a_terminal() {
-    let mut keyboard = open_keyboard(FakeInput::pipe(), None).unwrap();
-    keyboard.stop().unwrap();
-    assert!(keyboard.input().raw_mode_calls.is_empty());
+fn a_row_that_got_shorter_does_not_keep_its_tail() {
+    let mut terminal = open(20, 4, 1, 2);
+    draw_rows(&mut terminal, &["a long first row", "second"]);
+    assert_eq!(terminal.backend().row(1), "a long first row");
 
-    // Asking for raw mode on a pipe is refused the same way: there is no mode.
-    let mut keyboard = open_keyboard(FakeInput::pipe(), Some(true)).unwrap();
-    keyboard.stop().unwrap();
-    assert!(keyboard.input().raw_mode_calls.is_empty());
+    draw_rows(&mut terminal, &["short", "second"]);
+    assert_eq!(
+        terminal.backend().row(1),
+        "short",
+        "the tail of the longer row survived"
+    );
 }
 
 #[test]
-fn leaves_the_mode_alone_when_told_not_to_take_it() {
-    // What a test passes: a terminal, but no raw mode wanted.
-    let mut keyboard = open_keyboard(FakeInput::tty(), Some(false)).unwrap();
-    keyboard.stop().unwrap();
-    assert!(keyboard.input().raw_mode_calls.is_empty());
+fn an_unchanged_frame_writes_nothing() {
+    let mut terminal = open(20, 4, 1, 2);
+    draw_rows(&mut terminal, &["one", "two"]);
+    let before = terminal.backend().rows();
+
+    draw_rows(&mut terminal, &["one", "two"]);
+    assert_eq!(terminal.backend().rows(), before);
 }
 
 #[test]
-fn stops_once_however_often_it_is_asked() {
-    let mut keyboard = open_keyboard(FakeInput::tty(), None).unwrap();
-    keyboard.stop().unwrap();
-    keyboard.stop().unwrap();
-    assert_eq!(keyboard.input().raw_mode_calls, [true, false]);
+fn clearing_after_a_position_leaves_what_is_above_it() {
+    let mut terminal = open(20, 5, 2, 3);
+    draw_rows(&mut terminal, &["one", "two", "three"]);
+    write!(terminal.backend_mut(), "\x1b[H kept").expect("prefill");
+
+    terminal
+        .clear_after(Position { x: 0, y: 2 })
+        .expect("clear");
+
+    assert_eq!(terminal.backend().row(0), " kept");
+    assert_eq!(terminal.backend().row(2), "");
+    assert_eq!(terminal.backend().row(3), "");
 }
 
 #[test]
-fn delivers_nothing_after_it_has_stopped() {
-    let mut input = FakeInput::tty();
-    input.type_text("a");
-    let mut keyboard = open_keyboard(input, None).unwrap();
-    keyboard.stop().unwrap();
+fn a_frame_after_an_invalidate_writes_every_cell_again() {
+    let mut terminal = open(20, 4, 1, 2);
+    draw_rows(&mut terminal, &["one", "two"]);
 
-    assert!(keyboard.read_keys().unwrap().is_empty());
+    // Damage nothing announced: another program wrote over the live area.
+    write!(terminal.backend_mut(), "\x1b[2;1Hnoise").expect("damage");
+    assert_eq!(terminal.backend().row(1), "noise");
+
+    terminal.invalidate();
+    draw_rows(&mut terminal, &["one", "two"]);
+    assert_eq!(terminal.backend().row(1), "one");
+}
+
+#[test]
+fn a_frame_that_placed_the_caret_shows_it_there() {
+    let mut terminal = open(20, 4, 1, 2);
+    terminal
+        .draw(|frame| {
+            frame.set_cursor_position(Position { x: 5, y: 2 });
+        })
+        .expect("draw");
+
+    assert!(terminal.backend().cursor_visible());
+    assert_eq!(terminal.backend().cursor(), (2, 5));
+}
+
+#[test]
+fn a_frame_that_placed_no_caret_hides_it() {
+    let mut terminal = open(20, 4, 1, 2);
+    draw_rows(&mut terminal, &["nothing being typed"]);
+    assert!(!terminal.backend().cursor_visible());
+}
+
+#[test]
+fn a_style_a_frame_drew_reaches_the_screen() {
+    let mut terminal = open(20, 4, 1, 2);
+    terminal
+        .draw(|frame| {
+            let line = Line::from(vec![Span::styled("red", Style::default().fg(Color::Red))]);
+            Widget::render(&line, Rect::new(0, 1, 20, 1), frame.buffer);
+        })
+        .expect("draw");
+
+    let cell = terminal.backend().cell(0, 1).expect("a cell at 0,1");
+    assert_eq!(cell.contents(), "r");
+    assert_eq!(cell.fgcolor(), vt100::Color::Idx(1));
+}
+
+#[test]
+fn moving_the_live_area_moves_what_the_next_frame_draws() {
+    let mut terminal = open(20, 6, 4, 2);
+    draw_rows(&mut terminal, &["low"]);
+    assert_eq!(terminal.backend().row(4), "low");
+
+    terminal.set_viewport_area(Rect::new(0, 1, 20, 2));
+    draw_rows(&mut terminal, &["high"]);
+    assert_eq!(terminal.backend().row(1), "high");
+}
+
+#[test]
+fn the_cursor_position_is_remembered_across_a_draw() {
+    let mut terminal = open(20, 4, 1, 2);
+    terminal
+        .draw(|frame| {
+            frame.set_cursor_position(Position { x: 3, y: 1 });
+        })
+        .expect("draw");
+    assert_eq!(terminal.last_known_cursor_pos, Position { x: 3, y: 1 });
+}
+
+#[test]
+fn opening_asks_the_terminal_nothing_it_has_to_answer() {
+    // Asking where the cursor is (`ESC[6n`) is a read of stdin waiting for a
+    // reply a terminal need not send. What that looks like when it does not
+    // is a prompt showing nothing at all until the first key is pressed.
+    let backend = VT100Backend::new(20, 8);
+    let mut terminal = Terminal::new(backend).expect("open");
+
+    assert_eq!(
+        terminal.backend().rows().join(""),
+        "",
+        "something was written before the first frame"
+    );
+    // An empty area at the foot of the screen: the first draw makes room for
+    // itself by scrolling what is above it.
+    assert_eq!(terminal.viewport_area.y, 8);
+    assert_eq!(terminal.viewport_area.height, 0);
+    let _ = &mut terminal;
 }

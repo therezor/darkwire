@@ -137,6 +137,8 @@ pub struct AssistantOptions {
     pub tool_calls: Vec<ToolCall>,
     /// Reasoning text, kept beside the answer.
     pub reasoning: Option<String>,
+    /// How long that reasoning took, where anything measured it.
+    pub reasoning_ms: Option<u64>,
 }
 
 /// An assistant message.
@@ -149,6 +151,7 @@ pub fn assistant_message(
         content: content.into().into_parts(),
         tool_calls: options.tool_calls,
         reasoning: options.reasoning,
+        reasoning_ms: options.reasoning_ms,
     }
 }
 
@@ -161,6 +164,8 @@ pub struct ToolOptions {
     pub is_error: bool,
     /// The result was head+tail truncated.
     pub truncated: bool,
+    /// How long the call took, where anything measured it.
+    pub duration_ms: Option<u64>,
 }
 
 /// A tool result.
@@ -177,6 +182,7 @@ pub fn tool_message(
         content: content.into(),
         is_error: options.is_error,
         truncated: options.truncated,
+        duration_ms: options.duration_ms,
     }
 }
 

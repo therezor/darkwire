@@ -23,7 +23,7 @@
 //! an empty line would write a configuration nobody chose.
 
 use std::collections::BTreeSet;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, IsTerminal, Write};
 
 use darkwire_core::{Result, WireError};
 use darkwire_i18n::{args, keys};
@@ -79,43 +79,69 @@ impl LineReader for StdinReader {
     }
 
     fn read_secret(&mut self) -> Result<Option<String>> {
-        use darkwire_tui::{Key, KeyName, StandardInput, TerminalInput, open_keyboard};
+        use darkwire_tui::{Key, KeyName};
 
-        if !StandardInput.supports_raw_mode() {
+        // A pipe has no line discipline to take away, and a password read from
+        // one is a line like any other.
+        if !std::io::stdin().is_terminal() {
             return self.read_line();
         }
 
-        // `StandardInput` is a handle rather than a resource — it opens stdin
-        // per read — so constructing one here takes nothing away from anything
-        // else holding one. `Keyboard` restores the tty on drop as well as on
-        // `stop`, so every path out of this function gives it back.
-        let mut keyboard = open_keyboard(StandardInput, Some(true))?;
+        // The guard is the whole of why this is safe to return from: raw mode
+        // off on the ordinary return, on an error and on an unwind. A terminal
+        // left in raw mode has no echo and no line editing, which reads as a
+        // hung machine rather than as a bug here.
+        let _raw = RawMode::take()?;
         let mut typed = String::new();
         loop {
-            let keys: Vec<Key> = keyboard.read_keys()?;
-            if keys.is_empty() {
-                keyboard.stop()?;
-                return Ok(None);
-            }
-            for key in keys {
-                match key.name {
-                    KeyName::Enter => {
-                        keyboard.stop()?;
-                        return Ok(Some(typed));
-                    }
-                    KeyName::Backspace => {
-                        typed.pop();
-                    }
-                    // Ctrl-C and Ctrl-D at a masked prompt mean the same thing
-                    // they mean at any other: leave, having answered nothing.
-                    KeyName::Char if key.ctrl && matches!(key.character.as_str(), "c" | "d") => {
-                        keyboard.stop()?;
-                        return Ok(None);
-                    }
-                    KeyName::Char if !key.ctrl && !key.meta => typed.push_str(&key.character),
-                    _ => {}
+            let read = crossterm::event::read().map_err(WireError::from)?;
+            let crossterm::event::Event::Key(event) = read else {
+                continue;
+            };
+            let Some(key): Option<Key> = Key::from_event(event) else {
+                continue;
+            };
+            match key.name {
+                KeyName::Enter => return Ok(Some(typed)),
+                KeyName::Backspace => {
+                    typed.pop();
                 }
+                // Ctrl-C and Ctrl-D at a masked prompt mean the same thing
+                // they mean at any other: leave, having answered nothing.
+                KeyName::Char if key.ctrl && matches!(key.character.as_str(), "c" | "d") => {
+                    return Ok(None);
+                }
+                KeyName::Char if !key.ctrl && !key.meta => typed.push_str(&key.character),
+                _ => {}
             }
+        }
+    }
+}
+
+/// Raw mode, for as long as this is alive.
+///
+/// Only what it took is given back: a prompt opened inside something that had
+/// already taken the terminal must not hand that program's line discipline to
+/// whoever comes next.
+struct RawMode {
+    owned: bool,
+}
+
+impl RawMode {
+    /// Takes the terminal out of line mode, if it is not already.
+    fn take() -> Result<RawMode> {
+        let owned = !crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+        if owned {
+            crossterm::terminal::enable_raw_mode().map_err(WireError::from)?;
+        }
+        Ok(RawMode { owned })
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        if self.owned {
+            let _ = crossterm::terminal::disable_raw_mode();
         }
     }
 }

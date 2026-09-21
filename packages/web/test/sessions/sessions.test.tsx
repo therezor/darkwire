@@ -14,7 +14,7 @@
  */
 
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -27,6 +27,7 @@ import {
   type StubRoute,
 } from '@testkit/render.js';
 import { STATUS } from '@testkit/fixtures.js';
+import { useTurnStore } from '@/state/turn.js';
 
 function session(
   over: Partial<Record<string, unknown>> = {},
@@ -359,5 +360,63 @@ describe('acting on a session', () => {
         ),
       ).toBe(true);
     });
+  });
+
+  /**
+   * Deleting the conversation the socket is on used to leave it attached, and
+   * the chat route renders from the store rather than from the URL: the dead
+   * transcript was still there on the next trip to it. Attaching to another key
+   * is the only thing that clears one.
+   */
+  it('moves the socket off a session it deleted', async () => {
+    const { user } = mount({
+      'DELETE /api/sessions/web%3A1': [204, null],
+    });
+
+    await screen.findByRole('link', { name: 'Open Fix the login throttle' });
+    act(() => {
+      useTurnStore.getState().attach('web:1');
+    });
+
+    await user.click(
+      within(list()).getByRole('button', {
+        name: 'Actions for Fix the login throttle',
+      }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(useTurnStore.getState().sessionKey).not.toBe('web:1');
+    });
+    expect(useTurnStore.getState().sessionKey).toBeDefined();
+    expect(useTurnStore.getState().transcript).toEqual([]);
+  });
+
+  /** A session it was not on is somebody else's reading. Nothing moves. */
+  it('leaves the socket alone when it deleted some other session', async () => {
+    const { user } = mount({
+      'DELETE /api/sessions/web%3A1': [204, null],
+    });
+
+    await screen.findByRole('link', { name: 'Open Fix the login throttle' });
+    act(() => {
+      useTurnStore.getState().attach('web:other');
+    });
+
+    await user.click(
+      within(list()).getByRole('button', {
+        name: 'Actions for Fix the login throttle',
+      }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(useTurnStore.getState().sessionKey).toBe('web:other');
   });
 });

@@ -17,23 +17,22 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use darkwire::commands::{
-    CommandRow, SlashContext, SlashModels, SlashOutcome, command_rows, command_rows_for, help_text,
+    SlashContext, SlashModels, SlashOutcome, command_rows, command_rows_for, help_text,
     palette_rows, run_slash_command,
 };
 use darkwire::i18n::Translations;
 use darkwire::pickers::palette::{PaletteRow, command_items, command_value, complete_command};
-use darkwire::pickers::{MenuRequest, NoMenu, PickerMenu};
+use darkwire::pickers::{MenuAnswer, MenuRequest, NoMenu, PickerMenu};
 use darkwire::render::{TurnRenderer, TurnRendererOptions};
 use darkwire::runtime::ChatRuntime;
-use darkwire_core::session_store::TurnStatsRecord;
 use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
 use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{Database, Result};
 use darkwire_protocol::rest::{ModelInfo, ModelsResponse};
 use darkwire_protocol::tasks::{TaskItem, TaskStatus};
 use darkwire_protocol::{Config, ReasoningEffort, ToolPermission};
-use darkwire_protocol::{StopReason, Usage};
 use darkwire_runtime::{ExtensionChoice, McpChoice, RuntimeOptions, VaultChoice, create_runtime};
+use darkwire_tui::Page;
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -192,6 +191,11 @@ impl SlashModels for FakeModels {
 /// double that answered a bare value would step straight past.
 struct AnsweringMenu {
     label: Option<String>,
+    /// Which verb to fire on that row, `None` to simply choose it.
+    action: Option<usize>,
+    /// How many more times it answers before it starts giving up, so a test of
+    /// a window that re-opens after a verb terminates.
+    answers: Mutex<usize>,
     seen: Mutex<Vec<Vec<String>>>,
 }
 
@@ -199,6 +203,18 @@ impl AnsweringMenu {
     fn choosing(label: &str) -> AnsweringMenu {
         AnsweringMenu {
             label: Some(label.to_owned()),
+            action: None,
+            answers: Mutex::new(usize::MAX),
+            seen: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Fires verb `action` on that row `times` times, then gives up.
+    fn acting(label: &str, action: usize, times: usize) -> AnsweringMenu {
+        AnsweringMenu {
+            label: Some(label.to_owned()),
+            action: Some(action),
+            answers: Mutex::new(times),
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -207,6 +223,8 @@ impl AnsweringMenu {
     fn cancelled() -> AnsweringMenu {
         AnsweringMenu {
             label: None,
+            action: None,
+            answers: Mutex::new(usize::MAX),
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -225,18 +243,36 @@ impl PickerMenu for AnsweringMenu {
     fn choose<'a>(
         &'a self,
         request: MenuRequest,
-    ) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
         let labels: Vec<String> = request
             .items
             .iter()
             .map(|item| item.label.clone())
             .collect();
         self.seen.lock().unwrap().push(labels);
-        let at = self
-            .label
-            .as_ref()
-            .and_then(|want| request.items.iter().position(|item| &item.label == want));
-        Box::pin(std::future::ready(at))
+        let mut left = self.answers.lock().unwrap();
+        let answer = if *left == 0 {
+            None
+        } else {
+            *left = left.saturating_sub(1);
+            self.label
+                .as_ref()
+                .and_then(|want| request.items.iter().position(|item| &item.label == want))
+                .map(|row| MenuAnswer {
+                    row,
+                    action: self.action,
+                })
+        };
+        drop(left);
+        Box::pin(std::future::ready(answer))
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: darkwire::pickers::AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(None))
     }
 
     /// Nothing to lay a listing over; a scripted menu has no screen.
@@ -244,6 +280,160 @@ impl PickerMenu for AnsweringMenu {
         &'a self,
         request: darkwire::pickers::ListingRequest,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(false))
+    }
+}
+
+/// A menu with a screen, which records the documents laid over it.
+///
+/// Separate from [`AnsweringMenu`] because the two answer the same trait in
+/// opposite ways: that one draws no listing so a case can assert the prose a
+/// pipe gets, and this one draws every listing so a case can assert the tabs.
+struct ShowingMenu {
+    /// A row to choose, for the windows that open a document from one.
+    label: Option<String>,
+    answers: Mutex<usize>,
+    shown: Mutex<Vec<Vec<Page>>>,
+}
+
+impl ShowingMenu {
+    /// Draws listings and chooses nothing.
+    fn reading() -> ShowingMenu {
+        ShowingMenu {
+            label: None,
+            answers: Mutex::new(0),
+            shown: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Chooses that row once, then gives up, and draws what follows.
+    fn opening(label: &str) -> ShowingMenu {
+        ShowingMenu {
+            label: Some(label.to_owned()),
+            answers: Mutex::new(1),
+            shown: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The tabs of the one listing that was opened, by title.
+    fn titles(&self) -> Vec<String> {
+        self.shown.lock().unwrap()[0]
+            .iter()
+            .map(|page| page.title.clone())
+            .collect()
+    }
+
+    /// The rows of the tab called `title`, trimmed of the indent.
+    fn rows(&self, title: &str) -> Vec<String> {
+        self.shown.lock().unwrap()[0]
+            .iter()
+            .find(|page| page.title == title)
+            .unwrap_or_else(|| panic!("no tab called {title}"))
+            .rows
+            .iter()
+            .map(|row| row.trim().to_owned())
+            .collect()
+    }
+}
+
+impl PickerMenu for ShowingMenu {
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn choose<'a>(
+        &'a self,
+        request: MenuRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
+        let mut left = self.answers.lock().unwrap();
+        if *left == 0 {
+            return Box::pin(std::future::ready(None));
+        }
+        *left -= 1;
+        drop(left);
+        let row = self
+            .label
+            .as_ref()
+            .and_then(|want| request.items.iter().position(|item| &item.label == want));
+        Box::pin(std::future::ready(
+            row.map(|row| MenuAnswer { row, action: None }),
+        ))
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: darkwire::pickers::AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(None))
+    }
+
+    fn show<'a>(
+        &'a self,
+        request: darkwire::pickers::ListingRequest,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        self.shown.lock().unwrap().push(request.pages);
+        Box::pin(std::future::ready(true))
+    }
+}
+
+/// A menu that answers a typed question with a line, once.
+struct TypingMenu {
+    label: String,
+    action: usize,
+    typed: String,
+    answers: Mutex<usize>,
+}
+
+impl TypingMenu {
+    fn new(label: &str, action: usize, typed: &str) -> TypingMenu {
+        TypingMenu {
+            label: label.to_owned(),
+            action,
+            typed: typed.to_owned(),
+            answers: Mutex::new(1),
+        }
+    }
+}
+
+impl PickerMenu for TypingMenu {
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn choose<'a>(
+        &'a self,
+        request: MenuRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<MenuAnswer>> + Send + 'a>> {
+        let mut left = self.answers.lock().unwrap();
+        if *left == 0 {
+            return Box::pin(std::future::ready(None));
+        }
+        *left -= 1;
+        drop(left);
+        let row = request
+            .items
+            .iter()
+            .position(|item| item.label == self.label);
+        Box::pin(std::future::ready(row.map(|row| MenuAnswer {
+            row,
+            action: Some(self.action),
+        })))
+    }
+
+    fn ask<'a>(
+        &'a self,
+        request: darkwire::pickers::AskRequest,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        drop(request);
+        Box::pin(std::future::ready(Some(self.typed.clone())))
+    }
+
+    fn show<'a>(
+        &'a self,
+        request: darkwire::pickers::ListingRequest,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         drop(request);
         Box::pin(std::future::ready(false))
     }
@@ -258,6 +448,7 @@ struct Harness {
     session_key: String,
     workspace_id: Option<String>,
     agent_id: Option<String>,
+    pending_title: Option<String>,
     model_pinned: bool,
 }
 
@@ -278,6 +469,7 @@ impl Harness {
             session_key: session_key.to_owned(),
             workspace_id: None,
             agent_id: None,
+            pending_title: None,
             model_pinned: false,
         }
     }
@@ -322,6 +514,7 @@ impl Harness {
             session_key: &self.session_key,
             workspace_id: &mut self.workspace_id,
             agent_id: &mut self.agent_id,
+            pending_title: &mut self.pending_title,
             menu,
             models,
             model_pinned: self.model_pinned,
@@ -381,9 +574,8 @@ fn description_column(line: &str) -> Option<usize> {
 #[test]
 fn help_lists_every_command_a_reader_can_type() {
     let help = help_text(&Translations::default());
-    assert!(help.contains("/messages [n]"));
-    assert!(help.contains("/workspace move <from> <to>"));
-    assert!(help.contains("the last n messages, with their seq numbers"));
+    assert!(help.contains("/session [key]"));
+    assert!(help.contains("pick a session to continue, or attach to one by key"));
 }
 
 #[test]
@@ -478,19 +670,6 @@ fn help_prints_the_syntax_verbatim_never_through_the_bundle() {
 // The table, and the palette that reads it
 
 #[test]
-fn the_variant_rows_carry_no_description_of_their_own() {
-    // `/workspace new <name>` sits under `/workspace`, which already described
-    // it. An invented sentence there would be a second description of one
-    // command.
-    let rows = command_rows();
-    let variants: Vec<&CommandRow> = rows.iter().filter(|row| row.key.is_none()).collect();
-    assert_eq!(variants.len(), 2);
-    for row in variants {
-        assert!(row.syntax.starts_with("/workspace "));
-    }
-}
-
-#[test]
 fn an_install_with_no_extension_host_offers_the_table_alone() {
     let install = Install::bare();
     assert_eq!(command_rows_for(&install.runtime), command_rows());
@@ -543,23 +722,12 @@ fn the_real_rows_round_trip_through_the_palette_and_the_completer() {
         "a command is offered twice: {all:?}"
     );
 
-    // A prefix answers with every command that extends it — `/workspace` and
-    // its verbs are separate things to complete to, because each is a separate
-    // command, and `/workspaces` is a sixth.
+    // One command, one completion. There were six here: `/workspaces` beside
+    // `/workspace`, and four verbs after it. The verbs are buttons in the
+    // window now and the plural is gone, so the prefix answers with the one
+    // thing it can mean.
     let (candidates, _) = complete_command("/works", &rows);
-    assert_eq!(
-        candidates.iter().collect::<BTreeSet<_>>(),
-        [
-            "/workspaces".to_owned(),
-            "/workspace".to_owned(),
-            "/workspace new".to_owned(),
-            "/workspace rename".to_owned(),
-            "/workspace rm".to_owned(),
-            "/workspace move".to_owned(),
-        ]
-        .iter()
-        .collect::<BTreeSet<_>>()
-    );
+    assert_eq!(candidates, ["/workspace".to_owned()]);
 }
 
 // The dispatcher
@@ -575,7 +743,7 @@ async fn exit_and_quit_both_leave() {
 async fn help_is_printed_rather_than_returned() {
     let mut h = Harness::bare("cli:1");
     assert_eq!(h.run("/help").await, SlashOutcome::Continue);
-    assert!(h.text().contains("/messages [n]"));
+    assert!(h.text().contains("/session [key]"));
 }
 
 #[tokio::test]
@@ -595,13 +763,6 @@ async fn clear_forgets_the_history_and_says_so() {
     let mut h = h;
     assert_eq!(h.run("/clear").await, SlashOutcome::Continue);
     assert!(h.text().contains("history cleared"));
-}
-
-#[tokio::test]
-async fn messages_says_so_when_nothing_has_been_said() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/messages").await;
-    assert!(h.text().contains("nothing said in this session yet"));
 }
 
 // /workspace <id>
@@ -689,71 +850,6 @@ async fn workspace_refuses_one_that_does_not_exist_without_moving_anything() {
     );
 }
 
-#[tokio::test]
-async fn workspace_rm_refuses_while_sessions_still_name_it() {
-    let h = Harness::new(Install::bare(), "cli:1");
-    h.runtime()
-        .workspaces()
-        .create(CreateWorkspace {
-            name: "Research".to_owned(),
-            id: Some("research".to_owned()),
-            ..CreateWorkspace::default()
-        })
-        .unwrap();
-    h.runtime()
-        .store()
-        .ensure_session(
-            "cli:1",
-            CreateSession {
-                workspace_id: Some("research".to_owned()),
-                ..CreateSession::default()
-            },
-        )
-        .unwrap();
-
-    let mut h = h;
-    h.run("/workspace rm research").await;
-
-    assert!(h.text().contains("still in research"), "{}", h.text());
-    assert!(h.runtime().workspaces().get("research").unwrap().is_some());
-}
-
-#[tokio::test]
-async fn workspace_new_and_rename_report_what_they_did() {
-    let mut h = Harness::bare("cli:1");
-
-    h.run("/workspace new Deep Research").await;
-    assert!(h.text().contains("created"), "{}", h.text());
-    let created = h
-        .runtime()
-        .workspaces()
-        .list()
-        .unwrap()
-        .into_iter()
-        .find(|workspace| workspace.name == "Deep Research")
-        .unwrap();
-
-    h.sink.clear();
-    h.run(&format!("/workspace rename {} Shallow", created.id))
-        .await;
-    assert_eq!(
-        h.runtime()
-            .workspaces()
-            .get(&created.id)
-            .unwrap()
-            .unwrap()
-            .name,
-        "Shallow"
-    );
-}
-
-#[tokio::test]
-async fn workspace_new_with_no_name_says_how_to_use_it() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/workspace new").await;
-    assert!(h.text().contains("usage: /workspace new"), "{}", h.text());
-}
-
 // /workspace with no argument
 
 #[tokio::test]
@@ -789,94 +885,7 @@ async fn bare_workspace_switches_to_what_the_picker_answered() {
     );
 }
 
-#[tokio::test]
-async fn bare_workspace_falls_back_to_saying_where_sessions_land() {
-    let mut h = Harness::bare("cli:1");
-    h.run_menu("/workspace", &AnsweringMenu::cancelled()).await;
-
-    assert_eq!(h.workspace_id, None);
-    assert!(h.text().contains("new sessions land in default"));
-}
-
-#[tokio::test]
-async fn bare_workspace_says_the_same_thing_without_a_menu() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/workspace").await;
-    assert!(h.text().contains("new sessions land in default"));
-}
-
 // /output
-
-#[tokio::test]
-async fn output_lists_every_switch_and_its_state_when_asked_for_nothing() {
-    // The bare form is what makes the switches discoverable at all — two
-    // separate commands never were.
-    let mut h = Harness::bare("cli:1");
-    h.run("/output").await;
-
-    assert!(h.text().contains("reasoning  shown"), "{}", h.text());
-    // Hidden, which is how a turn's cost arrives now: worth having, and not
-    // worth a row under every answer.
-    assert!(h.text().contains("stats      hidden"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn output_flips_a_field_named_with_no_word() {
-    let mut h = Harness::bare("cli:1");
-    assert!(h.renderer.reasoning_shown());
-
-    h.run("/output reasoning").await;
-    assert!(!h.renderer.reasoning_shown());
-    assert!(h.text().contains("hidden: reasoning"));
-
-    h.run("/output reasoning").await;
-    assert!(h.renderer.reasoning_shown());
-    assert!(h.text().contains("shown: reasoning"));
-}
-
-#[tokio::test]
-async fn output_says_it_outright_with_on_and_off() {
-    // For a hand that has lost track of which way the switch is.
-    let mut h = Harness::bare("cli:1");
-
-    h.run("/output stats off").await;
-    h.run("/output stats off").await;
-    assert!(!h.renderer.stats_shown());
-
-    h.run("/output stats on").await;
-    h.run("/output stats on").await;
-    assert!(h.renderer.stats_shown());
-}
-
-#[tokio::test]
-async fn output_shows_the_new_state_in_the_listing_afterwards() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/output stats off").await;
-    h.sink.clear();
-
-    h.run("/output").await;
-
-    assert!(h.text().contains("stats      hidden"), "{}", h.text());
-    assert!(h.text().contains("reasoning  shown"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn output_refuses_a_field_it_has_never_heard_of() {
-    // Warned rather than propagated, and nothing changes.
-    let mut h = Harness::bare("cli:1");
-    h.run("/output colours off").await;
-
-    assert!(h.text().contains("colours"));
-    assert!(h.renderer.reasoning_shown());
-    assert!(!h.renderer.stats_shown());
-}
-
-#[tokio::test]
-async fn output_treats_a_word_it_does_not_know_as_a_flip() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/output stats yes-please").await;
-    assert!(h.renderer.stats_shown());
-}
 
 // /model
 
@@ -1348,12 +1357,16 @@ async fn agent_opens_a_picker_on_a_terminal() {
 // /memory
 
 /// A memory file, as the reader expects to find one.
+///
+/// A heading and a body, with no frontmatter: the file *is* the memory and its
+/// title is its first heading. The fixture this replaced still carried the
+/// frontmatter of the shape before that, which made every title read `---`.
 fn memory(h: &Harness, name: &str) {
     let dir = h.runtime().jail().root().join("memory");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join(format!("{name}.md")),
-        format!("---\ndescription: about {name}\nmetadata:\n  type: project\n---\n\nBody.\n"),
+        format!("# About {name}\n\nBody.\n"),
     )
     .unwrap();
 }
@@ -1417,24 +1430,6 @@ async fn memory_mints_no_session_row_for_a_conversation_that_never_spoke() {
 }
 
 #[tokio::test]
-async fn memory_turns_off_on_the_agent_and_back_on() {
-    let mut h = Harness::bare("cli:1");
-
-    h.run("/memory off").await;
-    assert_eq!(
-        entry(&h.install.config(), "default").tools.get("memory"),
-        Some(&ToolPermission::Deny)
-    );
-    assert!(h.text().contains("no longer remembers"), "{}", h.text());
-
-    h.run("/memory on").await;
-    assert_eq!(
-        entry(&h.install.config(), "default").tools.get("memory"),
-        Some(&ToolPermission::Allow)
-    );
-}
-
-#[tokio::test]
 async fn memory_keeps_every_other_permission_when_it_flips_this_one() {
     // `agents.list.*` replaces wholesale, so a patch carrying only the one
     // permission would delete the rest of the map. This is the most likely way
@@ -1448,8 +1443,13 @@ async fn memory_keeps_every_other_permission_when_it_flips_this_one() {
         }))),
         "cli:1",
     );
+    memory(&h, "ci-gate");
 
-    h.run("/memory off").await;
+    h.run_menu(
+        "/memory",
+        &AnsweringMenu::acting("ci-gate: About ci-gate", 0, 1),
+    )
+    .await;
 
     let config = h.install.config();
     let default = entry(&config, "default");
@@ -1458,16 +1458,6 @@ async fn memory_keeps_every_other_permission_when_it_flips_this_one() {
     assert_eq!(default.tools.get("memory"), Some(&ToolPermission::Deny));
     // And nothing else on the entry was dropped either.
     assert_eq!(default.label, "Primary");
-}
-
-#[tokio::test]
-async fn memory_names_its_verbs_when_given_one_it_does_not_know() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/memory sideways").await;
-
-    assert!(h.text().contains("/memory on"), "{}", h.text());
-    // `compress` was a third verb, and went with the format it folded into.
-    assert!(!h.text().contains("compress"));
 }
 
 // /skills
@@ -1585,7 +1575,10 @@ async fn skills_mints_no_session_row_for_a_conversation_that_never_spoke() {
 // Sessions
 
 #[tokio::test]
-async fn new_attaches_to_a_fresh_conversation() {
+async fn new_attaches_to_a_fresh_conversation_without_storing_one() {
+    // A key to talk under, and nothing written. Pressing new, changing your
+    // mind and leaving must put nothing in the listing, where an empty row is
+    // indistinguishable from a conversation that mattered.
     let mut h = Harness::bare("cli:1");
     let outcome = h.run("/new Notes on the build").await;
 
@@ -1593,15 +1586,31 @@ async fn new_attaches_to_a_fresh_conversation() {
         panic!("expected an attach, got {outcome:?}");
     };
     assert!(key.starts_with("cli-"));
-    assert_eq!(
-        h.runtime()
-            .store()
-            .get_session(&key)
-            .unwrap()
-            .unwrap()
-            .title,
-        "Notes on the build"
+    assert!(
+        h.runtime().store().get_session(&key).unwrap().is_none(),
+        "an empty conversation was stored"
     );
+    // The name waits for the row the first turn writes.
+    assert_eq!(h.pending_title.as_deref(), Some("Notes on the build"));
+}
+
+#[tokio::test]
+async fn new_without_a_name_leaves_nothing_waiting() {
+    let mut h = Harness::bare("cli:1");
+    h.run("/new").await;
+    assert_eq!(h.pending_title, None);
+}
+
+#[tokio::test]
+async fn renaming_a_conversation_nobody_has_spoken_in_does_not_conjure_one() {
+    // The same rule from the other direction: naming a session is not saying
+    // something in it.
+    let mut h = Harness::bare("cli:1");
+    h.run("/rename Build notes").await;
+
+    assert!(h.runtime().store().get_session("cli:1").unwrap().is_none());
+    assert_eq!(h.pending_title.as_deref(), Some("Build notes"));
+    assert!(h.text().contains("Build notes"), "{}", h.text());
 }
 
 #[tokio::test]
@@ -1622,15 +1631,12 @@ async fn new_lands_in_the_pending_workspace() {
         panic!("expected an attach");
     };
 
-    assert_eq!(
-        h.runtime()
-            .store()
-            .get_session(&key)
-            .unwrap()
-            .unwrap()
-            .workspace_id,
-        "research"
-    );
+    // Nothing is written here, so the workspace is not on a row yet: it is on
+    // the prompt, and the turn that writes the row is what carries it there.
+    // `a_session_created_by_a_turn_lands_in_the_workspace_it_was_given` is the
+    // other end of that.
+    assert!(h.runtime().store().get_session(&key).unwrap().is_none());
+    assert_eq!(h.workspace_id.as_deref(), Some("research"));
 }
 
 #[tokio::test]
@@ -1678,39 +1684,14 @@ async fn rename_names_the_conversation() {
 }
 
 #[tokio::test]
-async fn delete_of_the_attached_conversation_lands_somewhere_new() {
-    let h = Harness::bare("cli:1");
-    h.runtime()
-        .store()
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-
-    let mut h = h;
-    let outcome = h.run("/delete").await;
-
-    let SlashOutcome::Attach(key) = outcome else {
-        panic!("expected an attach, got {outcome:?}");
-    };
-    assert_ne!(key, "cli:1");
-    assert!(h.runtime().store().get_session("cli:1").unwrap().is_none());
-}
-
-#[tokio::test]
-async fn delete_of_a_key_that_names_nothing_is_a_refusal() {
+async fn session_says_so_when_there_are_none() {
     let mut h = Harness::bare("cli:1");
-    h.run("/delete cli:ghost").await;
-    assert!(h.text().contains("No session cli:ghost"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn sessions_says_so_when_there_are_none() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/sessions").await;
+    h.run("/session").await;
     assert!(h.text().contains("no sessions yet"), "{}", h.text());
 }
 
 #[tokio::test]
-async fn sessions_lists_them_with_the_current_one_marked() {
+async fn session_lists_them_with_the_current_one_marked() {
     let h = Harness::bare("cli:1");
     h.runtime()
         .store()
@@ -1718,17 +1699,10 @@ async fn sessions_lists_them_with_the_current_one_marked() {
         .unwrap();
 
     let mut h = h;
-    h.run("/sessions").await;
+    h.run("/session").await;
 
     assert!(h.text().contains("* (unnamed)"), "{}", h.text());
     assert!(h.text().contains("cli:1"));
-}
-
-#[tokio::test]
-async fn stats_says_so_when_no_turn_has_run() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/stats").await;
-    assert!(h.text().contains("no turns recorded"), "{}", h.text());
 }
 
 // /edit and /regenerate
@@ -1736,7 +1710,7 @@ async fn stats_says_so_when_no_turn_has_run() {
 #[tokio::test]
 async fn edit_without_a_replacement_says_how_to_use_it() {
     let mut h = Harness::bare("cli:1");
-    h.run("/edit 1").await;
+    h.run("/edit").await;
     assert!(h.text().contains("usage: /edit"), "{}", h.text());
 }
 
@@ -1762,7 +1736,7 @@ async fn edit_hands_the_replacement_back_rather_than_running_it() {
         .unwrap();
 
     let mut h = h;
-    let outcome = h.run("/edit -1 what changed here?").await;
+    let outcome = h.run("/edit what changed here?").await;
 
     assert_eq!(outcome, SlashOutcome::Turn("what changed here?".to_owned()));
     // Cut below the edited message: the loop appends the replacement itself.
@@ -1788,7 +1762,11 @@ async fn regenerate_hands_the_original_back_and_truncates_below_it() {
 }
 
 #[tokio::test]
-async fn edit_refuses_a_message_that_is_not_yours() {
+async fn edit_says_so_when_there_is_nothing_of_yours_to_edit() {
+    // The refusal moved. It used to be "message 2 is not one of yours", which
+    // you could only reach by naming a seq off `/messages`; without a
+    // reference the only message `/edit` can address is your own last one, so
+    // the case that remains is having said nothing at all.
     let h = Harness::bare("cli:1");
     let store = h.runtime().store();
     store
@@ -1799,9 +1777,9 @@ async fn edit_refuses_a_message_that_is_not_yours() {
         .unwrap();
 
     let mut h = h;
-    h.run("/edit 1 no you did not").await;
+    h.run("/edit no you did not").await;
 
-    assert!(h.text().contains("not one of yours"), "{}", h.text());
+    assert!(h.text().contains("not said anything"), "{}", h.text());
     // And nothing was cut.
     assert_eq!(h.runtime().store().message_count("cli:1").unwrap(), 1);
 }
@@ -1833,84 +1811,10 @@ async fn branch_forks_and_attaches_to_the_fork() {
 
 // /workspaces
 
-#[tokio::test]
-async fn workspaces_lists_them_with_the_pending_one_marked() {
-    let h = Harness::new(Install::bare(), "cli:1");
-    h.runtime()
-        .workspaces()
-        .create(CreateWorkspace {
-            name: "Research".to_owned(),
-            id: Some("research".to_owned()),
-            ..CreateWorkspace::default()
-        })
-        .unwrap();
-
-    let mut h = h;
-    h.run("/workspace research").await;
-    h.sink.clear();
-    h.run("/workspaces").await;
-
-    assert!(h.text().contains("* research"), "{}", h.text());
-    assert!(h.text().contains("  default"), "{}", h.text());
-}
-
 // /messages, /sessions, /session, /delete
 
 #[tokio::test]
-async fn messages_shows_the_recent_lines_newest_last() {
-    let h = Harness::bare("cli:1");
-    let store = h.runtime().store();
-    store
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-    store
-        .append("cli:1", said("what is here?"), &AppendOptions::default())
-        .unwrap();
-    store
-        .append(
-            "cli:1",
-            answered("a repository."),
-            &AppendOptions::default(),
-        )
-        .unwrap();
-
-    let mut h = h;
-    h.run("/messages").await;
-
-    let text = h.text();
-    assert!(text.contains("what is here?"), "{text}");
-    assert!(text.contains("a repository."), "{text}");
-    assert!(
-        text.find("what is here?") < text.find("a repository."),
-        "the transcript reads oldest first: {text}"
-    );
-}
-
-#[tokio::test]
-async fn messages_takes_the_count_as_a_page_size() {
-    // The same argument `/sessions` takes, so a person and a script are asking
-    // the same question of the same rows.
-    let h = Harness::bare("cli:1");
-    let store = h.runtime().store();
-    store
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-    for text in ["one", "two", "three"] {
-        store
-            .append("cli:1", said(text), &AppendOptions::default())
-            .unwrap();
-    }
-
-    let mut h = h;
-    h.run("/messages 1").await;
-
-    let text = h.text();
-    assert!(text.contains("three"), "{text}");
-    assert!(!text.contains("one"), "{text}");
-}
-
-#[tokio::test]
-async fn sessions_prints_the_listing_where_there_is_no_menu_to_open() {
+async fn session_prints_the_listing_where_there_is_no_menu_to_open() {
     // A pipe cannot draw one, and the listing is what a script reads.
     let h = Harness::bare("cli:1");
     let store = h.runtime().store();
@@ -1922,7 +1826,7 @@ async fn sessions_prints_the_listing_where_there_is_no_menu_to_open() {
         .unwrap();
 
     let mut h = h;
-    h.run("/sessions").await;
+    h.run("/session").await;
 
     let text = h.text();
     assert!(text.contains("* "), "the current one is marked: {text}");
@@ -1934,7 +1838,7 @@ async fn sessions_prints_the_listing_where_there_is_no_menu_to_open() {
 }
 
 #[tokio::test]
-async fn sessions_attaches_to_what_the_picker_answered() {
+async fn session_attaches_to_what_the_picker_answered() {
     let h = Harness::bare("cli:1");
     let store = h.runtime().store();
     for key in ["cli:1", "cli:2"] {
@@ -1955,13 +1859,13 @@ async fn sessions_attaches_to_what_the_picker_answered() {
 
     let mut h = h;
     let menu = AnsweringMenu::choosing("The other one");
-    let outcome = h.run_menu("/sessions", &menu).await;
+    let outcome = h.run_menu("/session", &menu).await;
 
     assert_eq!(outcome, SlashOutcome::Attach("cli:2".to_owned()));
 }
 
 #[tokio::test]
-async fn sessions_stays_put_when_the_picker_was_cancelled() {
+async fn session_stays_put_when_the_picker_was_cancelled() {
     // Escape leaves the conversation where it was rather than picking the row
     // the cursor happened to rest on.
     let h = Harness::bare("cli:1");
@@ -2027,177 +1931,20 @@ async fn session_with_an_argument_attaches_to_it() {
     let outcome = h.run("/session cli:other").await;
 
     assert_eq!(outcome, SlashOutcome::Attach("cli:other".to_owned()));
-    // Created rather than only named: the prompt is about to write into it.
+    // Named rather than created. A key nobody has spoken under is a name for a
+    // conversation that has not happened, and the first turn is what writes it.
     assert!(
         h.runtime()
             .store()
             .get_session("cli:other")
             .unwrap()
-            .is_some()
+            .is_none()
     );
-}
-
-#[tokio::test]
-async fn delete_removes_a_named_conversation_and_stays_where_it_is() {
-    let h = Harness::bare("cli:1");
-    let store = h.runtime().store();
-    for key in ["cli:1", "cli:2"] {
-        store.ensure_session(key, CreateSession::default()).unwrap();
-    }
-
-    let mut h = h;
-    let outcome = h.run("/delete cli:2").await;
-
-    assert_eq!(outcome, SlashOutcome::Continue);
-    assert!(h.runtime().store().get_session("cli:2").unwrap().is_none());
-    assert!(h.runtime().store().get_session("cli:1").unwrap().is_some());
-}
-
-#[tokio::test]
-async fn delete_refuses_a_key_the_store_has_never_heard_of() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/delete cli:nowhere").await;
-
-    assert!(h.text().contains("cli:nowhere"), "{}", h.text());
 }
 
 // /workspace rm, move, rename
 
-#[tokio::test]
-async fn workspace_rm_detaches_one_nothing_is_left_in() {
-    let h = Harness::new(Install::bare(), "cli:1");
-    h.runtime()
-        .workspaces()
-        .create(CreateWorkspace {
-            name: "Research".to_owned(),
-            id: Some("research".to_owned()),
-            ..CreateWorkspace::default()
-        })
-        .unwrap();
-
-    let mut h = h;
-    h.run("/workspace research").await;
-    h.sink.clear();
-    h.run("/workspace rm research").await;
-
-    assert!(h.runtime().workspaces().get("research").unwrap().is_none());
-    // The pending workspace pointed at the one just removed, so it is cleared
-    // rather than left naming a row that is gone.
-    assert_eq!(h.workspace_id, None);
-}
-
-#[tokio::test]
-async fn workspace_rm_with_no_id_says_how_to_use_it() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/workspace rm").await;
-
-    assert!(h.text().contains("usage: /workspace rm"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn workspace_move_reassigns_every_conversation_and_counts_them() {
-    let h = Harness::new(Install::bare(), "cli:1");
-    h.runtime()
-        .workspaces()
-        .create(CreateWorkspace {
-            name: "Research".to_owned(),
-            id: Some("research".to_owned()),
-            ..CreateWorkspace::default()
-        })
-        .unwrap();
-    let store = h.runtime().store();
-    for key in ["cli:1", "cli:2"] {
-        store.ensure_session(key, CreateSession::default()).unwrap();
-    }
-
-    let mut h = h;
-    h.run("/workspace move default research").await;
-
-    assert!(h.text().contains('2'), "{}", h.text());
-    assert_eq!(
-        h.runtime()
-            .store()
-            .get_session("cli:1")
-            .unwrap()
-            .unwrap()
-            .workspace_id,
-        "research"
-    );
-}
-
-#[tokio::test]
-async fn workspace_move_refuses_a_destination_that_does_not_exist() {
-    // Reassigning into a row nobody created would leave every moved
-    // conversation pointing at nothing.
-    let h = Harness::new(Install::bare(), "cli:1");
-    h.runtime()
-        .store()
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-
-    let mut h = h;
-    h.run("/workspace move default nowhere").await;
-
-    assert!(h.text().contains("nowhere"), "{}", h.text());
-    assert_eq!(
-        h.runtime()
-            .store()
-            .get_session("cli:1")
-            .unwrap()
-            .unwrap()
-            .workspace_id,
-        "default"
-    );
-}
-
-#[tokio::test]
-async fn workspace_move_with_one_argument_says_how_to_use_it() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/workspace move default").await;
-
-    assert!(h.text().contains("usage: /workspace move"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn workspace_rename_with_no_name_says_how_to_use_it() {
-    let mut h = Harness::bare("cli:1");
-    h.run("/workspace rename default").await;
-
-    assert!(
-        h.text().contains("usage: /workspace rename"),
-        "{}",
-        h.text()
-    );
-}
-
 // /stats and /context
-
-/// One recorded turn, with only the fields a stats row shows filled in.
-fn turn(id: &str, model: &str, ended_at_ms: i64) -> TurnStatsRecord {
-    TurnStatsRecord {
-        turn_id: id.to_owned(),
-        session_key: "cli:1".to_owned(),
-        agent_id: "default".to_owned(),
-        workspace_id: "default".to_owned(),
-        provider: "local".to_owned(),
-        model: model.to_owned(),
-        started_at_ms: ended_at_ms - 1000,
-        ended_at_ms,
-        iterations: 1,
-        stop_reason: StopReason::Complete,
-        usage: Usage {
-            prompt_tokens: 100,
-            completion_tokens: 20,
-            total_tokens: 120,
-            cached_tokens: None,
-            reasoning_tokens: None,
-        },
-        generation_ms: Some(800),
-        generation_tokens: Some(20),
-        first_token_ms: Some(150),
-        error: None,
-    }
-}
 
 #[tokio::test]
 async fn stats_says_so_before_a_single_turn_has_run() {
@@ -2208,46 +1955,6 @@ async fn stats_says_so_before_a_single_turn_has_run() {
         !h.text().is_empty(),
         "an empty session has to say something"
     );
-}
-
-#[tokio::test]
-async fn stats_shows_the_recorded_turns() {
-    let h = Harness::bare("cli:1");
-    let store = h.runtime().store();
-    store
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-    store
-        .record_turn_stats(&turn("t1", "qwen3:8b", 2000))
-        .unwrap();
-
-    let mut h = h;
-    h.run("/stats").await;
-
-    assert!(h.text().contains("qwen3:8b"), "{}", h.text());
-}
-
-#[tokio::test]
-async fn stats_takes_the_count_as_a_page_size() {
-    // Newest first, so a limit of one is the turn that just ran rather than the
-    // first one of the session.
-    let h = Harness::bare("cli:1");
-    let store = h.runtime().store();
-    store
-        .ensure_session("cli:1", CreateSession::default())
-        .unwrap();
-    store
-        .record_turn_stats(&turn("t1", "old-model", 1000))
-        .unwrap();
-    store
-        .record_turn_stats(&turn("t2", "new-model", 5000))
-        .unwrap();
-
-    let mut h = h;
-    h.run("/stats 1").await;
-
-    assert!(h.text().contains("new-model"), "{}", h.text());
-    assert!(!h.text().contains("old-model"), "{}", h.text());
 }
 
 #[tokio::test]
@@ -2326,27 +2033,6 @@ async fn tasks_prints_the_plan_in_the_markers_the_prompt_uses() {
     assert!(text.contains("[>] Update sessions"), "{text}");
 }
 
-#[tokio::test]
-async fn tasks_clear_empties_the_list() {
-    let h = Harness::bare("cli:1");
-    h.runtime()
-        .store()
-        .set_tasks(
-            "cli:1",
-            &[TaskItem {
-                text: "Add tests".to_owned(),
-                status: TaskStatus::Todo,
-            }],
-        )
-        .unwrap();
-
-    let mut h = h;
-    h.run("/tasks clear").await;
-
-    assert!(h.text().contains("cleared"), "{}", h.text());
-    assert_eq!(h.runtime().store().tasks("cli:1").unwrap(), Vec::new());
-}
-
 /// One session's plan is not another's, which is what keeps a subagent's list
 /// out of its parent's.
 #[tokio::test]
@@ -2412,4 +2098,373 @@ fn the_keys_tab_lists_the_bindings_and_no_commands() {
     let keys = pages.last().expect("there is a keys tab");
     assert!(keys.rows.iter().any(|row| row.contains("ctrl-g")));
     assert!(!keys.rows.iter().any(|row| row.trim().starts_with('/')));
+}
+
+// The windows
+
+#[tokio::test]
+async fn the_task_window_empties_the_plan_on_its_verb() {
+    // `/tasks clear` is gone: a command spelled out to do what a key in the
+    // window does is the second name for one thing.
+    let h = Harness::bare("cli:1");
+    h.runtime()
+        .store()
+        .set_tasks(
+            "cli:1",
+            &[TaskItem {
+                text: "Inspect auth".to_owned(),
+                status: TaskStatus::Done,
+            }],
+        )
+        .unwrap();
+
+    let mut h = h;
+    h.run_menu("/tasks", &AnsweringMenu::acting("[x] Inspect auth", 0, 1))
+        .await;
+
+    assert!(h.runtime().store().tasks("cli:1").unwrap().is_empty());
+    assert!(h.text().contains("task list cleared"), "{}", h.text());
+}
+
+#[tokio::test]
+async fn a_plan_read_and_closed_is_left_alone() {
+    let h = Harness::bare("cli:1");
+    h.runtime()
+        .store()
+        .set_tasks(
+            "cli:1",
+            &[TaskItem {
+                text: "Inspect auth".to_owned(),
+                status: TaskStatus::Done,
+            }],
+        )
+        .unwrap();
+
+    let mut h = h;
+    h.run_menu("/tasks", &AnsweringMenu::cancelled()).await;
+
+    assert_eq!(h.runtime().store().tasks("cli:1").unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_empty_plan_opens_no_window_at_all() {
+    // A list drawn over the window to say "nothing matches" is a screenful
+    // saying nothing. The sentence is the better answer.
+    let mut h = Harness::bare("cli:1");
+    let menu = AnsweringMenu::cancelled();
+    h.run_menu("/tasks", &menu).await;
+
+    assert!(menu.offered().is_empty(), "{:?}", menu.offered());
+    assert!(h.text().contains("no plan"), "{}", h.text());
+}
+
+#[tokio::test]
+async fn context_lays_the_measurement_out_in_tabs() {
+    let h = Harness::new(
+        Install::new(Some(&json!({
+            "providers": {"local": {"type": "ollama"}},
+            "agents": {"list": {"default": {"provider": "local", "model": "qwen3:8b"}}},
+        }))),
+        "cli:1",
+    );
+    let store = h.runtime().store();
+    store
+        .ensure_session("cli:1", CreateSession::default())
+        .unwrap();
+    store
+        .append(
+            "cli:1",
+            said("what changed today"),
+            &AppendOptions::default(),
+        )
+        .unwrap();
+
+    let mut h = h;
+    let menu = ShowingMenu::reading();
+    h.run_menu("/context", &menu).await;
+
+    assert_eq!(menu.titles(), ["summary", "system", "tools", "messages"]);
+    // The numbers the command has always printed are the first tab, unchanged.
+    assert!(
+        menu.rows("summary")
+            .iter()
+            .any(|row| row.contains("tokens")),
+        "{:?}",
+        menu.rows("summary")
+    );
+    // And the message behind the count, which used to be measured and dropped.
+    assert!(
+        menu.rows("messages")
+            .iter()
+            .any(|row| row.contains("what changed today")),
+        "{:?}",
+        menu.rows("messages")
+    );
+}
+
+#[tokio::test]
+async fn memory_lists_the_index_the_prompt_carries() {
+    // The list, not just the count. It was already built here to be measured
+    // and then dropped, which made "how many" the only answer to a question
+    // that was really "what does it remember".
+    let h = Harness::bare("cli:1");
+    memory(&h, "rem-over-px");
+    memory(&h, "ci-gate");
+
+    let mut h = h;
+    let menu = AnsweringMenu::cancelled();
+    h.run_menu("/memory", &menu).await;
+
+    let offered = menu.offered();
+    assert_eq!(offered.len(), 1, "{offered:?}");
+    // The summary on a disabled first row, then one per memory.
+    assert!(offered[0][0].contains("2 memories"), "{offered:?}");
+    assert_eq!(
+        &offered[0][1..],
+        ["ci-gate: About ci-gate", "rem-over-px: About rem-over-px"]
+    );
+}
+
+#[tokio::test]
+async fn choosing_a_memory_opens_the_file_the_model_is_sent() {
+    let h = Harness::bare("cli:1");
+    memory(&h, "ci-gate");
+
+    let mut h = h;
+    let menu = ShowingMenu::opening("ci-gate: About ci-gate");
+    h.run_menu("/memory", &menu).await;
+
+    assert_eq!(menu.titles(), ["ci-gate"]);
+    assert!(
+        menu.rows("ci-gate").iter().any(|row| row.contains("Body.")),
+        "{:?}",
+        menu.rows("ci-gate")
+    );
+}
+
+#[tokio::test]
+async fn memory_opens_nothing_when_nothing_is_remembered() {
+    let mut h = Harness::bare("cli:1");
+    h.run_menu("/memory", &ShowingMenu::reading()).await;
+
+    assert!(h.text().contains("nothing remembered yet"), "{}", h.text());
+}
+
+#[tokio::test]
+async fn the_memory_window_flips_the_tool_on_the_agent() {
+    let h = Harness::bare("cli:1");
+    memory(&h, "ci-gate");
+
+    let mut h = h;
+    h.run_menu(
+        "/memory",
+        &AnsweringMenu::acting("ci-gate: About ci-gate", 0, 1),
+    )
+    .await;
+
+    assert_eq!(
+        entry(&h.install.config(), "default").tools.get("memory"),
+        Some(&ToolPermission::Deny)
+    );
+}
+
+#[tokio::test]
+async fn the_workspace_manager_switches_on_a_plain_choice() {
+    let h = Harness::new(Install::bare(), "cli:1");
+    h.runtime()
+        .workspaces()
+        .create(CreateWorkspace {
+            name: "Research".to_owned(),
+            id: Some("research".to_owned()),
+            ..CreateWorkspace::default()
+        })
+        .unwrap();
+
+    let mut h = h;
+    h.run_menu("/workspace", &AnsweringMenu::choosing("Research"))
+        .await;
+
+    assert_eq!(h.workspace_id.as_deref(), Some("research"));
+}
+
+#[tokio::test]
+async fn renaming_happens_in_the_window_on_a_line_typed_into_it() {
+    // Rather than a command handed back to the composer, which was the shape
+    // before: a manager you have to leave in order to manage with is not one.
+    let h = Harness::new(Install::bare(), "cli:1");
+    h.runtime()
+        .workspaces()
+        .create(CreateWorkspace {
+            name: "Research".to_owned(),
+            id: Some("research".to_owned()),
+            ..CreateWorkspace::default()
+        })
+        .unwrap();
+
+    let mut h = h;
+    h.run_menu("/workspace", &TypingMenu::new("Research", 0, "Field notes"))
+        .await;
+
+    assert_eq!(
+        h.runtime()
+            .workspaces()
+            .get("research")
+            .unwrap()
+            .unwrap()
+            .name,
+        "Field notes"
+    );
+}
+
+#[tokio::test]
+async fn the_row_that_makes_one_asks_for_a_name_and_makes_it() {
+    let mut h = Harness::new(Install::bare(), "cli:1");
+    h.run_menu(
+        "/workspace",
+        &TypingMenu::new("new workspace…", usize::MAX, "Field notes"),
+    )
+    .await;
+
+    let made = h.runtime().workspaces().list().unwrap();
+    assert!(made.iter().any(|row| row.name == "Field notes"), "{made:?}");
+}
+
+#[tokio::test]
+async fn a_closed_workspace_manager_changes_nothing_and_says_nothing() {
+    // Silence, unlike the note this used to fall through to. The window marked
+    // the one new sessions land in and was read; repeating it in the
+    // conversation afterwards is an answer to a question already answered, in
+    // the one place a terminal cannot take it back from.
+    let mut h = Harness::bare("cli:1");
+    h.run_menu("/workspace", &AnsweringMenu::cancelled()).await;
+
+    assert_eq!(h.workspace_id, None);
+    assert_eq!(h.text().trim(), "");
+}
+
+#[tokio::test]
+async fn bare_workspace_lists_them_where_there_is_no_menu_to_open() {
+    // A pipe cannot draw the manager, so it gets what the manager shows: every
+    // workspace, its id, its count, and a mark on the one in force.
+    let mut h = Harness::bare("cli:1");
+    h.run("/workspace").await;
+
+    let text = h.text();
+    assert!(text.contains("* default"), "{text}");
+    assert!(text.contains("0 sessions"), "{text}");
+}
+
+#[tokio::test]
+async fn bare_session_shows_this_one_before_the_rest_where_there_is_no_picker() {
+    // The detail `/session` used to print on its own survives as the pipe's
+    // answer, above the listing `/sessions` used to print. One command, and a
+    // script loses nothing in the merge.
+    let h = Harness::bare("cli:1");
+    let store = h.runtime().store();
+    store
+        .ensure_session("cli:1", CreateSession::default())
+        .unwrap();
+    store
+        .append("cli:1", said("hello"), &AppendOptions::default())
+        .unwrap();
+
+    let mut h = h;
+    h.run("/session").await;
+
+    let text = h.text();
+    assert!(text.contains("workspace default"), "the detail: {text}");
+    assert!(text.contains("* "), "and the listing under it: {text}");
+}
+
+#[tokio::test]
+async fn session_with_a_key_attaches_without_opening_anything() {
+    let mut h = Harness::bare("cli:1");
+    let menu = AnsweringMenu::cancelled();
+    let outcome = h.run_menu("/session cli:2", &menu).await;
+
+    assert_eq!(outcome, SlashOutcome::Attach("cli:2".to_owned()));
+    assert!(menu.offered().is_empty(), "{:?}", menu.offered());
+}
+
+#[tokio::test]
+async fn delete_drops_the_last_exchange_rather_than_the_conversation() {
+    // It used to take a session key and delete the whole thing, which put the
+    // most destructive act behind the shortest word. Deleting a session is a
+    // verb on its row in `/session` now.
+    let h = Harness::bare("cli:1");
+    let store = h.runtime().store();
+    store
+        .ensure_session("cli:1", CreateSession::default())
+        .unwrap();
+    store
+        .append("cli:1", said("first"), &AppendOptions::default())
+        .unwrap();
+    store
+        .append("cli:1", answered("an answer"), &AppendOptions::default())
+        .unwrap();
+    store
+        .append("cli:1", said("second"), &AppendOptions::default())
+        .unwrap();
+
+    let mut h = h;
+    h.run("/delete").await;
+
+    // The question and everything after it, and the conversation still there.
+    assert_eq!(h.runtime().store().message_count("cli:1").unwrap(), 2);
+    assert!(h.runtime().store().get_session("cli:1").unwrap().is_some());
+}
+
+#[tokio::test]
+async fn the_skills_window_lists_every_sheet() {
+    let h = Harness::bare("cli:1");
+    sheet(&h, "deploy", "Ship a release.", None);
+    sheet(&h, "triage", "Sort the inbox.", Some("lead"));
+
+    let mut h = h;
+    let menu = AnsweringMenu::cancelled();
+    h.run_menu("/skills", &menu).await;
+
+    let offered = menu.offered();
+    assert_eq!(offered.len(), 1, "{offered:?}");
+    assert_eq!(offered[0], ["2 sheets in skills/", "deploy", "triage"]);
+}
+
+#[tokio::test]
+async fn choosing_a_sheet_opens_it() {
+    let h = Harness::bare("cli:1");
+    sheet(&h, "deploy", "Ship a release.", None);
+
+    let mut h = h;
+    let menu = ShowingMenu::opening("deploy");
+    h.run_menu("/skills", &menu).await;
+
+    assert_eq!(menu.titles(), ["deploy"]);
+    assert!(
+        menu.rows("deploy")
+            .iter()
+            .any(|row| row.contains("Body of deploy")),
+        "{:?}",
+        menu.rows("deploy")
+    );
+}
+
+#[tokio::test]
+async fn the_skills_window_flips_the_tool_and_opens_even_when_it_is_off() {
+    // The one place the switch is needed is the place it is off, so the list
+    // has to open to reach it.
+    let mut h = Harness::new(
+        Install::new(Some(&json!({
+            "agents": { "list": { "default": { "tools": { "skill": "deny" } } } }
+        }))),
+        "cli:1",
+    );
+    sheet(&h, "deploy", "Ship a release.", None);
+
+    h.run_menu("/skills", &AnsweringMenu::acting("deploy", 0, 1))
+        .await;
+
+    assert_eq!(
+        entry(&h.install.config(), "default").tools.get("skill"),
+        Some(&ToolPermission::Allow)
+    );
 }

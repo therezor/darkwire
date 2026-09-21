@@ -228,6 +228,24 @@ export function newSession(workspaceId?: string, agentId?: string): string {
 }
 
 /**
+ * Moves this connection onto a fresh conversation, without navigating.
+ *
+ * `newSession` mints a key and tells the hub; it does not touch the turn store,
+ * so on its own it leaves the old transcript where it was. Attaching is what
+ * clears one, and a page that is not *showing* a conversation still has to
+ * attach: deleting the session the socket is on from the sessions list would
+ * otherwise leave the dead transcript to appear on the next trip to the chat.
+ */
+export function startFreshSession(
+  workspaceId?: string,
+  agentId?: string,
+): string {
+  const sessionKey = newSession(workspaceId, agentId);
+  switchSession(sessionKey);
+  return sessionKey;
+}
+
+/**
  * Sends a message, and says which agent it should run on.
  *
  * The agent is carried on every message rather than only on the first, because

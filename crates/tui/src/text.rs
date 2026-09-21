@@ -37,10 +37,10 @@ pub const STYLE_RESET: &str = RESET;
 
 /// One piece of a string: an escape sequence, or a run of visible text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Segment<'a> {
+pub(crate) struct Segment<'a> {
     /// An escape sequence, which costs no columns and must survive a cut.
-    ansi: bool,
-    text: &'a str,
+    pub(crate) ansi: bool,
+    pub(crate) text: &'a str,
 }
 
 /// How many bytes of escape sequence start at `text[at..]`, if any.
@@ -117,7 +117,7 @@ fn escape_len(text: &str, at: usize) -> Option<usize> {
 ///
 /// Segmenting the raw string into graphemes would be wrong: `\x1b[31m` is not
 /// five characters the user can see, and the segmenter has no way to know that.
-fn segments(text: &str) -> Vec<Segment<'_>> {
+pub(crate) fn segments(text: &str) -> Vec<Segment<'_>> {
     let mut out = Vec::new();
     let mut plain_start = 0;
     let mut at = 0;
@@ -401,12 +401,10 @@ impl Wrapper {
 
 /// One logical line broken into as many drawn rows as `width` needs.
 ///
-/// The renderer's whole arithmetic rests on one row per entry, so nothing it
-/// is handed may be allowed to reach the terminal's own wrap — which is also
-/// the reason this exists rather than letting the terminal do it. A terminal
-/// rewraps its own scrollback when the window changes size, and where it puts
-/// the rows afterwards is not something a program can ask about or predict.
-/// Wrapping here means a resize is a re-render at the new width instead.
+/// One row per entry is what the frame counts in, so nothing may be left for
+/// the terminal to fold. Wrapping here is also what makes a resize a re-render:
+/// the same logical line is asked for again at the new width and comes back as
+/// however many rows it now needs.
 ///
 /// Breaks at a space when there is one, and mid-cluster when there is not: a
 /// URL or a hash longer than the window still has to be shown. Styling carries

@@ -301,5 +301,17 @@ test.describe('the sessions page', () => {
     await dialog.getByRole('button', { name: 'Delete' }).click();
 
     await expect(app.getByText('No sessions yet.').first()).toBeVisible();
+
+    // The durable half, and the thing that was broken: the socket was left on
+    // the deleted conversation, so going back to the chat showed it still
+    // there. The chat route renders from the store, not from the URL.
+    await app
+      .getByRole('complementary', { name: 'Sidebar' })
+      .getByRole('button', { name: 'New session' })
+      .click();
+    await expect(
+      app.getByRole('heading', { name: 'Ready when you are.' }),
+    ).toBeVisible();
+    await expect(app.getByText('stream a long answer')).toBeHidden();
   });
 });

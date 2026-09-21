@@ -50,6 +50,10 @@ pub struct RenderRequest {
     pub turn_id: Option<String>,
     /// Attached to the last piece, when there is one.
     pub keyboard: Option<InlineKeyboardMarkup>,
+    /// Quotes this message in the composer, so the next thing typed is an
+    /// answer to it. For the two things a button cannot do: a new name, and a
+    /// replacement one.
+    pub force_reply: bool,
 }
 
 /// What rendering did to the chat's own live-message bookkeeping.
@@ -243,6 +247,7 @@ impl TelegramRenderer {
                 text,
                 chat.prefs.markdown,
                 keyboard.as_ref(),
+                request.force_reply,
                 token,
             )
             .await
@@ -256,7 +261,14 @@ impl TelegramRenderer {
                 // message is refused is a construct the formatter mis-escaped,
                 // and re-sending the same bytes would be refused the same way.
                 match self
-                    .send(request.chat_id, text, false, keyboard.as_ref(), token)
+                    .send(
+                        request.chat_id,
+                        text,
+                        false,
+                        keyboard.as_ref(),
+                        request.force_reply,
+                        token,
+                    )
                     .await
                 {
                     Ok(message_id) => Some(message_id),
@@ -275,6 +287,7 @@ impl TelegramRenderer {
         text: &str,
         markdown: bool,
         keyboard: Option<&InlineKeyboardMarkup>,
+        force_reply: bool,
         token: &CancellationToken,
     ) -> Result<i64, BotApiError> {
         let message = self
@@ -289,6 +302,7 @@ impl TelegramRenderer {
                     },
                     markdown,
                     reply_markup: keyboard.cloned(),
+                    force_reply,
                 },
                 token,
             )

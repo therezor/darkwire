@@ -59,6 +59,21 @@ fn word_end(text: &str, at: usize) -> usize {
     end
 }
 
+/// Whether this key means "a new line in what I am writing".
+///
+/// Return ends a message, so something else has to add a line to one. Which
+/// something depends on what the terminal can say: Shift-Return only reaches a
+/// program on a terminal that has been asked to disambiguate its escape codes,
+/// and Alt-Return and Ctrl-J reach one anywhere.
+#[must_use]
+pub fn is_newline(key: &Key) -> bool {
+    match key.name {
+        KeyName::Enter => key.shift || key.meta,
+        KeyName::Char => is_ctrl(key, 'j'),
+        _ => false,
+    }
+}
+
 /// The line being typed, its caret and its history.
 pub struct Editor {
     theme: Theme,
@@ -178,6 +193,18 @@ impl Editor {
             return EditorOutcome::None;
         }
 
+        // A newline in what is being written rather than the end of it.
+        //
+        // Three spellings because terminals disagree about what they can say.
+        // Shift-Return is the one everybody reaches for and the one a terminal
+        // can only send when it has been asked to disambiguate its escape
+        // codes; Alt-Return and Ctrl-J need nothing and work everywhere, which
+        // is what makes them the fallback rather than an alternative.
+        if is_newline(key) {
+            self.insert("\n");
+            return EditorOutcome::None;
+        }
+
         match key.name {
             KeyName::Enter => {
                 let line = std::mem::take(&mut self.text);
@@ -205,34 +232,96 @@ impl Editor {
                     next_boundary(&self.text, self.caret)
                 };
             }
-            KeyName::Home => self.caret = 0,
-            KeyName::End => self.caret = self.text.len(),
-            KeyName::Up => self.recall_previous(),
-            KeyName::Down => self.recall_next(),
-            KeyName::Char if !key.ctrl => {
-                self.text.insert_str(self.caret, &key.character);
-                self.caret += key.character.len();
+            KeyName::Home => self.caret = self.line_start(),
+            KeyName::End => self.caret = self.line_end(),
+            // Between the lines of a message being written, and out of it into
+            // the history at the ends. A message of several lines that lost
+            // itself to the history on an Up would be a message nobody would
+            // risk writing.
+            KeyName::Up => {
+                if !self.move_line(-1) {
+                    self.recall_previous();
+                }
             }
+            KeyName::Down => {
+                if !self.move_line(1) {
+                    self.recall_next();
+                }
+            }
+            KeyName::Char if !key.ctrl => self.insert(&key.character),
             KeyName::Char => self.handle_control(key),
             _ => {}
         }
         EditorOutcome::None
     }
 
+    /// Puts text at the caret and leaves the caret after it.
+    fn insert(&mut self, text: &str) {
+        self.text.insert_str(self.caret, text);
+        self.caret += text.len();
+    }
+
+    /// Where the line the caret is on begins.
+    fn line_start(&self) -> usize {
+        self.text[..self.caret].rfind('\n').map_or(0, |at| at + 1)
+    }
+
+    /// Where the line the caret is on ends.
+    fn line_end(&self) -> usize {
+        self.text[self.caret..]
+            .find('\n')
+            .map_or(self.text.len(), |at| self.caret + at)
+    }
+
+    /// Moves the caret a line up or down, keeping its column.
+    ///
+    /// `false` when there is no such line, which is what hands Up and Down
+    /// back to the history at the top and the bottom of a message.
+    fn move_line(&mut self, delta: i32) -> bool {
+        let start = self.line_start();
+        let column = self.text[start..self.caret].chars().count();
+        let target = if delta < 0 {
+            if start == 0 {
+                return false;
+            }
+            self.text[..start - 1].rfind('\n').map_or(0, |at| at + 1)
+        } else {
+            let end = self.line_end();
+            if end == self.text.len() {
+                return false;
+            }
+            end + 1
+        };
+        let target_end = self.text[target..]
+            .find('\n')
+            .map_or(self.text.len(), |at| target + at);
+        let mut caret = target;
+        for _ in 0..column {
+            if caret >= target_end {
+                break;
+            }
+            caret = next_boundary(&self.text, caret);
+        }
+        self.caret = caret.min(target_end);
+        true
+    }
+
     /// The Ctrl-letter bindings a shell has.
     fn handle_control(&mut self, key: &Key) {
         if is_ctrl(key, 'a') {
-            self.caret = 0;
+            self.caret = self.line_start();
         } else if is_ctrl(key, 'e') {
-            self.caret = self.text.len();
+            self.caret = self.line_end();
         } else if is_ctrl(key, 'b') {
             self.caret = previous_boundary(&self.text, self.caret);
         } else if is_ctrl(key, 'f') {
             self.caret = next_boundary(&self.text, self.caret);
         } else if is_ctrl(key, 'u') {
-            self.delete(0, self.caret);
+            let start = self.line_start();
+            self.delete(start, self.caret);
         } else if is_ctrl(key, 'k') {
-            self.text.truncate(self.caret);
+            let end = self.line_end();
+            self.delete(self.caret, end);
         } else if is_ctrl(key, 'w') {
             let start = word_start(&self.text, self.caret);
             self.delete(start, self.caret);
@@ -257,22 +346,30 @@ impl Component for Editor {
             }
         };
 
-        // Wrapped rather than cut: a message longer than the window is
-        // ordinary, and the renderer needs every row it will occupy, not a
-        // promise that it fits. The marker rides along inside the text, so it
-        // lands on whichever row the fold put it on with no second measurement
-        // to keep in step.
-        let rows = wrap_to_width(&body, usable);
-        let mut iter = rows.into_iter();
-        let head = iter.next().unwrap_or_default();
+        // Split on the newlines somebody put there, *then* wrapped: a newline
+        // is a row break they asked for and a fold is one the window imposed,
+        // and a folder that could not tell them apart would run two of their
+        // lines together whenever the first one happened to be short.
+        //
+        // Wrapped rather than cut, because a message longer than the window is
+        // ordinary and the caller needs every row it will occupy. The marker
+        // rides along inside the text, so it lands on whichever row the fold
+        // put it on with no second measurement to keep in step.
         let indent: String = " ".repeat(prompt_width);
-        // The caret is the one mark on this row that belongs to the program
-        // rather than to whoever is typing, so it is the one that carries the
-        // colour. Continuation rows are aligned under the first row's text,
-        // which is where a wrapped line continues in every editor anyone has
-        // used.
-        std::iter::once(format!("{}{head}", self.theme.accent.apply(&self.prompt)))
-            .chain(iter.map(|row| format!("{indent}{row}")))
-            .collect()
+        let mut rows = Vec::new();
+        for line in body.split('\n') {
+            for row in wrap_to_width(line, usable) {
+                // The caret is the one mark on these rows that belongs to the
+                // program rather than to whoever is typing, so it is the one
+                // that carries the colour. Every row after the first is
+                // aligned under the first row's text.
+                if rows.is_empty() {
+                    rows.push(format!("{}{row}", self.theme.accent.apply(&self.prompt)));
+                } else {
+                    rows.push(format!("{indent}{row}"));
+                }
+            }
+        }
+        rows
     }
 }

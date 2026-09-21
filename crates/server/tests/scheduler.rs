@@ -1039,6 +1039,7 @@ fn chat_result(tool_calls: Vec<ToolCall>) -> ChatResult {
             content: Vec::new(),
             tool_calls,
             reasoning: None,
+            reasoning_ms: None,
         },
         finish_reason: FinishReason::Stop,
         usage: Usage::default(),

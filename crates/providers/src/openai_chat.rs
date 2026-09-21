@@ -328,6 +328,9 @@ fn assistant_of(text: String, reasoning: String, tool_calls: Vec<ToolCall>) -> A
         } else {
             Some(reasoning)
         },
+        // Timed by whoever watched the stream, not by the adapter that parsed
+        // it: a provider reports tokens, never the wall clock a reader saw.
+        reasoning_ms: None,
     }
 }
 

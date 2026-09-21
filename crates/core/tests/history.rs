@@ -40,6 +40,7 @@ fn calling(ids: &[&str]) -> ChatMessage {
         AssistantOptions {
             tool_calls: ids.iter().map(|id| call(id)).collect(),
             reasoning: None,
+            reasoning_ms: None,
         },
     )
     .into()

@@ -64,6 +64,7 @@ fn store() -> SessionStore {
                 AssistantOptions {
                     tool_calls: vec![call("a")],
                     reasoning: None,
+                    reasoning_ms: None,
                 },
             )
             .into(),

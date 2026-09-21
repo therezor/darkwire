@@ -53,6 +53,7 @@ fn chat() -> ChatState {
         live_turn_id: None,
         last_edit_ms: 0,
         prefs: RenderPrefs::default(),
+        pending: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn request(text: &str, kind: OutboundKind) -> RenderRequest {
         kind,
         turn_id: None,
         keyboard: None,
+        force_reply: false,
     }
 }
 

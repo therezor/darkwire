@@ -41,6 +41,34 @@ mod construction {
     }
 
     #[test]
+    fn mints_a_conversation_key_that_needs_no_escaping() {
+        // A key is half of a URL the moment the same conversation is opened in
+        // a browser, and a colon in one reads as `%3A` there.
+        let install = Install::with(&configured("llama3"));
+        let runtime = install.runtime().unwrap();
+
+        let key = runtime.new_session_key("cli");
+
+        assert!(key.starts_with("cli-"), "{key}");
+        assert!(
+            key.chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-'),
+            "a key that has to be escaped: {key}"
+        );
+    }
+
+    #[test]
+    fn every_conversation_key_is_its_own() {
+        let install = Install::with(&configured("llama3"));
+        let runtime = install.runtime().unwrap();
+
+        let first = runtime.new_session_key("cli");
+        let second = runtime.new_session_key("cli");
+
+        assert_ne!(first, second, "two conversations would share a history");
+    }
+
+    #[test]
     fn names_the_config_file_it_read() {
         let install = Install::with(&configured("llama3"));
         assert_eq!(install.runtime().unwrap().file(), install.config_file());

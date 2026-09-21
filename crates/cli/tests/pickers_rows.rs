@@ -14,7 +14,7 @@
 
 use darkwire::i18n::Translations;
 use darkwire::pickers::sessions::session_items;
-use darkwire::pickers::workspaces::workspace_items;
+use darkwire::pickers::workspaces::{WorkspaceRow, workspace_items};
 use darkwire_core::WorkspaceRecord;
 use darkwire_core::session_store::{SessionRecord, SessionSummaryRecord};
 use serde_json::Map;
@@ -116,36 +116,59 @@ fn workspaces() -> Vec<WorkspaceRecord> {
 }
 
 #[test]
-fn shows_the_workspace_name_with_the_id_beside_it() {
-    // The id and not a session count: a workspace is where a conversation
-    // *starts*, and one can be moved to another afterwards, so a count there
-    // implies an ownership that does not hold. The id is what `/workspace <id>`
-    // takes, which makes it the useful thing to show.
+fn shows_the_workspace_name_with_the_id_and_its_sessions_beside_it() {
+    // The count is here because this is where a workspace is managed and not
+    // only chosen: it is what decides whether a removal will be refused, so
+    // somebody about to press the remove key can see the answer first. The id
+    // is beside it because the id is what every verb takes.
     let t = english();
-    let items = workspace_items(&workspaces(), None, &t);
+    let items = workspace_items(&workspaces(), &[3, 0], None, &t);
+
     assert_eq!(items[0].label, "Default");
-    assert_eq!(items[0].hint.as_deref(), Some("default"));
-    assert_eq!(items[1].hint.as_deref(), Some("research"));
+    assert_eq!(items[0].hint.as_deref(), Some("default  ·  3 sessions"));
+    assert_eq!(items[1].hint.as_deref(), Some("research  ·  0 sessions"));
 }
 
 #[test]
-fn says_nothing_about_how_many_sessions_are_in_one() {
+fn shows_the_id_alone_for_a_workspace_nothing_counted() {
+    // A missing number and a real nought are different things, and only one of
+    // them is news.
     let t = english();
-    for item in workspace_items(&workspaces(), None, &t) {
-        assert!(!item.hint.unwrap_or_default().contains("session"));
-    }
+    let items = workspace_items(&workspaces(), &[], None, &t);
+
+    assert_eq!(items[0].hint.as_deref(), Some("default"));
 }
 
 #[test]
 fn marks_the_workspace_new_sessions_land_in() {
     let t = english();
-    let items = workspace_items(&workspaces(), Some("research"), &t);
+    let items = workspace_items(&workspaces(), &[1, 1], Some("research"), &t);
+
     assert!(items[1].hint.as_deref().unwrap().contains("current"));
     assert!(!items[0].hint.as_deref().unwrap().contains("current"));
 }
 
 #[test]
-fn makes_no_rows_for_no_workspaces() {
+fn offers_a_row_that_makes_another_one_even_with_no_workspaces() {
+    // The menu is how a workspace is made now, so the row that makes one is
+    // there whether or not anything else is: an empty list with no way out of
+    // it is a dead end.
     let t = english();
-    assert!(workspace_items(&[], None, &t).is_empty());
+    let items = workspace_items(&[], &[], None, &t);
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].value, WorkspaceRow::New);
+    assert_eq!(items[0].hint, None);
+}
+
+#[test]
+fn values_each_workspace_row_with_its_id() {
+    let t = english();
+    let items = workspace_items(&workspaces(), &[0, 0], None, &t);
+
+    assert_eq!(
+        items[0].value,
+        WorkspaceRow::Workspace("default".to_owned())
+    );
+    assert_eq!(items.last().unwrap().value, WorkspaceRow::New);
 }

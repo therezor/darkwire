@@ -587,6 +587,24 @@ impl WireRuntime {
     }
 
     /// Where the conversation lives.
+    /// A fresh conversation key under `prefix`, as `prefix-<uuid>`.
+    ///
+    /// Minted the way the store mints its own ids — UUIDv7 off the injected
+    /// clock and the OS CSPRNG — so a test that pauses time still gets
+    /// distinct keys and nothing here reaches for ambient randomness.
+    ///
+    /// Hyphens and hex, and no punctuation that has to be escaped: a key is
+    /// half of a URL the moment the same conversation is opened in a browser,
+    /// and `cli:default` reads as `cli%3Adefault` there.
+    #[must_use]
+    pub fn new_session_key(&self, prefix: &str) -> String {
+        let mut random = [0u8; 10];
+        OsRandom.fill(&mut random);
+        let id = new_uuid(u64::try_from(self.clock.now_ms()).unwrap_or(0), &random);
+        format!("{prefix}-{id}")
+    }
+
+    /// Where the conversation lives.
     pub fn store(&self) -> &Arc<SessionStore> {
         &self.store
     }

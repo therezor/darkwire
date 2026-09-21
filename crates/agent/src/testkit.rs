@@ -204,6 +204,7 @@ impl ScriptedTurn {
                 AssistantOptions {
                     tool_calls: self.tool_calls.clone(),
                     reasoning: (!reasoning.is_empty()).then_some(reasoning),
+                    reasoning_ms: None,
                 },
             ),
             finish_reason: if self.tool_calls.is_empty() {

@@ -30,6 +30,7 @@ fn view() -> HeaderView {
         workspaces: "/home/dev/DarkWire/workspaces".to_owned(),
         workspace_name: "Research".to_owned(),
         session: "a conversation".to_owned(),
+        session_key: "cli-9f2ab1".to_owned(),
         context: Some(ContextUsage {
             used_tokens: 15_872,
             window_tokens: 128_000,
@@ -238,4 +239,16 @@ fn every_row_of_the_drawn_name_is_the_same_width() {
     .map(|row| visible_width(row))
     .collect();
     assert_eq!(widths, [22, 22, 22]);
+}
+
+#[test]
+fn the_startup_block_names_the_session_key_as_well_as_its_title() {
+    // The title is what a person recognises; the key is what `/session <key>`,
+    // `--session` and the REST path take. Printing only the first means
+    // running a command to find out where you already are.
+    let t = Translations::default();
+    let block = startup_header(&view(), 80, &PLAIN_THEME, &t, true);
+
+    assert!(block.contains("a conversation"), "{block}");
+    assert!(block.contains("cli-9f2ab1"), "{block}");
 }

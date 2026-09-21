@@ -455,7 +455,7 @@ The keys below the line (`pollTimeoutSec`, `editIntervalMs`, `apiBase`) are file
 they are tuning knobs, and a panel row for each would be four rows nobody reads.
 
 `admins` gates the commands that reach past one conversation — `/model`, which moves the
-whole install onto another model, and `/workspace new|rename|rm|move`.
+whole install onto another model, and the workspace manager `/workspace` opens.
 
 > The bot's `/model` is still the install-wide one described here, and still lasts only
 > as long as the process. The web UI's and the terminal's now edit the agent the session

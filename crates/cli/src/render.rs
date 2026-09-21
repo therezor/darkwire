@@ -38,11 +38,12 @@ use std::collections::HashMap;
 
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
+use darkwire_core::session_store::StoredMessageRecord;
 use darkwire_i18n::{args, keys};
 use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{
-    ErrorCode, NestedAgentEvent, StopReason, SubagentEventBody, ToolRisk, TurnTiming, Usage,
-    turn_rate,
+    ChatMessage, ErrorCode, NestedAgentEvent, StopReason, SubagentEventBody, ToolRisk, TurnTiming,
+    Usage, turn_rate,
 };
 use darkwire_tui::{Palette, Style, palette_for, strip_ansi};
 use serde_json::Value;
@@ -80,7 +81,14 @@ pub enum TranscriptEvent {
     /// holding rows simply close the row it had open.
     EndLine,
     /// The model has started reasoning; what follows is that run.
-    ReasoningStart,
+    ReasoningStart {
+        /// How long the run took, for one being replayed from storage.
+        ///
+        /// A live run is timed by whoever is watching it, so this is `None`
+        /// and the surface counts for itself. A stored one happened before
+        /// the prompt opened and the figure has to travel with it.
+        elapsed_ms: Option<u64>,
+    },
     /// The reasoning run has ended. Whatever follows is not part of it.
     ReasoningEnd,
     /// One complete line, styled and indented, ready to print.
@@ -260,7 +268,7 @@ impl PlainPrinter {
             // apart by the break between them rather than by a label, so the
             // break is what the boundary means on a flat stream.
             TranscriptEvent::EndLine
-            | TranscriptEvent::ReasoningStart
+            | TranscriptEvent::ReasoningStart { .. }
             | TranscriptEvent::ReasoningEnd => self.whole(""),
             TranscriptEvent::ToolBodyEnd
             | TranscriptEvent::Tasks(_)
@@ -606,6 +614,19 @@ fn error_code(code: ErrorCode) -> &'static str {
     }
 }
 
+/// How a call went, without the wire event it usually arrives in.
+///
+/// Three fields rather than three arguments, because two of them are `bool` and
+/// a call site that says `true, false` says nothing.
+struct ToolOutcome {
+    /// Whether the tool answered rather than failed.
+    ok: bool,
+    /// Whether the answer was cut to fit the output cap.
+    truncated: bool,
+    /// How long it took, where that is known. See [`TurnRenderer::tool_head`].
+    duration: Option<f64>,
+}
+
 /// The colour a tool card is badged in.
 ///
 /// This stays here rather than moving to `darkwire-tui` with the rest of the
@@ -662,6 +683,17 @@ pub struct TurnRenderer {
     /// would then have the child's result deleting the parent's label.
     calls: HashMap<String, String>,
     mode: Mode,
+    /// The stored duration of the run a replay is about to open, if it has one.
+    ///
+    /// Set for one run at a time by [`TurnRenderer::replay`] and never by a
+    /// live turn, which is what keeps the two paths using the same call.
+    replay_reasoning_ms: Option<u64>,
+    /// Whether the run in force has yet written anything a reader can see.
+    ///
+    /// A property of the run, not of the chunk that started it. A provider is
+    /// free to send the break it opens with in a chunk of its own, and asking
+    /// "did this chunk change the mode" answers no for the one after that.
+    run_at_start: bool,
     /// The session the current top-level turn is on. Set by `turn.start`.
     session_key: String,
     /// How far in to write. `0` for the operator's own turn.
@@ -699,9 +731,89 @@ impl TurnRenderer {
             calls: HashMap::new(),
             pending_tasks: HashMap::new(),
             mode: Mode::Idle,
+            replay_reasoning_ms: None,
+            run_at_start: true,
             session_key: String::new(),
             depth: 0,
         }
+    }
+
+    /// Draws a conversation that has already happened.
+    ///
+    /// Through the same calls a live turn makes, so a session somebody came
+    /// back to reads the way it read while it was running: the reasoning folded
+    /// to a row, the calls badged and folded under what they answered. The
+    /// alternative is a second renderer beside this one that walks stored
+    /// messages instead of events, and the two drifting apart is what this
+    /// exists to stop.
+    ///
+    /// Durations come back with the rows when the rows carry them. A session
+    /// written before they were stored has none, and those rows keep the form
+    /// with no figure rather than claiming `0ms`.
+    ///
+    /// Risks do not come back at all: `risk_of` is asked what a tool is *now*,
+    /// which is the honest answer for one that is still registered and
+    /// [`ToolRisk::Safe`] for one that is not.
+    pub fn replay(
+        &mut self,
+        session_key: &str,
+        history: &[StoredMessageRecord],
+        risk_of: &dyn Fn(&str) -> ToolRisk,
+    ) {
+        for stored in history {
+            match &stored.message {
+                // The standing instructions are not something anybody said.
+                ChatMessage::System(_) => {}
+                ChatMessage::User(_) => {
+                    let text = darkwire_core::text_of(&stored.message);
+                    // An attachment with no words around it. Nothing to echo,
+                    // and an empty caret row says less than nothing.
+                    if !text.trim().is_empty() {
+                        self.set_mode(Mode::Idle);
+                        self.line(LineKind::Echo, text.trim_end());
+                    }
+                }
+                ChatMessage::Assistant(assistant) => {
+                    if let Some(reasoning) = assistant.reasoning.as_deref()
+                        && !reasoning.trim().is_empty()
+                    {
+                        self.replay_reasoning_ms = assistant.reasoning_ms;
+                        self.stream(Mode::Reasoning, reasoning);
+                        self.replay_reasoning_ms = None;
+                    }
+                    let text = darkwire_core::text_of(&stored.message);
+                    if !text.trim().is_empty() {
+                        self.stream(Mode::Assistant, &text);
+                    }
+                    self.set_mode(Mode::Idle);
+                    for call in &assistant.tool_calls {
+                        let args =
+                            serde_json::from_str(&call.arguments_json).unwrap_or(Value::Null);
+                        self.tool_call(
+                            session_key,
+                            &call.id,
+                            &call.name,
+                            &args,
+                            risk_of(&call.name),
+                        );
+                    }
+                }
+                ChatMessage::Tool(tool) => {
+                    self.set_mode(Mode::Idle);
+                    self.tool_body(
+                        session_key,
+                        &tool.tool_call_id,
+                        &ToolOutcome {
+                            ok: !tool.is_error,
+                            truncated: tool.truncated,
+                            duration: tool.duration_ms.map(to_ms),
+                        },
+                        &tool.content,
+                    );
+                }
+            }
+        }
+        self.set_mode(Mode::Idle);
     }
 
     /// Draws one event.
@@ -1002,21 +1114,24 @@ impl TurnRenderer {
             self.out.emit(TranscriptEvent::ReasoningEnd);
         }
         self.mode = mode;
+        self.run_at_start = true;
         if mode == Mode::Reasoning {
-            self.out.emit(TranscriptEvent::ReasoningStart);
+            self.out.emit(TranscriptEvent::ReasoningStart {
+                elapsed_ms: self.replay_reasoning_ms,
+            });
         }
     }
 
     /// Assistant text and reasoning, told apart by the break between them.
     fn stream(&mut self, mode: Mode, text: &str) {
-        let opening = self.mode != mode;
         self.set_mode(mode);
         // A provider routinely opens a channel with `"\n\nLet me think"`. The
         // mode change above already put the cursor at the start of a line, so
         // those newlines are blank rows between a message and the answer to it,
-        // and with reasoning hidden nothing later collapses them. Only at the
-        // start of a run: a break inside one is a paragraph somebody wrote.
-        let text = if opening {
+        // and with reasoning hidden nothing later collapses them. Only until
+        // the run has said something: a break after that is a paragraph
+        // somebody wrote.
+        let text = if self.run_at_start {
             text.trim_start_matches('\n')
         } else {
             text
@@ -1024,10 +1139,12 @@ impl TurnRenderer {
         // A chunk that was nothing but newlines. Returning here rather than
         // falling through, because a style applied to an empty string is still
         // an opener and a closer, and `write` would read that as a chunk that
-        // finished mid-line.
+        // finished mid-line. The run has still said nothing, so the next chunk
+        // is trimmed too.
         if text.is_empty() {
             return;
         }
+        self.run_at_start = false;
         let depth = self.depth;
         if mode == Mode::Reasoning {
             // After the trim, or the escape prefix defeats it.
@@ -1057,36 +1174,51 @@ impl TurnRenderer {
         let style = risk_style(&self.colors, risk);
         let head = format!("{} {}", style.apply("⚙"), style.apply(name));
 
+        // The row every tool gets, `todo` included. It used to be the one call
+        // that announced itself only as a card, which meant a surface keeping
+        // its plan elsewhere — the prompt does, above the composer — showed
+        // nothing at all where every other tool showed a line. A tool that ran
+        // and left no trace is the one thing a transcript must not do.
         let tasks = if name == TODO_TOOL {
             task_lines(args)
         } else {
             Vec::new()
         };
-        if !tasks.is_empty() {
-            let mut card = self.indent_line(&head);
-            for (status, text) in &tasks {
-                let row = self.task_line(*status, text);
-                card.push_str(&self.indent_line(&row));
-            }
-            self.out.emit(TranscriptEvent::TasksCard { card });
-            // Held until the result says the call worked. Only the top-level
-            // plan is held at all: a subagent keeps its own list in its own
-            // session, and hoisting it would overwrite the plan the operator is
-            // watching with the plan of something it delegated to.
-            if self.depth == 0 {
-                self.pending_tasks
-                    .insert(call_key(session_key, call_id), tasks);
-            }
-            return;
-        }
-
-        let summary = summarise_args(args, DEFAULT_ARG_SUMMARY_CHARS);
+        // No argument summary for a plan: the arguments *are* the rows under
+        // it, and `tasks=[{"text":"inspect auth","status":"done"},{"…` is the
+        // same list a second time, unreadably.
+        let summary = if tasks.is_empty() {
+            summarise_args(args, DEFAULT_ARG_SUMMARY_CHARS)
+        } else {
+            String::new()
+        };
         let line = if summary.is_empty() {
-            head
+            head.clone()
         } else {
             format!("{head} {}", self.colors.dim.apply(&summary))
         };
         self.line(LineKind::ToolCall, &line);
+
+        if tasks.is_empty() {
+            return;
+        }
+
+        // The card is for a surface with nowhere else to put a plan, and the
+        // prompt drops it at the source. See `ChunkSink`.
+        let mut card = String::new();
+        for (status, text) in &tasks {
+            let row = self.task_line(*status, text);
+            card.push_str(&self.indent_line(&row));
+        }
+        self.out.emit(TranscriptEvent::TasksCard { card });
+        // Held until the result says the call worked. Only the top-level plan
+        // is held at all: a subagent keeps its own list in its own session, and
+        // hoisting it would overwrite the plan the operator is watching with
+        // the plan of something it delegated to.
+        if self.depth == 0 {
+            self.pending_tasks
+                .insert(call_key(session_key, call_id), tasks);
+        }
     }
 
     /// One task, marked and coloured by where it has got to.
@@ -1118,43 +1250,80 @@ impl TurnRenderer {
         }
     }
 
-    fn tool_result(&mut self, session_key: &str, result: &darkwire_protocol::ToolResult) {
-        let mark = if result.ok {
+    /// The row a finished call folds to: how it went, and how long it took.
+    ///
+    /// `duration` is optional because a replay has none. Storage keeps what a
+    /// call answered, not how long it spent answering, and `0ms` beside a tool
+    /// that ran for a minute last week is worse than saying nothing.
+    fn tool_head(&self, ok: bool, truncated: bool, duration: Option<f64>) -> String {
+        let mark = if ok {
             self.colors.green.apply("✓")
         } else {
             self.colors.red.apply("✗")
         };
-        let suffix = if result.truncated { ", truncated" } else { "" };
-        let timing = self.colors.dim.apply(&format!(
-            "{}{suffix}",
-            format_duration(to_ms(result.duration_ms))
-        ));
-        let head = self.indent_line(&format!("  {mark} {timing}"));
+        let suffix = if truncated { ", truncated" } else { "" };
+        let note = match duration {
+            Some(elapsed) => format!("{}{suffix}", format_duration(elapsed)),
+            None if suffix.is_empty() => String::new(),
+            None => suffix.trim_start_matches(", ").to_owned(),
+        };
+        let row = if note.is_empty() {
+            format!("  {mark}")
+        } else {
+            format!("  {mark} {}", self.colors.dim.apply(&note))
+        };
+        self.indent_line(&row)
+    }
+
+    fn tool_result(&mut self, session_key: &str, result: &darkwire_protocol::ToolResult) {
+        self.tool_body(
+            session_key,
+            &result.call_id,
+            &ToolOutcome {
+                ok: result.ok,
+                truncated: result.truncated,
+                duration: Some(to_ms(result.duration_ms)),
+            },
+            &result.content,
+        );
+    }
+
+    /// What a call answered, folded under the row that says how it went.
+    ///
+    /// Split from [`TurnRenderer::tool_result`] because a replay has the same
+    /// answer without the wire event around it, and one of these on screen
+    /// beside a hand-built other one is how the two drift apart.
+    fn tool_body(
+        &mut self,
+        session_key: &str,
+        call_id: &str,
+        outcome: &ToolOutcome,
+        content: &str,
+    ) {
+        let head = self.tool_head(outcome.ok, outcome.truncated, outcome.duration);
         self.out
             .emit(TranscriptEvent::ToolBodyStart { summary: head });
-        let was = self.calls.remove(&call_key(session_key, &result.call_id));
+        let was = self.calls.remove(&call_key(session_key, call_id));
 
         // The plan the call asked for, now that it is known to have landed.
-        if let Some(tasks) = self
-            .pending_tasks
-            .remove(&call_key(session_key, &result.call_id))
-            && result.ok
+        if let Some(tasks) = self.pending_tasks.remove(&call_key(session_key, call_id))
+            && outcome.ok
         {
             self.out.emit(TranscriptEvent::Tasks(tasks));
         }
 
         // The plan was printed as the call went out, and the result is a
         // sentence counting what is already on screen.
-        if was.as_deref() == Some(TODO_TOOL) && result.ok {
+        if was.as_deref() == Some(TODO_TOOL) && outcome.ok {
             self.out.emit(TranscriptEvent::ToolBodyEnd);
             return;
         }
 
-        if self.tool_result_lines == 0 || result.content.is_empty() {
+        if self.tool_result_lines == 0 || content.is_empty() {
             self.out.emit(TranscriptEvent::ToolBodyEnd);
             return;
         }
-        let lines: Vec<&str> = result.content.split('\n').collect();
+        let lines: Vec<&str> = content.split('\n').collect();
         for line in lines.iter().take(self.tool_result_lines) {
             let text = self
                 .colors
@@ -1251,7 +1420,7 @@ fn call_key(session_key: &str, call_id: &str) -> String {
     clippy::cast_precision_loss,
     reason = "millisecond stamps are far below 2^53"
 )]
-fn to_ms(value: u64) -> f64 {
+pub(crate) fn to_ms(value: u64) -> f64 {
     value as f64
 }
 

@@ -30,19 +30,12 @@ binary without a UI.
 
 ## Before you open a pull request
 
-**`pnpm check` is not the gate.** It runs `typecheck`, `lint` and `test`; CI is four
-jobs, and the one that catches most people is `format:check`, which `pnpm check`
-never calls.
+**`pnpm check` is the first of four CI jobs.** It runs typecheck, lint, the design
+token gates, `format:check`, shellcheck, `i18n:check`, `protocol:check`, the tests and
+the build. The other three jobs are below.
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm --filter @darkwire/web exec tsx src/tokens/run-gates.ts   # design token gates
-pnpm format:check                                             # ← the usual failure
-pnpm i18n:check
-pnpm protocol:check                                           # zod schema dump the Rust drift test reads
-pnpm test
-pnpm build
+pnpm check
 pnpm test:coverage                                            # stricter than pnpm test
 
 cargo fmt --all --check                                       # the Rust workspace

@@ -211,8 +211,8 @@ one is a folder plus a line.
 
 ## Contributing
 
-`pnpm check` is **not** the CI gate. [CONTRIBUTING.md](CONTRIBUTING.md) has the real one,
-[Development](docs/development.md) the reasoning behind it.
+`pnpm check` runs the first CI job. [CONTRIBUTING.md](CONTRIBUTING.md) has the other
+three, [Development](docs/development.md) the reasoning behind them.
 
 <details>
 <summary>Running from source</summary>

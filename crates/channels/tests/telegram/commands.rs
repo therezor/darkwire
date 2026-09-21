@@ -10,12 +10,12 @@ use darkwire_channels::telegram::commands::{
     CommandInput, CommandResult, bot_commands, help_text, parse_command, resolve_seq, run_command,
 };
 use darkwire_channels::telegram::console::{SkillSummary, TelegramConsole};
-use darkwire_channels::telegram::menus::{CallbackLookup, CallbackPayload, CallbackStore};
+use darkwire_channels::telegram::menus::{CallbackPayload, CallbackStore};
 use darkwire_core::clock::Clock;
 use darkwire_core::messages::{AssistantOptions, assistant_message, text_part, user_message};
-use darkwire_core::session_store::{AppendOptions, CreateSession, TurnStatsRecord};
+use darkwire_core::session_store::{AppendOptions, CreateSession};
 use darkwire_protocol::tasks::{TaskItem, TaskStatus};
-use darkwire_protocol::{ChatMessage, ContextResponse, StopReason, Usage};
+use darkwire_protocol::{ChatMessage, ContextResponse};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
@@ -54,6 +54,7 @@ fn harness() -> Harness {
             live_turn_id: None,
             last_edit_ms: 0,
             prefs: RenderPrefs::default(),
+            pending: None,
         },
         is_admin: true,
     }
@@ -270,64 +271,6 @@ async fn an_alias_dispatches_to_its_command() {
 // Reading the conversation
 
 #[tokio::test]
-async fn messages_lists_the_tail_with_the_seq_numbers_edit_takes() {
-    let harness = harness();
-    seed(&harness, SESSION, 4);
-
-    let result = run(&harness, "/messages").await;
-
-    assert!(result.text.contains("`1` user"), "{}", result.text);
-    assert!(result.text.contains("`2` assistant"), "{}", result.text);
-    assert!(result.text.contains("question 0"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn messages_honours_a_count_and_ignores_a_nonsense_one() {
-    let harness = harness();
-    seed(&harness, SESSION, 20);
-
-    let two = run(&harness, "/messages 2").await;
-    assert_eq!(two.text.lines().count(), 2);
-
-    let default = run(&harness, "/messages nonsense").await;
-    assert_eq!(default.text.lines().count(), 12);
-}
-
-#[tokio::test]
-async fn messages_says_so_when_there_is_nothing() {
-    let harness = harness();
-
-    assert_eq!(
-        run(&harness, "/messages").await.text,
-        "Nothing said here yet."
-    );
-}
-
-#[tokio::test]
-async fn a_listing_clips_a_long_body_rather_than_printing_it() {
-    let harness = harness();
-    harness
-        .console
-        .store()
-        .ensure_session(SESSION, CreateSession::default())
-        .expect("created");
-    harness
-        .console
-        .store()
-        .append(
-            SESSION,
-            ChatMessage::User(user_message("x".repeat(500))),
-            &AppendOptions { turn_id: None },
-        )
-        .expect("appended");
-
-    let result = run(&harness, "/messages").await;
-
-    assert!(result.text.contains('…'), "{}", result.text);
-    assert!(result.text.len() < 200, "{}", result.text);
-}
-
-#[tokio::test]
 async fn clear_forgets_the_history_and_keeps_the_session() {
     let harness = harness();
     seed(&harness, SESSION, 4);
@@ -456,12 +399,12 @@ async fn new_takes_a_title() {
 }
 
 #[tokio::test]
-async fn sessions_offers_a_picker_marked_where_you_are() {
+async fn session_offers_a_picker_marked_where_you_are() {
     let harness = harness();
     seed(&harness, SESSION, 2);
     seed(&harness, "telegram:4471:abc", 2);
 
-    let result = run(&harness, "/sessions").await;
+    let result = run(&harness, "/session").await;
 
     let keyboard = result.keyboard.expect("a picker");
     let labels: Vec<&str> = keyboard
@@ -470,7 +413,8 @@ async fn sessions_offers_a_picker_marked_where_you_are() {
         .flatten()
         .map(|button| button.text.as_str())
         .collect();
-    assert_eq!(labels.len(), 2);
+    // Two buttons a row now: the name attaches, the bin asks.
+    assert_eq!(labels.len(), 4);
     assert!(
         labels.iter().any(|label| label.starts_with("• ")),
         "{labels:?}"
@@ -478,13 +422,15 @@ async fn sessions_offers_a_picker_marked_where_you_are() {
 }
 
 #[tokio::test]
-async fn sessions_says_so_when_there_are_none() {
+async fn bare_session_says_where_you_are_when_there_is_nowhere_else() {
+    // The detail `/session` has always shown, and no picker under it: a menu
+    // whose only row is the conversation you are already in.
     let harness = harness();
 
-    assert_eq!(
-        run(&harness, "/sessions").await.text,
-        "No sessions here yet."
-    );
+    let result = run(&harness, "/session").await;
+
+    assert!(result.text.contains("workspace default"), "{}", result.text);
+    assert!(result.keyboard.is_none());
 }
 
 #[tokio::test]
@@ -514,53 +460,6 @@ async fn rename_says_how_when_given_nothing() {
         run(&harness, "/rename").await.text,
         "Usage: /rename <title>"
     );
-}
-
-#[tokio::test]
-async fn delete_asks_before_it_does_anything() {
-    // A button rather than a second command, because this is the one thing here
-    // that cannot be undone.
-    let harness = harness();
-    seed(&harness, SESSION, 2);
-
-    let result = run(&harness, "/delete").await;
-
-    assert!(result.text.contains("cannot be undone"), "{}", result.text);
-    let keyboard = result.keyboard.expect("a confirmation");
-    let token = &keyboard.inline_keyboard[0][0].callback_data;
-    assert_eq!(
-        harness.menus.take(token, CHAT),
-        CallbackLookup::Found(CallbackPayload::Delete {
-            session_key: SESSION.to_owned()
-        })
-    );
-    // And nothing happened yet.
-    assert!(
-        harness
-            .console
-            .store()
-            .get_session(SESSION)
-            .expect("get")
-            .is_some()
-    );
-}
-
-#[tokio::test]
-async fn delete_refuses_a_session_from_another_channel() {
-    let harness = harness();
-
-    let result = run(&harness, "/delete web-abc").await;
-
-    assert!(result.text.contains("another channel"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn delete_says_so_when_there_is_no_such_session() {
-    let harness = harness();
-
-    let result = run(&harness, "/delete telegram:4471:nope").await;
-
-    assert!(result.text.contains("No session"), "{}", result.text);
 }
 
 #[tokio::test]
@@ -684,7 +583,7 @@ async fn edit_replaces_a_message_and_re_runs_from_it_in_one_frame() {
     let harness = harness();
     seed(&harness, SESSION, 4);
 
-    let result = run(&harness, "/edit 3 actually, this").await;
+    let result = run(&harness, "/edit actually, this").await;
 
     assert!(
         result.text.contains("Re-running from `3`"),
@@ -705,14 +604,8 @@ async fn edit_says_how_when_it_is_missing_half_of_what_it_needs() {
     let harness = harness();
     seed(&harness, SESSION, 4);
 
-    assert_eq!(
-        run(&harness, "/edit").await.text,
-        "Usage: /edit <ref> <text>"
-    );
-    assert_eq!(
-        run(&harness, "/edit 3").await.text,
-        "Usage: /edit <ref> <text>"
-    );
+    assert_eq!(run(&harness, "/edit").await.text, "Usage: /edit <text>");
+    assert_eq!(run(&harness, "/edit").await.text, "Usage: /edit <text>");
     assert!(harness.effects.control.lock().is_empty());
 }
 
@@ -894,118 +787,7 @@ async fn skills_explains_the_tool_it_needs_and_the_empty_case() {
     );
 }
 
-#[tokio::test]
-async fn stats_reports_what_the_last_few_turns_cost() {
-    let harness = harness();
-    harness
-        .console
-        .store()
-        .ensure_session(SESSION, CreateSession::default())
-        .expect("created");
-    harness
-        .console
-        .store()
-        .record_turn_stats(&TurnStatsRecord {
-            turn_id: "turn-1".to_owned(),
-            session_key: SESSION.to_owned(),
-            agent_id: "default".to_owned(),
-            workspace_id: "default".to_owned(),
-            provider: "openai".to_owned(),
-            model: "gpt-4o".to_owned(),
-            started_at_ms: 1_000,
-            ended_at_ms: 3_500,
-            iterations: 2,
-            stop_reason: StopReason::Complete,
-            usage: Usage {
-                prompt_tokens: 120,
-                completion_tokens: 45,
-                total_tokens: 165,
-                cached_tokens: None,
-                reasoning_tokens: None,
-            },
-            generation_ms: None,
-            generation_tokens: None,
-            first_token_ms: None,
-            error: None,
-        })
-        .expect("recorded");
-
-    let result = run(&harness, "/stats").await;
-
-    assert!(result.text.contains("`gpt-4o`"), "{}", result.text);
-    assert!(result.text.contains("2 steps"), "{}", result.text);
-    assert!(result.text.contains("120 in / 45 out"), "{}", result.text);
-    assert!(result.text.contains("2.5s"), "{}", result.text);
-    assert!(result.text.contains("complete"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn stats_says_so_when_nothing_has_run() {
-    let harness = harness();
-
-    assert_eq!(
-        run(&harness, "/stats").await.text,
-        "No turns recorded here yet."
-    );
-}
-
 // Rendering preferences
-
-#[tokio::test]
-async fn output_shows_the_two_things_a_chat_owns() {
-    let harness = harness();
-
-    let result = run(&harness, "/output").await;
-
-    assert!(result.text.contains("progress: on"), "{}", result.text);
-    assert!(result.text.contains("markdown: on"), "{}", result.text);
-    // Neither of the terminal's two fields is expressible here.
-    assert!(!result.text.contains("reasoning"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn output_toggles_a_field_that_is_named_without_a_value() {
-    let harness = harness();
-
-    let result = run(&harness, "/output progress").await;
-
-    assert_eq!(result.text, "progress: off");
-    assert_eq!(
-        *harness.effects.prefs.lock(),
-        vec![("progress".to_owned(), false)]
-    );
-}
-
-#[tokio::test]
-async fn output_sets_a_field_that_is_given_one() {
-    let harness = harness();
-
-    assert_eq!(
-        run(&harness, "/output markdown off").await.text,
-        "markdown: off"
-    );
-    assert_eq!(
-        run(&harness, "/output markdown on").await.text,
-        "markdown: on"
-    );
-    assert_eq!(
-        *harness.effects.prefs.lock(),
-        vec![
-            ("markdown".to_owned(), false),
-            ("markdown".to_owned(), true)
-        ]
-    );
-}
-
-#[tokio::test]
-async fn output_refuses_a_field_it_does_not_have() {
-    let harness = harness();
-
-    let result = run(&harness, "/output reasoning on").await;
-
-    assert!(result.text.starts_with("Usage: /output"), "{}", result.text);
-    assert!(harness.effects.prefs.lock().is_empty());
-}
 
 // Agents, models and workspaces
 
@@ -1084,155 +866,16 @@ async fn model_offers_the_catalogue_when_nothing_is_named() {
 }
 
 #[tokio::test]
-async fn workspaces_lists_them_and_marks_the_one_this_session_lives_in() {
-    let harness = harness();
-
-    let result = run(&harness, "/workspaces").await;
-
-    assert!(result.text.contains("• `default`"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn workspace_with_no_verb_offers_a_picker() {
+async fn bare_workspace_lists_them_and_offers_a_picker_over_the_listing() {
+    // One name for one subject, as the terminal spells it. `/workspaces` was
+    // the listing and `/workspace` the picker, which is one question asked
+    // twice; the listing is now the text the picker is posted with.
     let harness = harness();
 
     let result = run(&harness, "/workspace").await;
 
-    assert!(result.text.contains("Which workspace"), "{}", result.text);
+    assert!(result.text.contains("• `default`"), "{}", result.text);
     assert!(result.keyboard.is_some());
-}
-
-#[tokio::test]
-async fn workspace_new_creates_one() {
-    let harness = harness();
-
-    let result = run(&harness, "/workspace new Release Notes").await;
-
-    assert!(result.text.contains("Created"), "{}", result.text);
-    assert_eq!(harness.console.workspaces().list().expect("list").len(), 2);
-}
-
-#[tokio::test]
-async fn workspace_rename_and_rm_do_what_they_say() {
-    let harness = harness();
-    run(&harness, "/workspace new Notes").await;
-    let created = harness
-        .console
-        .workspaces()
-        .list()
-        .expect("list")
-        .into_iter()
-        .find(|workspace| !workspace.is_default)
-        .expect("the new one");
-
-    let renamed = run(
-        &harness,
-        &format!("/workspace rename {} Sketches", created.id),
-    )
-    .await;
-    assert!(renamed.text.contains("Renamed"), "{}", renamed.text);
-
-    let removed = run(&harness, &format!("/workspace rm {}", created.id)).await;
-    assert!(removed.text.contains("Removed"), "{}", removed.text);
-    assert_eq!(harness.console.workspaces().list().expect("list").len(), 1);
-}
-
-#[tokio::test]
-async fn workspace_rm_refuses_one_that_still_holds_sessions() {
-    let harness = harness();
-    run(&harness, "/workspace new Notes").await;
-    let created = harness
-        .console
-        .workspaces()
-        .list()
-        .expect("list")
-        .into_iter()
-        .find(|workspace| !workspace.is_default)
-        .expect("the new one");
-    harness
-        .console
-        .store()
-        .ensure_session(
-            SESSION,
-            CreateSession {
-                workspace_id: Some(created.id.clone()),
-                ..CreateSession::default()
-            },
-        )
-        .expect("created");
-
-    let result = run(&harness, &format!("/workspace rm {}", created.id)).await;
-
-    assert!(
-        result.text.contains("still holds 1 sessions"),
-        "{}",
-        result.text
-    );
-    assert!(result.text.contains("/workspace move"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn workspace_move_reassigns_every_session() {
-    let harness = harness();
-    run(&harness, "/workspace new Notes").await;
-    let created = harness
-        .console
-        .workspaces()
-        .list()
-        .expect("list")
-        .into_iter()
-        .find(|workspace| !workspace.is_default)
-        .expect("the new one");
-    harness
-        .console
-        .store()
-        .ensure_session(SESSION, CreateSession::default())
-        .expect("created");
-
-    let result = run(&harness, &format!("/workspace move default {}", created.id)).await;
-
-    assert!(result.text.contains("Moved 1 sessions"), "{}", result.text);
-}
-
-#[tokio::test]
-async fn the_workspace_verbs_are_for_an_administrator() {
-    // `/workspace rm|move` rewrites where sessions live.
-    let mut harness = harness();
-    harness.is_admin = false;
-
-    for line in [
-        "/workspace new Notes",
-        "/workspace rename a b",
-        "/workspace rm a",
-        "/workspace move a b",
-    ] {
-        let result = run(&harness, line).await;
-        assert!(
-            result.text.contains("administrator"),
-            "{line} → {}",
-            result.text
-        );
-    }
-}
-
-#[tokio::test]
-async fn each_workspace_verb_says_how_when_it_is_given_too_little() {
-    let harness = harness();
-
-    assert!(run(&harness, "/workspace new").await.text.contains("Usage"));
-    assert!(
-        run(&harness, "/workspace rename a")
-            .await
-            .text
-            .contains("Usage")
-    );
-    assert!(run(&harness, "/workspace rm").await.text.contains("Usage"));
-    assert!(
-        run(&harness, "/workspace move a")
-            .await
-            .text
-            .contains("Usage")
-    );
 }
 
 #[tokio::test]
@@ -1337,30 +980,18 @@ async fn tasks_prints_the_plan_in_the_markers_the_prompt_uses() {
 
     let result = run(&harness, "/tasks").await;
     assert_eq!(result.text, "[x] Inspect auth\n[ ] Add tests");
-}
 
-#[tokio::test]
-async fn tasks_clear_empties_the_list() {
-    let harness = harness();
-    harness
-        .console
-        .store()
-        .set_tasks(
-            SESSION,
-            &[TaskItem {
-                text: "Add tests".to_owned(),
-                status: TaskStatus::Todo,
-            }],
-        )
-        .expect("the store writes");
-
-    let result = run(&harness, "/tasks clear").await;
-
-    assert!(result.text.contains("cleared"), "{}", result.text);
-    assert_eq!(
-        harness.console.store().tasks(SESSION).expect("a read"),
-        Vec::new()
-    );
+    // One button, and it empties the list. Dropping a single task was the
+    // wrong verb: the `todo` tool replaces the whole plan on its next
+    // planning step, so one removed by hand is back a moment later.
+    let keyboard = result.keyboard.expect("a button");
+    let labels: Vec<&str> = keyboard
+        .inline_keyboard
+        .iter()
+        .flatten()
+        .map(|button| button.text.as_str())
+        .collect();
+    assert_eq!(labels, ["Clear the list"]);
 }
 
 /// Reading a plan reaches no further than the chat's own session, so it is not

@@ -516,6 +516,51 @@ describe('the shell', () => {
     expect(router.state.location.searchStr).toBe('');
   });
 
+  /**
+   * The chat route renders from the turn store, not from the URL, so dropping
+   * the key does not clear a transcript. Deleting the conversation on screen
+   * used to navigate to `/` and leave the dead one exactly where it was.
+   */
+  it('starts a new conversation after deleting the one on screen', async () => {
+    const { user, router } = renderApp('/sessions/web%3A7', {
+      // The row the sidebar acts on has to be the one on screen, or the
+      // handler is right to leave the reader where they are.
+      '/api/sessions': [
+        200,
+        {
+          sessions: [
+            {
+              key: 'web:7',
+              title: 'the seventh',
+              messageCount: 1,
+              createdAtMs: 1,
+              updatedAtMs: 2,
+              origin: 'web',
+            },
+          ],
+          total: 1,
+        },
+      ],
+      'DELETE /api/sessions/web%3A7': [204, null],
+    });
+
+    expect(await screen.findByText('a stored question')).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for the seventh' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).not.toBe('/sessions/web%3A7');
+    });
+    // A conversation, not the bare `/` the chat route cannot read a key from.
+    expect(router.state.location.pathname).toMatch(/^\/sessions\/.+/u);
+    expect(screen.queryByText('a stored question')).toBeNull();
+  });
+
   it('names the open session in the tab title', async () => {
     renderApp('/sessions/web%3A7');
 

@@ -71,6 +71,7 @@ pub fn assistant_with(
         AssistantOptions {
             tool_calls,
             reasoning: reasoning.map(str::to_owned),
+            reasoning_ms: None,
         },
     ))
 }
