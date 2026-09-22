@@ -489,7 +489,7 @@ function Editor({
     approvalTimeoutSeconds: bind('approvalTimeoutSeconds'),
     maxOutputChars: bind('maxOutputChars'),
     execTimeoutSeconds: bind('execTimeoutSeconds'),
-    execMaxOutputBytes: bind('execMaxOutputBytes'),
+    execMaxOutputKb: bind('execMaxOutputKb'),
   } satisfies Record<string, Bound>;
 
   const switches = {
@@ -1507,10 +1507,10 @@ function Editor({
             hint={t('agents.zeroDisablesHint')}
           />
           <BoundField
-            label={t('agents.execMaxOutputBytes')}
-            bound={fields.execMaxOutputBytes}
-            inputMode="numeric"
-            error={errors.execMaxOutputBytes}
+            label={t('agents.execMaxOutputKb')}
+            bound={fields.execMaxOutputKb}
+            inputMode="decimal"
+            error={errors.execMaxOutputKb}
           />
         </FieldGrid>
       </Section>

@@ -2543,8 +2543,9 @@ describe('the tool settings on an agent', () => {
       '8192',
     );
     expect(screen.getByLabelText('Command timeout (seconds)')).toHaveValue('0');
-    expect(screen.getByLabelText('Max command output (bytes)')).toHaveValue(
-      '1048576',
+    // Kilobytes on screen, bytes in the config: 1 MB reads as 1024.
+    expect(screen.getByLabelText('Max command output (KB)')).toHaveValue(
+      '1024',
     );
   });
 

@@ -14,7 +14,9 @@ import { createWebI18n } from '@darkwire/i18n/web';
 const t = createWebI18n('en').getFixedT(null, 'web');
 
 import {
+  bytesToKb,
   formatList,
+  kbToBytes,
   modelOptions,
   msToSeconds,
   parseList,
@@ -86,6 +88,30 @@ describe('durations', () => {
 
   it('rounds to whole milliseconds, since that is what the config stores', () => {
     expect(secondsToMs(0.0005)).toBe(1);
+  });
+});
+
+describe('sizes', () => {
+  it('round-trips the defaults, which are whole kilobytes', () => {
+    expect(bytesToKb(5 * 1024 * 1024)).toBe('5120');
+    expect(kbToBytes(5120)).toBe(5 * 1024 * 1024);
+    expect(bytesToKb(1024 * 1024)).toBe('1024');
+  });
+
+  it('keeps a cap that is not a whole number of kilobytes', () => {
+    // A byte count written by hand into config.yaml. Opening the panel and
+    // saving it unchanged must leave it exactly where it was.
+    expect(bytesToKb(5_000_000)).toBe('4882.8125');
+    expect(kbToBytes(4882.8125)).toBe(5_000_000);
+  });
+
+  it('treats zero as zero and a broken value as zero', () => {
+    expect(bytesToKb(0)).toBe('0');
+    expect(bytesToKb(Number.NaN)).toBe('0');
+  });
+
+  it('rounds to whole bytes, since that is what the config stores', () => {
+    expect(kbToBytes(1.0004)).toBe(1024);
   });
 });
 

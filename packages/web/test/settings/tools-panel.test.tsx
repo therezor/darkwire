@@ -1,11 +1,13 @@
 /**
  * Settings → Tools, through the real router.
  *
- * Three things this panel could get wrong without looking wrong: the durations
+ * Four things this panel could get wrong without looking wrong: the durations
  * are seconds on screen and seconds on the wire, so a number typed here means
- * what it says; the user agent's placeholder is the string the **server** says
- * it sends, not a copy that could go stale; and the SearXNG URL is only
- * collected, and only required, when that backend is chosen.
+ * what it says; the download cap is kilobytes on screen and bytes on the wire,
+ * so the conversion has to happen both ways; the user agent's placeholder is
+ * the string the **server** says it sends, not a copy that could go stale; and
+ * the SearXNG URL is only collected, and only required, when that backend is
+ * chosen.
  */
 
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
@@ -136,5 +138,25 @@ describe('the Tools panel', () => {
     expect(patch.tools?.web?.timeoutSeconds).toBe(45);
     // One branch of the tree, so a panel's save does not rewrite another's.
     expect(Object.keys(patch)).toEqual(['tools']);
+  });
+
+  it('shows the download cap in kilobytes and saves it in bytes', async () => {
+    const { user, calls } = mount();
+    const field = await screen.findByLabelText('Maximum download (KB)');
+    // 5 MB, the schema default, read as kilobytes rather than 5242880.
+    expect(field).toHaveValue('5120');
+
+    await user.clear(field);
+    await user.type(field, '256');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(patchesOf(calls)).toHaveLength(1);
+    });
+    const patch = patchesOf(calls)[0]?.body as {
+      tools?: { web?: Record<string, unknown> };
+    };
+    // The wire is still bytes. Only the box an operator types into is not.
+    expect(patch.tools?.web?.maxBytes).toBe(262_144);
   });
 });

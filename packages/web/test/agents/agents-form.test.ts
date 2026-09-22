@@ -150,6 +150,18 @@ describe('toAgentEntryPatch', () => {
     });
   });
 
+  it('reads the command output cap in kilobytes and writes it in bytes', () => {
+    // The config field is bytes, and only the box is not. A conversion that
+    // ran one way would move a 1 MB cap to 1 KB on the first save.
+    expect(toAgentEntryForm(STATED).execMaxOutputKb).toBe('1024');
+
+    const entry = parsed(
+      toAgentEntryPatch('reviewer', form({ execMaxOutputKb: '256' }), EMPTY, t),
+    );
+
+    expect(entry).toMatchObject({ exec: { maxOutputBytes: 262_144 } });
+  });
+
   it('leaves temperature and reasoning effort out when they are blank', () => {
     // The two that can genuinely be unset. Omitting the key is what clears it,
     // because `agents.list.*` is replaced wholesale.

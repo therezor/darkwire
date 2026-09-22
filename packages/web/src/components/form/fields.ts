@@ -97,6 +97,23 @@ export function secondsToMs(seconds: number): number {
 }
 
 /**
+ * Bytes as the kilobytes an operator thinks in.
+ *
+ * Config stores these caps in bytes, and nobody sets a download limit to
+ * 5242880. Lossless in both directions: a byte count divided by 1024 always
+ * terminates, so a value that is not a whole number of kilobytes keeps its
+ * decimal and saving an untouched panel cannot move the cap.
+ */
+export function bytesToKb(bytes: number): string {
+  if (!Number.isFinite(bytes)) return '0';
+  return String(bytes / 1024);
+}
+
+export function kbToBytes(kb: number): number {
+  return Math.round(kb * 1024);
+}
+
+/**
  * A list edited as one item per line.
  *
  * Commas are accepted as well as newlines, because a model list pasted from a

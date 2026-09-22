@@ -42,6 +42,8 @@ import {
 } from '@darkwire/protocol';
 
 import {
+  bytesToKb,
+  kbToBytes,
   msToSeconds,
   parseNumber,
   secondsToMs,
@@ -153,7 +155,7 @@ export interface AgentEntryForm {
   readonly approvalTimeoutSeconds: string;
   readonly maxOutputChars: string;
   readonly execTimeoutSeconds: string;
-  readonly execMaxOutputBytes: string;
+  readonly execMaxOutputKb: string;
   /**
    * The short tool list: `tool_search` plus the pins, with the rest found by
    * name. Per agent, because the agent on a small local model wants it and the
@@ -257,7 +259,7 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     approvalTimeoutSeconds: msToSeconds(entry.approvalTimeoutMs),
     maxOutputChars: String(entry.maxOutputChars),
     execTimeoutSeconds: msToSeconds(entry.exec.timeoutMs),
-    execMaxOutputBytes: String(entry.exec.maxOutputBytes),
+    execMaxOutputKb: bytesToKb(entry.exec.maxOutputBytes),
     lazyDiscovery: entry.lazyDiscovery,
     pinnedTools: [...entry.pinnedTools],
     tools: { ...entry.tools },
@@ -555,11 +557,9 @@ export function toAgentEntryPatch(
   const execTimeout = required('execTimeoutSeconds', form.execTimeoutSeconds, {
     min: 0,
   });
-  const execMaxOutputBytes = required(
-    'execMaxOutputBytes',
-    form.execMaxOutputBytes,
-    { integer: true, min: 1 },
-  );
+  const execMaxOutputKb = required('execMaxOutputKb', form.execMaxOutputKb, {
+    min: 1,
+  });
   const temperature = optional('temperature', form.temperature, {
     min: 0,
     max: 2,
@@ -574,7 +574,7 @@ export function toAgentEntryPatch(
     approvalTimeout === undefined ||
     maxOutputChars === undefined ||
     execTimeout === undefined ||
-    execMaxOutputBytes === undefined ||
+    execMaxOutputKb === undefined ||
     Object.keys(errors).length > 0
   ) {
     return { ok: false, errors };
@@ -602,7 +602,7 @@ export function toAgentEntryPatch(
             exec: {
               ...entry.exec,
               timeoutMs: secondsToMs(execTimeout),
-              maxOutputBytes: execMaxOutputBytes,
+              maxOutputBytes: kbToBytes(execMaxOutputKb),
             },
             ...(temperature === undefined ? {} : { temperature }),
             ...(isReasoningEffort(form.reasoningEffort)

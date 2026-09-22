@@ -28,7 +28,12 @@ import {
   TextField,
   TextareaField,
 } from '@/components/form/controls.js';
-import { parseNumber, type PatchResult } from '@/components/form/fields.js';
+import {
+  bytesToKb,
+  kbToBytes,
+  parseNumber,
+  type PatchResult,
+} from '@/components/form/fields.js';
 
 import { useSaveSettings } from './use-settings.js';
 
@@ -55,7 +60,7 @@ export function ToolsPanel({
   const [readTimeout, setReadTimeout] = useState(
     String(web.readTimeoutSeconds),
   );
-  const [maxBytes, setMaxBytes] = useState(String(web.maxBytes));
+  const [maxKb, setMaxKb] = useState(bytesToKb(web.maxBytes));
   const [cacheEntries, setCacheEntries] = useState(String(web.cacheEntries));
   const [cacheTtl, setCacheTtl] = useState(String(web.cacheTtlSeconds));
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
@@ -75,7 +80,7 @@ export function ToolsPanel({
         min: 1,
         integer: true,
       }),
-      maxBytes: parseNumber(maxBytes, t, { min: 1, integer: true }),
+      maxKb: parseNumber(maxKb, t, { min: 1 }),
       cacheEntries: parseNumber(cacheEntries, t, { min: 0, integer: true }),
       cacheTtlSeconds: parseNumber(cacheTtl, t, { min: 0, integer: true }),
     };
@@ -108,7 +113,7 @@ export function ToolsPanel({
             readTimeoutSeconds: numbers.readTimeoutSeconds.ok
               ? numbers.readTimeoutSeconds.value
               : 0,
-            maxBytes: numbers.maxBytes.ok ? numbers.maxBytes.value : 0,
+            maxBytes: numbers.maxKb.ok ? kbToBytes(numbers.maxKb.value) : 0,
             cacheEntries: numbers.cacheEntries.ok
               ? numbers.cacheEntries.value
               : 0,
@@ -171,12 +176,12 @@ export function ToolsPanel({
           onValueChange={touched(setReadTimeout)}
         />
         <TextField
-          label={t('settings.tools.maxBytes')}
-          hint={t('settings.tools.maxBytesHint')}
-          value={maxBytes}
-          error={errors.maxBytes}
-          inputMode="numeric"
-          onValueChange={touched(setMaxBytes)}
+          label={t('settings.tools.maxDownloadKb')}
+          hint={t('settings.tools.maxDownloadKbHint')}
+          value={maxKb}
+          error={errors.maxKb}
+          inputMode="decimal"
+          onValueChange={touched(setMaxKb)}
         />
         <TextField
           label={t('settings.tools.cacheEntries')}
@@ -209,7 +214,7 @@ export function ToolsPanel({
           setUserAgent(web.userAgent);
           setTimeout(String(web.timeoutSeconds));
           setReadTimeout(String(web.readTimeoutSeconds));
-          setMaxBytes(String(web.maxBytes));
+          setMaxKb(bytesToKb(web.maxBytes));
           setCacheEntries(String(web.cacheEntries));
           setCacheTtl(String(web.cacheTtlSeconds));
           setErrors({});
