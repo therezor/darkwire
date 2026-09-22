@@ -415,6 +415,32 @@ mod reconfigure {
     }
 
     #[test]
+    fn serialises_two_saves_that_land_at_once() {
+        // A build takes the built-ins out of the registry and puts them back.
+        // Two builds on two threads interleave those halves, and the second
+        // `register` fails with a conflict against the first's. The pair that
+        // hit this in CI was a settings save and the rebuild an extension
+        // announces when it finishes starting. Two saves are the same
+        // collision, and far easier to spell.
+        let install = Install::with(&configured("llama3"));
+        let runtime = install.runtime().unwrap();
+
+        let threads: Vec<_> = (0..8)
+            .map(|port| {
+                let runtime = Arc::clone(&runtime);
+                std::thread::spawn(move || {
+                    runtime.reconfigure(&patch(json!({"server": {"port": 4000 + port}})))
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap().unwrap();
+        }
+
+        assert!(runtime.tools().has("read"));
+    }
+
+    #[test]
     fn reuses_the_cached_adapter_when_nothing_about_the_connection_changed() {
         let install = Install::with(&configured("llama3"));
         let providers = CountingProviders::new(8);

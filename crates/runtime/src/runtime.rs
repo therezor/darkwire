@@ -83,7 +83,7 @@ use darkwire_tools::{
     ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings, register_builtins,
 };
 use indexmap::IndexMap;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, ReentrantMutex, RwLock};
 
 use crate::agents::{
     AgentConfigWarning, EffectiveAgent, assert_writable_agent_ids, granted,
@@ -482,6 +482,23 @@ pub struct WireRuntime {
     extension_sink: Arc<dyn ToolSink>,
     /// Re-entry guard for [`Self::on_extensions_changed`]; see its doc.
     rebuilding: AtomicBool,
+    /// One build at a time, and one reader of `current` per build.
+    ///
+    /// [`Self::build`] takes the built-ins out of the shared registry and puts
+    /// them back. Two builds on two threads interleave those halves, and the
+    /// second `register` fails with a conflict against the first's. The pair
+    /// that hit it was a settings save and the rebuild an extension announces
+    /// when it finishes starting.
+    ///
+    /// It also decides which config wins: the one a save merged, or the one a
+    /// rebuild read a moment earlier. So the guard is taken *before* `current`
+    /// is read, rather than around the build alone.
+    ///
+    /// Re-entrant because a build reconciles the extension host, and an
+    /// announcement from inside that reconcile lands back here on the same
+    /// thread. `rebuilding` is what stops that nested call from rebuilding; the
+    /// lock must not deadlock before it gets the chance.
+    building: ReentrantMutex<()>,
     current: RwLock<Arc<Resolved>>,
 }
 
@@ -606,6 +623,7 @@ impl WireRuntime {
             extensions,
             extension_sink,
             rebuilding: AtomicBool::new(false),
+            building: ReentrantMutex::new(()),
             // Replaced by the build below before anything can observe it.
             current: RwLock::new(Arc::new(Resolved {
                 config: loaded.config.clone(),
@@ -905,6 +923,7 @@ impl WireRuntime {
     /// `config.yaml` — the runtime deliberately does not write it, because
     /// previewing a patch and saving one are different operations.
     pub fn reconfigure(self: &Arc<Self>, patch: &serde_json::Value) -> Result<Config> {
+        let _building = self.building.lock();
         let previous = Arc::clone(&self.current.read());
         let merged = merge_config_patch(&previous.config, patch)?;
         assert_writable_agent_ids(&previous.config, &merged)?;
@@ -959,6 +978,7 @@ impl WireRuntime {
             },
             file: None,
         })?;
+        let _building = self.building.lock();
         let previous = Arc::clone(&self.current.read());
         let built = self.build(loaded.config.clone(), Some(&previous))?;
         *self.current.write() = Arc::new(built);
@@ -1141,6 +1161,11 @@ impl WireRuntime {
         };
         self.apply_extension_tools(&host);
 
+        // Waits for a save that is already building, so this rebuild reads the
+        // config that save wrote rather than the one it replaced. Re-entrant,
+        // so the announcement a build's own reconcile produces still reaches
+        // the guard below instead of deadlocking here.
+        let _building = self.building.lock();
         // Guarded, because a build starts a reconcile of its own: an
         // announcement from inside a rebuild would recurse. Reconcile is a no-op
         // when nothing changed, so the recursion is shallow rather than
