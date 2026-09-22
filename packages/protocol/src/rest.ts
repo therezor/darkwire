@@ -193,6 +193,14 @@ export const SettingsResponseSchema = z.object({
    * thing, and would carry none of the other three answers a panel needs.
    */
   channels: z.array(ChannelStatusSchema).default([]),
+  /**
+   * What `tools.web.userAgent` sends when it is empty.
+   *
+   * Served rather than duplicated here, because it is a single constant that
+   * moves whenever the Chrome major does, and a second copy would go stale
+   * showing an operator a string this build does not send.
+   */
+  defaultWebUserAgent: z.string().default(''),
   /** Set when the file on disk failed to parse and defaults are in use. */
   loadError: z.string().optional(),
   /**

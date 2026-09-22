@@ -476,8 +476,56 @@ export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
  * budget, is on the agent (`AgentSettingsSchema`), because two agents on one
  * install can reasonably want different answers to all of it.
  */
+/**
+ * How this install reaches the web, for `web_fetch` and `web_search`.
+ *
+ * Install-wide rather than per agent, unlike `exec` and the result budget.
+ * These describe the shape of an outbound connection and the machine making it:
+ * which backend answers a search, how this install identifies itself, what
+ * every request is bounded by, and one cache shared by everything. None of it
+ * is something one agent should be able to answer differently from another.
+ *
+ * **No API keys, deliberately.** Both backends are keyless. What an agent may
+ * *reach* is still the agent's, in its `EnvironmentNetwork` allow-list.
+ */
+export const WebSearchProviderSchema = z.enum(['auto', 'searxng']);
+export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;
+
+export const WebToolsConfigSchema = z.object({
+  /** Which backend answers `web_search`. */
+  searchProvider: WebSearchProviderSchema.default('auto'),
+  /** The SearXNG instance, for `searxng`. Ignored otherwise. */
+  searchUrl: z.string().default(''),
+  /**
+   * Sent verbatim, with no client hints.
+   *
+   * Empty is the built-in browser profile, which is what gets past most bot
+   * walls. A value here is the operator choosing to be identifiable, and the
+   * client hints are dropped with it: a hint set naming Chrome beside a custom
+   * agent is a contradiction that gives the whole thing away.
+   */
+  userAgent: z.string().default(''),
+  /** Per fetch. */
+  timeoutSeconds: z.number().int().positive().default(20),
+  /** Per page read inside a search, so one slow origin cannot eat the batch. */
+  readTimeoutSeconds: z.number().int().positive().default(15),
+  /** The streaming body cap. */
+  maxBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(5 * 1024 * 1024),
+  /** Pages and result sets held in memory. `0` disables the cache. */
+  cacheEntries: z.number().int().min(0).default(64),
+  /** How long a cached entry stays usable. `0` disables the cache. */
+  cacheTtlSeconds: z.number().int().min(0).default(900),
+});
+export type WebToolsConfig = z.infer<typeof WebToolsConfigSchema>;
+
 export const ToolsConfigSchema = z.object({
   mcpServers: z.record(z.string(), McpServerConfigSchema).default({}),
+  /** How this install reaches the web. */
+  web: WebToolsConfigSchema.prefault({}),
 });
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 
@@ -553,31 +601,27 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
  * Splitting the two across both files is what produced a "ceiling" nobody could
  * find the other half of.
  *
- * `allow` and `hosts` are alternatives, not layers. A CIDR allow-list is
- * enforced by the gateway's packet filter and is the only thing that works for
- * raw scanning. A host allow-list is enforced by the egress proxy, which sees
- * the name rather than the address a name resolved to, and so is the only thing
- * DNS rebinding cannot defeat — the attack `guardedFetch` already exists to
- * stop. Asking for both would mean two enforcement points disagreeing about one
- * request, so it is refused.
+ * One list, whatever the destination looks like. An entry is a CIDR block, an
+ * address, a name, or a name with a leading dot covering its subdomains. Blocks
+ * and addresses are enforced by the gateway's packet filter; names are enforced
+ * by the egress proxy, which sees the name rather than the address a name
+ * resolved to, and so is the one thing DNS rebinding cannot defeat.
+ *
+ * Nothing inside an environment resolves a name. The proxy does it, on the
+ * engine's side of the boundary, which is why there is no resolver to configure
+ * and why a name is reachable only over HTTP and HTTPS.
+ *
+ * Strict, unlike most of this file. This field decides what an agent can reach,
+ * and a key that was silently dropped would read as an allow-list that had been
+ * applied.
  */
 export const NetworkModeSchema = z.enum(['none', 'allowlist', 'open']);
 export type NetworkMode = z.infer<typeof NetworkModeSchema>;
 
-export const EnvironmentNetworkSchema = z.object({
+export const EnvironmentNetworkSchema = z.strictObject({
   mode: NetworkModeSchema.default('none'),
-  /** CIDRs the packet filter permits, for `allowlist`. */
+  /** What `allowlist` permits: blocks, addresses, names, `.suffix` names. */
   allow: z.array(z.string()).default([]),
-  /** Exact DNS names the egress proxy permits, for `allowlist`. */
-  hosts: z.array(z.string()).default([]),
-  /**
-   * Resolvers the gateway permits on port 53, as IP literals.
-   *
-   * Empty is correct for a host allow-list, where the proxy resolves names on
-   * the environment's behalf, and wrong for a CIDR allow-list, where nothing in
-   * the environment can resolve a name without one.
-   */
-  dns: z.array(z.string()).default([]),
 });
 export type EnvironmentNetwork = z.infer<typeof EnvironmentNetworkSchema>;
 
@@ -1154,6 +1198,9 @@ export const ConfigPatchSchema = z.strictObject({
             .nullable(),
         )
         .optional(),
+      // Restated because `patchOf` is not recursive: a save that only
+      // changes a timeout must not resend the cache settings beside it.
+      web: patchOf(WebToolsConfigSchema).optional(),
     })
     .optional(),
   /**

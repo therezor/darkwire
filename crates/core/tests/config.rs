@@ -459,3 +459,23 @@ mod fixtures {
         }
     }
 }
+
+/// The egress fields the one allow-list replaced stop a config file, and the
+/// refusal names the agent as well as the key.
+///
+/// The named field comes from serde; the dotted path is this module's, and it is
+/// the half that tells an operator which of forty agents to edit.
+#[test]
+fn a_stale_egress_field_names_the_agent_and_the_key() {
+    let text = "agents:\n  list:\n    net:\n      environment:\n        name: dev\n        network:\n          mode: allowlist\n          hosts: [example.com]\n";
+    let error = parse_config(text, Path::new("darkwire.yaml")).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Config);
+    assert!(error.message.contains("hosts"), "{}", error.message);
+    assert!(
+        error
+            .message
+            .contains("agents.list.net.environment.network"),
+        "{}",
+        error.message
+    );
+}

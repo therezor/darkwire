@@ -67,8 +67,6 @@ fn network(mode: NetworkMode) -> EnvironmentNetwork {
     EnvironmentNetwork {
         mode,
         allow: vec!["10.0.0.0/8".to_owned()],
-        hosts: Vec::new(),
-        dns: Vec::new(),
     }
 }
 
@@ -356,31 +354,53 @@ fn uses_the_bridge_for_an_open_request_with_no_gateway() {
     ));
 }
 
+/// Every allow-list, not only one naming hosts. The proxy is the only thing
+/// that resolves a name, so a container pointed nowhere would find every name
+/// unreachable even though its list names one.
 #[test]
-fn points_ordinary_clients_at_the_proxy_when_the_request_names_hosts() {
-    let asked = EnvironmentNetwork {
-        mode: NetworkMode::Allowlist,
-        allow: Vec::new(),
-        hosts: vec!["example.test".to_owned()],
-        dns: Vec::new(),
-    };
-    let mut options = ContainerCreateOptions::new(container_of(json!({})), asked, mount(), "c");
-    options.gateway_container = Some("ghost-netgate-1".to_owned());
-    let argv = container_create_argv(&options).unwrap();
-    for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
-        assert!(has(&argv, &format!("{key}=http://127.0.0.1:3128")));
+fn points_ordinary_clients_at_the_proxy_for_every_allow_list() {
+    for allow in [
+        vec!["10.0.0.0/8".to_owned()],
+        vec!["example.test".to_owned()],
+        vec!["10.0.0.0/8".to_owned(), ".example.test".to_owned()],
+    ] {
+        let asked = EnvironmentNetwork {
+            mode: NetworkMode::Allowlist,
+            allow: allow.clone(),
+        };
+        let mut options = ContainerCreateOptions::new(container_of(json!({})), asked, mount(), "c");
+        options.gateway_container = Some("ghost-netgate-1".to_owned());
+        let argv = container_create_argv(&options).unwrap();
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+            assert!(
+                has(&argv, &format!("{key}=http://127.0.0.1:3128")),
+                "{allow:?}"
+            );
+        }
     }
 }
 
+/// Keyed on the mode, not on the list being non-empty. The validator that
+/// refuses entries under `none` and `open` runs elsewhere, and this must not
+/// depend on it having run.
 #[test]
-fn sets_no_proxy_variables_for_a_request_that_names_no_hosts() {
+fn sets_no_proxy_variables_outside_an_allow_list() {
     assert!(!argv(json!({})).iter().any(|flag| flag.contains("PROXY")));
-    assert!(
-        !create(json!({}), network(NetworkMode::Open))
-            .unwrap()
-            .iter()
-            .any(|flag| flag.contains("proxy"))
-    );
+    for mode in [NetworkMode::None, NetworkMode::Open] {
+        let asked = EnvironmentNetwork {
+            mode,
+            allow: vec!["example.test".to_owned()],
+        };
+        let created = create(json!({}), asked);
+        if let Ok(argv) = created {
+            assert!(
+                !argv
+                    .iter()
+                    .any(|flag| flag.to_lowercase().contains("proxy")),
+                "{mode:?}"
+            );
+        }
+    }
 }
 
 fn exec_argv(plan: &ExecPlan, container: &EnvironmentDefinition) -> Vec<String> {

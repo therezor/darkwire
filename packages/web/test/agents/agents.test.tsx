@@ -2025,12 +2025,10 @@ describe('choosing an environment', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows the three egress boxes only while the mode is an allow-list', async () => {
-    // Three lists, enforced in three different places — CIDRs by the packet
-    // filter, names by the egress proxy, resolvers by whatever the container
-    // asks for a name. None of them means anything under `open` or `none`, and
-    // `toEnvironment` drops all three there, so a box left on screen would be one
-    // the save silently empties.
+  it('shows the egress box only while the mode is an allow-list', async () => {
+    // One list now, because one destination is one entry whatever it looks
+    // like. It means nothing under `open` or `none`, and `toEnvironment` clears
+    // it there, so a box left on screen would be one the save silently empties.
     const { user } = mount('/agents/researcher', ROUTES);
 
     // The mode select first: an absence asserted before the editor has
@@ -2045,12 +2043,13 @@ describe('choosing an environment', () => {
     expect(
       await screen.findByRole('textbox', { name: 'Allowed networks' }),
     ).toBeInTheDocument();
+    // The two boxes this replaced are gone, not hidden.
     expect(
-      screen.getByRole('textbox', { name: 'Allowed host names' }),
-    ).toBeInTheDocument();
+      screen.queryByRole('textbox', { name: 'Allowed host names' }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('textbox', { name: 'DNS resolvers' }),
-    ).toBeInTheDocument();
+      screen.queryByRole('textbox', { name: 'DNS resolvers' }),
+    ).not.toBeInTheDocument();
   });
 
   it('saves the selected environment without the display sentinel', async () => {

@@ -1,14 +1,16 @@
 //! Destination-restricted HTTP proxy. TLS tunnels are not decrypted.
 use darkwire_core::Result;
 use darkwire_security::environment::invalid;
-use darkwire_security::{HickoryResolver, NetworkPolicy, PinnedTarget, validate_target};
+use darkwire_security::{
+    AllowList, EgressAllow, HickoryResolver, NetworkPolicy, PinnedTarget, validate_target,
+};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
 
-async fn connection(mut client: TcpStream, hosts: &[String]) -> Result<()> {
+async fn connection(mut client: TcpStream, allow: &AllowList) -> Result<()> {
     let mut header = Vec::new();
     while !header.ends_with(b"\r\n\r\n") {
         if header.len() >= 16384 {
@@ -36,12 +38,19 @@ async fn connection(mut client: TcpStream, hosts: &[String]) -> Result<()> {
     };
     // Check the allowlist before any DNS query: rejected hostnames must not
     // themselves become an exfiltration channel through the resolver.
-    let parsed = approved_destination(&url, hosts, tunnel)?;
+    let parsed = approved_destination(&url, allow, tunnel)?;
     let port = parsed
         .port_or_known_default()
         .ok_or_else(|| invalid("Missing destination port"))?;
     let resolver = HickoryResolver::new()?;
-    let target = validate_target(parsed.as_str(), &NetworkPolicy::default(), &resolver).await?;
+    // The same entries the allow-list check above used. The default policy
+    // refuses every private range, so a gateway whose list names 10.0.0.0/8
+    // would approve the destination here and refuse it a line later.
+    let policy = NetworkPolicy {
+        allow: EgressAllow::Only(allow.clone()),
+        ..NetworkPolicy::default()
+    };
+    let target = validate_target(parsed.as_str(), &policy, &resolver).await?;
     let (forwarded, body_length) = if tunnel {
         (String::new(), 0)
     } else {
@@ -161,13 +170,16 @@ fn forwarded_request<'a>(
     Ok((forwarded, body_length))
 }
 
-fn approved_destination(url: &str, hosts: &[String], tunnel: bool) -> Result<reqwest::Url> {
+fn approved_destination(url: &str, allow: &AllowList, tunnel: bool) -> Result<reqwest::Url> {
     let parsed = reqwest::Url::parse(url).map_err(|_| invalid("Invalid proxy destination"))?;
     let host = parsed
         .host_str()
         .ok_or_else(|| invalid("Missing destination host"))?;
     let port = parsed.port_or_known_default();
-    if !hosts.iter().any(|h| h.eq_ignore_ascii_case(host))
+    // `match_host` sends an address destination to the blocks and a name to the
+    // names, so the one entry list serves both without either authorising the
+    // other. See the grammar's module header.
+    if allow.match_host(host).is_none()
         || (tunnel && (parsed.scheme() != "https" || port != Some(443)))
         || (!tunnel && (parsed.scheme() != "http" || port != Some(80)))
         || !parsed.username().is_empty()
@@ -186,12 +198,14 @@ fn approved_destination(url: &str, hosts: &[String], tunnel: bool) -> Result<req
 const PROXY_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Run inside the gateway as UID 65532, after firewall installation.
-pub async fn serve(hosts: Vec<String>) -> Result<()> {
+pub async fn serve(entries: Vec<String>) -> Result<()> {
+    // Parsed once, at startup, so a malformed entry stops the gateway rather
+    // than failing every request with a message nobody reads.
+    let allow = Arc::new(AllowList::parse(&entries)?);
     let listener = TcpListener::bind("127.0.0.1:3128")
         .await
         .map_err(|e| invalid(e.to_string()))?;
     std::fs::write("/tmp/ready", b"ready").map_err(|e| invalid(e.to_string()))?;
-    let hosts = Arc::new(hosts);
     let slots = Arc::new(tokio::sync::Semaphore::new(64));
     loop {
         let (client, _) = listener
@@ -201,10 +215,10 @@ pub async fn serve(hosts: Vec<String>) -> Result<()> {
         let Ok(slot) = Arc::clone(&slots).try_acquire_owned() else {
             continue;
         };
-        let hosts = Arc::clone(&hosts);
+        let allow = Arc::clone(&allow);
         tokio::spawn(async move {
             let _slot = slot;
-            let _ = tokio::time::timeout(PROXY_TIMEOUT, connection(client, &hosts)).await;
+            let _ = tokio::time::timeout(PROXY_TIMEOUT, connection(client, &allow)).await;
         });
     }
 }
@@ -216,7 +230,17 @@ pub async fn serve(hosts: Vec<String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{approved_destination, forwarded_request};
-    use darkwire_security::PinnedTarget;
+    use darkwire_security::{AllowList, PinnedTarget};
+
+    fn allow(entries: &[&str]) -> AllowList {
+        AllowList::parse(
+            &entries
+                .iter()
+                .map(|entry| (*entry).to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .expect("the entries parse")
+    }
 
     /// A destination already validated, as `forwarded_request` receives one.
     fn target(url: &str) -> PinnedTarget {
@@ -354,9 +378,9 @@ mod tests {
 
     #[test]
     fn destination_is_checked_without_dns() {
-        let hosts = vec!["example.com".into()];
-        assert!(approved_destination("http://example.com/a", &hosts, false).is_ok());
-        assert!(approved_destination("https://example.com/", &hosts, true).is_ok());
+        let allowed = allow(&["example.com"]);
+        assert!(approved_destination("http://example.com/a", &allowed, false).is_ok());
+        assert!(approved_destination("https://example.com/", &allowed, true).is_ok());
         for url in [
             "http://exfil.example.com/",
             "http://example.com.evil/",
@@ -366,7 +390,47 @@ mod tests {
             "http://127.0.0.1/",
             "https://example.com/",
         ] {
-            assert!(approved_destination(url, &hosts, false).is_err(), "{url}");
+            assert!(approved_destination(url, &allowed, false).is_err(), "{url}");
         }
+    }
+
+    /// The one entry list serves both shapes of destination, and neither
+    /// authorises the other: a block never admits a name, a name never admits
+    /// an address.
+    #[test]
+    fn an_address_destination_matches_a_block_and_a_name_does_not() {
+        let blocks = allow(&["10.0.0.0/8"]);
+        assert!(approved_destination("http://10.0.0.5/", &blocks, false).is_ok());
+        assert!(approved_destination("http://internal.corp/", &blocks, false).is_err());
+
+        let names = allow(&["internal.corp"]);
+        assert!(approved_destination("http://internal.corp/", &names, false).is_ok());
+        assert!(approved_destination("http://10.0.0.5/", &names, false).is_err());
+    }
+
+    #[test]
+    fn a_suffix_entry_admits_a_subdomain() {
+        let allowed = allow(&[".example.com"]);
+        for url in [
+            "http://example.com/",
+            "http://api.example.com/",
+            "http://a.b.example.com/",
+        ] {
+            assert!(approved_destination(url, &allowed, false).is_ok(), "{url}");
+        }
+        assert!(approved_destination("http://notexample.com/", &allowed, false).is_err());
+    }
+
+    /// Scheme and port stay pinned whatever the entry looks like, so a name is
+    /// reachable over 80 and 443 and nowhere else.
+    #[test]
+    fn the_port_pin_survives_every_entry_shape() {
+        for entries in [vec!["example.com"], vec![".example.com"]] {
+            let allowed = allow(&entries);
+            assert!(approved_destination("http://example.com:8080/", &allowed, false).is_err());
+            assert!(approved_destination("https://example.com:8443/", &allowed, true).is_err());
+        }
+        let blocks = allow(&["10.0.0.0/8"]);
+        assert!(approved_destination("http://10.0.0.5:8080/", &blocks, false).is_err());
     }
 }

@@ -75,12 +75,12 @@ use darkwire_providers::{
     resolve_connection, resolve_instance,
 };
 use darkwire_security::{
-    CredentialVault, ExtensionStore, JailResolver, OsRandom, PolicyStore, RandomSource,
-    WorkspaceJail, assert_gateway_compatible,
+    CredentialVault, DnsResolver, ExtensionStore, HickoryResolver, JailResolver, OsRandom,
+    PolicyStore, RandomSource, WorkspaceJail, assert_gateway_compatible,
 };
 use darkwire_tools::{
-    AnyTool, AutomationResolver, BuiltinOptions, Placed, TOOL_SEARCH_NAME, ToolRegistry,
-    ToolRegistryOptions, ToolSink, register_builtins,
+    AnyTool, AutomationResolver, BuiltinOptions, LiveWebResolver, Placed, TOOL_SEARCH_NAME,
+    ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings, register_builtins,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
@@ -368,6 +368,82 @@ fn paths_for(config: &Config, options: &RuntimeOptions) -> Result<WirePaths> {
     })
 }
 
+/// A system resolver built on first use, not at startup.
+///
+/// Every install pays for construction otherwise, including the ones that never
+/// grant a web tool, and it is built inside whatever tokio runtime happens to be
+/// current when the process starts rather than the one that will use it. A host
+/// with no resolver configuration reports it as a network error on the fetch
+/// that needed it, which is recoverable, instead of refusing to start.
+#[derive(Default)]
+struct LazyDns {
+    inner: OnceLock<Option<HickoryResolver>>,
+}
+
+impl std::fmt::Debug for LazyDns {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LazyDns")
+            .field("built", &self.inner.get().is_some())
+            .finish()
+    }
+}
+
+impl DnsResolver for LazyDns {
+    fn resolve<'a>(
+        &'a self,
+        host: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<std::net::IpAddr>>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let resolver = self.inner.get_or_init(|| HickoryResolver::new().ok());
+            match resolver {
+                Some(resolver) => resolver.resolve(host).await,
+                None => Err(WireError::new(
+                    ErrorKind::Network,
+                    "This host has no DNS resolver configuration, so no name can be resolved.",
+                )),
+            }
+        })
+    }
+}
+
+/// Gives the runtime its web layer, once it exists to read config back through.
+///
+/// Separate from `new` because it is a step with its own reasoning, not because
+/// of its length: the per-agent settings it reads are live, while the caps and
+/// the cache bound are read once, since a cache cannot change its bound without
+/// being thrown away.
+fn attach_web(runtime: &Arc<WireRuntime>, config: &Config) {
+    let source = Arc::downgrade(runtime);
+    let at_start = Arc::new(config.clone());
+    let caps = &config.tools.web;
+    let _ = runtime.web.set(Arc::new(LiveWebResolver::new(
+        Arc::new(move || {
+            source.upgrade().map_or_else(
+                || Arc::clone(&at_start),
+                |runtime| Arc::new(runtime.config()),
+            )
+        }),
+        WebSettings {
+            search_provider: caps.search_provider,
+            search_url: caps.search_url.clone(),
+            user_agent: caps.user_agent.clone(),
+            // Seconds in the file, because nobody reasons about a fetch in
+            // milliseconds. Milliseconds below, because that is what the guard
+            // and the cache take, and one conversion here beats five.
+            timeout_ms: caps.timeout_seconds.saturating_mul(1_000),
+            read_timeout_ms: caps.read_timeout_seconds.saturating_mul(1_000),
+            max_bytes: caps.max_bytes,
+            cache_entries: usize::try_from(caps.cache_entries).unwrap_or(0),
+            cache_ttl_ms: caps.cache_ttl_seconds.saturating_mul(1_000),
+        },
+        Arc::new(LazyDns::default()),
+        Arc::clone(&runtime.clock),
+        Arc::new(OsRandom),
+    )) as Arc<dyn WebResolver>);
+}
+
 /// The composition root: config in, a running agent out.
 pub struct WireRuntime {
     options: RuntimeOptions,
@@ -380,6 +456,15 @@ pub struct WireRuntime {
     tools: Arc<ToolRegistry>,
     /// Survives a reconfigure, so a steer queued mid-turn is not dropped.
     steering: Arc<SteeringQueue>,
+    /// Survives a reconfigure for the same reason: it owns the page and search
+    /// caches, and emptying those on every settings save would be felt exactly
+    /// when an operator is retrying something.
+    ///
+    /// Set once, immediately after the runtime exists, because it reads the
+    /// live config back through it. The per-agent settings it reads are live;
+    /// the caps and the cache size in `tools.web` are read once here, because a
+    /// cache cannot change its bound without being thrown away.
+    web: OnceLock<Arc<dyn WebResolver>>,
     providers: Arc<ProviderCache>,
     /// An injected cache outlives this runtime; closing its adapters is not ours
     /// to do.
@@ -514,6 +599,7 @@ impl WireRuntime {
             workspaces,
             tools,
             steering: Arc::new(SteeringQueue::new()),
+            web: OnceLock::new(),
             providers,
             owns_providers,
             mcp,
@@ -535,6 +621,10 @@ impl WireRuntime {
                 unconfigured: None,
             })),
         });
+
+        // Reads the live config back through the runtime, so a settings save
+        // moves an agent's provider and user agent without emptying the caches.
+        attach_web(&runtime, &loaded.config);
 
         let built = runtime.build(loaded.config, None)?;
         *runtime.current.write() = Arc::new(built);
@@ -1415,6 +1505,7 @@ impl WireRuntime {
         options.host = Host::default();
         options.approvals.clone_from(&self.options.approvals);
         options.automation.clone_from(&self.options.automation);
+        options.web = self.web.get().map(Arc::clone);
         options.environments = Some(Arc::new(ServiceEnvironments {
             socket: self.sandbox_socket(),
             policies: PolicyStore::new(paths.policy_dir.clone()),

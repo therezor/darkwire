@@ -47,8 +47,8 @@ use regex::Regex;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
+use crate::allow::AllowList;
 use crate::random::hex_lower;
-use crate::{parse_cidr, parse_ip_literal};
 
 /// Construct an operator-actionable policy error.
 pub fn invalid(message: impl Into<String>) -> WireError {
@@ -170,7 +170,7 @@ pub fn parse_environment(bytes: &[u8]) -> Result<EnvironmentDefinition> {
 /// discover it.
 pub fn assert_environment_network(network: &EnvironmentNetwork, agent_id: &str) -> Result<()> {
     if network.mode != NetworkMode::Allowlist {
-        if !network.allow.is_empty() || !network.hosts.is_empty() || !network.dns.is_empty() {
+        if !network.allow.is_empty() {
             return Err(invalid(format!(
                 "Agent \"{agent_id}\" lists egress entries but its network mode is not \"allowlist\".\n  They would have no effect. Set the mode, or clear the entries."
             ))
@@ -178,58 +178,23 @@ pub fn assert_environment_network(network: &EnvironmentNetwork, agent_id: &str) 
         }
         return Ok(());
     }
-    if network.allow.is_empty() && network.hosts.is_empty() {
+    if network.allow.is_empty() {
         return Err(invalid(format!(
             "Agent \"{agent_id}\" asks for an allow-list with no entries, which reaches nothing.\n  Use mode \"none\" if that is the intent."
         ))
         .with_detail("agentId", agent_id));
     }
-    if !network.allow.is_empty() && !network.hosts.is_empty() {
-        return Err(invalid(format!(
-            "Agent \"{agent_id}\" lists both CIDRs and hosts. Choose one.\n  CIDRs are enforced by the gateway's packet filter and hosts by the egress\n  proxy, and a request enforced in two places is enforced in neither."
-        ))
-        .with_detail("agentId", agent_id));
-    }
-    for entry in &network.allow {
-        if parse_cidr(entry).is_none() {
-            return Err(invalid(format!(
-                "Agent \"{agent_id}\" has an egress entry that is not a CIDR block: {entry}\n  Hostnames go in `hosts`, where the proxy sees the name rather than an address\n  DNS rebinding chose. Use 10.0.0.0/8 here."
-            ))
-            .with_detail("agentId", agent_id)
-            .with_detail("entry", entry.as_str()));
+    // One grammar, parsed by the same code the packet filter, the egress proxy
+    // and the guarded fetch all match against, so an entry an operator writes
+    // here cannot mean three things.
+    AllowList::parse(&network.allow).map_err(|error| {
+        let mut refusal = invalid(format!("Agent \"{agent_id}\": {}", error.message))
+            .with_detail("agentId", agent_id);
+        if let Some(entry) = error.details.get("entry") {
+            refusal = refusal.with_detail("entry", entry.clone());
         }
-    }
-    for host in &network.hosts {
-        if host.is_empty()
-            || host.len() > 253
-            || host.starts_with('.')
-            || host.ends_with('.')
-            || !host
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
-        {
-            return Err(invalid(format!(
-                "Agent \"{agent_id}\" has an egress host that is not an exact DNS name: {host}\n  Wildcards are not accepted: the proxy matches the name it was given."
-            ))
-            .with_detail("agentId", agent_id)
-            .with_detail("host", host.as_str()));
-        }
-    }
-    for resolver in &network.dns {
-        if parse_ip_literal(resolver).is_none() {
-            return Err(invalid(format!(
-                "Agent \"{agent_id}\" has a DNS resolver that is not an IP literal: {resolver}\n  A name cannot be resolved by something that has to be resolved first."
-            ))
-            .with_detail("agentId", agent_id)
-            .with_detail("resolver", resolver.as_str()));
-        }
-    }
-    if !network.allow.is_empty() && network.dns.is_empty() {
-        return Err(invalid(format!(
-            "Agent \"{agent_id}\" scopes egress by CIDR but names no DNS resolver.\n  Nothing in the container could resolve a hostname, so every name would fail.\n  Add a resolver reachable inside the allow-list, or scope by `hosts` instead."
-        ))
-        .with_detail("agentId", agent_id));
-    }
+        refusal
+    })?;
     Ok(())
 }
 

@@ -177,18 +177,18 @@ mod resolve_agent {
     }
 
     #[test]
-    fn refuses_an_egress_entry_that_is_not_a_cidr_block() {
+    fn refuses_an_egress_entry_the_grammar_does_not_admit() {
         let tree = json!({"agents": {"list": {"net": {
             "environment": {
                 "name": "dev",
-                "network": {"mode": "allowlist", "allow": ["example.com"]},
+                "network": {"mode": "allowlist", "allow": ["*.example.com"]},
             },
         }}}});
         let error = resolve_agent(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);
-        // Hostnames are refused because DNS rebinding defeats them.
-        assert!(error.message.contains("10.0.0.0/8"), "{}", error.message);
-        assert_eq!(error.details["entry"], "example.com");
+        // A wildcard has one spelling, and it is the leading dot.
+        assert!(error.message.contains(".example.com"), "{}", error.message);
+        assert_eq!(error.details["entry"], "*.example.com");
     }
 
     #[test]
@@ -198,15 +198,17 @@ mod resolve_agent {
                 "name": "dev",
                 "network": {
                     "mode": "allowlist",
-                    "allow": ["10.0.0.0/8"],
-                    "dns": ["1.1.1.1"],
+                    "allow": ["10.0.0.0/8", ".example.com"],
                 },
             },
         }}}});
         let agent = resolved(&tree, Some("net"));
         assert_eq!(agent.environment.name, "dev");
         assert_eq!(agent.environment.network.mode, NetworkMode::Allowlist);
-        assert_eq!(agent.environment.network.dns, ["1.1.1.1"]);
+        assert_eq!(
+            agent.environment.network.allow,
+            ["10.0.0.0/8", ".example.com"]
+        );
     }
 
     #[test]
@@ -498,7 +500,7 @@ mod or_default {
         // for settings that were never going to work would hide the one thing
         // the operator needs to see.
         let tree = json!({"agents": {"list": {"net": {
-            "environment": {"name": "dev", "network": {"mode": "allowlist", "allow": ["nope"]}},
+            "environment": {"name": "dev", "network": {"mode": "allowlist", "allow": ["*.nope"]}},
         }}}});
         let error = resolve_agent_or_default(&config(&tree), Some("net")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Config);

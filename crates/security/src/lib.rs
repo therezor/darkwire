@@ -31,6 +31,7 @@
 //! way to reach either without coming through here first.
 #![forbid(unsafe_code)]
 
+pub mod allow;
 pub mod egress;
 pub mod environment;
 pub mod exec_guard;
@@ -48,6 +49,7 @@ pub mod vault;
 #[cfg(feature = "testkit")]
 pub mod testkit;
 
+pub use allow::{AllowEntry, AllowList, parse_allow_entry};
 pub use environment::{
     BUILTIN_TOOL_NAMES, assert_environment_network, assert_environment_policy,
     assert_gateway_compatible, assert_slug, invalid, manifest_hash, parse_environment, weakened_in,
@@ -61,8 +63,8 @@ pub use extension::{
 };
 pub use extension_store::{ExtensionResolution, ExtensionResolutionState, ExtensionStore};
 pub use fetch::{
-    DnsResolver, GuardedFetchOptions, GuardedFetchResult, GuardedResponse, HickoryResolver,
-    NetworkPolicy, PinnedTarget, guarded_fetch, validate_target,
+    DnsResolver, EgressAllow, GuardedFetchOptions, GuardedFetchResult, GuardedResponse,
+    HickoryResolver, NetworkPolicy, PinnedTarget, guarded_fetch, validate_target,
 };
 pub use ip::{
     AddressCategory, AddressRange, BLOCKED_RANGES, IpFamily, ParsedCidr, ParsedIp, cidr_contains,

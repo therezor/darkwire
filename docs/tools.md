@@ -1,7 +1,7 @@
 # Tools and permissions
 
 What an agent can actually _do_, and who decided it could. Two halves: the tools
-themselves (twelve built in, plus whatever MCP servers and extensions contribute) and the
+themselves (fourteen built in, plus whatever MCP servers and extensions contribute) and the
 `allow | ask | deny` map that gates every one of them, per agent.
 
 The short version, if you read one paragraph: **enablement and permission are the same
@@ -11,7 +11,7 @@ it to call and nothing to refuse.
 
 ## The built-ins
 
-Twelve. The test each one passes is that it is a capability the agent cannot obtain as
+Fourteen. The test each one passes is that it is a capability the agent cannot obtain as
 cheaply any other way, which for most of them means `exec` cannot do the job: a command
 needs an approval nobody may be there to give, and it needs a binary the container image
 may not ship. A `move_file` tool would still be a worse `mv`, and there is no such thing.
@@ -22,27 +22,29 @@ bound their own output, and work in an image carrying neither `rg` nor `fd`. Sea
 is also what an agent does before almost every edit, so paying an approval for it once
 a turn is the difference between an agent that reads the code and one that guesses.
 
-Eight of them are capabilities the agent cannot get any other way. `memory`, `skill` and
+Ten of them are capabilities the agent cannot get any other way. `memory`, `skill` and
 `todo` are not, and are here for a second reason: a tool carries a per-agent permission,
 so being a tool is what makes each feature switchable without a config flag beside it
 that could disagree. Denying any of the three removes its prompt section too. See
 [Memory](memory.md) and [Skills](skills.md). `tool_search` is the door to the other tools
 when [lazy discovery](#lazy-discovery) is on, and is registered only then.
 
-| Tool          | Args                                                    | Risk band | Does                                                                                        |
-| ------------- | ------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
-| `read`        | `path`, `offset?`, `limit?`                             | `safe`    | Reads a file, 2000 lines at a time, and says how many are left.                             |
-| `ls`          | `path`, `recursive?`, `maxEntries?`                     | `safe`    | Lists a directory. Hides nothing.                                                           |
-| `grep`        | `pattern`, `path?`, `glob?`, `mode?`, and more          | `safe`    | Searches file contents by regex. Skips what `.gitignore` skips.                             |
-| `find`        | `pattern`, `path?`, `limit?`                            | `safe`    | Finds files by glob, most recently modified first.                                          |
-| `write`       | `path`, `content`                                       | `write`   | Creates or overwrites.                                                                      |
-| `edit`        | `path`, `oldText`, `newText`, `replaceAll?`, or `edits` | `write`   | Exact-match replacement, one block or several atomically.                                   |
-| `exec`        | `argv: string[]`, `timeoutMs?`                          | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
-| `automation`  | `action`, plus a name, message and schedule             | `exec`    | Schedules a turn for later. See below.                                                      |
-| `memory`      | `action`, `key`, `content?`                             | `write`   | Reads, saves or deletes one [memory](memory.md). No path argument.                          |
-| `skill`       | `name`                                                  | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
-| `todo`        | `tasks: {text, status}[]`                               | `safe`    | Replaces the session's task list. See below.                                                |
-| `tool_search` | `query?`, `activate?: string[]`                         | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
+| Tool          | Args                                                      | Risk band | Does                                                                                        |
+| ------------- | --------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `read`        | `path`, `offset?`, `limit?`                               | `safe`    | Reads a file, 2000 lines at a time, and says how many are left.                             |
+| `ls`          | `path`, `recursive?`, `maxEntries?`                       | `safe`    | Lists a directory. Hides nothing.                                                           |
+| `grep`        | `pattern`, `path?`, `glob?`, `mode?`, and more            | `safe`    | Searches file contents by regex. Skips what `.gitignore` skips.                             |
+| `find`        | `pattern`, `path?`, `limit?`                              | `safe`    | Finds files by glob, most recently modified first.                                          |
+| `write`       | `path`, `content`                                         | `write`   | Creates or overwrites.                                                                      |
+| `edit`        | `path`, `oldText`, `newText`, `replaceAll?`, or `edits`   | `write`   | Exact-match replacement, one block or several atomically.                                   |
+| `exec`        | `argv: string[]`, `timeoutMs?`                            | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `automation`  | `action`, plus a name, message and schedule               | `exec`    | Schedules a turn for later. See below.                                                      |
+| `memory`      | `action`, `key`, `content?`                               | `write`   | Reads, saves or deletes one [memory](memory.md). No path argument.                          |
+| `skill`       | `name`                                                    | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
+| `todo`        | `tasks: {text, status}[]`                                 | `safe`    | Replaces the session's task list. See below.                                                |
+| `tool_search` | `query?`, `activate?: string[]`                           | `safe`    | Finds hidden tools by words, or adds named ones to the list. See below.                     |
+| `web_fetch`   | `url`, `format?`, `maxChars?`                             | `network` | Reads a page as markdown, main content only. See below.                                     |
+| `web_search`  | `query`, `count?`, `read?`, `recent?`, `site?`, `region?` | `network` | Searches the web and reads the top results. See below.                                      |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
 takes an argv array, never a command string.
@@ -110,10 +112,11 @@ so one removed by hand is back a moment later.
 
 ### `automation`
 
-The only built-in that acts on the _future_, and the only one **absent from
+The only built-in that acts on the _future_, and one of three **absent from
 `DEFAULT_AGENT_TOOLS`** — a new agent cannot reach it at all until an operator grants it.
 That asymmetry is the point: a single approved `exec` runs once, and a single approved
-`automation` create runs forever, unattended, on a timer.
+`automation` create runs forever, unattended, on a timer. The two web tools are the other
+two, for the neighbouring reason: they reach outside the machine.
 
 Grant it per agent, in **Agents → the agent → Tools**, by moving its row off `Disabled`.
 
@@ -158,6 +161,59 @@ More tools arrive two ways: from a subagent, which appears as `ask_<id>` (see
 an agent may call — the agent's `tools` permission map stays the whole authority, with or
 without one. So an agent gains nothing by being given a container and loses nothing by
 having one taken away, beyond where its commands land.
+
+### `web_fetch` and `web_search`
+
+Both **absent from `DEFAULT_AGENT_TOOLS`**, like `automation`. Grant them per agent in
+**Agents → the agent → Tools**, and note the risk band is `network`, so a granted row
+seeds to `ask` rather than `allow`.
+
+`web_fetch` returns a page as markdown: the article, with navigation, adverts and
+boilerplate scored away rather than stripped by tag name. A documentation page is
+typically 80 to 95% markup and chrome, so this is roughly a tenth of the tokens `curl`
+would cost and reads far better. `format: "raw"` returns the body untouched, which is
+what an API returning JSON wants.
+
+`web_search` returns a numbered list **and reads the first three results**. That default
+is the important one: with reading opt-in, a model handed six one-line snippets answers
+from the snippets. Three, because one source is an opinion and two that agree is a
+coincidence. `read: 0` gives the list alone.
+
+Both stay inside the agent's `maxOutputChars`. The tool computes its own budget and cuts
+at a line boundary, naming what it dropped, because the registry's own truncation keeps
+the head **and** the tail: a result that overflowed would come back with its middle
+removed. When the budget cannot carry three extracts, it reads fewer and says so.
+
+Everything they cannot do says what to try instead: a page rendered client-side names the
+absence of a JavaScript engine, a PDF names `exec`, and a 401, 403 or 429 says the site is
+refusing automated requests and that retrying will not help.
+
+**How the install reaches the web is install-wide; what an agent may reach is the
+agent's.** The backend, the user agent and the caps are
+[`tools.web`](configuration.md#toolsweb), on one screen in **Settings → Tools**, because
+they describe this machine. The allow-list is
+[on the agent](configuration.md#agentslistidenvironment), because it describes that
+agent. Under `allowlist` a search backend is reachable only if the operator listed its
+host, and the refusal names the hosts to add. On the host, an agent with no network mode
+set reaches the public internet, which is what `exec` there can already do.
+
+**Search is best effort by default.** `auto` scrapes public search front doors in
+rotation, then falls back to Hacker News through Algolia's keyless API. Those front doors
+change their markup without notice and rate-limit a server address faster than a
+residential one; one of the three served a captcha while this was being written. The
+configuration that actually holds is a SearXNG instance you run, named in
+**Settings → Tools**.
+
+**There is no API key, and that is the point.** Both backends are keyless, because a
+search tool should not require an account with a search company.
+
+Requests carry a current browser user agent and the client hints that match it, because a
+great many sites serve a challenge page to anything that looks automated. Set
+`tools.web.userAgent` to identify yourself honestly instead; the client hints are dropped
+with it, since a hint set naming Chrome beside a custom agent gives the whole thing
+away. TLS fingerprinting is **not** addressed: rustls does not present Chrome's
+handshake, so a site behind a fingerprinting CDN refuses these requests whatever headers
+they carry, and the refusal says so rather than inviting a retry.
 
 ### Lazy discovery
 

@@ -34,4 +34,5 @@ doc-valid-idents = [
   "PKCE", "Telegram", "macOS", "TurnLog", "PuTTY",
   "OpenRouter", "DeepSeek", "vLLM", "xAI", "LM", "IPv4", "IPv6",
   "MarkdownV2", "Ratatui", "PageUp", "PageDown",
+  "SearXNG", "DuckDuckGo", "ClientHello",
 ]

@@ -302,11 +302,15 @@ pub fn container_create_argv(options: &ContainerCreateOptions) -> Result<Vec<Str
     }
 
     argv.extend(capability_flags(container));
-    // The proxy enforces the host allow-list, so a program that ignored these
-    // would reach nothing: the gateway's filter permits only the proxy's own
-    // uid and its loopback port. They are set so ordinary clients route there
-    // without configuration, not to make the restriction work.
-    if !options.network.hosts.is_empty() {
+    // Every allow-list, not only one naming hosts: the proxy is the only thing
+    // that resolves a name, so a client that ignored these would find every
+    // name unreachable. They are set so ordinary clients route there without
+    // configuration, not to make the restriction work.
+    //
+    // Keyed on the mode rather than on the list being non-empty, because the
+    // validator that refuses entries under `none` and `open` runs elsewhere and
+    // this must not depend on it having run.
+    if options.network.mode == NetworkMode::Allowlist {
         for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
             argv.push("--env".to_owned());
             argv.push(format!("{key}=http://127.0.0.1:{PROXY_PORT}"));

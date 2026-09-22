@@ -65,6 +65,11 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     summary: 'settings.panels.channels.summary',
   },
   {
+    id: 'tools',
+    label: 'settings.panels.tools.label',
+    summary: 'settings.panels.tools.summary',
+  },
+  {
     id: 'extensions',
     label: 'settings.panels.extensions.label',
     summary: 'settings.panels.extensions.summary',

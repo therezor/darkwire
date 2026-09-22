@@ -272,7 +272,7 @@ timeout); the **system prompt** on the screen and the other seven templates behi
 **Advanced prompt settings** disclosure, each with a warning for stray placeholders; the
 **per-tool permission map**; the **container** selection, which decides where `exec` runs
 and nothing about what the agent may call; the **network** block, which appears once a
-container is chosen and shows its allow-lists only under `allowlist`; and the **subagent
+container is chosen and shows its allow-list only under `allowlist`; and the **subagent
 list**, each with its own description and permission.
 
 Model and budget live on the agent, not in Settings — they are properties of an agent, and

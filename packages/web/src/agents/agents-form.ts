@@ -193,12 +193,11 @@ export interface AgentEntryForm {
   readonly environmentName: string;
   readonly environmentAlwaysUseOwn: boolean;
   readonly environmentNetworkMode: string;
-  /** Comma-separated CIDR blocks. Only read when the mode is `allowlist`. */
+  /**
+   * Comma-separated destinations: CIDR blocks, addresses, names, or a name with
+   * a leading dot for its subdomains. Only read when the mode is `allowlist`.
+   */
   readonly environmentAllow: string;
-  /** Comma-separated DNS names. Only read when the mode is `allowlist`. */
-  readonly environmentHosts: string;
-  /** Comma-separated resolver addresses. Only read when the mode is `allowlist`. */
-  readonly environmentDns: string;
 }
 
 /**
@@ -267,8 +266,6 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     environmentAlwaysUseOwn: entry.environment.alwaysUseOwn,
     environmentNetworkMode: entry.environment.network.mode,
     environmentAllow: entry.environment.network.allow.join(', '),
-    environmentHosts: entry.environment.network.hosts.join(', '),
-    environmentDns: entry.environment.network.dns.join(', '),
   };
 }
 
@@ -450,8 +447,6 @@ function toEnvironment(form: AgentEntryForm): AgentEntry['environment'] {
     network: {
       mode,
       allow: scoped ? parseList(form.environmentAllow) : [],
-      hosts: scoped ? parseList(form.environmentHosts) : [],
-      dns: scoped ? parseList(form.environmentDns) : [],
     },
   };
 }

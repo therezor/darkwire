@@ -73,6 +73,8 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'skill',
   'todo',
   'tool_search',
+  'web_fetch',
+  'web_search',
 ];
 
 /** Where a registered tool came from, so `unregisterBySource` can be exact. */

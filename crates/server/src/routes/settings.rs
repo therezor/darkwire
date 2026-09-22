@@ -139,6 +139,9 @@ fn settings_response(state: &AppState) -> SettingsResponse {
         // Empty for a runtime that has no channels to report — a route test
         // standing in for one, and any build that ships none.
         channels: state.runtime.channels(),
+        // From the one constant the header builder uses, so the placeholder an
+        // operator reads is the string this build actually sends.
+        default_web_user_agent: darkwire_tools::web::chrome_user_agent(),
         load_error: state.runtime.load_error(),
         // Read fresh on every response rather than only after a write: a
         // warning most often comes from the file as it was found at boot, and

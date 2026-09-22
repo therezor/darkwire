@@ -67,8 +67,8 @@ it before exposing it beyond the machine.
 `darkwire-environment` reads its first argument:
 
 - **`proxy`** — runs the egress proxy inside the gateway container, on loopback port 3128
-  as uid 65532. Started by the service when an agent scopes egress by host name; not run
-  by hand.
+  as uid 65532. Started by the service whenever an agent scopes egress, because it is the
+  only thing that resolves a name; not run by hand.
 - **`serve-env`** — the mode `deploy/sandbox/compose.yaml` uses. Every path is the fixed
   one inside the image, and `DARKWIRE_DATA_DIR` supplies the absolute host path the daemon
   sees for the same directories. `DARKWIRE_GATEWAY_IMAGE` and

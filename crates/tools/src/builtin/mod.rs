@@ -1,6 +1,6 @@
 //! The built-in tool set.
 //!
-//! Twelve tools. The test each one passes is that it is a capability the agent
+//! Fourteen tools. The test each one passes is that it is a capability the agent
 //! cannot obtain as cheaply any other way, and for most of them that means
 //! `exec` cannot do the job: a command needs an approval an operator may not be
 //! there to give, and it needs a binary the container image may not ship.
@@ -22,9 +22,17 @@
 //! schedule, because a tool that can only answer "there is no scheduler" costs
 //! a turn to learn what its absence would have said for free.
 //!
-//! `automation` is also the one built-in absent from `DEFAULT_AGENT_TOOLS`, so
-//! being registered is not the same as being reachable: no agent has it until
-//! an operator grants it.
+//! `automation` and the two web tools are absent from `DEFAULT_AGENT_TOOLS`, so
+//! being registered is not the same as being reachable: no agent has them until
+//! an operator grants them. The argument is the same for all three. A single
+//! approved `exec` runs once; a single approved `automation` runs forever on a
+//! timer, and `web_fetch` reaches outside the machine entirely. Which agents do
+//! that is a decision somebody makes.
+//!
+//! Both web tools are registered unconditionally, unlike `automation`. There is
+//! nothing to gate them on: the keyless search rotation needs no configuration,
+//! and `web_fetch` needs none at all. An install whose host has no resolver
+//! finds out on the call, which is where the sentence is useful.
 //!
 //! Everything else is registered once, for every agent, and narrowed per agent
 //! by the loop: whether an agent has `exec` is its permission map's answer,
@@ -45,6 +53,8 @@ pub mod skill;
 pub mod todo;
 pub mod tool_search;
 pub mod walk;
+pub mod web_fetch;
+pub mod web_search;
 pub mod write;
 
 use std::sync::Arc;
@@ -67,6 +77,8 @@ pub use tool_search::{
     Hit, MAX_SEARCH_RESULTS, SearchResults, TOOL_SEARCH_NAME, render_activation, render_search,
     search, tool_search_tool,
 };
+pub use web_fetch::web_fetch_tool;
+pub use web_search::web_search_tool;
 pub use write::write_tool;
 
 use crate::registry::ToolRegistry;
@@ -96,6 +108,8 @@ pub fn all_builtin_tools() -> Vec<AnyTool> {
         skill_tool(),
         todo_tool(),
         tool_search_tool(),
+        web_fetch_tool(),
+        web_search_tool(),
     ]
 }
 

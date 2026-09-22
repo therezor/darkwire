@@ -417,7 +417,7 @@ export function EnvironmentsPanel(): JSX.Element {
                       // instance's egress is part of its identity, so warming
                       // with one an agent did not ask for would start a
                       // container nothing reuses.
-                      network: { mode: 'none', allow: [], hosts: [], dns: [] },
+                      network: { mode: 'none', allow: [] },
                     },
                     // Closed on success, not on the press: a refusal should
                     // leave the question on screen with the sentence for it.

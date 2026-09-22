@@ -708,10 +708,9 @@ async fn guards_a_discovered_endpoint_but_not_the_operators_own() {
         StaticResolver::new().with("auth.internal", &[IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7))]),
     );
     let guard = Arc::new(EndpointGuard {
-        policy: NetworkPolicy {
-            allow_private: false,
-            ..NetworkPolicy::default()
-        },
+        // The default reaches the public internet and nothing private, which
+        // is what an MCP endpoint discovered from a remote document may have.
+        policy: NetworkPolicy::default(),
         resolver,
     });
 

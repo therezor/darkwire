@@ -70,15 +70,17 @@ agents:
         name: dev
         network:
           mode: allowlist
-          allow: [10.0.0.0/8]
-          hosts: [api.example.test]
-          dns: [10.0.0.53]
+          allow: [10.0.0.0/8, api.example.test, .docs.example.test]
 ```
 
 With an empty name the agent runs on the host and network must be `none`. There is no
 gateway on the host to enforce anything, so a request there would mean nothing. With a
-named environment, `open`, `none` and `allowlist` are available. An allow-list needs
-CIDRs, exact host names, and DNS resolver addresses.
+named environment, `open`, `none` and `allowlist` are available. An allow-list takes one
+list, whatever the destination looks like: a block, an address, a host name, or a name
+with a leading dot for its subdomains. See
+[Configuration](configuration.md#agentslistidenvironment) for the grammar and for the
+three things a name cannot do, the first of which is be reached by anything that is not
+HTTP.
 
 **A definition says what its image holds.** `prompt` is plain prose with no heading and no
 placeholders: what is installed, which shell, what is missing. It **replaces** the default

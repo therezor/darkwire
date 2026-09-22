@@ -163,16 +163,16 @@ More in [Web UI](docs/web-ui.md). Generated from the real app, not staged.
 It reads web pages, command output and files an attacker may have written. Everything it
 asks for is an untrusted request.
 
-| Guard                   | What it stops                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Workspace jail**      | Path traversal. `/etc/passwd` addresses `<workspace>/etc/passwd`; paths are rebuilt, then `realpath`'d.        |
-| **Argv-only exec**      | Command injection. The argv vector is spawned directly — no shell, so no string to interpret.                  |
-| **Environments**        | Blast radius. `exec` runs in a digest-pinned container whose definition fixes caps, user and network.          |
-| **Per-tool permission** | An agent doing what you did not enable. Absent means not enabled; `ask` shows you the arguments first.         |
-| **`guardedFetch`**      | SSRF and DNS rebinding. Resolved addresses are pinned into the dispatcher — no second lookup to differ.        |
-| **Nonce fencing**       | Prompt injection. Every tool result is fenced with a fresh per-turn nonce, and the model is told it is data.   |
-| **Credential vault**    | Key theft at rest. AES-256-GCM, `0600`, key in the OS keychain. Nothing reads a credential back out over HTTP. |
-| **Auth**                | Guessing. argon2id, and two asymmetric throttle scopes so a botnet cannot spread its attempts out.             |
+| Guard                   | What it stops                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Workspace jail**      | Path traversal. `/etc/passwd` addresses `<workspace>/etc/passwd`; paths are rebuilt, then `realpath`'d.                                                             |
+| **Argv-only exec**      | Command injection. The argv vector is spawned directly — no shell, so no string to interpret.                                                                       |
+| **Environments**        | Blast radius. `exec` runs in a digest-pinned container whose definition fixes caps, user and network.                                                               |
+| **Per-tool permission** | An agent doing what you did not enable. Absent means not enabled; `ask` shows you the arguments first.                                                              |
+| **`guardedFetch`**      | SSRF and DNS rebinding. Resolved addresses are pinned into the dispatcher — no second lookup to differ. Every `web_fetch` and `web_search` request goes through it. |
+| **Nonce fencing**       | Prompt injection. Every tool result is fenced with a fresh per-turn nonce, and the model is told it is data.                                                        |
+| **Credential vault**    | Key theft at rest. AES-256-GCM, `0600`, key in the OS keychain. Nothing reads a credential back out over HTTP.                                                      |
+| **Auth**                | Guessing. argon2id, and two asymmetric throttle scopes so a botnet cannot spread its attempts out.                                                                  |
 
 [Security](docs/security.md) states each guard's limits — including the one that matters: a
 workspace is an organisational boundary, not a security boundary, wherever host `exec` is

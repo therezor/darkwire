@@ -34,6 +34,7 @@ import { AppearancePanel } from '@/settings/appearance-panel.js';
 import { EnvironmentsPanel } from '@/settings/environments-panel.js';
 import { AccountPanel } from '@/settings/account-panel.js';
 import { ExtensionsPanel } from '@/settings/extensions-panel.js';
+import { ToolsPanel } from '@/settings/tools-panel.js';
 import { McpPanel } from '@/settings/mcp-panel.js';
 import { ProvidersPanel } from '@/settings/providers-panel.js';
 import { AutomationPanel } from '@/settings/automation-panel.js';
@@ -150,9 +151,14 @@ function PanelBody({ panelId }: { readonly panelId: string }): JSX.Element {
     );
   }
 
-  const { config } = settings.data;
+  const { config, defaultWebUserAgent } = settings.data;
   if (panel.id === 'automation') return <AutomationPanel config={config} />;
   if (panel.id === 'mcp') return <McpPanel config={config} />;
+  if (panel.id === 'tools') {
+    return (
+      <ToolsPanel config={config} defaultUserAgent={defaultWebUserAgent} />
+    );
+  }
   if (panel.id === 'extensions') return <ExtensionsPanel config={config} />;
   if (panel.id === 'channels') {
     // The only panel that needs more than the config: whether the bot is

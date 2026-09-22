@@ -45,9 +45,7 @@
           "name": "",
           "network": {
             "mode": "none",
-            "allow": [],
-            "hosts": [],
-            "dns": []
+            "allow": []
           }
         },
         "subagents": []

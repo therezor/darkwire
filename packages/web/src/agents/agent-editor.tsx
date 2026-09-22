@@ -1436,22 +1436,6 @@ function Editor({
                 }}
                 hint={t('agents.environmentAllowHint')}
               />
-              <TextField
-                label={t('agents.environmentHosts')}
-                value={form.environmentHosts}
-                onValueChange={(value) => {
-                  update('environmentHosts', value);
-                }}
-                hint={t('agents.environmentHostsHint')}
-              />
-              <TextField
-                label={t('agents.environmentDns')}
-                value={form.environmentDns}
-                onValueChange={(value) => {
-                  update('environmentDns', value);
-                }}
-                hint={t('agents.environmentDnsHint')}
-              />
             </>
           )}
       </Section>

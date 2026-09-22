@@ -20,8 +20,20 @@ describe('ConfigSchema', () => {
     expect(config.agents.list.default?.maxToolIterations).toBe(40);
     expect(config.server.port).toBe(3000);
     expect(config.server.auth.enabled).toBe(true);
-    // The tool layer is the agent's: `tools` holds the MCP servers alone.
-    expect(config.tools).toEqual({ mcpServers: {} });
+    // The tool layer is the agent's. What is left on `tools` is the MCP
+    // servers and the web caps, which are the shape of an outbound connection
+    // rather than anything one agent should differ on.
+    expect(config.tools.mcpServers).toEqual({});
+    // Seconds, because nobody reasons about a fetch in milliseconds. The
+    // conversion to what the guard takes happens once, where config is read.
+    expect(config.tools.web.timeoutSeconds).toBe(20);
+    expect(config.tools.web.readTimeoutSeconds).toBe(15);
+    expect(config.tools.web.cacheTtlSeconds).toBe(900);
+    // Install-wide, not per agent: these describe the machine making the
+    // request, not what any one agent is allowed to do with it.
+    expect(config.tools.web.searchProvider).toBe('auto');
+    expect(config.tools.web.userAgent).toBe('');
+    expect(config.tools.web.searchUrl).toBe('');
     expect(config.agents.list.default?.approvalTimeoutMs).toBe(5 * 60 * 1000);
     expect(config.agents.list.default?.maxOutputChars).toBe(8192);
     expect(config.agents.list.default?.exec.maxOutputBytes).toBe(1024 * 1024);
@@ -296,7 +308,7 @@ describe('AgentEntrySchema', () => {
     expect(agent.environment).toEqual({
       name: '',
       alwaysUseOwn: false,
-      network: { mode: 'none', allow: [], hosts: [], dns: [] },
+      network: { mode: 'none', allow: [] },
     });
   });
 

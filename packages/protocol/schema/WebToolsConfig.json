@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "searchProvider": {
+      "default": "auto",
+      "type": "string",
+      "enum": [
+        "auto",
+        "searxng"
+      ]
+    },
+    "searchUrl": {
+      "default": "",
+      "type": "string"
+    },
+    "userAgent": {
+      "default": "",
+      "type": "string"
+    },
+    "timeoutSeconds": {
+      "default": 20,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "readTimeoutSeconds": {
+      "default": 15,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "maxBytes": {
+      "default": 5242880,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "cacheEntries": {
+      "default": 64,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "cacheTtlSeconds": {
+      "default": 900,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}

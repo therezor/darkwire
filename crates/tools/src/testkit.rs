@@ -401,3 +401,105 @@ pub async fn tool_conformance(suite: &ToolConformance) {
     assert_argument_validation(suite).await;
     assert_execution(suite).await;
 }
+
+/// A web port that answers from memory, for tests that must not touch a network.
+///
+/// Exists here rather than in one crate's `tests/` because `darkwire-agent`
+/// wants it too once the resolver is wired: a turn that runs a web tool needs a
+/// port, and a port that dials anything is a test that fails on an aeroplane.
+#[derive(Debug)]
+pub struct FakeWeb {
+    /// The text every fetch returns.
+    pub text: String,
+    /// What a search returns, in order.
+    pub hits: Vec<crate::web::SearchHit>,
+    /// `false` makes the port report an agent with egress switched off.
+    pub reachable: bool,
+}
+
+impl Default for FakeWeb {
+    fn default() -> FakeWeb {
+        FakeWeb {
+            text: "The page said something worth reading, at length.".repeat(4),
+            hits: vec![crate::web::SearchHit {
+                title: "A result".to_owned(),
+                url: "https://example.test/a".to_owned(),
+                snippet: "What it is about.".to_owned(),
+                source: String::new(),
+            }],
+            reachable: true,
+        }
+    }
+}
+
+impl FakeWeb {
+    /// A port whose pages are `chars` long and whose result list is long enough
+    /// to overflow a small budget on its own.
+    ///
+    /// Both halves matter. `web_fetch` overflows on the page; `web_search`
+    /// computes a share and reads nothing when the budget is tiny, so the only
+    /// way its result exceeds one is the list itself.
+    pub fn of_length(chars: usize) -> FakeWeb {
+        FakeWeb {
+            text: "x".repeat(chars),
+            hits: (0..12)
+                .map(|index| crate::web::SearchHit {
+                    title: format!("Result {index} with a title of a realistic length"),
+                    url: format!("https://example.test/result-{index}"),
+                    snippet: "A summary long enough to take a line of its own.".to_owned(),
+                    source: String::new(),
+                })
+                .collect(),
+            reachable: true,
+        }
+    }
+}
+
+impl crate::web::WebPort for FakeWeb {
+    fn policy(&self) -> Option<&darkwire_security::NetworkPolicy> {
+        // A leaked reference is the only way to hand out a borrow from a value
+        // this type does not store; a test double may have one static policy.
+        static OPEN: std::sync::OnceLock<darkwire_security::NetworkPolicy> =
+            std::sync::OnceLock::new();
+        self.reachable
+            .then(|| OPEN.get_or_init(darkwire_security::NetworkPolicy::default))
+    }
+
+    fn read_timeout_ms(&self) -> u64 {
+        15_000
+    }
+
+    fn backend_hosts(&self) -> Vec<String> {
+        vec!["search.test".to_owned()]
+    }
+
+    fn fetch<'a>(
+        &'a self,
+        url: &'a str,
+        _token: tokio_util::sync::CancellationToken,
+    ) -> crate::tool::BoxFuture<'a, darkwire_core::Result<crate::web::Page>> {
+        Box::pin(async move {
+            Ok(crate::web::Page {
+                url: url.to_owned(),
+                title: "A page".to_owned(),
+                text: self.text.clone(),
+                kind: crate::web::PageKind::Article,
+                content_type: "text/html".to_owned(),
+                note: String::new(),
+            })
+        })
+    }
+
+    fn search<'a>(
+        &'a self,
+        _query: &'a crate::web::SearchQuery,
+        _token: tokio_util::sync::CancellationToken,
+    ) -> crate::tool::BoxFuture<'a, darkwire_core::Result<crate::web::SearchOutcome>> {
+        Box::pin(async move {
+            Ok(crate::web::SearchOutcome {
+                hits: self.hits.clone(),
+                problems: Vec::new(),
+            })
+        })
+    }
+}

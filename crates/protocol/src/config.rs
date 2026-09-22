@@ -611,6 +611,117 @@ pub struct ToolsConfig {
     #[serde(default)]
     #[garde(custom(crate::json::validate_map_values))]
     pub mcp_servers: IndexMap<String, McpServerConfig>,
+    /// How this install reaches the web.
+    #[serde(default)]
+    #[schemars(transform = prefault)]
+    #[garde(dive)]
+    pub web: WebToolsConfig,
+}
+
+/// Which backend answers a search.
+///
+/// Both are keyless, which is the point: nothing here asks an operator to hold
+/// an account with a search company. `auto` costs nothing and promises nothing;
+/// `searxng` is the one that actually holds, and the instance is theirs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchProvider {
+    /// Scraped front doors in rotation, then Hacker News. No key, no setup and
+    /// no promises: see the tools documentation.
+    #[default]
+    Auto,
+    /// A SearXNG instance the operator runs, named by `searchUrl`.
+    Searxng,
+}
+
+/// How this install reaches the web, for `web_fetch` and `web_search`.
+///
+/// Install-wide rather than per agent, unlike `exec` and the result budget.
+/// These describe the shape of an outbound connection and the machine making
+/// it: which backend answers a search, how this install identifies itself, what
+/// every request is bounded by, and one cache shared by everything. None of it
+/// is something one agent should be able to answer differently from another.
+///
+/// **No API keys, deliberately.** Both backends are keyless. What an agent may
+/// *reach* is still the agent's, in its
+/// [`EnvironmentNetwork`](EnvironmentNetwork) allow-list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct WebToolsConfig {
+    /// Which backend answers `web_search`.
+    #[serde(default)]
+    pub search_provider: WebSearchProvider,
+    /// The SearXNG instance, for `searxng`. Ignored otherwise.
+    #[serde(default)]
+    pub search_url: String,
+    /// Sent verbatim, with no client hints.
+    ///
+    /// Empty is the built-in browser profile, which is what gets past most bot
+    /// walls. A value here is the operator choosing to be identifiable, and the
+    /// client hints are dropped with it: a hint set naming Chrome beside a
+    /// custom agent is a contradiction that gives the whole thing away.
+    #[serde(default)]
+    pub user_agent: String,
+    /// Per fetch.
+    #[serde(default = "default_web_timeout_seconds")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub timeout_seconds: u64,
+    /// Per page read inside a search, so one slow origin cannot eat the batch.
+    #[serde(default = "default_web_read_timeout_seconds")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub read_timeout_seconds: u64,
+    /// The streaming body cap, counted after decompression.
+    #[serde(default = "default_web_max_bytes")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub max_bytes: u64,
+    /// Pages and result sets held in memory. `0` disables the cache.
+    #[serde(default = "default_web_cache_entries")]
+    #[garde(range(min = 0, max = MAX_SAFE_INTEGER))]
+    pub cache_entries: u64,
+    /// How long a cached entry stays usable. `0` disables the cache.
+    #[serde(default = "default_web_cache_ttl_seconds")]
+    #[garde(range(min = 0, max = MAX_SAFE_INTEGER))]
+    pub cache_ttl_seconds: u64,
+}
+
+const fn default_web_timeout_seconds() -> u64 {
+    20
+}
+
+const fn default_web_read_timeout_seconds() -> u64 {
+    15
+}
+
+const fn default_web_max_bytes() -> u64 {
+    5 * 1024 * 1024
+}
+
+const fn default_web_cache_entries() -> u64 {
+    64
+}
+
+/// Fifteen minutes. A fetched page is worth minutes, not restarts.
+const fn default_web_cache_ttl_seconds() -> u64 {
+    900
+}
+
+impl Default for WebToolsConfig {
+    fn default() -> WebToolsConfig {
+        WebToolsConfig {
+            search_provider: WebSearchProvider::default(),
+            search_url: String::new(),
+            user_agent: String::new(),
+            timeout_seconds: default_web_timeout_seconds(),
+            read_timeout_seconds: default_web_read_timeout_seconds(),
+            max_bytes: default_web_max_bytes(),
+            cache_entries: default_web_cache_entries(),
+            cache_ttl_seconds: default_web_cache_ttl_seconds(),
+        }
+    }
 }
 
 // Agents
@@ -657,32 +768,29 @@ pub fn default_agent_tools() -> ToolPermissions {
 /// Splitting the two across both files is what produced a "ceiling" nobody
 /// could find the other half of.
 ///
-/// `allow` and `hosts` are alternatives, not layers. A CIDR allow-list is
-/// enforced by the gateway's packet filter and is the only thing that works
-/// for raw scanning. A host allow-list is enforced by the egress proxy, which
-/// sees the name rather than the address a name resolved to, and so is the
-/// only thing DNS rebinding cannot defeat. Asking for both would mean two
-/// enforcement points disagreeing about one request.
+/// One list, whatever the destination looks like. An entry is a CIDR block, an
+/// address, a name, or a name with a leading dot covering its subdomains.
+/// Blocks and addresses are enforced by the gateway's packet filter; names are
+/// enforced by the egress proxy, which sees the name rather than the address a
+/// name resolved to, and so is the one thing DNS rebinding cannot defeat.
+///
+/// Nothing inside an environment resolves a name. The proxy does it, on the
+/// engine's side of the boundary, which is why there is no resolver to
+/// configure and why a name is reachable only over HTTP and HTTPS.
+///
+/// Unknown keys are refused here, unlike most of this file. This field decides
+/// what an agent can reach, and a key that was silently dropped would read as
+/// an allow-list that had been applied.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct EnvironmentNetwork {
     /// How much network to permit at all.
     #[serde(default)]
     pub mode: NetworkMode,
-    /// CIDRs the packet filter permits, for `allowlist`.
+    /// What `allowlist` permits: blocks, addresses, names, `.suffix` names.
     #[serde(default)]
     pub allow: Vec<String>,
-    /// Exact DNS names the egress proxy permits, for `allowlist`.
-    #[serde(default)]
-    pub hosts: Vec<String>,
-    /// Resolvers the gateway permits on port 53, as IP literals.
-    ///
-    /// Empty is correct for a host allow-list, where the proxy resolves names
-    /// on the environment's behalf, and wrong for a CIDR allow-list, where
-    /// nothing in the environment can resolve a name without one.
-    #[serde(default)]
-    pub dns: Vec<String>,
 }
 
 /// How much network an agent asks for. Ordered weakest to strongest.
@@ -692,7 +800,7 @@ pub enum NetworkMode {
     /// No network at all.
     #[default]
     None,
-    /// Only what `allow` or `hosts` names.
+    /// Only what `allow` names.
     Allowlist,
     /// Anything.
     Open,
@@ -1335,12 +1443,6 @@ pub struct EnvironmentNetworkPatch {
     /// See [`EnvironmentNetwork::allow`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow: Option<Vec<String>>,
-    /// See [`EnvironmentNetwork::hosts`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hosts: Option<Vec<String>>,
-    /// See [`EnvironmentNetwork::dns`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dns: Option<Vec<String>>,
 }
 
 /// A patch over [`AgentEnvironment`]. `network` is itself a patch, so a save
@@ -1447,8 +1549,6 @@ impl From<AgentEntry> for AgentEntryPatch {
                 network: Some(EnvironmentNetworkPatch {
                     mode: Some(entry.environment.network.mode),
                     allow: Some(entry.environment.network.allow),
-                    hosts: Some(entry.environment.network.hosts),
-                    dns: Some(entry.environment.network.dns),
                 }),
                 always_use_own: Some(entry.environment.always_use_own),
             }),
@@ -1607,6 +1707,49 @@ pub struct ToolsConfigPatch {
     #[schemars(with = "IndexMap<String, Nullable<McpServerConfigPatch>>")]
     #[garde(custom(crate::json::validate_optional_map_options))]
     pub mcp_servers: Option<IndexMap<String, Option<McpServerConfigPatch>>>,
+    /// See [`ToolsConfig::web`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub web: Option<WebToolsConfigPatch>,
+}
+
+/// A patch over [`WebToolsConfig`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct WebToolsConfigPatch {
+    /// See [`WebToolsConfig::search_provider`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_provider: Option<WebSearchProvider>,
+    /// See [`WebToolsConfig::search_url`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_url: Option<String>,
+    /// See [`WebToolsConfig::user_agent`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    /// See [`WebToolsConfig::timeout_seconds`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub timeout_seconds: Option<u64>,
+    /// See [`WebToolsConfig::read_timeout_seconds`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub read_timeout_seconds: Option<u64>,
+    /// See [`WebToolsConfig::max_bytes`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub max_bytes: Option<u64>,
+    /// See [`WebToolsConfig::cache_entries`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 0, max = MAX_SAFE_INTEGER))]
+    pub cache_entries: Option<u64>,
+    /// See [`WebToolsConfig::cache_ttl_seconds`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(min = 0, max = MAX_SAFE_INTEGER))]
+    pub cache_ttl_seconds: Option<u64>,
 }
 
 /// A patch over [`ChannelsConfig`]. Loose, unlike the rest: an extension

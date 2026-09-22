@@ -135,6 +135,11 @@ pub struct ToolContext {
     /// result in it; `None` is the bare registry — the CLI's one-shot paths and
     /// tests — where nothing is sent to a model.
     pub nonce: Option<String>,
+    /// What this turn may reach on the web, already scoped to its agent's
+    /// egress policy. `None` is an install with no web layer, where both web
+    /// tools refuse rather than pretending; an agent whose egress is switched
+    /// off is a port whose `policy()` is `None`, which is a different sentence.
+    pub web: Option<Arc<dyn crate::web::port::WebPort>>,
 }
 
 impl ToolContext {
@@ -155,6 +160,7 @@ impl ToolContext {
             discovery: None,
             tasks: None,
             nonce: None,
+            web: None,
         }
     }
 
@@ -183,6 +189,7 @@ impl std::fmt::Debug for ToolContext {
             .field("discovery", &self.discovery.is_some())
             .field("tasks", &self.tasks.is_some())
             .field("nonce", &self.nonce.is_some())
+            .field("web", &self.web.is_some())
             .finish_non_exhaustive()
     }
 }

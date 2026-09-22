@@ -69,9 +69,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -156,9 +154,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -241,9 +237,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -327,9 +321,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -414,9 +406,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -500,9 +490,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -595,9 +583,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },
@@ -679,9 +665,7 @@
                 "name": "",
                 "network": {
                   "mode": "none",
-                  "allow": [],
-                  "hosts": [],
-                  "dns": []
+                  "allow": []
                 },
                 "alwaysUseOwn": false
               },

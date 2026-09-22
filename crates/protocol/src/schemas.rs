@@ -324,6 +324,14 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<config::ToolsConfig>,
     },
     RegisteredSchema {
+        name: "WebToolsConfig",
+        schema: schema_for::<config::WebToolsConfig>,
+    },
+    RegisteredSchema {
+        name: "WebSearchProvider",
+        schema: schema_for::<config::WebSearchProvider>,
+    },
+    RegisteredSchema {
         name: "EnvironmentNetwork",
         schema: schema_for::<config::EnvironmentNetwork>,
     },

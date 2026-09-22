@@ -227,18 +227,6 @@
                             "items": {
                               "type": "string"
                             }
-                          },
-                          "hosts": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "dns": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
                           }
                         }
                       },
@@ -491,6 +479,49 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "web": {
+          "type": "object",
+          "properties": {
+            "searchProvider": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "searxng"
+              ]
+            },
+            "searchUrl": {
+              "type": "string"
+            },
+            "userAgent": {
+              "type": "string"
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "readTimeoutSeconds": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maxBytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "cacheEntries": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "cacheTtlSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
           }
         }
       }

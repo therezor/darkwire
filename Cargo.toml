@@ -66,7 +66,12 @@ rusqlite = { version = "=0.40.2", features = ["bundled"] }
 parking_lot = "=0.12.5"
 
 # network
-reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "stream", "json"] }
+# `http2` because a Chrome user agent arriving over HTTP/1.1 is a contradiction
+# any bot wall reads in one line, and the decompression features because Chrome
+# sends `accept-encoding` and a client that cannot decode what it asked for gets
+# bytes it cannot read. `zstd` is deliberately absent: `zstd-sys` builds C from
+# source, and one missing encoding is a smaller cost than a C toolchain.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "stream", "json", "http2", "gzip", "deflate", "brotli"] }
 hickory-resolver = "=0.26.3"
 axum = { version = "=0.8.9", features = ["ws", "macros"] }
 axum-extra = { version = "=0.12.6", features = ["cookie"] }
@@ -83,6 +88,17 @@ subtle = "=2.6.1"
 rand = "=0.10.2"
 base64 = "=0.23.1"
 uuid = { version = "=1.26.1", features = ["v7", "serde"] }
+
+# the web tools: a page into the least markdown that still answers a question
+# Already in the tree under dom_smoothie. Named directly because the search
+# backends select against a SERP, and a selector engine is the difference
+# between a parser that survives a markup change and one that does not.
+dom_query = "=0.28.0"
+dom_smoothie = "=0.18.2"
+htmd = "=0.5.5"
+# Charset decoding. `GuardedResponse::text` is lossy UTF-8, so a Shift-JIS or
+# GBK page arrives as mojibake and the model reports the site as broken.
+encoding_rs = "=0.8.41"
 
 # time and text
 chrono = { version = "=0.4.45", features = ["serde"] }

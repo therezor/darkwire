@@ -193,22 +193,81 @@ at call time.
 
 ### `agents.list.<id>.environment`
 
-| Key             | Type                    | Default  | Notes                                                                 |
-| --------------- | ----------------------- | -------- | --------------------------------------------------------------------- |
-| `name`          | string                  | `''`     | An installed environment name, or empty to run on the host.           |
-| `alwaysUseOwn`  | boolean                 | `false`  | Pins the agent here whoever delegates to it. Off follows the caller.  |
-| `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless one is named: egress is enforced by its gateway.       |
-| `network.allow` | string[]                | `[]`     | CIDR blocks, for `allowlist`. Needs at least one `network.dns` entry. |
-| `network.hosts` | string[]                | `[]`     | Exact DNS names, for `allowlist`. Cannot be combined with `allow`.    |
-| `network.dns`   | string[]                | `[]`     | Resolvers, as non-loopback IP literals.                               |
+| Key             | Type                    | Default  | Notes                                                                              |
+| --------------- | ----------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `name`          | string                  | `''`     | An installed environment name, or empty to run on the host.                        |
+| `alwaysUseOwn`  | boolean                 | `false`  | Pins the agent here whoever delegates to it. Off follows the caller.               |
+| `network.mode`  | `none\|allowlist\|open` | `'none'` | Refused unless one is named: egress is enforced by its gateway.                    |
+| `network.allow` | string[]                | `[]`     | What `allowlist` permits. One entry per destination, any of the four shapes below. |
 
 **This is the only place egress is configured.** There is no second ceiling in the
 environment definition, so what an agent may reach is one value in one file.
+
+An entry is exactly one of four shapes:
+
+| Entry             | Matches                             |
+| ----------------- | ----------------------------------- |
+| `10.0.0.0/8`      | Any address in the block            |
+| `93.184.216.34`   | That address                        |
+| `api.example.com` | That host, exactly                  |
+| `.example.com`    | That host and every subdomain of it |
+
+**A name entry never authorises a raw address, and an address entry never authorises a
+name.** `curl http://10.0.0.5` needs the block; `curl http://internal.corp` needs the
+name. Letting a block admit a hostname would mean resolving every unlisted name to find
+out whether its answer lands inside, which turns a refused destination into a DNS query
+the caller chose the name of.
+
+Blocks and addresses are enforced by the gateway's packet filter. Names are enforced by
+the egress proxy, which sees the name rather than the address a name resolved to, and so
+is the one thing DNS rebinding cannot defeat. An entry in a range nothing may reach, such
+as `169.254.0.0/16`, is refused when the config is read: the packet filter has no notion
+of that table, so this is the only check there is.
+
+**Nothing inside an environment resolves a name.** The proxy does it, on the engine's
+side of the boundary. That is why there is no resolver to configure, and it has three
+consequences worth knowing before you meet them as a hang:
+
+- Traffic that is not HTTP reaches an address, never a name.
+- A name is reachable on 80 and 443 only, because the proxy pins the scheme and port.
+- Only a client that honours `HTTP_PROXY` reaches a name at all. curl, wget, pip and
+  python-requests do. Node's `fetch` does not.
 
 There is no `image`, `runtime`, `caps` or `limits` here, deliberately. Those live in the
 environment definition, a file an operator writes. A value with no representation in this schema cannot be reached by a
 config patch — which is what keeps the hardening operator-only while the egress request
 is not.
+
+### `tools.web`
+
+How this install reaches the web, for `web_fetch` and `web_search`. Install-wide
+rather than per agent, unlike `exec` and the result budget: these describe the shape of
+an outbound connection and the machine making it, not anything one agent should answer
+differently from another. **What an agent may reach** is still the agent's, in
+[its allow-list](#agentslistidenvironment).
+
+| Key              | Type            | Default   | Notes                                                                                               |
+| ---------------- | --------------- | --------- | --------------------------------------------------------------------------------------------------- |
+| `searchProvider` | `auto\|searxng` | `'auto'`  | What `web_search` asks. Both are keyless.                                                           |
+| `searchUrl`      | string          | `''`      | The SearXNG instance, for `searxng`. Ignored otherwise.                                             |
+| `userAgent`      | string          | `''`      | Empty sends a browser profile. A value is sent verbatim, with no client hints.                      |
+| `timeoutMs`      | number          | `20000`   | Per fetch. Shown in seconds in Settings.                                                            |
+| `readTimeoutMs`  | number          | `15000`   | Per page read inside a search. Shown in seconds in Settings.                                        |
+| `maxBytes`       | number          | `5242880` | Bytes, counted as the body arrives and after decompression. Bounds memory, not what the model sees. |
+| `cacheEntries`   | number          | `64`      | Pages and result sets held in memory. `0` disables.                                                 |
+| `cacheTtlMs`     | number          | `900000`  | How long an entry stays usable. `0` disables. Shown in seconds.                                     |
+
+**There is no API key, deliberately.** Both backends are keyless, because a search tool
+should not require an account with a search company. `auto` scrapes public front doors
+and promises nothing; `searxng` points at an instance you run, which is the configuration
+that actually holds.
+
+Editable in **Settings → Tools**, which is the whole of this block on one screen.
+
+The cache is per process and keyed by agent, so a page one agent fetched is never served
+to another: two agents have different allow-lists, and sharing would be an egress bypass
+through the cache. It is deliberately not durable, because an entry that outlived the
+policy it was fetched under would be the same bug with a longer fuse.
 
 ### `agents.list.<id>.subagents[]`
 

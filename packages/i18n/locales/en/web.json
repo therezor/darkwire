@@ -21,18 +21,14 @@
     "enabled": "Enabled",
     "enabledHint": "A disabled agent cannot run a turn and is hidden from the picker.",
     "environmentAllow": "Allowed networks",
-    "environmentAllowHint": "CIDR blocks, comma separated: 10.0.0.0/8, 192.168.1.0/24. Enforced by the environment's packet filter. Use host names instead when the traffic is all HTTP.",
+    "environmentAllowHint": "Comma separated. Each entry is an address (93.184.216.34), a block (10.0.0.0/8), a host name (api.example.com), or a name with a leading dot for its subdomains (.example.com). Nothing inside the environment resolves a name, so a name is reachable over HTTP and HTTPS only.",
     "environmentAlwaysUseOwn": "Always use this environment",
     "environmentAlwaysUseOwnHint": "Stays in {{environment}} whatever delegates to it. Right for an agent whose image holds the one tool it exists for.",
     "environmentAlwaysUseOwnHostHint": "Stays on the host whatever delegates to it, even when the delegating agent runs in a container.",
     "environmentAlwaysUseOwnOffHint": "When another agent delegates to this one, the work runs where that agent runs. On its own, it runs in the environment chosen above.",
     "environmentDesc": "Choose where this agent's built-in exec tool runs. The host is an environment too: the one commands run in when no definition is named. Installed environments have their own images, hardening, resource limits and network policy.",
-    "environmentDns": "DNS resolvers",
-    "environmentDnsHint": "IP addresses, comma separated. Required with allowed networks: nothing inside could resolve a name without one. Leave empty when scoping by host name, because the proxy resolves those itself.",
     "environmentGatewayProblem": "This environment cannot enforce an allow-list: {{why}}",
     "environmentHost": "Host (commands run on this machine)",
-    "environmentHosts": "Allowed host names",
-    "environmentHostsHint": "Exact DNS names, comma separated: api.example.com. Enforced by the egress proxy, which sees the name rather than the address it resolved to. Choose these or networks, not both.",
     "environmentLoading": "Loading environments…",
     "environmentNetwork": "Network",
     "environmentNetworkAllowlist": "Only what I list",
@@ -843,9 +839,37 @@
       "providers": {
         "label": "Providers",
         "summary": "Endpoints and API keys. Keys are written to the vault and never read back."
+      },
+      "tools": {
+        "label": "Tools",
+        "summary": "How this install reaches the web, for the web_fetch and web_search tools."
       }
     },
-    "title": "Settings"
+    "title": "Settings",
+    "tools": {
+      "cacheEntries": "Cache entries",
+      "cacheEntriesHint": "Pages and result sets held in memory. 0 turns the cache off.",
+      "cacheTtl": "Cache lifetime",
+      "cacheTtlHint": "Seconds an entry stays usable. 0 turns the cache off.",
+      "egressElsewhere": "What an agent may reach is on the agent, under Network, because it is a statement about that agent rather than about this machine.",
+      "maxBytes": "Maximum download",
+      "maxBytesHint": "Bytes, counted as the body arrives and after it is decompressed. This bounds what a page can do to memory, not what reaches the model: how much text the model sees is the agent's result budget.",
+      "providerAuto": "Built in",
+      "providerSearxng": "SearXNG",
+      "readTimeout": "Read timeout",
+      "readTimeoutHint": "Seconds per page read inside a search, so one slow site cannot eat the batch.",
+      "searchProvider": "Search backend",
+      "searchProviderHint": "Built in scrapes public search front doors and falls back to Hacker News. It needs no setup and will break without warning, because those pages change and rate-limit a server address. A SearXNG instance you run is the configuration that holds.",
+      "searchUrl": "SearXNG URL",
+      "searchUrlHint": "The base URL of your instance, for example https://searx.example.com. The instance must have the JSON format enabled.",
+      "searchUrlRequired": "A SearXNG instance needs a URL.",
+      "timeout": "Fetch timeout",
+      "timeoutHint": "Seconds to wait for one page.",
+      "userAgent": "User agent",
+      "userAgentHint": "Leave empty to send the browser profile shown here, which is what gets past most bot walls. A value is sent verbatim and identifies this install, with the browser client hints dropped so the two cannot contradict each other.",
+      "webDesc": "One answer per install: which backend answers a search, how this install identifies itself, and what every request is bounded by.",
+      "webTitle": "Web"
+    }
   },
   "setup": {
     "apiBase": "API base",

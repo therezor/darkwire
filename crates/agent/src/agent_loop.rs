@@ -72,7 +72,7 @@ use darkwire_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent,
 use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use darkwire_tools::{
     Activation, AutomationResolver, EnvironmentResolver, Placed, PlacementRequest,
-    TOOL_SEARCH_NAME, TaskPort, ToolContext, ToolDiscovery, ToolScope,
+    TOOL_SEARCH_NAME, TaskPort, ToolContext, ToolDiscovery, ToolScope, WebResolver,
 };
 use futures::{Stream, StreamExt as _};
 use indexmap::{IndexMap, IndexSet};
@@ -228,6 +228,10 @@ pub struct AgentLoopOptions {
     /// and the session, so a job records who asked for it and an agent cannot
     /// reach another's.
     pub automation: Option<Arc<dyn AutomationResolver>>,
+    /// Supplies this agent's access to the web, keyed the same way. A loop with
+    /// none leaves `ctx.web` unset, and both web tools then say the install has
+    /// no web layer rather than pretending to fetch.
+    pub web: Option<Arc<dyn WebResolver>>,
     /// Supplies the place this agent's commands run, keyed the same way. A
     /// loop with none runs them on the host, which is what an install with no
     /// environment service configured does.
@@ -309,6 +313,7 @@ impl AgentLoopOptions {
             store,
             jails,
             automation: None,
+            web: None,
             environments: None,
             environment: AgentEnvironment::default(),
             config: AgentSettings::default(),
@@ -682,6 +687,7 @@ struct LoopInner {
     store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
+    web: Option<Arc<dyn WebResolver>>,
     environments: Option<Arc<dyn EnvironmentResolver>>,
     environment: AgentEnvironment,
     config: Arc<AgentSettings>,
@@ -828,6 +834,7 @@ impl AgentLoop {
                 store: options.store,
                 jails: options.jails,
                 automation: options.automation,
+                web: options.web,
                 environments: options.environments,
                 environment: options.environment,
                 config: Arc::new(options.config),
@@ -1444,6 +1451,11 @@ impl AgentLoop {
             store: Arc::clone(&inner.store),
             session_key: input.session_key.clone(),
         }) as Arc<dyn TaskPort>);
+        // Scoped to the agent rather than the session: what may be reached is
+        // the agent's egress policy, and a delegated turn keeps its own.
+        tool_context.web = inner.web.as_ref().and_then(|resolver| {
+            resolver.for_agent(session.agent_id.as_deref().unwrap_or_default())
+        });
         tool_context.sandboxed = environment.confined();
         tool_context.runner = environment;
         // Deliberately left unset: `dispatch` is the one place a result is

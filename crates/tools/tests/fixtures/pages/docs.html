@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><title>Write-Ahead Logging | SQLite</title></head>
+<body>
+<nav><ul><li><a href="/">Home</a></li><li><a href="/docs">Docs</a></li><li><a href="/dl">Download</a></li></ul></nav>
+<header><h1>Write-Ahead Logging</h1></header>
+<article>
+<p>The default method by which SQLite implements atomic commit is a <a href="/rollback.html">rollback journal</a>. Since version 3.7.0 a write-ahead log is available as an alternative, and it changes the concurrency story substantially for readers.</p>
+<h2>Advantages<a class="headerlink" href="#advantages">¶</a></h2>
+<ol>
+<li>WAL is significantly faster in most scenarios, because a commit appends rather than rewrites.</li>
+<li>WAL provides more concurrency: readers do not block writers and a writer does not block readers.</li>
+<li>Disk I/O operations tend to be more sequential, which matters a great deal on spinning media.</li>
+</ol>
+<h2>Activating</h2>
+<p>Set the journal mode once. It is persistent, so it survives closing and reopening the database, which is the usual source of confusion. See <a href="#synchronous">the note below</a>.</p>
+<pre><code class="language-sql">PRAGMA journal_mode=WAL;
+SELECT * FROM t1;
+</code></pre>
+<h2>Comparison</h2>
+<table>
+<thead><tr><th>Mode</th><th>Readers block writers</th><th>Durable</th></tr></thead>
+<tbody>
+<tr><td>rollback</td><td>yes</td><td>yes</td></tr>
+<tr><td>WAL</td><td>no</td><td>configurable</td></tr>
+</tbody>
+</table>
+<p>See the <a href="https://www.sqlite.org/pragma.html#pragma_synchronous">synchronous pragma</a> for the durability tradeoff, which is the one thing people get wrong when they switch.</p>
+</article>
+<footer><p>Copyright 2024. <a href="/legal">Legal</a> and <a href="/privacy">Privacy</a>.</p></footer>
+<script>console.log('tracking');</script>
+</body></html>

@@ -15,7 +15,7 @@
 //!    definitions for the prompt, exact teardown by source for extension
 //!    unload, and an `execute` that validates, bounds, fences and reports
 //!    without ever failing.
-//!  - The eleven built-ins, every one of which routes its filesystem access
+//!  - The fourteen built-ins, every one of which routes its filesystem access
 //!    through the workspace jail and, for `exec`, an argv guard rather than a
 //!    shell. `grep` and `find` are ripgrep compiled in, not spawned, so they
 //!    hold inside the jail and need no search binary on the host.
@@ -37,6 +37,7 @@ pub mod scope;
 pub mod sink;
 pub mod tasks;
 pub mod tool;
+pub mod web;
 
 #[cfg(feature = "testkit")]
 pub mod testkit;
@@ -48,7 +49,7 @@ pub use builtin::{
     TOOL_SEARCH_NAME, automation_tool, builtin_tools, edit_tool, exec_tool, find_blocking,
     find_tool, format_bytes, grep_blocking, grep_tool, ls_tool, memory_tool, read_tool,
     register_builtins, render_activation, render_search, search, skill_tool, todo_tool,
-    tool_search_tool, write_tool,
+    tool_search_tool, web_fetch_tool, web_search_tool, write_tool,
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,
@@ -71,3 +72,4 @@ pub use tool::{
     ToolHandler, ToolOutput, ToolSpec, TypedTool, assert_not_aborted, default_tools_config,
     is_tool_name, parameters_for,
 };
+pub use web::{LiveWebResolver, WebPort, WebResolver, WebSettings};

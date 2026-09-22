@@ -20,8 +20,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_security::testkit::StaticResolver;
 use darkwire_security::{
-    DnsResolver, GuardedFetchOptions, GuardedFetchResult, HickoryResolver, NetworkPolicy,
-    guarded_fetch, validate_target,
+    AllowList, DnsResolver, EgressAllow, GuardedFetchOptions, GuardedFetchResult, HickoryResolver,
+    NetworkPolicy, guarded_fetch, validate_target,
 };
 use proptest::prelude::*;
 use reqwest::Method;
@@ -35,6 +35,22 @@ const PUBLIC: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(93, 184, 216, 34));
 
 fn ip(text: &str) -> IpAddr {
     text.parse().unwrap()
+}
+
+/// A policy reaching only what these entries name.
+fn only(entries: &[&str]) -> NetworkPolicy {
+    NetworkPolicy {
+        allow: EgressAllow::Only(
+            AllowList::parse(
+                &entries
+                    .iter()
+                    .map(|entry| (*entry).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+            .expect("the entries parse"),
+        ),
+        ..NetworkPolicy::default()
+    }
 }
 
 fn resolves_to(host: &str, addresses: &[IpAddr]) -> StaticResolver {
@@ -89,10 +105,7 @@ impl Local {
             server,
             host: host.to_owned(),
             resolver: resolves_to(host, &[LOOPBACK]),
-            policy: NetworkPolicy {
-                allowed_hosts: vec![host.to_owned()],
-                ..NetworkPolicy::default()
-            },
+            policy: only(&[host]),
         }
     }
 
@@ -164,34 +177,58 @@ async fn accepts_a_public_host_and_pins_what_the_resolver_returned() {
 }
 
 #[tokio::test]
-async fn refuses_a_denied_host_before_anything_else() {
+async fn an_allow_list_refuses_what_it_does_not_name() {
+    let policy = only(&["example.com"]);
+    assert!(
+        validate_target("https://example.com/", &policy, &public_resolver())
+            .await
+            .is_ok()
+    );
+    let refusal = expect_blocked(
+        validate_target("https://elsewhere.com/", &policy, &public_resolver()).await,
+        "not\n  one of them",
+    );
+    // The operator reading this is the only one who can act on it, so it names
+    // the host to add rather than only the host that was refused.
+    assert_eq!(refusal.details["host"], "elsewhere.com");
+
+    let named = NetworkPolicy {
+        agent_id: "research".to_owned(),
+        ..only(&["example.com"])
+    };
+    let message = expect_blocked(
+        validate_target("https://elsewhere.com/", &named, &public_resolver()).await,
+        "agents.list.research.environment.network.allow",
+    )
+    .message;
+    assert!(message.contains("Agent \"research\""), "{message}");
+}
+
+/// A host nobody named must not become a DNS query, because the name in it is
+/// the attacker's and a resolver is a channel.
+#[tokio::test]
+async fn an_allow_list_refuses_a_name_before_resolving_it() {
+    let counting = Counting {
+        calls: AtomicUsize::new(0),
+    };
+    expect_blocked(
+        validate_target("https://elsewhere.com/", &only(&["example.com"]), &counting).await,
+        "not\n  one of them",
+    );
+    assert_eq!(counting.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn an_empty_allow_list_reaches_nothing_and_says_so() {
     let policy = NetworkPolicy {
-        denied_hosts: vec!["example.com".to_owned()],
-        allowed_hosts: vec!["example.com".to_owned()],
+        allow: EgressAllow::Only(AllowList::default()),
+        agent_id: "boxed".to_owned(),
         ..NetworkPolicy::default()
     };
     expect_blocked(
         validate_target("https://example.com/", &policy, &public_resolver()).await,
-        "denied by configuration",
+        "has no network access",
     );
-    let subdomains = NetworkPolicy {
-        denied_hosts: vec![".internal.example".to_owned()],
-        ..NetworkPolicy::default()
-    };
-    for url in ["https://api.internal.example/", "https://INTERNAL.example/"] {
-        expect_blocked(
-            validate_target(url, &subdomains, &StaticResolver::new()).await,
-            "denied by configuration",
-        );
-    }
-    let empties = NetworkPolicy {
-        denied_hosts: vec![String::new(), "   ".to_owned()],
-        ..NetworkPolicy::default()
-    };
-    let target = validate_target("https://example.com/", &empties, &public_resolver())
-        .await
-        .unwrap();
-    assert!(!target.exempt);
 }
 
 #[tokio::test]
@@ -223,22 +260,12 @@ async fn refuses_blocked_literals_in_every_encoding() {
 }
 
 #[tokio::test]
-async fn policy_flags_unlock_loopback_and_private_but_never_link_local() {
+async fn an_entry_unlocks_loopback_and_private_but_never_link_local() {
     let resolver = StaticResolver::new();
     let strict = NetworkPolicy::default();
-    let loopback = NetworkPolicy {
-        allow_loopback: true,
-        ..NetworkPolicy::default()
-    };
-    let private = NetworkPolicy {
-        allow_private: true,
-        ..NetworkPolicy::default()
-    };
-    let everything = NetworkPolicy {
-        allow_loopback: true,
-        allow_private: true,
-        ..NetworkPolicy::default()
-    };
+    let loopback = only(&["127.0.0.0/8", "::1"]);
+    let private = only(&["10.0.0.0/8"]);
+
     expect_blocked(
         validate_target("http://127.0.0.1:11434/api/chat", &strict, &resolver).await,
         "blocked range",
@@ -252,6 +279,7 @@ async fn policy_flags_unlock_loopback_and_private_but_never_link_local() {
         .unwrap();
     assert_eq!(six.addresses, [ip("::1")]);
     assert_eq!(six.host, "[::1]");
+
     expect_blocked(
         validate_target("http://10.1.2.3/", &strict, &resolver).await,
         "blocked range",
@@ -261,14 +289,16 @@ async fn policy_flags_unlock_loopback_and_private_but_never_link_local() {
             .await
             .is_ok()
     );
+
+    // No entry reaches the metadata endpoint. `parse_allow_entry` refuses one
+    // naming it outright, and a block wide enough to contain it still does not
+    // unlock it here.
     expect_blocked(
-        validate_target("http://169.254.169.254/", &everything, &resolver).await,
+        validate_target("http://169.254.169.254/", &only(&["0.0.0.0/0"]), &resolver).await,
         "blocked range",
     );
-    let exempt = NetworkPolicy {
-        allowed_hosts: vec!["127.0.0.1".to_owned()],
-        ..NetworkPolicy::default()
-    };
+
+    let exempt = only(&["127.0.0.1"]);
     assert!(
         validate_target("http://127.0.0.1:11434/", &exempt, &resolver)
             .await
@@ -279,6 +309,24 @@ async fn policy_flags_unlock_loopback_and_private_but_never_link_local() {
         .await
         .unwrap();
     assert_eq!(routable.addresses, [ip("8.8.8.8")]);
+    assert!(!routable.exempt);
+}
+
+/// The tightening this shape exists for. The list this replaced skipped
+/// classification wholesale for a named host, so a name resolving into the
+/// metadata range was reachable.
+#[tokio::test]
+async fn a_named_host_resolving_to_link_local_is_still_refused() {
+    let error = expect_blocked(
+        validate_target(
+            "http://metadata.internal/",
+            &only(&[".internal"]),
+            &resolves_to("metadata.internal", &[ip("169.254.169.254")]),
+        )
+        .await,
+        "blocked range",
+    );
+    assert_eq!(error.details["address"], "169.254.169.254");
 }
 
 #[tokio::test]
@@ -346,10 +394,7 @@ async fn reports_resolution_failures_as_network_errors() {
 
 #[tokio::test]
 async fn an_allow_listed_name_skips_classification_but_is_still_pinned() {
-    let policy = NetworkPolicy {
-        allowed_hosts: vec![".internal".to_owned()],
-        ..NetworkPolicy::default()
-    };
+    let policy = only(&[".internal"]);
     let target = validate_target(
         "http://ollama.internal/",
         &policy,
@@ -378,10 +423,7 @@ async fn the_system_resolver_answers_for_localhost() {
         .await,
         "blocked range",
     );
-    let loopback = NetworkPolicy {
-        allow_loopback: true,
-        ..NetworkPolicy::default()
-    };
+    let loopback = only(&["localhost"]);
     let target = validate_target("http://localhost:11434/", &loopback, &resolver)
         .await
         .unwrap();
@@ -512,10 +554,7 @@ async fn re_resolves_each_hop_rather_than_reusing_the_first_pin() {
     let resolver = Counting {
         calls: AtomicUsize::new(0),
     };
-    let policy = NetworkPolicy {
-        allowed_hosts: vec!["first.test".to_owned(), "elsewhere.test".to_owned()],
-        ..NetworkPolicy::default()
-    };
+    let policy = only(&["first.test", "elsewhere.test"]);
     let result = guarded_fetch(
         &format!("http://first.test:{port}/"),
         GuardedFetchOptions::new(&policy, &resolver),
@@ -551,10 +590,7 @@ async fn drops_credentials_when_the_origin_changes_and_keeps_them_otherwise() {
     let resolver = StaticResolver::new()
         .with("example.test", &[LOOPBACK])
         .with("attacker.test", &[LOOPBACK]);
-    let policy = NetworkPolicy {
-        allowed_hosts: vec!["example.test".to_owned(), "attacker.test".to_owned()],
-        ..NetworkPolicy::default()
-    };
+    let policy = only(&["example.test", "attacker.test"]);
     let mut headers = HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_static("Bearer secret"));
     headers.insert("Cookie", HeaderValue::from_static("session=1"));
@@ -670,10 +706,7 @@ async fn wraps_a_transport_failure() {
     let port = listener.local_addr().unwrap().port();
     drop(listener);
     let resolver = resolves_to("closed.test", &[LOOPBACK]);
-    let policy = NetworkPolicy {
-        allowed_hosts: vec!["closed.test".to_owned()],
-        ..NetworkPolicy::default()
-    };
+    let policy = only(&["closed.test"]);
     let error = guarded_fetch(
         &format!("http://closed.test:{port}/"),
         GuardedFetchOptions::new(&policy, &resolver),
@@ -820,7 +853,8 @@ fn the_default_policy_matches_the_documented_numbers() {
     assert_eq!(policy.max_redirects, 3);
     assert_eq!(policy.max_bytes, 5 * 1024 * 1024);
     assert_eq!(policy.timeout_ms, 30_000);
-    assert!(!policy.allow_loopback && !policy.allow_private);
+    assert_eq!(policy.allow, EgressAllow::Public);
+    assert!(policy.agent_id.is_empty());
 }
 
 // Properties: no blocked address is reachable

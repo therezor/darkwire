@@ -24,22 +24,9 @@
           "items": {
             "type": "string"
           }
-        },
-        "hosts": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "dns": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
-      }
+      },
+      "additionalProperties": false
     },
     "alwaysUseOwn": {
       "default": false,

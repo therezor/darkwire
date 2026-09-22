@@ -266,6 +266,13 @@ pub struct SettingsResponse {
     #[serde(default)]
     #[garde(dive)]
     pub channels: Vec<ChannelStatus>,
+    /// What `tools.web.userAgent` sends when it is empty.
+    ///
+    /// Served rather than duplicated in the browser, because it is a single
+    /// constant that moves whenever the Chrome major does, and a second copy
+    /// would go stale showing an operator a string this build does not send.
+    #[serde(default)]
+    pub default_web_user_agent: String,
     /// Set when the file on disk failed to parse and defaults are in use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,

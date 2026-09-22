@@ -21,4 +21,6 @@ mod set;
 mod shared;
 mod todo;
 mod tool_search;
+mod web_fetch;
+mod web_search;
 mod write;

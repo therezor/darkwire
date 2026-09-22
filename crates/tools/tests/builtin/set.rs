@@ -31,6 +31,8 @@ fn registers_every_built_in_under_the_builtin_source() {
             "skill",
             "todo",
             "tool_search",
+            "web_fetch",
+            "web_search",
             "write"
         ]
     );
@@ -75,23 +77,35 @@ fn matches_the_name_list_protocol_publishes() {
     assert_eq!(published, names());
 }
 
+/// Four omissions, for three different reasons, and the reasons are why this
+/// asserts the set rather than a count.
 #[test]
-fn is_what_a_new_agent_is_seeded_with_save_for_the_two_deliberate_omissions() {
+fn is_what_a_new_agent_is_seeded_with_save_for_the_deliberate_omissions() {
     let mut seeded: Vec<String> = DEFAULT_AGENT_TOOLS
         .iter()
         .map(|(n, _)| (*n).to_owned())
         .collect();
     seeded.sort();
-    // `automation` is granted by an operator; `tool_search` takes no permission
-    // at all, so a seed entry for it would be a row that decides nothing.
+    // `automation` acts on the future, unattended, so an operator grants it.
+    // `tool_search` takes no permission at all, so a seed entry for it would be
+    // a row that decides nothing. The two web tools reach outside the machine,
+    // which is the same argument as `automation`: an agent that should read the
+    // web is a decision somebody makes, not a default.
+    let ungranted = ["automation", "tool_search", "web_fetch", "web_search"];
     let expected: Vec<String> = names()
         .into_iter()
-        .filter(|n| n != "automation" && n != "tool_search")
+        .filter(|name| !ungranted.contains(&name.as_str()))
         .collect();
     assert_eq!(seeded, expected);
-    assert!(!DEFAULT_AGENT_TOOLS.iter().any(|(n, _)| *n == "automation"));
-    assert!(BUILTIN_TOOL_NAMES.contains(&"automation"));
-    assert!(BUILTIN_TOOL_NAMES.contains(&"tool_search"));
+    for name in ungranted {
+        assert!(
+            !DEFAULT_AGENT_TOOLS
+                .iter()
+                .any(|(seeded, _)| *seeded == name),
+            "{name} should not be seeded"
+        );
+        assert!(BUILTIN_TOOL_NAMES.contains(&name), "{name} should exist");
+    }
 }
 
 #[test]

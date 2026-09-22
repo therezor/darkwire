@@ -141,3 +141,37 @@ fn a_port_outside_the_range_is_refused() {
     let zero = parse_config(json!({"server": {"port": 0}})).unwrap();
     assert!(zero.validate().is_err());
 }
+
+/// The two fields the one allow-list replaced are refused, not ignored.
+///
+/// `Config` is loose almost everywhere, so without `deny_unknown_fields` on this
+/// one struct a stale `hosts:` would parse, be dropped, and leave an agent with
+/// an empty allow-list that the file still appears to describe. A security field
+/// is the wrong place to be forgiving.
+#[test]
+fn the_egress_fields_this_replaced_are_refused_by_name() {
+    for stale in ["hosts", "dns"] {
+        let error = parse_config(json!({"agents": {"list": {"net": {
+            "environment": {"network": {"mode": "allowlist", stale: ["example.com"]}},
+        }}}}))
+        .unwrap_err()
+        .to_string();
+        // Naming the field is this layer's job. `darkwire-core` wraps the same
+        // error with the dotted path, which is what names the agent.
+        assert!(error.contains(stale), "{stale}: {error}");
+        assert!(error.contains("expected `mode` or `allow`"), "{error}");
+    }
+}
+
+#[test]
+fn the_one_allow_list_survives_a_round_trip() {
+    let config = parse_config(json!({"agents": {"list": {"net": {
+        "environment": {
+            "name": "dev",
+            "network": {"mode": "allowlist", "allow": ["10.0.0.0/8", ".example.com"]},
+        },
+    }}}}))
+    .unwrap();
+    let network = &config.agents.list["net"].environment.network;
+    assert_eq!(network.allow, ["10.0.0.0/8", ".example.com"]);
+}

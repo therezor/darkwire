@@ -1332,7 +1332,10 @@ impl ContainerEngine for DockerEngine {
         ]);
         args.push(format!("DARKWIRE_NFT_RULES={rules}"));
         args.push(image.clone());
-        args.extend(network.hosts.clone());
+        // The whole list, addresses included: the proxy matches an address
+        // destination against the blocks, so the two enforcement points read the
+        // same entries rather than two halves of them.
+        args.extend(network.allow.clone());
         self.run(&args, "gateway start", self.start_timeout)?;
         let ready = self.run(&argv(&["exec", &gateway, "sh", "-c", "for n in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/ready && exit 0; sleep 0.2; done; exit 1"]), "gateway readiness", self.control_timeout);
         if let Err(error) = ready {

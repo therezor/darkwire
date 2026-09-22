@@ -68,6 +68,8 @@ export const PROTOCOL_SCHEMAS = {
   McpTransport: config.McpTransportSchema,
   McpServerConfig: config.McpServerConfigSchema,
   ToolsConfig: config.ToolsConfigSchema,
+  WebToolsConfig: config.WebToolsConfigSchema,
+  WebSearchProvider: config.WebSearchProviderSchema,
   EnvironmentNetwork: config.EnvironmentNetworkSchema,
   NetworkMode: config.NetworkModeSchema,
   AgentEnvironment: config.AgentEnvironmentSchema,

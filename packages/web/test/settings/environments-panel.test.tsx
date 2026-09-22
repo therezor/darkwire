@@ -257,7 +257,7 @@ describe('the environments panel', () => {
         // Warmed with no egress, which is also an agent's default: an
         // instance's network is part of its identity, so one warmed with a
         // network nobody asked for is a container nothing ever reuses.
-        network: { mode: 'none', allow: [], hosts: [], dns: [] },
+        network: { mode: 'none', allow: [] },
       });
     });
     // The workspace, and nothing about who holds it: the agent list changes

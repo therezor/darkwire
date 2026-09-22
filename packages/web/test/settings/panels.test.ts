@@ -31,7 +31,7 @@ describe('the settings panels', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('are the nine that are built, in the order the strip shows them', () => {
+  it('are the ones that are built, in the order the strip shows them', () => {
     // No `agent` panel: the settings it held *are* the default agent's, so they
     // are edited on that agent rather than in a second room describing the same
     // subtree. Agents are a page of their own, and picking one happens in the
@@ -50,9 +50,11 @@ describe('the settings panels', () => {
     // `extensions` with the extension host. There is no entry naming a future
     // phase: a panel is on this list once it has something to configure.
     //
-    // There is no `tools` panel. Everything about how a tool runs is per
-    // agent and lives in the agent editor; the MCP servers have their own
-    // panel below.
+    // `tools` holds how this install reaches the web, and only that: which
+    // backend answers a search, how the install identifies itself, and the
+    // caps. What a tool may *do* is still per agent, in the agent editor, and
+    // what an agent may *reach* is its own allow-list. The MCP servers keep
+    // their own panel, because a list an operator keeps is not a setting.
     expect(SETTINGS_PANELS.map((panel) => panel.id)).toEqual([
       'providers',
       'environments',
@@ -61,6 +63,7 @@ describe('the settings panels', () => {
       'automation',
       'mcp',
       'channels',
+      'tools',
       'extensions',
     ]);
   });

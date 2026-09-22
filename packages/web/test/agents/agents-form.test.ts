@@ -122,9 +122,7 @@ describe('toAgentEntryForm', () => {
           name: 'dev',
           network: {
             mode: 'allowlist',
-            allow: ['10.0.0.0/8', '192.168.1.0/24'],
-            hosts: ['api.example.com'],
-            dns: ['10.0.0.53', '10.0.0.54'],
+            allow: ['10.0.0.0/8', '.example.com', 'api.example.com'],
           },
         },
       }),
@@ -132,9 +130,9 @@ describe('toAgentEntryForm', () => {
 
     expect(shown.environmentName).toBe('dev');
     expect(shown.environmentNetworkMode).toBe('allowlist');
-    expect(shown.environmentAllow).toBe('10.0.0.0/8, 192.168.1.0/24');
-    expect(shown.environmentHosts).toBe('api.example.com');
-    expect(shown.environmentDns).toBe('10.0.0.53, 10.0.0.54');
+    expect(shown.environmentAllow).toBe(
+      '10.0.0.0/8, .example.com, api.example.com',
+    );
   });
 });
 
@@ -251,7 +249,7 @@ describe('toAgentEntryPatch', () => {
     ).toEqual({
       name: 'dev',
       alwaysUseOwn: false,
-      network: { mode: 'open', allow: [], hosts: [], dns: [] },
+      network: { mode: 'open', allow: [] },
     });
   });
 
@@ -266,9 +264,7 @@ describe('toAgentEntryPatch', () => {
         form({
           environmentName: 'dev',
           environmentNetworkMode: 'allowlist',
-          environmentAllow: '10.0.0.0/8, 192.168.1.0/24',
-          environmentHosts: 'api.example.com , , docs.example.com',
-          environmentDns: '10.0.0.53',
+          environmentAllow: '10.0.0.0/8 , , .example.com',
         }),
         EMPTY,
         t,
@@ -279,15 +275,13 @@ describe('toAgentEntryPatch', () => {
       (entry as { environment: Record<string, unknown> }).environment.network,
     ).toEqual({
       mode: 'allowlist',
-      allow: ['10.0.0.0/8', '192.168.1.0/24'],
-      hosts: ['api.example.com', 'docs.example.com'],
-      dns: ['10.0.0.53'],
+      allow: ['10.0.0.0/8', '.example.com'],
     });
   });
 
-  it('clears all three egress lists when the mode stops using them', () => {
-    // Otherwise a stale set of CIDRs, host names and resolvers sits in the file
-    // waiting to take effect the next time somebody switches back to
+  it('clears the egress list when the mode stops using it', () => {
+    // Otherwise a stale set of destinations sits in the file waiting to take
+    // effect the next time somebody switches back to
     // `allowlist` — and the screen would not be showing any of them.
     const entry = parsed(
       toAgentEntryPatch(
@@ -296,8 +290,6 @@ describe('toAgentEntryPatch', () => {
           environmentName: 'dev',
           environmentNetworkMode: 'none',
           environmentAllow: '10.0.0.0/8',
-          environmentHosts: 'api.example.com',
-          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -309,8 +301,6 @@ describe('toAgentEntryPatch', () => {
     ).toEqual({
       mode: 'none',
       allow: [],
-      hosts: [],
-      dns: [],
     });
   });
 
@@ -324,8 +314,6 @@ describe('toAgentEntryPatch', () => {
           environmentName: 'dev',
           environmentNetworkMode: 'open',
           environmentAllow: '10.0.0.0/8',
-          environmentHosts: 'api.example.com',
-          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -337,8 +325,6 @@ describe('toAgentEntryPatch', () => {
     ).toEqual({
       mode: 'open',
       allow: [],
-      hosts: [],
-      dns: [],
     });
   });
 
@@ -354,8 +340,6 @@ describe('toAgentEntryPatch', () => {
           environmentName: '',
           environmentNetworkMode: 'allowlist',
           environmentAllow: '10.0.0.0/8',
-          environmentHosts: 'api.example.com',
-          environmentDns: '10.0.0.53',
         }),
         EMPTY,
         t,
@@ -367,7 +351,7 @@ describe('toAgentEntryPatch', () => {
     ).toEqual({
       name: '',
       alwaysUseOwn: false,
-      network: { mode: 'none', allow: [], hosts: [], dns: [] },
+      network: { mode: 'none', allow: [] },
     });
   });
 

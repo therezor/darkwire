@@ -1,4 +1,4 @@
-//! Rules must fail closed for both address families and proxy-only egress.
+//! Rules must fail closed for both address families, and never open a resolver.
 
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
@@ -17,44 +17,66 @@ fn container() -> EnvironmentDefinition {
     .unwrap()
 }
 
-fn network(allow: &[&str], hosts: &[&str], dns: &[&str]) -> EnvironmentNetwork {
+fn network(allow: &[&str]) -> EnvironmentNetwork {
     EnvironmentNetwork {
         mode: NetworkMode::Allowlist,
         allow: allow.iter().map(|v| (*v).to_owned()).collect(),
-        hosts: hosts.iter().map(|v| (*v).to_owned()).collect(),
-        dns: dns.iter().map(|v| (*v).to_owned()).collect(),
     }
 }
 
 #[test]
-fn cidr_rules_include_ipv6_and_deny_unmatched_traffic() {
+fn address_rules_cover_both_families_and_deny_unmatched_traffic() {
     let rules = gateway_rules(
         &container(),
-        &network(&["192.0.2.0/24", "2001:db8::/32"], &[], &["1.1.1.1"]),
+        &network(&["93.184.216.0/24", "2001:db9::/32", "93.184.216.34"]),
     )
     .unwrap();
     assert!(rules.contains("policy drop"));
-    assert!(rules.contains("ip daddr 192.0.2.0/24 accept"));
-    assert!(rules.contains("ip6 daddr 2001:db8::/32 accept"));
-    assert!(rules.contains("ip daddr 1.1.1.1 udp dport 53 accept"));
-    assert!(rules.contains("ip daddr 1.1.1.1 tcp dport 53 accept"));
-    assert!(!rules.contains("meta skuid"));
+    assert!(rules.contains("ip daddr 93.184.216.0/24 accept"));
+    assert!(rules.contains("ip6 daddr 2001:db9::/32 accept"));
+    assert!(rules.contains("ip daddr 93.184.216.34 accept"));
+}
+
+/// The proxy is reachable from every allow-list, not only one naming hosts:
+/// it is the only thing that resolves a name, so a list of addresses alone
+/// still needs somewhere for a name to be refused rather than hang.
+#[test]
+fn every_allow_list_reaches_the_proxy_and_nothing_reaches_a_resolver() {
+    for entries in [
+        vec!["93.184.216.0/24"],
+        vec!["example.com"],
+        vec!["93.184.216.0/24", ".example.com"],
+    ] {
+        let rules = gateway_rules(&container(), &network(&entries)).unwrap();
+        assert!(rules.contains("meta skuid 65532 accept"), "{entries:?}");
+        assert!(
+            rules.contains("ip daddr 127.0.0.1 tcp dport 3128 accept"),
+            "{entries:?}"
+        );
+        // Nothing inside the namespace resolves a name, so port 53 is never
+        // opened and there is no resolver left to configure.
+        assert!(!rules.contains("dport 53"), "{entries:?}");
+    }
 }
 
 #[test]
-fn an_ipv6_resolver_is_matched_in_its_own_family() {
-    let rules = gateway_rules(
-        &container(),
-        &network(&["2001:db8::/32"], &[], &["2606:4700:4700::1111"]),
-    )
-    .unwrap();
-    assert!(rules.contains("ip6 daddr 2606:4700:4700::1111 udp dport 53 accept"));
+fn a_name_entry_produces_no_destination_rule() {
+    let rules = gateway_rules(&container(), &network(&["example.com", ".example.org"])).unwrap();
+    assert!(!rules.contains("daddr 93."));
+    assert!(!rules.contains("example"));
+}
+
+#[test]
+fn addresses_and_names_may_be_listed_together() {
+    let rules = gateway_rules(&container(), &network(&["10.0.0.0/8", "api.example.com"])).unwrap();
+    assert!(rules.contains("ip daddr 10.0.0.0/8 accept"));
+    assert!(rules.contains("meta skuid 65532 accept"));
 }
 
 #[test]
 fn only_an_allowlist_gets_a_gateway_at_all() {
     for mode in [NetworkMode::None, NetworkMode::Open] {
-        let mut asked = network(&[], &[], &[]);
+        let mut asked = network(&[]);
         asked.mode = mode;
         let error = gateway_rules(&container(), &asked).unwrap_err();
         assert!(error.message.contains("restricted egress"));
@@ -62,51 +84,35 @@ fn only_an_allowlist_gets_a_gateway_at_all() {
 }
 
 #[test]
-fn a_cidr_list_refuses_a_loopback_resolver_it_could_never_match() {
-    let error = gateway_rules(
-        &container(),
-        &network(&["192.0.2.0/24"], &[], &["127.0.0.11"]),
-    )
-    .unwrap_err();
-    assert!(error.message.contains("non-loopback"));
-}
-
-#[test]
-fn domain_proxy_cannot_be_combined_with_direct_egress_or_raw_sockets() {
-    let rules = gateway_rules(&container(), &network(&[], &["example.com"], &[])).unwrap();
-    assert!(rules.contains("meta skuid 65532 accept"));
-    assert!(rules.contains("ip daddr 127.0.0.1 tcp dport 3128 accept"));
-    assert!(!rules.contains("dport 53"));
-
-    let both = gateway_rules(
-        &container(),
-        &network(&["0.0.0.0/0"], &["example.com"], &[]),
-    )
-    .unwrap_err();
-    assert!(both.message.contains("not both"));
-
+fn a_gateway_needs_a_container_that_could_host_one() {
     let mut raw = container();
     raw.caps.add.push("NET_RAW".into());
-    assert!(gateway_rules(&raw, &network(&[], &["example.com"], &[])).is_err());
+    assert!(gateway_rules(&raw, &network(&["example.com"])).is_err());
 
     let mut proxy_uid = container();
     proxy_uid.user = "65532:65532".into();
-    assert!(gateway_rules(&proxy_uid, &network(&[], &["example.com"], &[])).is_err());
+    assert!(gateway_rules(&proxy_uid, &network(&["example.com"])).is_err());
 }
 
+/// A rule is printed from the parsed bytes, so an entry cannot carry nftables
+/// syntax into the ruleset however it is spelled.
 #[test]
 fn policy_values_cannot_inject_firewall_rules() {
-    let injected_cidr = gateway_rules(
-        &container(),
-        &network(&["0.0.0.0/0; accept"], &[], &["1.1.1.1"]),
-    )
-    .unwrap_err();
-    assert!(injected_cidr.message.contains("Invalid CIDR"));
+    let injected = gateway_rules(&container(), &network(&["0.0.0.0/0; accept"])).unwrap_err();
+    assert!(
+        injected.message.contains("not a name"),
+        "{}",
+        injected.message
+    );
 
-    let injected_dns = gateway_rules(
-        &container(),
-        &network(&["192.0.2.0/24"], &[], &["1.1.1.1; accept"]),
-    )
-    .unwrap_err();
-    assert!(injected_dns.message.contains("IP literals"));
+    let name = gateway_rules(&container(), &network(&["example.com; accept"])).unwrap_err();
+    assert!(name.message.contains("not a name"), "{}", name.message);
+}
+
+/// The packet filter has no notion of the blocked table, so an entry naming the
+/// metadata range has to be refused before it can become a rule.
+#[test]
+fn a_hard_blocked_entry_never_becomes_a_rule() {
+    let error = gateway_rules(&container(), &network(&["169.254.0.0/16"])).unwrap_err();
+    assert!(error.message.contains("which nothing may reach"));
 }

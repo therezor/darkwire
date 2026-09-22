@@ -113,8 +113,42 @@ in the environment is ignored for the same reason — it would connect wherever 
 - **The body is capped as it streams**, not measured afterwards.
 - Defaults: 3 redirects, 5 MiB, 30-second timeout.
 
-Policy knobs: `allowLoopback`, `allowPrivate`, `allowedHosts` (exact or leading-dot),
-`deniedHosts` (checked before everything, including the allow-list), `maxRedirects`.
+The policy is not a set of knobs. It is derived from the one list an agent's egress
+config carries, and it has two states:
+
+- **Public.** Everything publicly routable. Loopback, private and the hard-blocked ranges
+  below stay refused, because nothing named them. This is `mode: open`, and the default
+  for a fetch with no agent behind it.
+- **Only this list.** Everything else is refused, by name, before the host is resolved,
+  so a destination the policy rejects never becomes a DNS query the caller chose. An
+  empty list reaches nothing, which is `mode: none`.
+
+A matched entry also lifts the loopback and private refusals for the destination it
+matched: naming `10.0.0.0/8` is the operator saying they know what is there, and a model
+cannot edit config. **It never lifts link-local, multicast, the unspecified address or
+the reserved prefixes**, and an entry naming one of those is refused when the config is
+read. That last part matters because the sandbox gateway's packet filter has no notion
+of the blocked table, so an entry that reached a rule would be a hole with nothing
+behind it.
+
+### The web tools are its first callers
+
+`web_fetch` and `web_search` are the first things in the product to use this, and the URL
+they fetch comes from the model. Everything above applies to every one of those requests,
+including each hop of a redirect a page chose.
+
+Three consequences worth stating rather than leaving to be inferred:
+
+- **The agent's own allow-list is the policy.** There is no second list for the tools.
+  Under `allowlist`, a search backend is reachable only if the operator named its host,
+  and the refusal prints the hosts so the operator reading it can act.
+- **The cache is keyed by agent.** One resolver serves the whole install. Keyed by URL
+  alone, an agent with open egress could fetch an internal host and an agent restricted to
+  a list that does not name it would be handed the copy: an egress bypass through a cache,
+  which is the kind of hole that ships because nobody thinks of a cache as a boundary.
+- **Neither tool weakens the guard to get a page.** No proxy, no second HTTP client, no
+  relaxed redirect policy. A site behind a fingerprinting CDN is a site these tools cannot
+  read, and the refusal says so instead of inviting a retry.
 
 ### Address classification
 
@@ -223,6 +257,11 @@ permission map is the whole authority for that. Environments require content-add
 images; `NET_ADMIN`, `SYS_ADMIN` and `SYS_MODULE` are refused. Restricted egress uses a separate default-deny gateway whose
 namespace the container shares. Definitions live beside the workspace, never inside
 it, so file tools cannot rewrite the policy the agent runs under.
+
+Nothing inside a restricted environment resolves a name. The proxy does it, on the
+engine's side of the boundary, which is what removed the resolver an operator used to
+have to name and what makes the name the thing that is checked rather than an address
+DNS rebinding chose.
 
 **Egress is agent configuration, and that is a deliberate narrowing of this boundary.**
 A settings save can set `network.mode` to `open`; it cannot change an image digest, a

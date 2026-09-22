@@ -14,10 +14,10 @@
 use std::fs;
 
 use darkwire_core::ErrorKind;
-use darkwire_tools::testkit::{TestWorkspace, ToolConformance, tool_conformance};
+use darkwire_tools::testkit::{FakeWeb, TestWorkspace, ToolConformance, tool_conformance};
 use darkwire_tools::{
     AnyTool, ToolContext, edit_tool, exec_tool, find_tool, grep_tool, ls_tool, read_tool,
-    write_tool,
+    web_fetch_tool, web_search_tool, write_tool,
 };
 use serde_json::{Map, Value, json};
 
@@ -66,6 +66,51 @@ fn with_a_haystack(ws: &TestWorkspace) {
 }
 
 fn bare(_: &TestWorkspace) {}
+
+/// A context whose web port answers from memory.
+///
+/// The web tools need one or their refusal path is a `flagged` result with no
+/// `kind`, which the execution conformance rightly rejects. `of_length` is what
+/// makes the large-output case reach the tool's own cut rather than the
+/// registry's.
+fn webbed(chars: usize) -> Box<dyn Fn() -> (TestWorkspace, ToolContext) + Send + Sync> {
+    Box::new(move || {
+        let ws = TestWorkspace::new();
+        let mut ctx = ws.context().clone();
+        ctx.web = Some(std::sync::Arc::new(FakeWeb::of_length(chars)));
+        (ws, ctx)
+    })
+}
+
+async fn conform_web(tool: AnyTool, valid: Value, large: Option<Value>) {
+    tool_conformance(&ToolConformance {
+        tool,
+        context: webbed(40_000),
+        valid_args: args(&valid),
+        large_output_args: large.as_ref().map(args),
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn web_fetch_conforms() {
+    conform_web(
+        web_fetch_tool(),
+        json!({"url": "https://example.test/a"}),
+        Some(json!({"url": "https://example.test/big"})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn web_search_conforms() {
+    conform_web(
+        web_search_tool(),
+        json!({"query": "sqlite wal"}),
+        Some(json!({"query": "sqlite wal"})),
+    )
+    .await;
+}
 
 async fn conform(tool: AnyTool, setup: fn(&TestWorkspace), valid: Value, large: Option<Value>) {
     tool_conformance(&ToolConformance {

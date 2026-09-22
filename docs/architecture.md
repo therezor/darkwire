@@ -17,7 +17,7 @@ tests and its own coverage bar.
 | `darkwire-core`           | Message types, `SessionStore`, `WorkspaceStore`, the message bus, logging, `Clock`, config loading, history windowing             |
 | `darkwire-security`       | `WorkspaceJail`, `guard_exec`, the guarded fetch, the credential vault, nonce fencing, environment policy and extension approvals |
 | `darkwire-providers`      | The provider registry, the `openai-chat` wire, SSE parsing, resilience, token counting                                            |
-| `darkwire-tools`          | The `Tool` trait and registry, the built-in tools, the `Environment` seam and the local runner                                    |
+| `darkwire-tools`          | The `Tool` trait and registry, the built-in tools, the web seam, the `Environment` seam and the local runner                      |
 | `darkwire-environment`    | The isolated environment service/client, its container backend and lifecycle pool, and the egress gateway                         |
 | `darkwire-mcp`            | The MCP client, connection lifecycle and the bridge from a remote tool onto `Tool`                                                |
 | `darkwire-agent`          | `AgentLoop`, the approval contract, prompt assembly, steering, subagents                                                          |

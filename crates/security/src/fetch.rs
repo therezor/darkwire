@@ -25,6 +25,14 @@
 //!
 //! Cancellation and the deadline are one mechanism: the caller's token, and a
 //! timer raced against every await, including each body chunk.
+//!
+//! What may be reached is an [`EgressAllow`], not a set of flags. Under an
+//! allow-list a host nobody named is refused **before** it is resolved, so a
+//! destination the policy rejects never becomes a DNS query whose name the
+//! caller chose. A literal is the one exception to that order: there is nothing
+//! to resolve, so it is classified first and the refusal names the range it
+//! landed in, which is the more useful sentence for a redirect aimed at the
+//! metadata endpoint.
 
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
@@ -32,6 +40,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 use futures::stream::{Stream, StreamExt};
 use reqwest::header::HeaderMap;
 use reqwest::{Method, StatusCode, Url};
@@ -39,6 +48,7 @@ use serde_json::Value;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::allow::AllowList;
 use crate::ip::{AddressCategory, AddressRange, ParsedIp, classify_address, parse_ip_literal};
 
 /// Answers a hostname with addresses. Injected so tests never touch DNS.
@@ -86,22 +96,35 @@ impl DnsResolver for HickoryResolver {
     }
 }
 
+/// What egress may reach, and whether that is a ceiling or an allow-list.
+///
+/// The distinction matters more than it looks. An earlier shape had a list of
+/// hosts that were *exempt* from address classification, which reads like an
+/// allow-list and is not one: a host nobody listed still fell through to the
+/// classifier, and a public address passed. Refusing what is not named has to
+/// be its own state, so it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EgressAllow {
+    /// Everything publicly routable. Loopback, private and the hard-blocked
+    /// ranges stay refused, because nothing named them.
+    Public,
+    /// Only what this list names. Empty reaches nothing.
+    ///
+    /// A matched entry also lifts the loopback and private refusals for the
+    /// destination it matched: naming `10.0.0.0/8` is the operator saying they
+    /// know what is there. It never lifts link-local, multicast, unspecified or
+    /// reserved, and [`crate::parse_allow_entry`] refuses an entry naming one.
+    Only(AllowList),
+}
+
 /// What egress may reach.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkPolicy {
-    /// Permit 127.0.0.0/8 and `::1`. Needed to reach a model server on this host.
-    pub allow_loopback: bool,
-    /// Permit RFC 1918 and unique-local ranges. For a LAN deployment.
-    pub allow_private: bool,
-    /// Hosts exempt from address classification entirely. Exact match, or a
-    /// leading-dot entry (`.internal`) to cover subdomains.
-    ///
-    /// This is the operator saying "I know what is there" — a self-hosted
-    /// inference server, an internal MCP endpoint. It is not reachable from
-    /// anything a model controls, because a model cannot edit config.
-    pub allowed_hosts: Vec<String>,
-    /// Refused before anything else, including entries in `allowed_hosts`.
-    pub denied_hosts: Vec<String>,
+    /// The destinations, and whether anything outside them is permitted.
+    pub allow: EgressAllow,
+    /// Whose policy this is, so a refusal can say which agent to edit. Empty
+    /// for a fetch with no agent behind it.
+    pub agent_id: String,
     /// How many hops to follow.
     pub max_redirects: usize,
     /// `0` disables the cap.
@@ -113,13 +136,45 @@ pub struct NetworkPolicy {
 impl Default for NetworkPolicy {
     fn default() -> Self {
         NetworkPolicy {
-            allow_loopback: false,
-            allow_private: false,
-            allowed_hosts: Vec::new(),
-            denied_hosts: Vec::new(),
+            allow: EgressAllow::Public,
+            agent_id: String::new(),
             max_redirects: 3,
             max_bytes: 5 * 1024 * 1024,
             timeout_ms: 30_000,
+        }
+    }
+}
+
+impl NetworkPolicy {
+    /// The policy one agent's egress config describes.
+    ///
+    /// `on_host` carries the placement, because `none` cannot be enforced
+    /// there: `exec` on this machine already reaches the whole network and
+    /// nothing in this process changes that, so a host agent's `none` means the
+    /// same as `open`. Withholding web access on the host is the permission
+    /// map's job, which is the switch that actually works.
+    pub fn for_agent(
+        network: &EnvironmentNetwork,
+        agent_id: &str,
+        on_host: bool,
+    ) -> Result<NetworkPolicy> {
+        let allow = match (network.mode, on_host) {
+            (NetworkMode::Open, _) | (NetworkMode::None, true) => EgressAllow::Public,
+            (NetworkMode::None, false) => EgressAllow::Only(AllowList::default()),
+            (NetworkMode::Allowlist, _) => EgressAllow::Only(AllowList::parse(&network.allow)?),
+        };
+        Ok(NetworkPolicy {
+            allow,
+            agent_id: agent_id.to_owned(),
+            ..NetworkPolicy::default()
+        })
+    }
+
+    /// The list, when there is one.
+    pub fn allow_list(&self) -> Option<&AllowList> {
+        match &self.allow {
+            EgressAllow::Only(list) => Some(list),
+            EgressAllow::Public => None,
         }
     }
 }
@@ -133,7 +188,8 @@ pub struct PinnedTarget {
     pub host: String,
     /// Validated and in connection order. The client may use only these.
     pub addresses: Vec<IpAddr>,
-    /// The host matched `allowed_hosts`, so address classification was skipped.
+    /// An allow-list entry named this host, which lifts the loopback and
+    /// private refusals for it. Never the hard-blocked ranges.
     pub exempt: bool,
 }
 
@@ -234,30 +290,56 @@ fn detail_list(items: &[String]) -> Value {
     Value::Array(items.iter().map(|s| Value::from(s.as_str())).collect())
 }
 
-/// Exact match, or a leading-dot entry matching the host and its subdomains.
-fn host_matches(host: &str, patterns: &[String]) -> bool {
-    let needle = host.to_lowercase();
-    patterns.iter().any(|pattern| {
-        let entry = pattern.trim().to_lowercase();
-        if entry.is_empty() {
-            return false;
-        }
-        match entry.strip_prefix('.') {
-            Some(bare) => needle == bare || needle.ends_with(&entry),
-            None => needle == entry,
-        }
-    })
+/// The refusal for a destination no entry names.
+///
+/// It names the agent and the setting, because the operator reading it is the
+/// only one who can act on it, and the model reading it needs to say what to
+/// ask for rather than try the next URL.
+fn not_allowed(policy: &NetworkPolicy, host: &str, raw_url: &str) -> WireError {
+    let who = if policy.agent_id.is_empty() {
+        "This agent".to_owned()
+    } else {
+        format!("Agent \"{}\"", policy.agent_id)
+    };
+    let where_ = if policy.agent_id.is_empty() {
+        "its allowed networks".to_owned()
+    } else {
+        format!("agents.list.{}.environment.network.allow", policy.agent_id)
+    };
+    blocked(format!(
+        "{who} may only reach the destinations in its allow-list, and {host} is not\n  \
+         one of them. Add \"{host}\" to {where_}."
+    ))
+    .with_detail("url", raw_url)
+    .with_detail("host", host)
 }
 
-fn is_permitted(range: &AddressRange, policy: &NetworkPolicy) -> bool {
-    match range.category {
-        AddressCategory::Loopback => policy.allow_loopback,
-        AddressCategory::Private => policy.allow_private,
-        // Link-local (the cloud metadata endpoint), multicast, the unspecified
-        // address and the transition prefixes have no legitimate agent use and no
-        // flag unlocks them.
-        _ => false,
-    }
+/// The refusal for an agent whose egress is switched off entirely.
+fn no_egress(policy: &NetworkPolicy, raw_url: &str) -> WireError {
+    let who = if policy.agent_id.is_empty() {
+        "This agent".to_owned()
+    } else {
+        format!("Agent \"{}\"", policy.agent_id)
+    };
+    blocked(format!(
+        "{who} has no network access, so it cannot reach anything.\n  \
+         An operator grants it on the agent's environment."
+    ))
+    .with_detail("url", raw_url)
+}
+
+/// Whether a classified range may be reached, given what matched the host.
+///
+/// Link-local (the cloud metadata endpoint), multicast, the unspecified address
+/// and the transition prefixes have no legitimate agent use, and **no entry
+/// unlocks them**. That is a deliberate tightening over the shape this replaced,
+/// where naming a host skipped classification wholesale and so an entry that
+/// resolved to 169.254.169.254 was reachable.
+///
+/// Loopback and private are reachable when an entry matched, because that is an
+/// operator naming a model server on this host or a service on the LAN.
+fn is_permitted(range: &AddressRange, matched: bool) -> bool {
+    !is_hard(range.category) && matched
 }
 
 /// An address as the resolver handed it back, in the form the table classifies.
@@ -266,10 +348,51 @@ fn parsed_from(ip: IpAddr) -> Option<ParsedIp> {
     parse_ip_literal(&ip.to_string())
 }
 
+/// Whether a category is one no entry ever unlocks.
+fn is_hard(category: AddressCategory) -> bool {
+    !matches!(
+        category,
+        AddressCategory::Loopback | AddressCategory::Private
+    )
+}
+
+/// Refuses an address the policy does not admit, naming why.
+fn assert_address(
+    parsed: &ParsedIp,
+    matched: bool,
+    host: &str,
+    raw_url: &str,
+    resolved: bool,
+) -> Result<()> {
+    let Some(range) = classify_address(parsed).filter(|range| !is_permitted(range, matched)) else {
+        return Ok(());
+    };
+    let message = if resolved {
+        format!(
+            "{host} resolves to {}, which is in a blocked range ({})",
+            parsed.canonical, range.label
+        )
+    } else {
+        format!(
+            "Address {} is in a blocked range ({})",
+            parsed.canonical, range.label
+        )
+    };
+    Err(blocked(message)
+        .with_detail("url", raw_url)
+        .with_detail("host", host)
+        .with_detail("address", parsed.canonical.as_str())
+        .with_detail("range", range.cidr))
+}
+
 /// Resolves and validates a URL, returning the addresses a request to it may use.
 ///
-/// Public because the MCP HTTP transport and the media proxy validate a URL at
-/// configuration time, before any request exists.
+/// Public because the MCP HTTP transport, the egress proxy and the media proxy
+/// validate a URL at configuration time, before any request exists.
+///
+/// Order is load-bearing. Under an allow-list, a host nobody named is refused
+/// **before** it is resolved, so a destination the policy rejects never becomes
+/// a DNS query an attacker chose the name of.
 pub async fn validate_target(
     raw_url: &str,
     policy: &NetworkPolicy,
@@ -291,31 +414,40 @@ pub async fn validate_target(
     // `http` and `https` are special schemes, for which the URL parser rejects an
     // empty host outright, so the host is always present here.
     let host = url.host_str().unwrap_or_default().to_owned();
-    if host_matches(&host, &policy.denied_hosts) {
-        return Err(blocked(format!("Host is denied by configuration: {host}"))
-            .with_detail("url", raw_url)
-            .with_detail("host", host.as_str()));
-    }
-    let exempt = host_matches(&host, &policy.allowed_hosts);
 
-    if let Some(literal) = parse_ip_literal(&host) {
-        if !exempt
-            && let Some(range) = classify_address(&literal).filter(|r| !is_permitted(r, policy))
-        {
-            return Err(blocked(format!(
-                "Address {} is in a blocked range ({})",
-                literal.canonical, range.label
-            ))
-            .with_detail("url", raw_url)
-            .with_detail("host", host.as_str())
-            .with_detail("address", literal.canonical.as_str())
-            .with_detail("range", range.cidr));
+    // A literal is judged in the other order: there is nothing to resolve, so
+    // classifying first costs nothing and says the more useful thing. "169.254
+    // .169.254 is in a blocked range" tells a reader what the redirect was
+    // reaching for; "not on your allow-list" invites them to add it.
+    let literal = parse_ip_literal(&host);
+    if let Some(parsed) = &literal
+        && classify_address(parsed).is_some_and(|range| is_hard(range.category))
+    {
+        assert_address(parsed, true, &host, raw_url, false)?;
+    }
+
+    let matched = match &policy.allow {
+        EgressAllow::Public => false,
+        EgressAllow::Only(list) if list.is_empty() => {
+            return Err(no_egress(policy, raw_url));
         }
+        EgressAllow::Only(list) => {
+            if list.match_host(&host).is_none() {
+                return Err(not_allowed(policy, &host, raw_url));
+            }
+            true
+        }
+    };
+
+    if let Some(parsed) = literal {
+        // Re-checked with the match in hand, because loopback and private are
+        // unlocked by an entry and the first pass could not know there was one.
+        assert_address(&parsed, matched, &host, raw_url, false)?;
         return Ok(PinnedTarget {
             url,
             host,
-            addresses: vec![literal.to_ip_addr()],
-            exempt,
+            addresses: vec![parsed.to_ip_addr()],
+            exempt: matched,
         });
     }
 
@@ -333,38 +465,27 @@ pub async fn validate_target(
         );
     }
 
-    if !exempt {
-        for candidate in &answers {
-            let Some(parsed) = parsed_from(*candidate) else {
-                // The resolver returned something the table cannot classify.
-                // Refusing is the only safe reading of a result we cannot judge.
-                return Err(blocked(format!(
-                    "Resolver returned an unparseable address for {host}"
-                ))
-                .with_detail("url", raw_url)
-                .with_detail("host", host.as_str())
-                .with_detail("address", candidate.to_string()));
-            };
-            // Every address is checked, not just the first: the connection may use
-            // any of them, so one blocked answer poisons the whole set.
-            if let Some(range) = classify_address(&parsed).filter(|r| !is_permitted(r, policy)) {
-                return Err(blocked(format!(
-                    "{host} resolves to {}, which is in a blocked range ({})",
-                    parsed.canonical, range.label
-                ))
-                .with_detail("url", raw_url)
-                .with_detail("host", host.as_str())
-                .with_detail("address", parsed.canonical.as_str())
-                .with_detail("range", range.cidr));
-            }
-        }
+    for candidate in &answers {
+        let Some(parsed) = parsed_from(*candidate) else {
+            // The resolver returned something the table cannot classify.
+            // Refusing is the only safe reading of a result we cannot judge.
+            return Err(blocked(format!(
+                "Resolver returned an unparseable address for {host}"
+            ))
+            .with_detail("url", raw_url)
+            .with_detail("host", host.as_str())
+            .with_detail("address", candidate.to_string()));
+        };
+        // Every address is checked, not just the first: the connection may use
+        // any of them, so one blocked answer poisons the whole set.
+        assert_address(&parsed, matched, &host, raw_url, true)?;
     }
 
     Ok(PinnedTarget {
         url,
         host,
         addresses: answers,
-        exempt,
+        exempt: matched,
     })
 }
 
