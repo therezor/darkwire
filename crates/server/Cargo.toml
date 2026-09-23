@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -87,3 +89,7 @@ tokio = { workspace = true, features = ["test-util"] }
 # A real client for the one test that has to complete a WebSocket handshake;
 # everything else goes through `tower::ServiceExt::oneshot` with no listener.
 tokio-tungstenite.workspace = true
+
+[[test]]
+name = "server"
+path = "tests/main.rs"

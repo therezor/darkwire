@@ -1,6 +1,6 @@
 //! The tabbed overlay: what a key does to it, and what it draws.
 
-mod common;
+use crate::common;
 
 use darkwire_tui::visible_width;
 use darkwire_tui::{Component, Key, KeyName, Page, Pages, PagesLabels, PagesOptions, PagesOutcome};

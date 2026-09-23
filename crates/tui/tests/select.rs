@@ -1,6 +1,6 @@
 //! The key map over a list: chosen, cancelled, or still open.
 
-mod common;
+use crate::common;
 
 use darkwire_tui::{
     CHROME_ROWS, CURSOR_MARKER, Component, DEFAULT_MAX_ROWS, PLAIN_THEME, Select, SelectAction,

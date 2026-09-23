@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use darkwire_core::ErrorKind;
 use darkwire_security::PolicyStore;

@@ -12,6 +12,9 @@ publish.workspace = true
 # that cannot reach into `main.rs`, and coverage measures `src/`. So every
 # module lives in the library, `main.rs` is the shim that maps a run to an exit
 # code, and the integration tests drive the same code the binary does.
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
+
 [lib]
 name = "darkwire"
 path = "src/lib.rs"
@@ -80,3 +83,7 @@ darkwire-tui = { workspace = true, features = ["testkit"] }
 reqwest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[[test]]
+name = "cli"
+path = "tests/main.rs"

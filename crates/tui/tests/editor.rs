@@ -1,6 +1,6 @@
 //! Shell bindings, grapheme-wise movement, history, and folding at the real window edge.
 
-mod common;
+use crate::common;
 
 use darkwire_tui::{
     CURSOR_MARKER, Component, Editor, EditorOutcome, Key, KeyName, PLAIN_THEME, theme_for,

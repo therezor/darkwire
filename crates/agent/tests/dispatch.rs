@@ -11,7 +11,7 @@
     reason = "a fixture that cannot be built is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use std::time::Duration;
 

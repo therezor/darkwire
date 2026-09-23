@@ -12,7 +12,7 @@ use darkwire_tools::{AnyTool, BoxFuture, ToolContext, web_search_tool};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{run, text};
+use super::common::{run, text};
 
 fn tool() -> AnyTool {
     web_search_tool()

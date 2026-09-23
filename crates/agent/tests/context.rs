@@ -10,7 +10,7 @@
     reason = "a fixture that cannot be built is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use common::harness::{FakeTool, Harness, Setup};
 use darkwire_agent::context::{

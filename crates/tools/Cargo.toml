@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -60,3 +62,7 @@ proptest.workspace = true
 tempfile.workspace = true
 # Paused time for the registry timeout tests.
 tokio = { workspace = true, features = ["test-util"] }
+
+[[test]]
+name = "tools"
+path = "tests/main.rs"

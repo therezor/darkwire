@@ -7,7 +7,7 @@
     reason = "a fixture that cannot be built is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

@@ -29,9 +29,9 @@ use darkwire_channels::testkit::{
 use darkwire_core::message_bus::PublishResult;
 
 #[path = "../examples/loopback.rs"]
-mod loopback;
+mod example;
 
-use loopback::{Loopback, LoopbackOptions, loopback_channel};
+use example::{Loopback, LoopbackOptions, loopback_channel};
 
 /// The suite's view of a loopback channel: `say` in, transcript out.
 struct LoopbackProbe(Arc<Loopback>);

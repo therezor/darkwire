@@ -19,7 +19,7 @@ use darkwire_protocol::{ChatMessage, ContextResponse};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
-use crate::console_double::FakeConsole;
+use super::console_double::FakeConsole;
 
 const CHANNEL: &str = "telegram";
 const CHAT: i64 = 4471;

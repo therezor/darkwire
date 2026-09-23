@@ -6,7 +6,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use darkwire_core::messages::{FileDetails, file_part, text_part};
 use darkwire_protocol::{ToolAnnotations, ToolDefinition, ToolRisk, ToolSource};

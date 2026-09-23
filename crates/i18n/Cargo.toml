@@ -8,6 +8,8 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 build = "build.rs"
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -25,3 +27,7 @@ serde_json = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+
+[[test]]
+name = "i18n"
+path = "tests/main.rs"

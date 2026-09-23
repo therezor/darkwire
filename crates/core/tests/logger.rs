@@ -6,7 +6,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod capture;
+use crate::capture;
 
 use std::collections::HashMap;
 use std::sync::Arc;

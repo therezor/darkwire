@@ -7,7 +7,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use std::collections::HashSet;
 use std::net::IpAddr;

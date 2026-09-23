@@ -6,8 +6,6 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
-
 use darkwire_protocol::{ProviderConfig, ProvidersConfig};
 use darkwire_providers::{
     PROVIDERS, ProviderSpec, ResolveInstanceOptions, WireProtocol, describe_instance,

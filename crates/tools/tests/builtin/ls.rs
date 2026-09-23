@@ -15,7 +15,7 @@ use darkwire_tools::ls_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, link_in, link_out, run, text};
+use super::common::{failure, link_in, link_out, run, text};
 
 #[tokio::test]
 async fn ls_lists_directories_first_then_files_with_sizes() {

@@ -35,6 +35,9 @@ say so. An unqualified "all tests pass" that meant `pnpm test` is a false claim.
 Notes that save a cycle:
 
 - `pnpm format` fixes the `format:check` step of `pnpm check`.
+- Filter Rust tests inside the workspace build rather than beside it:
+  `cargo nextest run --workspace -E 'package(darkwire-server)'`. A bare `-p` resolves
+  features for that package alone and builds a second copy of everything.
 - e2e needs both builds, `pnpm build` before `cargo build`.
 - The fidelity spec skips without a baseline. `2 skipped` is healthy.
 - A visible UI change means `pnpm screenshots`. The images are generated and
@@ -115,6 +118,9 @@ Deliberate deviations from the guide, all on purpose:
   `packages/web/test/chat/markdown/blocks.test.ts`.
 - **Rust**: `crates/<crate>/tests/` mirroring `src/`. An inline `#[cfg(test)]` module
   is for a private helper with no public path, and carries a line saying why.
+- **One test binary per crate.** `autotests = false`, and `tests/main.rs` lists every
+  file as a `mod`. A new test file is a new `mod` line there, never a new binary: each
+  binary links the whole dependency tree.
 
 Tests reach source through an alias, never a relative path: `#src/…` in `protocol` and
 `i18n` (a package.json `imports` entry), `@/…` in web.

@@ -11,7 +11,7 @@ use darkwire_tools::{AnyTool, BoxFuture, ToolContext, web_fetch_tool};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{run, text};
+use super::common::{run, text};
 
 fn with_web(port: Arc<dyn WebPort>) -> (TestWorkspace, ToolContext) {
     let ws = TestWorkspace::new();

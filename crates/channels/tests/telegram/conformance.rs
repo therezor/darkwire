@@ -18,8 +18,8 @@ use darkwire_channels::testkit::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::console_double::FakeConsole;
-use crate::fake_bot_api::{FakeBotApi, message_update};
+use super::console_double::FakeConsole;
+use super::fake_bot_api::{FakeBotApi, message_update};
 
 const USER: i64 = 4471;
 

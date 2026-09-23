@@ -6,7 +6,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use darkwire_providers::{
     ChatRequest, ChatStreamEvent, FinishReason, ToolChoice, WireAdapterOptions, empty_usage,

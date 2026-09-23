@@ -29,7 +29,7 @@
     reason = "a fixture that cannot load is a failing test either way, and the example carries more surface than one suite uses"
 )]
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,9 +51,9 @@ use darkwire_runtime::{RuntimeOptions, WireRuntime, create_runtime};
 use tokio_util::sync::CancellationToken;
 
 #[path = "../../channels/examples/loopback.rs"]
-mod loopback;
+mod example;
 
-use loopback::{Loopback, LoopbackOptions, loopback_channel};
+use example::{Loopback, LoopbackOptions, loopback_channel};
 
 /// The whole of what a transport adds over a runtime.
 ///

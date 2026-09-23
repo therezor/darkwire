@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -43,3 +45,7 @@ proptest.workspace = true
 tempfile.workspace = true
 # The crate's own tests reach `ManualClock` the way other crates do.
 darkwire-core = { path = ".", features = ["testkit"] }
+
+[[test]]
+name = "core"
+path = "tests/main.rs"

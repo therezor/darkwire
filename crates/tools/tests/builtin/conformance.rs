@@ -21,7 +21,7 @@ use darkwire_tools::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::common::run;
+use super::common::run;
 
 fn args(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap()

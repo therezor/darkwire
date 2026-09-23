@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use crate::fake_bot_api::{CannedAnswer, FakeBotApi};
+use super::fake_bot_api::{CannedAnswer, FakeBotApi};
 
 const TOKEN: &str = "12345:secret-token";
 

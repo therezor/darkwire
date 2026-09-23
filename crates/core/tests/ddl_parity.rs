@@ -14,7 +14,7 @@
     reason = "a fixture that cannot load is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

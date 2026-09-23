@@ -16,7 +16,7 @@ use darkwire_tools::{GrepMode, GrepRequest, grep_blocking, grep_tool};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{failure, text};
+use super::common::{failure, text};
 
 /// Two source files and a nested one, enough for path, glob and mode tests.
 fn tree(ws: &TestWorkspace) {

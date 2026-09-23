@@ -2,14 +2,14 @@
 //!
 //! The protocol types are tagged structs with a literal `type` field, so a test
 //! that built one inline would be six lines of boilerplate per event. Each
-//! suite is its own binary and uses a different subset of these.
+//! suite uses a different subset of these.
 
 #![allow(
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    reason = "each test binary uses a subset of these helpers, and a fixture that cannot be built is a failing test either way"
+    reason = "each suite uses a subset of these helpers, and a fixture that cannot be built is a failing test either way"
 )]
 
 use darkwire_protocol::{

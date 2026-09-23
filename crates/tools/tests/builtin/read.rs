@@ -15,7 +15,7 @@ use darkwire_tools::read_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, fifo, link_in, link_out, run_on_fifo, text};
+use super::common::{failure, fifo, link_in, link_out, run_on_fifo, text};
 
 /// `count` lines, each naming its own number, so a window can be checked.
 fn numbered(count: u32) -> String {

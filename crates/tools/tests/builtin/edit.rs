@@ -15,7 +15,7 @@ use darkwire_tools::edit_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
+use super::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
 
 fn code(ws: &TestWorkspace, body: &str) {
     fs::write(ws.root().join("code.ts"), body).unwrap();

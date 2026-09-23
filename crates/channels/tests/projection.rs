@@ -7,7 +7,7 @@
     reason = "a fixture that cannot be built is a failing test either way"
 )]
 
-mod common;
+use crate::common;
 
 use common::{
     SESSION, TURN, approval_error, approval_request, context_usage, delta, denied, error,

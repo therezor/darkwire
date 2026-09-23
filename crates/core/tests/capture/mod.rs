@@ -1,9 +1,6 @@
 //! A log sink that keeps every line, for the suites that assert on what the
-//! logger wrote. Each suite is its own binary and uses a subset of this.
-#![allow(
-    dead_code,
-    reason = "each test binary uses a subset of the shared helpers"
-)]
+//! logger wrote. Each suite uses a subset of this.
+#![allow(dead_code, reason = "each suite uses a subset of the shared helpers")]
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -41,3 +43,7 @@ proptest.workspace = true
 # `start_paused` for the backoff tests: nothing sleeps for real.
 tokio = { workspace = true, features = ["test-util"] }
 wiremock.workspace = true
+
+[[test]]
+name = "providers"
+path = "tests/main.rs"

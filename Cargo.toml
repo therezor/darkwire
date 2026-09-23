@@ -182,19 +182,19 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 
-# Line tables only, for the workspace and for every dependency. A panic
-# still names the file and line, which is what a backtrace is read for; the
-# full DWARF that a step-through debugger wants was most of a multi-gigabyte
-# `target/` and a good share of every rebuild. Set `CARGO_PROFILE_DEV_DEBUG=2`
-# for the one session that needs to step through.
+# No debug info at all, for the workspace, every dependency and the tests,
+# and the standard library's own stripped from every binary. A panic still
+# names its file and line: that comes from the panic's location, not from
+# DWARF. What is lost is file and line on each backtrace frame, which is worth
+# far less than the gigabytes of `target/` writes it cost on every rebuild.
+# Set `CARGO_PROFILE_DEV_DEBUG=2` for the one session that needs a debugger.
 [profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
 debug = false
+strip = "debuginfo"
 
 [profile.test]
-debug = "line-tables-only"
+debug = false
+strip = "debuginfo"
 
 [profile.release]
 lto = "fat"

@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::fake_bot_api::{CannedAnswer, FakeBotApi};
+use super::fake_bot_api::{CannedAnswer, FakeBotApi};
 
 const NOW: i64 = 1_700_000_000_000;
 const EDIT_INTERVAL_MS: i64 = 2000;

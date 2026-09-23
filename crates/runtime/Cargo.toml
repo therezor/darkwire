@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -55,3 +57,7 @@ darkwire-tools = { workspace = true, features = ["testkit"] }
 darkwire-channels = { workspace = true, features = ["testkit"] }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+
+[[test]]
+name = "runtime"
+path = "tests/main.rs"

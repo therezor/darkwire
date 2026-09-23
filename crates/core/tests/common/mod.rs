@@ -1,11 +1,8 @@
 //! Shared by the store suites: a frozen clock, counter ids and message
 //! constructors that build the protocol types directly.
 //!
-//! Each suite is its own binary and uses a different subset of these helpers.
-#![allow(
-    dead_code,
-    reason = "each test binary uses a subset of the shared helpers"
-)]
+//! Each suite uses a different subset of these helpers.
+#![allow(dead_code, reason = "each suite uses a subset of the shared helpers")]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

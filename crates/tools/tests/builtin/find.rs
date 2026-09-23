@@ -17,7 +17,7 @@ use darkwire_tools::{FindRequest, find_blocking, find_tool};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{failure, text};
+use super::common::{failure, text};
 
 fn tree(ws: &TestWorkspace) {
     fs::create_dir_all(ws.root().join("src/deep")).unwrap();

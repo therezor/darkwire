@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
+# One test binary, `tests/main.rs`, rather than one per file: see there.
+autotests = false
 
 [lints]
 workspace = true
@@ -56,3 +58,7 @@ tempfile.workspace = true
 # The process-group test checks a grandchild is gone.
 nix.workspace = true
 wiremock.workspace = true
+
+[[test]]
+name = "mcp"
+path = "tests/main.rs"

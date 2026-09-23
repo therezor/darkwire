@@ -15,7 +15,7 @@ use darkwire_tools::testkit::TestWorkspace;
 use darkwire_tools::write_tool;
 use serde_json::json;
 
-use crate::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
+use super::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
 
 #[tokio::test]
 async fn write_writes_a_file_and_reports_its_size() {
