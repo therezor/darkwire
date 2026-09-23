@@ -68,6 +68,9 @@ pub enum OutboundKind {
     Notice,
     /// A failure.
     Error,
+    /// A change to a message already sent, such as an approval card settled
+    /// elsewhere. Opt-in: posted as a new message, it would be noise.
+    Update,
 }
 
 /// What the agent hands a channel.

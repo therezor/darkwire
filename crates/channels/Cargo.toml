@@ -20,6 +20,7 @@ testkit = []
 [dependencies]
 darkwire-core.workspace = true
 darkwire-protocol.workspace = true
+darkwire-security.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true

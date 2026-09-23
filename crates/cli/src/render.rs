@@ -884,10 +884,8 @@ impl TurnRenderer {
             NestedAgentEvent::ToolResult(result) => {
                 self.tool_result(session_key, result);
             }
-            // The terminal has no way to answer one — `darkwire chat` installs
-            // no gate, so an `ask` tool simply runs. Reaching here means the
-            // CLI is watching a turn some other surface is driving, and saying
-            // so beats a gap.
+            // The question itself is a menu under the composer, put up by the
+            // gate. This line is what stays in the transcript after it closes.
             NestedAgentEvent::ToolApprovalRequest(request) => {
                 let sentence = self.t.tr(
                     keys::render::AWAITING_APPROVAL,

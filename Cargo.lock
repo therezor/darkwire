@@ -993,6 +993,7 @@ dependencies = [
  "darkwire-channels",
  "darkwire-core",
  "darkwire-protocol",
+ "darkwire-security",
  "futures",
  "indexmap 2.14.2",
  "parking_lot",

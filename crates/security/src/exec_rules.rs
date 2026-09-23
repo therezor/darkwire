@@ -294,6 +294,73 @@ pub fn assert_standing_rule(
     Ok(())
 }
 
+/// Rules worth offering for one call, narrowest first: the exact command, then
+/// shorter prefixes ending in `*`, down to the program alone.
+///
+/// The program is reduced to its basename, because a rule may not name a path.
+/// Every one is an `allow`, the only action a prompt may save.
+pub fn suggest_rules(argv: &[String]) -> Vec<ExecRule> {
+    let Some((program, rest)) = argv.split_first() else {
+        return Vec::new();
+    };
+    let head: Vec<String> = std::iter::once(binary_name(program))
+        .chain(rest.iter().cloned())
+        .collect();
+    let allow = |argv: Vec<String>| ExecRule {
+        action: ToolPermission::Allow,
+        argv,
+    };
+    let mut suggestions = vec![allow(head.clone())];
+    for keep in (1..=head.len().min(3)).rev() {
+        let mut pattern = head[..keep].to_vec();
+        pattern.push(REST.to_owned());
+        suggestions.push(allow(pattern));
+    }
+    suggestions
+}
+
+/// An argv as one line a person reads, quoting only a token that needs it.
+///
+/// The spelling the web prompt's pattern field parses, so a rule shown here
+/// can be typed there unchanged. It is not a shell command.
+pub fn format_argv(argv: &[String]) -> String {
+    argv.iter()
+        .map(|token| {
+            if token.is_empty() {
+                "''".to_owned()
+            } else if token
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, '\'' | '"' | '\\'))
+            {
+                let escaped: String = token
+                    .chars()
+                    .flat_map(|c| {
+                        let escape = matches!(c, '"' | '\\').then_some('\\');
+                        escape.into_iter().chain(std::iter::once(c))
+                    })
+                    .collect();
+                format!("\"{escaped}\"")
+            } else {
+                token.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The suggestion a prompt offers first.
+///
+/// The second: the exact command is what "This session" already covers, so a
+/// standing rule earns its place by covering the next call too.
+pub fn preferred_rule(argv: &[String]) -> Option<ExecRule> {
+    let mut suggestions = suggest_rules(argv);
+    if suggestions.len() > 1 {
+        Some(suggestions.swap_remove(1))
+    } else {
+        suggestions.pop()
+    }
+}
+
 /// Refuses an agent whose rules do not parse, naming the agent.
 ///
 /// Raised where the agent is resolved, so a bad rule is a config error at

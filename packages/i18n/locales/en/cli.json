@@ -7,6 +7,18 @@
   },
   "chat": {
     "agentGone": "“{{agent}}” no longer exists. This turn runs on the default agent",
+    "approval": {
+      "always": "Yes, and always allow {{rule}}",
+      "deny": "No",
+      "footer": "enter answers · esc says no",
+      "once": "Yes, once",
+      "refused_one": "{{count}} tool call needed approval and was refused. Rerun with --yes to allow it.",
+      "refused_other": "{{count}} tool calls needed approval and were refused. Rerun with --yes to allow them.",
+      "ruleFailed": "The rule was not saved. {{reason}}",
+      "session": "Yes, for this session",
+      "title": "Allow {{tool}}?",
+      "titleCommand": "Allow {{tool}} to run {{command}}?"
+    },
     "argument": "a single turn to run, instead of the prompt",
     "attachedTo": "attached to {{key}}",
     "description": "Talk to the agent. With no message, opens a prompt.",
@@ -39,7 +51,8 @@
       "provider": "provider id, overriding the configured default",
       "session": "a session to continue, instead of starting one",
       "workspaceId": "workspace new sessions land in",
-      "workspaces": "folder the workspaces live in, overriding the configured default"
+      "workspaces": "folder the workspaces live in, overriding the configured default",
+      "yes": "run tools set to ask without asking"
     },
     "tooSmall": "window too small"
   },
@@ -151,7 +164,7 @@
     "yesNoDefaultYes": "Y/n"
   },
   "render": {
-    "awaitingApproval": "{{tool}} is waiting for approval elsewhere",
+    "awaitingApproval": "{{tool}} is waiting for approval",
     "steps_one": "{{count}} step",
     "steps_other": "{{count}} steps",
     "stopReasons": {

@@ -60,6 +60,7 @@ fn a_denial_says_which_of_the_three_it_was() {
         ),
         (DenialReason::Declined, "user refused", "call was refused"),
         (DenialReason::Timeout, "nobody answered", "expired"),
+        (DenialReason::NoPrompt, "nobody to ask", "cannot ask"),
     ] {
         let result = denied_tool_result("exec", reason);
         assert!(result.contains(model), "{reason:?}: {result}");
@@ -251,6 +252,61 @@ async fn nobody_answering_denies_at_the_deadline() {
     );
 }
 
+#[tokio::test]
+async fn a_gate_reaching_its_own_deadline_is_a_timeout_not_a_refusal() {
+    // The gate and the loop count down to the same instant, and the gate
+    // usually wins. The model must still hear that nobody answered.
+    let harness = Harness::build(Setup {
+        turns: one_exec_call(),
+        tools: vec![FakeTool::new(
+            "exec",
+            darkwire_protocol::ToolRisk::Exec,
+            common::harness::Behaviour::Answer("ok".to_owned()),
+        )],
+        permissions: Some(asking("exec")),
+        approvals: Some(ScriptedGate::new(vec![Answer::Expire])),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    let content = events_of(&events, "tool.result")[0]["content"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(content.contains("nobody answered"), "{content}");
+    assert!(!content.contains("refused"), "{content}");
+}
+
+#[tokio::test]
+async fn a_gate_with_nobody_to_ask_refuses_without_a_prompt() {
+    let exec = FakeTool::new(
+        "exec",
+        darkwire_protocol::ToolRisk::Exec,
+        common::harness::Behaviour::Answer("ok".to_owned()),
+    );
+    let gate = ScriptedGate::new(vec![Answer::NoOne]);
+    let harness = Harness::build(Setup {
+        turns: one_exec_call(),
+        tools: vec![exec.clone()],
+        permissions: Some(asking("exec")),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, result) = harness.say("cli:1", "run it").await;
+
+    assert_eq!(result.expect("a turn").stop_reason, StopReason::Complete);
+    assert!(exec.calls().is_empty());
+    assert!(events_of(&events, "tool.approvalRequest").is_empty());
+    assert_eq!(gate.seen().len(), 1);
+    let content = events_of(&events, "tool.result")[0]["content"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(content.contains("nobody to ask"), "{content}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_turn_stopped_under_an_open_prompt_is_a_stop_not_a_denial() {
     let harness = Harness::build(Setup {
@@ -325,8 +381,8 @@ async fn deny_is_enforced_with_no_gate_installed() {
 
 #[tokio::test]
 async fn an_ask_policy_with_no_gate_runs_the_tool() {
-    // Denying here would make the default config refuse every command in a
-    // terminal session, where the operator asking for it *is* the approval.
+    // No gate at all is `darkwire chat --yes`: the process chose to run `ask`
+    // tools unasked.
     let exec = FakeTool::new(
         "exec",
         darkwire_protocol::ToolRisk::Exec,

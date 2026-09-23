@@ -99,13 +99,13 @@ impl Globals {
 
 /// Everything `chat` was asked for.
 //
-// Four independent flags rather than a state machine, which is what the lint
-// below would ask for: each is a separate thing the operator typed, no
-// combination is illegal, and folding them into an enum would make the parser
-// answer a question the command line never asked.
+// Independent flags rather than a state machine, which is what the lint below
+// would ask for: each is a separate thing the operator typed, no combination is
+// illegal, and folding them into an enum would make the parser answer a
+// question the command line never asked.
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "four independent command-line flags"
+    reason = "independent command-line flags"
 )]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatArgs {
@@ -131,6 +131,8 @@ pub struct ChatArgs {
     pub show_reasoning: bool,
     /// `--no-tools` clears it.
     pub tools: bool,
+    /// `--yes`: run tools set to `ask` without asking.
+    pub yes: bool,
 }
 
 impl Default for ChatArgs {
@@ -147,6 +149,7 @@ impl Default for ChatArgs {
             json: false,
             show_reasoning: true,
             tools: true,
+            yes: false,
         }
     }
 }
@@ -511,6 +514,10 @@ fn chat_args(t: &Translations, hidden: bool) -> Vec<Arg> {
             .long("no-tools")
             .action(ArgAction::SetFalse)
             .help(t.t(keys::chat::options::NO_TOOLS)),
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .help(t.t(keys::chat::options::YES)),
     ];
     // Hidden on the root page, shown on `darkwire chat --help`. `chat` is the
     // default command, so the flags have to be *parseable* at the root — a bare
@@ -696,6 +703,7 @@ fn chat_args_of(matches: &ArgMatches) -> ChatArgs {
         json: flag(matches, "json"),
         show_reasoning: flag(matches, "reasoning"),
         tools: flag(matches, "tools"),
+        yes: flag(matches, "yes"),
     }
 }
 

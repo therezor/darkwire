@@ -453,7 +453,7 @@ async fn update_rewrites_a_card_this_channel_posted_earlier() {
 
     harness
         .renderer
-        .update(CHAT, 77, "Approved once. Waiting.", true, &live())
+        .update(CHAT, 77, "Approved once. Waiting.", true, None, &live())
         .await;
 
     let body = &harness.api.bodies("editMessageText")[0];
@@ -468,7 +468,7 @@ async fn update_sends_plain_text_when_the_chat_asked_for_it() {
 
     harness
         .renderer
-        .update(CHAT, 77, "Approved once.", false, &live())
+        .update(CHAT, 77, "Approved once.", false, None, &live())
         .await;
 
     let body = &harness.api.bodies("editMessageText")[0];
@@ -487,10 +487,32 @@ async fn update_treats_an_unchanged_card_as_normal() {
 
     harness
         .renderer
-        .update(CHAT, 77, "the same", false, &live())
+        .update(CHAT, 77, "the same", false, None, &live())
         .await;
 
     assert_eq!(harness.api.count("editMessageText"), 1);
+}
+
+#[tokio::test]
+async fn update_can_put_buttons_back_on_a_card() {
+    let harness = harness();
+    let keyboard = InlineKeyboardMarkup {
+        inline_keyboard: vec![vec![InlineKeyboardButton {
+            text: "✅ Once".to_owned(),
+            callback_data: "1".to_owned(),
+        }]],
+    };
+
+    harness
+        .renderer
+        .update(CHAT, 77, "again", false, Some(keyboard), &live())
+        .await;
+
+    let body = &harness.api.bodies("editMessageText")[0];
+    assert_eq!(
+        body["reply_markup"]["inline_keyboard"][0][0]["text"],
+        json!("✅ Once")
+    );
 }
 
 #[tokio::test]
@@ -500,7 +522,7 @@ async fn update_drops_any_other_failure_rather_than_raising_it() {
 
     harness
         .renderer
-        .update(CHAT, 77, "gone", false, &live())
+        .update(CHAT, 77, "gone", false, None, &live())
         .await;
 
     assert_eq!(harness.api.count("editMessageText"), 1);

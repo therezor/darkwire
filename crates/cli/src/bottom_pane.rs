@@ -122,8 +122,12 @@ impl BottomPaneView for SelectView {
         ViewKey::Consumed
     }
 
+    /// Also complete once nobody is waiting for the answer: an approval
+    /// whose turn was stopped, or whose deadline passed.
     fn is_complete(&self) -> bool {
-        self.answer.is_none()
+        self.answer
+            .as_ref()
+            .is_none_or(tokio::sync::oneshot::Sender::is_closed)
     }
 
     fn rows(&mut self, width: usize) -> Vec<String> {
@@ -293,10 +297,16 @@ impl BottomPane {
         self.views.push(view);
     }
 
+    /// Takes away views that were answered from somewhere other than a key,
+    /// such as an approval whose deadline passed.
+    fn drop_answered(&mut self) {
+        self.views.retain(|view| !view.is_complete());
+    }
+
     /// Whether anything is stacked over the composer.
     #[must_use]
     pub fn has_view(&self) -> bool {
-        !self.views.is_empty()
+        self.views.iter().any(|view| !view.is_complete())
     }
 
     /// Offers a keystroke to whatever is stacked over the composer.
@@ -305,6 +315,7 @@ impl BottomPane {
     /// its question is taken away here rather than at the next draw, so the
     /// key that closed it does not also reach the composer underneath.
     pub fn offer_key(&mut self, key: &Key) -> ViewKey {
+        self.drop_answered();
         let Some(view) = self.views.last_mut() else {
             return ViewKey::PassThrough;
         };
@@ -335,6 +346,7 @@ impl BottomPane {
     /// `editor_rows` caps how much of a long message is shown. `None` is the
     /// honest answer when there is no window to fit it into.
     fn rows(&mut self, width: usize, editor_rows: Option<usize>) -> Vec<String> {
+        self.drop_answered();
         let mut rows = Vec::new();
         if let Some((tick, word)) = self.spinner.clone() {
             rows.push(

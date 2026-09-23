@@ -38,6 +38,7 @@ use darkwire_core::messages::text_part;
 use darkwire_core::workspace_store::CreateWorkspace;
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ApprovalScope, ContentPart, ToolApproveMessage, ToolApproveTag, ToolRisk};
+use darkwire_security::format_argv;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 use tokio::task::JoinHandle;
@@ -45,12 +46,16 @@ use tokio::task::JoinHandle;
 use crate::channel::{
     BoxFuture, Channel, ChannelContext, ChannelControl, ChannelControlFrame, ChannelFactory,
 };
-use crate::projection::{APPROVAL_METADATA_KEY, ApprovalDraftDetail};
+use crate::projection::{
+    APPROVAL_ERROR_METADATA_KEY, APPROVAL_METADATA_KEY, APPROVAL_SETTLED_METADATA_KEY,
+    ApprovalDraftDetail,
+};
 use crate::telegram::access::{AccessList, Requester};
 use crate::telegram::api::{
-    BotApi, BotApiError, HttpClient, ReqwestHttpClient, TelegramCallbackQuery, TelegramMessage,
-    TelegramUpdate, TelegramUser,
+    BotApi, BotApiError, HttpClient, InlineKeyboardMarkup, ReqwestHttpClient,
+    TelegramCallbackQuery, TelegramMessage, TelegramUpdate, TelegramUser,
 };
+use crate::telegram::approvals::{ApprovalCard, ApprovalCards, approval_text, offered_rule};
 use crate::telegram::chats::{ChatBook, ChatState, Pending, default_session_key};
 use crate::telegram::commands::{
     CommandInput, CommandResult, bot_commands, parse_command, run_command,
@@ -124,6 +129,7 @@ pub struct Telegram {
     access: AccessList,
     chats: Mutex<ChatBook>,
     menus: CallbackStore,
+    cards: ApprovalCards,
     renderer: TelegramRenderer,
     console: Arc<dyn TelegramConsole>,
     context: ChannelContext,
@@ -144,12 +150,14 @@ impl std::fmt::Debug for Telegram {
 }
 
 /// `progress` is declared, so a turn fills one message in rather than posting
-/// the answer twice. Whether it is *used* is per chat — see `/output`.
+/// the answer twice. Whether it is *used* is per chat, see `/output`. `update`
+/// is declared because an approval card is edited when it settles elsewhere.
 const TELEGRAM_ACCEPTS: &[OutboundKind] = &[
     OutboundKind::Reply,
     OutboundKind::Notice,
     OutboundKind::Error,
     OutboundKind::Progress,
+    OutboundKind::Update,
 ];
 
 impl Telegram {
@@ -175,6 +183,7 @@ impl Telegram {
                 edit_interval_ms,
                 id.clone(),
             ),
+            cards: ApprovalCards::new(Arc::clone(&clock)),
             menus: CallbackStore::new(clock),
             chats: Mutex::new(ChatBook::new(id.clone())),
             id,
@@ -489,10 +498,44 @@ impl Telegram {
             // under it.
             let markdown = self.chats.lock().snapshot(chat_id).prefs.markdown;
             self.renderer
-                .update(chat_id, message_id, &said, markdown, &self.context.token)
+                .update(
+                    chat_id,
+                    message_id,
+                    &said,
+                    markdown,
+                    None,
+                    &self.context.token,
+                )
                 .await;
         }
         Ok(())
+    }
+
+    /// Sends an approval button's answer, and says what the card should show.
+    fn approve(&self, chat_id: i64, session_key: &str, answer: ToolApproveMessage) -> String {
+        let outcome = match (&answer.rule, answer.approved) {
+            (Some(rule), _) => format!(
+                "Approved, and always allowed `{}`.",
+                format_argv(&rule.argv)
+            ),
+            (None, true) => format!("Approved {}.", scope_words(answer.scope)),
+            (None, false) => "Denied.".to_owned(),
+        };
+        // The other buttons on this card answer a call that now has an answer
+        // on its way.
+        self.menus.forget_call(&answer.call_id);
+        self.cards.answer(&answer.call_id, Some(outcome.clone()));
+        let approved = answer.approved;
+        self.control(
+            session_key,
+            chat_id,
+            ChannelControlFrame::ToolApprove(answer),
+        );
+        if approved {
+            format!("{outcome} Waiting for the agent.")
+        } else {
+            outcome
+        }
     }
 
     /// Acts on a pressed button, and says what it did.
@@ -510,24 +553,18 @@ impl Telegram {
                 session_key: approval_session,
                 approved,
                 scope,
-            } => {
-                self.control(
-                    &approval_session,
-                    chat_id,
-                    ChannelControlFrame::ToolApprove(ToolApproveMessage {
-                        tag: ToolApproveTag,
-                        call_id,
-                        approved,
-                        scope,
-                        rule: None,
-                    }),
-                );
-                Ok(Some(if approved {
-                    format!("Approved {}. Waiting for the agent.", scope_words(scope))
-                } else {
-                    "Denied.".to_owned()
-                }))
-            }
+                rule,
+            } => Ok(Some(self.approve(
+                chat_id,
+                &approval_session,
+                ToolApproveMessage {
+                    tag: ToolApproveTag,
+                    call_id,
+                    approved,
+                    scope,
+                    rule,
+                },
+            ))),
 
             CallbackPayload::Session {
                 session_key: chosen,
@@ -937,6 +974,118 @@ impl Telegram {
         outcome.posted
     }
 
+    /// Posts an approval card, and remembers it so it can be settled later.
+    async fn post_card(
+        &self,
+        chat_id: i64,
+        session_key: &str,
+        text: &str,
+        approval: ApprovalDraftDetail,
+    ) {
+        let keyboard = self.card_keyboard(chat_id, session_key, &approval, true);
+        let posted = self
+            .render(
+                chat_id,
+                RenderRequest {
+                    chat_id,
+                    text: approval_text(text, &approval),
+                    kind: OutboundKind::Notice,
+                    turn_id: None,
+                    keyboard: Some(keyboard),
+                    force_reply: false,
+                },
+            )
+            .await;
+        if let Some(message_id) = posted {
+            self.cards.put(ApprovalCard {
+                chat_id,
+                message_id,
+                session_key: session_key.to_owned(),
+                detail: approval,
+                text: text.to_owned(),
+                answered: None,
+            });
+        }
+    }
+
+    /// The buttons for a card. "Always" is left off once the server has
+    /// refused the rule it offers.
+    fn card_keyboard(
+        &self,
+        chat_id: i64,
+        session_key: &str,
+        approval: &ApprovalDraftDetail,
+        offer_rule: bool,
+    ) -> InlineKeyboardMarkup {
+        approval_keyboard(
+            &approval.call_id,
+            session_key,
+            chat_id,
+            &self.menus,
+            i64::try_from(approval.expires_at_ms).unwrap_or(i64::MAX),
+            offer_rule
+                .then(|| offered_rule(approval.command.as_ref()))
+                .flatten(),
+        )
+    }
+
+    /// Ends a card on its outcome. Returns whether there was a card.
+    ///
+    /// An answer given here wins over the projection's wording, because it
+    /// says which button was pressed.
+    async fn settle_card(
+        &self,
+        chat_id: i64,
+        call_id: &str,
+        text: &str,
+        kind: OutboundKind,
+    ) -> bool {
+        let Some(card) = self.cards.take(call_id) else {
+            return false;
+        };
+        self.menus.forget_call(call_id);
+        let outcome = match (&card.answered, kind) {
+            (Some(answered), _) => answered.clone(),
+            (None, OutboundKind::Notice) => format!("⛔ {text}"),
+            (None, _) => text.to_owned(),
+        };
+        let markdown = self.chats.lock().snapshot(chat_id).prefs.markdown;
+        self.renderer
+            .update(
+                card.chat_id,
+                card.message_id,
+                &outcome,
+                markdown,
+                None,
+                &self.context.token,
+            )
+            .await;
+        true
+    }
+
+    /// Puts a card's buttons back after the server refused what one sent.
+    /// Returns whether there was a card to reopen.
+    async fn reopen_card(&self, chat_id: i64, call_id: &str, error: &str) -> bool {
+        let Some(card) = self.cards.get(call_id) else {
+            return false;
+        };
+        self.cards.answer(call_id, None);
+        let keyboard = self.card_keyboard(card.chat_id, &card.session_key, &card.detail, false);
+        let text = format!("{}\n\n⚠️ {error}", approval_text(&card.text, &card.detail));
+        let markdown = self.chats.lock().snapshot(chat_id).prefs.markdown;
+        self.renderer
+            .update(
+                card.chat_id,
+                card.message_id,
+                &text,
+                markdown,
+                Some(keyboard),
+                &self.context.token,
+            )
+            .await;
+        true
+    }
+
     async fn say(&self, chat_id: i64, outcome: CommandResult) {
         self.render(
             chat_id,
@@ -1042,25 +1191,24 @@ impl Channel for Telegram {
                 .collect();
 
             if let Some(approval) = approval_of(&message.metadata) {
-                let keyboard = approval_keyboard(
-                    &approval.call_id,
-                    &message.session_key,
-                    chat_id,
-                    &self.menus,
-                    i64::try_from(approval.expires_at_ms).unwrap_or(i64::MAX),
-                );
-                self.render(
-                    chat_id,
-                    RenderRequest {
-                        chat_id,
-                        text: approval_text(&text, &approval),
-                        kind: message.kind,
-                        turn_id: None,
-                        keyboard: Some(keyboard),
-                        force_reply: false,
-                    },
-                )
-                .await;
+                self.post_card(chat_id, &message.session_key, &text, approval)
+                    .await;
+                return Ok(());
+            }
+            if let Some(call_id) = marked(&message.metadata, APPROVAL_SETTLED_METADATA_KEY) {
+                if self
+                    .settle_card(chat_id, call_id, &text, message.kind)
+                    .await
+                    || message.kind == OutboundKind::Update
+                {
+                    return Ok(());
+                }
+            } else if let Some(call_id) = marked(&message.metadata, APPROVAL_ERROR_METADATA_KEY)
+                && self.reopen_card(chat_id, call_id, &text).await
+            {
+                return Ok(());
+            }
+            if message.kind == OutboundKind::Update {
                 return Ok(());
             }
 
@@ -1115,29 +1263,15 @@ fn approval_of(metadata: &Map<String, Value>) -> Option<ApprovalDraftDetail> {
             .get("expiresAtMs")
             .and_then(Value::as_u64)
             .unwrap_or(0),
+        command: detail
+            .get("command")
+            .and_then(|command| serde_json::from_value(command.clone()).ok()),
     })
 }
 
-/// The card an approval shows.
-///
-/// The tool and its risk band, and nothing the model wrote. The arguments never
-/// leave the projection — see the note there — so there is nothing here to leak
-/// into the one place a human is being asked to make a judgement.
-fn approval_text(text: &str, approval: &ApprovalDraftDetail) -> String {
-    format!(
-        "🔐 {text}\n\ntool: `{}` · risk: {}",
-        approval.name,
-        risk_words(approval.risk)
-    )
-}
-
-fn risk_words(risk: ToolRisk) -> &'static str {
-    match risk {
-        ToolRisk::Safe => "safe",
-        ToolRisk::Write => "write",
-        ToolRisk::Exec => "exec",
-        ToolRisk::Network => "network",
-    }
+/// The call an approval marker on the metadata names, if there is one.
+fn marked<'a>(metadata: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    metadata.get(key)?.get("callId")?.as_str()
 }
 
 fn scope_words(scope: ApprovalScope) -> &'static str {

@@ -153,13 +153,15 @@ impl TelegramRenderer {
         outcome
     }
 
-    /// Rewrites a message this channel posted earlier. For a settled card.
+    /// Rewrites a message this channel posted earlier. For a settled card, or
+    /// one whose buttons come back.
     pub async fn update(
         &self,
         chat_id: i64,
         message_id: i64,
         text: &str,
         markdown: bool,
+        keyboard: Option<InlineKeyboardMarkup>,
         token: &CancellationToken,
     ) {
         let result = self
@@ -174,7 +176,7 @@ impl TelegramRenderer {
                         text.to_owned()
                     },
                     markdown,
-                    reply_markup: None,
+                    reply_markup: keyboard,
                 },
                 token,
             )

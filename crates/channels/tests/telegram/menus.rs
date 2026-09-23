@@ -10,7 +10,7 @@ use darkwire_channels::telegram::menus::{
 };
 use darkwire_core::clock::Clock;
 use darkwire_core::testkit::ManualClock;
-use darkwire_protocol::ApprovalScope;
+use darkwire_protocol::{ApprovalScope, ExecRule, ToolPermission};
 
 const NOW: i64 = 1_700_000_000_000;
 
@@ -54,6 +54,7 @@ fn a_token_is_short_whatever_it_points_at() {
             session_key: long.to_owned(),
             approved: true,
             scope: ApprovalScope::Once,
+            rule: None,
         },
         None,
     );
@@ -128,6 +129,7 @@ fn an_approval_answers_once() {
             session_key: "telegram:4471".to_owned(),
             approved: true,
             scope: ApprovalScope::Once,
+            rule: None,
         },
         None,
     );
@@ -166,6 +168,7 @@ fn an_approval_button_inherits_the_gates_own_deadline() {
             session_key: "telegram:4471".to_owned(),
             approved: true,
             scope: ApprovalScope::Once,
+            rule: None,
         },
         Some(NOW + 1000),
     );
@@ -348,7 +351,7 @@ fn an_approval_offers_two_scopes_and_one_refusal() {
     // for an hour.
     let (store, _clock) = store();
 
-    let keyboard = approval_keyboard("call-1", "telegram:4471", 4471, &store, NOW + 60_000);
+    let keyboard = approval_keyboard("call-1", "telegram:4471", 4471, &store, NOW + 60_000, None);
 
     let labels: Vec<&str> = keyboard
         .inline_keyboard
@@ -367,6 +370,58 @@ fn an_approval_offers_two_scopes_and_one_refusal() {
     };
     assert!(!approved);
     assert_eq!(scope, ApprovalScope::Once);
+}
+
+#[test]
+fn an_exec_approval_can_also_save_a_rule() {
+    let (store, _clock) = store();
+    let rule = ExecRule {
+        action: ToolPermission::Allow,
+        argv: vec!["git".to_owned(), "log".to_owned(), "*".to_owned()],
+    };
+
+    let keyboard = approval_keyboard(
+        "call-1",
+        "telegram:4471",
+        4471,
+        &store,
+        NOW + 60_000,
+        Some(rule.clone()),
+    );
+
+    let always = &keyboard.inline_keyboard[1][0];
+    assert_eq!(always.text, "✅ Always: git log *");
+    let CallbackLookup::Found(CallbackPayload::Approve {
+        approved,
+        scope,
+        rule: saved,
+        ..
+    }) = store.take(&always.callback_data, 4471)
+    else {
+        panic!("always is an approval payload");
+    };
+    assert!(approved);
+    assert_eq!(scope, ApprovalScope::Session);
+    assert_eq!(saved, Some(rule));
+    assert_eq!(keyboard.inline_keyboard[2][0].text, "⛔ Deny");
+}
+
+#[test]
+fn forgetting_a_call_drops_only_its_buttons() {
+    let (store, _clock) = store();
+    let first = approval_keyboard("a", "telegram:4471", 4471, &store, NOW + 60_000, None);
+    let second = approval_keyboard("b", "telegram:4471", 4471, &store, NOW + 60_000, None);
+
+    store.forget_call("a");
+
+    assert_eq!(
+        store.take(&first.inline_keyboard[0][0].callback_data, 4471),
+        CallbackLookup::Refused(CallbackRefusal::Expired)
+    );
+    assert!(matches!(
+        store.take(&second.inline_keyboard[0][0].callback_data, 4471),
+        CallbackLookup::Found(_)
+    ));
 }
 
 #[test]

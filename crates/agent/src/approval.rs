@@ -19,9 +19,10 @@
 //!    tab closed on an open prompt — would otherwise hang the turn forever,
 //!    and the turn is the only party that knows it is still waiting.
 //!
-//! An absent gate means nobody is there to ask, so an `ask` policy runs the
-//! tool: that is what keeps a one-shot terminal turn working. A `deny` policy
-//! is refused either way, since refusing needs no one to answer.
+//! An absent gate means the process chose to run `ask` tools unasked, which is
+//! what `darkwire chat --yes` means. A surface that can show a prompt installs a
+//! gate that asks, and one that cannot installs a gate that refuses. A `deny`
+//! policy is refused either way, since refusing needs no one to answer.
 
 use darkwire_core::Result;
 use darkwire_protocol::{ApprovalScope, CommandPolicy, ToolRisk};
@@ -112,9 +113,10 @@ impl ApprovalDecision {
 pub trait ApprovalGate: Send + Sync {
     /// Resolves when a decision is made.
     ///
-    /// An error is treated as a refusal — a gate that fails open is not a
-    /// gate. An `aborted` error is the exception and means the turn ended
-    /// under the prompt, which is a cancellation rather than a denial.
+    /// An error is treated as a refusal, because a gate that fails open is
+    /// not a gate. Two kinds read differently: `aborted` means the turn ended
+    /// under the prompt, a cancellation rather than a denial, and `timeout`
+    /// means nobody answered in time.
     fn ask<'a>(&'a self, request: &'a ApprovalRequest) -> BoxFuture<'a, Result<ApprovalDecision>>;
 
     /// The answer this gate already holds, if it holds one.
@@ -132,13 +134,22 @@ pub trait ApprovalGate: Send + Sync {
         let _ = request;
         None
     }
+
+    /// Whether this gate has nobody to put `request` to.
+    ///
+    /// `true` refuses the call with [`DenialReason::NoPrompt`] and announces
+    /// no prompt, since nothing could answer one. A gate that says so is told
+    /// about each call it turns away, so it can report them afterwards.
+    fn cannot_ask(&self, request: &ApprovalRequest) -> bool {
+        let _ = request;
+        false
+    }
 }
 
 /// Why a call was refused.
 ///
-/// `Policy` and `Rule` never reached a human; the other two did, or should
-/// have. The
-/// distinction is worth keeping because it is the difference between "this
+/// `Policy`, `Rule` and `NoPrompt` never reached a human; the other two did,
+/// or should have. The distinction is worth keeping because it is the difference between "this
 /// deployment does not do that" and "you were asked and said no", and a model
 /// that cannot tell them apart retries the first one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -151,6 +162,8 @@ pub enum DenialReason {
     Declined,
     /// Nobody answered before the deadline.
     Timeout,
+    /// The session has no way to ask, such as a one-shot terminal run.
+    NoPrompt,
 }
 
 /// What the model reads. Phrased to stop a retry loop, not to explain a UI.
@@ -169,6 +182,9 @@ pub fn denied_tool_result(name: &str, reason: DenialReason) -> String {
         DenialReason::Declined => format!("the user refused this call to \"{name}\""),
         DenialReason::Timeout => {
             format!("nobody answered the approval request for \"{name}\" in time")
+        }
+        DenialReason::NoPrompt => {
+            format!("\"{name}\" needs approval and this session has nobody to ask")
         }
     };
     format!(
@@ -189,6 +205,9 @@ pub fn denied_notice(name: &str, reason: DenialReason) -> String {
         DenialReason::Declined => format!("Denied \"{name}\": the call was refused."),
         DenialReason::Timeout => {
             format!("Denied \"{name}\": the approval request expired before it was answered.")
+        }
+        DenialReason::NoPrompt => {
+            format!("Denied \"{name}\": it needs approval and this session cannot ask for it.")
         }
     }
 }

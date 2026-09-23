@@ -42,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
-use darkwire_core::{Clock, Result, SystemClock};
+use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::tools::ApprovalScope;
 use darkwire_providers::BoxFuture;
 use parking_lot::Mutex;
@@ -276,18 +276,22 @@ impl HubApprovalGate {
         else {
             return;
         };
-        if watchers(&request.session_key) > 0 {
+        // The conversation, for the same reason as the memory: a subagent's
+        // session has no watchers of its own, and the person who would answer
+        // is looking at its parent.
+        let session_key = HubApprovalGate::scope_of(request);
+        if watchers(session_key) > 0 {
             return;
         }
 
         tracing::info!(
-            session_key = %request.session_key,
+            session_key = %session_key,
             tool = %request.name,
             call_id = %request.call_id,
             "approval request raised on a session nobody is watching"
         );
         sink(UnattendedApproval {
-            session_key: request.session_key.clone(),
+            session_key: session_key.to_owned(),
             agent_id: request.agent_id.clone(),
             tool_name: request.name.clone(),
             expires_at_ms: request.expires_at_ms,
@@ -296,21 +300,26 @@ impl HubApprovalGate {
 
     /// Parks one request and waits for whichever of the three answers arrives
     /// first.
-    async fn park(&self, request: &ApprovalRequest) -> ApprovalDecision {
+    ///
+    /// An expiry is an error of kind `timeout`, not a refusal, so the loop can
+    /// tell the model nobody answered rather than that somebody said no. This
+    /// timer and the loop's count down to the same instant, and this one
+    /// usually fires first.
+    async fn park(&self, request: &ApprovalRequest) -> Result<ApprovalDecision> {
         if let Some(remembered) = ApprovalGate::remembered(self, request) {
             tracing::debug!(
                 session_key = %request.session_key,
                 tool = %request.name,
                 "approval answered from memory"
             );
-            return remembered;
+            return Ok(remembered);
         }
 
         // A turn already cancelled has nobody left to show a prompt to. Parking
         // one would rely on a cancellation that has already happened firing
         // again, which it never does.
         if request.token.is_cancelled() {
-            return denial("the turn was cancelled");
+            return Ok(denial("the turn was cancelled"));
         }
 
         let (tx, rx) = oneshot::channel();
@@ -341,15 +350,15 @@ impl HubApprovalGate {
             .expires_at_ms
             .saturating_sub(u64::try_from(self.clock.now_ms()).unwrap_or(0));
 
-        let decision = tokio::select! {
+        tokio::select! {
             // Biased, and the order is the decision: an answer that has
             // arrived beats a deadline that expired in the same instant,
             // and a cancellation beats a deadline that never mattered.
             biased;
-            answered = rx => answered.unwrap_or_else(|_| denial("the approval request was dropped")),
+            answered = rx => Ok(answered.unwrap_or_else(|_| denial("the approval request was dropped"))),
             () = request.token.cancelled() => {
                 self.forget(&request.call_id);
-                denial("the turn was cancelled")
+                Ok(denial("the turn was cancelled"))
             }
             () = tokio::time::sleep(Duration::from_millis(remaining)) => {
                 tracing::warn!(
@@ -359,10 +368,9 @@ impl HubApprovalGate {
                     "approval request expired unanswered"
                 );
                 self.forget(&request.call_id);
-                denial("the approval request expired")
+                Err(WireError::new(ErrorKind::Timeout, "the approval request expired"))
             }
-        };
-        decision
+        }
     }
 
     /// Drops a parked entry without settling it — the caller already has the
@@ -374,7 +382,7 @@ impl HubApprovalGate {
 
 impl ApprovalGate for HubApprovalGate {
     fn ask<'a>(&'a self, request: &'a ApprovalRequest) -> BoxFuture<'a, Result<ApprovalDecision>> {
-        Box::pin(async move { Ok(self.park(request).await) })
+        Box::pin(self.park(request))
     }
 
     /// The same lookup `park` starts with, offered before the prompt is

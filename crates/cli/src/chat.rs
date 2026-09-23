@@ -35,8 +35,8 @@
 use std::future::Future;
 use std::io::{IsTerminal, Write};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use darkwire_agent::{AgentLoop, PromptPreviewInput, describe_context};
 use darkwire_core::messages::Content;
@@ -53,6 +53,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::Streams;
+use crate::approval::{TerminalGate, rule_saver};
 use crate::commands::{SlashContext, SlashOutcome, run_slash_command};
 use crate::header::{ContextUsage, HeaderView, startup_header};
 use crate::i18n::{Env, Translations, describe_error};
@@ -234,6 +235,8 @@ pub struct ChatSession {
     /// The process environment, for the one question the prompt asks of it:
     /// whether this terminal can draw a menu at all.
     env: Env,
+    /// Who is asked before a tool set to `ask` runs. `None` under `--yes`.
+    pub(crate) approvals: Option<Arc<TerminalGate>>,
 }
 
 impl ChatSession {
@@ -476,6 +479,16 @@ impl ChatSession {
 /// Separate from [`run`] so a test can drive a whole prompt without a terminal
 /// or a signal handler.
 pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession> {
+    // Built before the runtime, which carries it into every agent's loop, and
+    // told where the runtime is once there is one. `--yes` installs none, and
+    // then every tool set to `ask` runs unasked.
+    let built = Arc::new(OnceLock::new());
+    let approvals = (!args.yes).then(|| {
+        Arc::new(TerminalGate::new(
+            rule_saver(Arc::clone(&built)),
+            Translations::for_env(env, None).locale(),
+        ))
+    });
     let runtime = darkwire_runtime::create_runtime(RuntimeOptions {
         home: globals.home.clone(),
         workspaces: args.workspaces.clone(),
@@ -483,8 +496,12 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
         provider: args.provider.clone(),
         tools: args.tools,
         env: Some(env_map(env)),
+        approvals: approvals
+            .clone()
+            .map(|gate| gate as Arc<dyn darkwire_agent::ApprovalGate>),
         ..RuntimeOptions::default()
     })?;
+    let _ = built.set(Arc::downgrade(&runtime));
 
     // A prompt with no `-s` starts a conversation of its own rather than
     // continuing whichever one ran last. Opening the prompt and being handed
@@ -503,6 +520,9 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
     // answer exists — `config.ui.locale` sits under `DARKWIRE_LANG` and above the
     // shell's `LANG` in the order the resolution applies.
     let t = Translations::for_env(env, Some(&runtime.config().ui.locale));
+    if let Some(gate) = &approvals {
+        gate.set_locale(t.locale());
+    }
 
     let models = create_model_catalogue(
         Arc::clone(&runtime),
@@ -544,6 +564,7 @@ pub fn open(globals: &Globals, args: &ChatArgs, env: &Env) -> Result<ChatSession
         context: None,
         runtime,
         t,
+        approvals,
     })
 }
 
@@ -568,6 +589,13 @@ pub async fn run(
 
     let mut session = open(globals, &args, env)?;
     let code = drive(&mut session, &args, streams).await;
+    if let Some(hint) = session
+        .approvals
+        .as_ref()
+        .and_then(|gate| gate.refused_hint())
+    {
+        let _ = writeln!(streams.err, "{hint}");
+    }
     session.runtime.close().await;
     code
 }

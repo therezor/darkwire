@@ -188,6 +188,10 @@ pub enum Answer {
     Fail,
     /// Never answers, so the loop's own deadline decides.
     Silent,
+    /// Reaches its own deadline before the loop's does.
+    Expire,
+    /// Has nobody to ask, so the loop refuses without calling `ask`.
+    NoOne,
 }
 
 impl ScriptedGate {
@@ -234,7 +238,11 @@ impl ApprovalGate for ScriptedGate {
                     darkwire_core::ErrorKind::Internal,
                     "the gate fell over",
                 )),
-                Answer::Silent => {
+                Answer::Expire => Err(darkwire_core::WireError::new(
+                    darkwire_core::ErrorKind::Timeout,
+                    "the approval request expired",
+                )),
+                Answer::Silent | Answer::NoOne => {
                     std::future::pending::<()>().await;
                     unreachable!()
                 }
@@ -244,6 +252,14 @@ impl ApprovalGate for ScriptedGate {
 
     fn remembered(&self, _request: &ApprovalRequest) -> Option<ApprovalDecision> {
         self.remembered.lock().unwrap().clone()
+    }
+
+    fn cannot_ask(&self, request: &ApprovalRequest) -> bool {
+        let no_one = matches!(self.answers.lock().unwrap().first(), Some(Answer::NoOne));
+        if no_one {
+            self.seen.lock().unwrap().push(request.clone());
+        }
+        no_one
     }
 }
 

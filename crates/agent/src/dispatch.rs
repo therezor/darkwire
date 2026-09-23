@@ -748,9 +748,9 @@ impl ToolDispatcher {
         }
 
         let denial = {
-            // `ask` with nobody to ask. Denying here would make the default
-            // config refuse every `exec` in a terminal session, where the
-            // operator asking for the command *is* the approval.
+            // No gate at all is the process saying `ask` runs unasked, which
+            // is `darkwire chat --yes`. A surface that cannot ask installs a
+            // gate that refuses instead.
             let gate = self.approvals.as_ref()?;
 
             let timeout_ms = self.approval_timeout_ms;
@@ -778,7 +778,9 @@ impl ToolDispatcher {
             // point. "This session" means the question stops being asked; a
             // prompt announced first would appear on every client and be
             // replaced in the same breath by the answer the gate already held.
-            let outcome = if let Some(decision) = gate.remembered(&request) {
+            let outcome = if gate.cannot_ask(&request) {
+                ApprovalOutcome::Denied(DenialReason::NoPrompt)
+            } else if let Some(decision) = gate.remembered(&request) {
                 ApprovalOutcome::of(&decision)
             } else {
                 sink.emit(ToolApprovalRequest {
@@ -875,6 +877,11 @@ impl ToolDispatcher {
                     }
                 }
                 Err(error) if error.is_aborted() => ApprovalOutcome::Aborted,
+                // The gate keeps its own deadline, and reaching it first is
+                // still nobody answering.
+                Err(error) if error.kind == ErrorKind::Timeout => {
+                    ApprovalOutcome::Denied(DenialReason::Timeout)
+                }
                 Err(error) => {
                     tracing::error!(tool = %request.name, err = %error.message, "approval gate failed");
                     ApprovalOutcome::Denied(DenialReason::Declined)

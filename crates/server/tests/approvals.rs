@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
+use darkwire_core::ErrorKind;
 use darkwire_core::testkit::ManualClock;
 use darkwire_protocol::tools::{ApprovalScope, ToolRisk};
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions, UnattendedApproval};
@@ -28,6 +29,7 @@ const SOON_MS: u64 = 30;
 #[derive(Default)]
 struct RequestOptions {
     session_key: Option<&'static str>,
+    root_session_key: Option<&'static str>,
     agent_id: Option<&'static str>,
     call_id: Option<&'static str>,
     name: Option<&'static str>,
@@ -39,7 +41,9 @@ struct RequestOptions {
 fn approval_request(options: RequestOptions) -> ApprovalRequest {
     let session_key = options.session_key.unwrap_or("web:1").to_owned();
     ApprovalRequest {
-        root_session_key: session_key.clone(),
+        root_session_key: options
+            .root_session_key
+            .map_or_else(|| session_key.clone(), str::to_owned),
         session_key,
         agent_id: options.agent_id.unwrap_or("default").to_owned(),
         turn_id: "turn-1".to_owned(),
@@ -71,6 +75,15 @@ fn gate_at(start_ms: i64) -> Arc<HubApprovalGate> {
 fn ask(gate: &Arc<HubApprovalGate>, request: ApprovalRequest) -> JoinHandle<ApprovalDecision> {
     let gate = Arc::clone(gate);
     tokio::spawn(async move { gate.ask(&request).await.unwrap() })
+}
+
+/// Asks and keeps the error, for the tests about a deadline.
+fn ask_until_expiry(
+    gate: &Arc<HubApprovalGate>,
+    request: ApprovalRequest,
+) -> JoinHandle<darkwire_core::Result<ApprovalDecision>> {
+    let gate = Arc::clone(gate);
+    tokio::spawn(async move { gate.ask(&request).await })
 }
 
 /// Waits until the gate is holding `count` prompts, so an answer is not sent
@@ -353,11 +366,13 @@ async fn hands_back_the_request_still_parked_under_a_call() {
 // Deadlines and cancellation
 
 #[tokio::test]
-async fn denies_when_the_deadline_passes_unanswered() {
-    // A real deadline, a short one: the assertion is that it *denies*, which
-    // only becomes more true the longer the machine takes to get here.
+async fn times_out_when_the_deadline_passes_unanswered() {
+    // A real deadline, a short one: the assertion is that it *expires*, which
+    // only becomes more true the longer the machine takes to get here. An
+    // error of kind `timeout`, so the loop tells the model nobody answered
+    // rather than that somebody said no.
     let gate = gate_at(START_MS);
-    let pending = ask(
+    let pending = ask_until_expiry(
         &gate,
         approval_request(RequestOptions {
             expires_at_ms: Some(u64::try_from(START_MS).unwrap() + SOON_MS),
@@ -365,24 +380,25 @@ async fn denies_when_the_deadline_passes_unanswered() {
         }),
     );
 
-    assert!(!pending.await.unwrap().approved);
+    let error = pending.await.unwrap().unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Timeout);
     assert_eq!(gate.pending_count(), 0);
 }
 
 #[tokio::test]
-async fn denies_immediately_when_the_deadline_has_already_passed() {
+async fn times_out_immediately_when_the_deadline_has_already_passed() {
     // The loop hands the gate a wall-clock instant, and a clock that has moved
     // is not a reason to wait forever.
     let gate = gate_at(START_MS);
-    let decision = gate
+    let error = gate
         .ask(&approval_request(RequestOptions {
             expires_at_ms: Some(u64::try_from(START_MS).unwrap() - 1),
             ..RequestOptions::default()
         }))
         .await
-        .unwrap();
+        .unwrap_err();
 
-    assert!(!decision.approved);
+    assert_eq!(error.kind, ErrorKind::Timeout);
     assert_eq!(gate.pending_count(), 0);
 }
 
@@ -579,6 +595,38 @@ async fn stays_quiet_when_a_tab_is_open_on_the_session() {
 }
 
 #[tokio::test]
+async fn counts_a_subagent_prompt_against_the_conversation_watching_it() {
+    // A subagent's session exists for one delegation and nothing subscribes to
+    // it. The person who would answer is looking at the parent.
+    let (gate, raised) = watched(&[("web:1", 1)]);
+    let _pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1:sub:1"),
+            root_session_key: Some("web:1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    assert!(raised.lock().is_empty());
+}
+
+#[tokio::test]
+async fn raises_an_unwatched_subagent_prompt_against_its_conversation() {
+    let (gate, raised) = watched(&[]);
+    let _pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("automation:job-1:run-1:sub:1"),
+            root_session_key: Some("automation:job-1:run-1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    assert_eq!(raised.lock()[0].session_key, "automation:job-1:run-1");
+}
+
+#[tokio::test]
 async fn does_not_raise_for_a_call_answered_from_memory_which_asks_nobody() {
     let (gate, raised) = watched(&[]);
     let first = ask(
@@ -626,7 +674,7 @@ async fn raises_once_when_it_parks_not_again_when_it_expires() {
     // A notification saying "this needed you five minutes ago" is worse than
     // none: by the timeout the answer is already decided.
     let (gate, raised) = watched(&[]);
-    let pending = ask(
+    let pending = ask_until_expiry(
         &gate,
         approval_request(RequestOptions {
             expires_at_ms: Some(u64::try_from(START_MS).unwrap() + SOON_MS),
@@ -636,7 +684,7 @@ async fn raises_once_when_it_parks_not_again_when_it_expires() {
     parked(&gate, 1).await;
     assert_eq!(raised.lock().len(), 1);
 
-    assert!(!pending.await.unwrap().approved);
+    assert!(pending.await.unwrap().is_err());
     assert_eq!(raised.lock().len(), 1);
 }
 

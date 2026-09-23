@@ -7,6 +7,7 @@
 
 pub mod access;
 pub mod api;
+pub mod approvals;
 pub mod channel;
 pub mod chats;
 pub mod commands;

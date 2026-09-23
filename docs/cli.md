@@ -72,6 +72,7 @@ git log --oneline -20 | darkwire chat "what changed"   # a pipe target
 | `--json`                  | One agent event per line, as JSON.                       |
 | `--no-reasoning`          | Hide the model's reasoning for this run.                 |
 | `--no-tools`              | Run the turn with no tools registered at all.            |
+| `--yes`                   | Run tools set to `ask` without asking.                   |
 
 **`-w` and `-W` are deliberately different flags** for two different things, and the
 capital is the narrower one: `-w` says which folder holds the workspaces, `-W` picks one
@@ -79,6 +80,26 @@ inside it. Reaching for the wrong one moves your files rather than switching fol
 
 `--json` is the scripting surface. Each line is one event from the same stream the web UI
 consumes, so a script can watch tool calls go by rather than waiting for prose.
+
+### Approvals
+
+A tool set to `ask` (by default `exec`) stops and asks before it runs. The prompt puts
+the question under the composer, with the command it would run:
+
+- **Yes, once** runs this call.
+- **Yes, for this session** runs this call and any identical one later in the conversation.
+- **Yes, and always allow `<pattern>`** saves a command rule on the agent, the same rule
+  the web prompt saves. Offered for `exec` only, and never for a shell.
+- **No**, or escape, refuses this call. The model is told, and the turn goes on.
+
+The question closes on its own when the turn is stopped or the agent's
+`approvalTimeoutMs` passes.
+
+A run with nobody to ask refuses every `ask` call at once: a one-shot
+`darkwire chat "…"`, `--json`, a pipe, and the plain prompt on a terminal that cannot
+draw one. The model is told that nobody could approve it, and `darkwire` says how many
+were refused when it exits. `--yes` runs them unasked instead, which is what a script
+that trusts its agent wants.
 
 The prompt draws a small live area on the **last few rows of your ordinary screen**.
 Everything an exchange finishes with is printed above it and belongs to the terminal from

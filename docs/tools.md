@@ -411,10 +411,17 @@ The split of responsibility is worth knowing:
   `tool.approvalRequest` for `ask`, and owns the deadline.
 - **The gate decides the answer.** It is whatever the transport installed.
 
-**With no gate installed, `ask` runs the tool.** That is what keeps `darkwire chat` in a
-terminal unchanged. The operator typing the request _is_ the approval, and a prompt with
-no UI to answer it would deadlock. Any transport that exposes the agent beyond its
-operator's keyboard must install a gate; the server does.
+**Every surface that can ask, asks.** The web UI shows a card, Telegram a card with
+buttons, and `darkwire chat` a question under the composer. All three show the command
+and offer the same answers: once, this session, a standing rule for `exec`, and no.
+
+**A surface that cannot ask refuses.** A one-shot `darkwire chat "…"`, `--json` and a pipe
+have nothing to answer with, so an `ask` call is refused at once, with no prompt announced,
+and the model is told nobody could approve it. **With no gate installed, `ask` runs the
+tool.** Only `darkwire chat --yes` builds a loop that way.
+
+A prompt nobody answers is refused when the agent's `approvalTimeoutMs` passes. The model
+is told nobody answered in time, which it reads differently from a person saying no.
 
 ### Command rules
 

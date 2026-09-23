@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use darkwire_channels::channel::Channel;
 use darkwire_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
-use darkwire_channels::projection::APPROVAL_METADATA_KEY;
+use darkwire_channels::projection::{
+    APPROVAL_ERROR_METADATA_KEY, APPROVAL_METADATA_KEY, APPROVAL_SETTLED_METADATA_KEY,
+};
 use darkwire_channels::telegram::api::HttpClient;
 use darkwire_channels::telegram::channel::{TelegramChannelOptions, telegram_channel};
 use darkwire_channels::telegram::console::TelegramConsole;
@@ -714,6 +716,332 @@ async fn answering_an_approval_sends_the_frame_a_browser_would_have() {
     assert!(body.approved);
     assert_eq!(body.scope, ApprovalScope::Once);
     assert!(bot.api.said("Approved once"), "{:?}", bot.api.texts());
+
+    bot.manager.stop().await;
+}
+
+fn exec_approval(argv: &[&str]) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert(
+        APPROVAL_METADATA_KEY.to_owned(),
+        json!({
+            "callId": "call-1",
+            "name": "exec",
+            "risk": "exec",
+            "expiresAtMs": 4_000_000_000_000_i64,
+            "command": { "argv": argv, "shell": argv.first() == Some(&"sh") },
+        }),
+    );
+    metadata
+}
+
+fn marker(key: &str) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert(key.to_owned(), json!({ "callId": "call-1" }));
+    metadata
+}
+
+/// The token on the button labelled `label` in the last keyboard posted.
+fn token_labelled(bot: &Bot, label: &str) -> String {
+    bot.api
+        .calls()
+        .iter()
+        .rev()
+        .find_map(|call| {
+            call.body
+                .get("reply_markup")?
+                .get("inline_keyboard")?
+                .as_array()?
+                .iter()
+                .flat_map(|row| row.as_array().into_iter().flatten())
+                .find(|button| {
+                    button["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with(label))
+                })?
+                .get("callback_data")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| panic!("no button labelled {label}"))
+}
+
+#[tokio::test]
+async fn an_exec_card_shows_the_command_and_offers_a_rule() {
+    let bot = bot().await;
+
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["git", "log", "-5"]),
+    )
+    .await;
+
+    let body = &bot.api.bodies("sendMessage")[0];
+    let text = body["text"].as_str().expect("text");
+    assert!(text.contains("command: `git log -5`"), "{text}");
+    let labels: Vec<&str> = body["reply_markup"]["inline_keyboard"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| row.as_array().unwrap())
+        .map(|button| button["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        labels,
+        vec![
+            "✅ Once",
+            "✅ This session",
+            "✅ Always: git log -5 *",
+            "⛔ Deny"
+        ]
+    );
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_long_command_is_cut_before_it_reaches_the_chat() {
+    // A card can land in a group, and a command can carry a token.
+    let bot = bot().await;
+    let secret = "x".repeat(200);
+
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["curl", "-H", &secret]),
+    )
+    .await;
+
+    let text = bot.api.bodies("sendMessage")[0]["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(text.contains('…'), "{text}");
+    assert!(!text.contains(&secret), "{text}");
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_shell_is_never_offered_a_rule() {
+    let bot = bot().await;
+
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["sh", "-c", "ls"]),
+    )
+    .await;
+
+    let rows = bot.api.bodies("sendMessage")[0]["reply_markup"]["inline_keyboard"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(rows, 2);
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn always_sends_the_rule_with_the_answer() {
+    let bot = bot().await;
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["git", "log"]),
+    )
+    .await;
+
+    bot.api.push(callback_update(
+        &token_labelled(&bot, "✅ Always"),
+        USER,
+        None,
+    ));
+    flush().await;
+
+    let frames = bot.hub.only().frames();
+    let darkwire_protocol::ClientMessage::ToolApprove(body) = &frames
+        .iter()
+        .find(|frame| frame.tag == "tool.approve")
+        .expect("an approval frame")
+        .frame
+    else {
+        panic!("a tool.approve");
+    };
+    assert_eq!(body.scope, ApprovalScope::Session);
+    assert_eq!(
+        body.rule.as_ref().map(|rule| rule.argv.clone()),
+        Some(vec!["git".to_owned(), "log".to_owned(), "*".to_owned()])
+    );
+    assert!(bot.api.said("always allowed"), "{:?}", bot.api.texts());
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_card_answered_elsewhere_loses_its_buttons() {
+    let bot = bot().await;
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["ls"]),
+    )
+    .await;
+    let once = token_labelled(&bot, "✅ Once");
+
+    deliver(
+        &bot,
+        OutboundKind::Update,
+        "No longer waiting for an answer.",
+        marker(APPROVAL_SETTLED_METADATA_KEY),
+    )
+    .await;
+
+    let edit = &bot.api.bodies("editMessageText")[0];
+    // The fake numbers posted messages from 101.
+    assert_eq!(edit["message_id"], json!(101));
+    assert!(edit["text"].as_str().unwrap().contains("No longer waiting"));
+    assert!(!edit.contains_key("reply_markup"));
+    assert_eq!(bot.api.count("sendMessage"), 1);
+
+    // A late press on the old card does nothing.
+    bot.api.push(callback_update(&once, USER, None));
+    flush().await;
+    assert!(
+        bot.hub.connections().iter().all(|connection| connection
+            .frames()
+            .iter()
+            .all(|frame| frame.tag != "tool.approve")),
+        "a settled card must not answer"
+    );
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_denial_edits_the_card_rather_than_posting_under_it() {
+    let bot = bot().await;
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["ls"]),
+    )
+    .await;
+
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "Denied \"exec\": the approval request expired before it was answered.",
+        marker(APPROVAL_SETTLED_METADATA_KEY),
+    )
+    .await;
+
+    assert_eq!(bot.api.count("sendMessage"), 1);
+    let edit = &bot.api.bodies("editMessageText")[0];
+    assert!(
+        edit["text"].as_str().unwrap().contains("expired"),
+        "{edit:?}"
+    );
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn an_update_for_a_card_this_channel_never_posted_is_dropped() {
+    let bot = bot().await;
+
+    deliver(
+        &bot,
+        OutboundKind::Update,
+        "No longer waiting for an answer.",
+        marker(APPROVAL_SETTLED_METADATA_KEY),
+    )
+    .await;
+
+    assert_eq!(bot.api.count("sendMessage"), 0);
+    assert_eq!(bot.api.count("editMessageText"), 0);
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_card_answered_here_ends_on_the_button_that_was_pressed() {
+    let bot = bot().await;
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["ls"]),
+    )
+    .await;
+    bot.api.push(callback_update(
+        &token_labelled(&bot, "✅ Once"),
+        USER,
+        None,
+    ));
+    flush().await;
+
+    deliver(
+        &bot,
+        OutboundKind::Update,
+        "No longer waiting for an answer.",
+        marker(APPROVAL_SETTLED_METADATA_KEY),
+    )
+    .await;
+
+    let edits = bot.api.bodies("editMessageText");
+    let last = edits.last().unwrap()["text"].as_str().unwrap().to_owned();
+    assert!(last.contains("Approved once"), "{last}");
+    assert!(!last.contains("Waiting"), "{last}");
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn a_refused_rule_puts_the_buttons_back_without_it() {
+    let bot = bot().await;
+    deliver(
+        &bot,
+        OutboundKind::Notice,
+        "needs approval",
+        exec_approval(&["git", "log"]),
+    )
+    .await;
+    bot.api.push(callback_update(
+        &token_labelled(&bot, "✅ Always"),
+        USER,
+        None,
+    ));
+    flush().await;
+
+    deliver(
+        &bot,
+        OutboundKind::Error,
+        "The rule \"git *\" is more specific and would still apply to this command.",
+        marker(APPROVAL_ERROR_METADATA_KEY),
+    )
+    .await;
+
+    assert_eq!(bot.api.count("sendMessage"), 1);
+    let edit = bot.api.bodies("editMessageText").last().unwrap().clone();
+    assert!(
+        edit["text"].as_str().unwrap().contains("more specific"),
+        "{edit:?}"
+    );
+    let labels: Vec<String> = edit["reply_markup"]["inline_keyboard"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| row.as_array().unwrap())
+        .map(|button| button["text"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(labels, vec!["✅ Once", "✅ This session", "⛔ Deny"]);
 
     bot.manager.stop().await;
 }

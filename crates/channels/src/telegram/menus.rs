@@ -23,11 +23,12 @@
 use std::sync::Arc;
 
 use darkwire_core::clock::Clock;
-use darkwire_protocol::ApprovalScope;
+use darkwire_protocol::{ApprovalScope, ExecRule};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 
 use crate::telegram::api::{InlineKeyboardButton, InlineKeyboardMarkup};
+use crate::telegram::approvals::rule_label;
 
 /// Which listing a paging button belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub enum CallbackPayload {
         approved: bool,
         /// How long the decision holds.
         scope: ApprovalScope,
+        /// The command rule to save first, for "Always".
+        rule: Option<ExecRule>,
     },
     /// Attach this chat to a conversation.
     Session {
@@ -309,6 +312,13 @@ impl CallbackStore {
         CallbackLookup::Found(payload)
     }
 
+    /// Drops the buttons answering one approval, once it is settled elsewhere.
+    pub fn forget_call(&self, call_id: &str) {
+        self.state.lock().entries.retain(|_, entry| {
+            !matches!(&entry.payload, CallbackPayload::Approve { call_id: answers, .. } if answers == call_id)
+        });
+    }
+
     /// Drops everything for one chat. `/exit` detaching, or a menu superseded.
     pub fn forget(&self, chat_id: i64) {
         self.state
@@ -427,7 +437,8 @@ pub fn picker(
     picker_keyboard(rows, menu, chat_id, store, 0, DEFAULT_PAGE_SIZE)
 }
 
-/// Three buttons: the two approval scopes, and a refusal.
+/// Three buttons: the two approval scopes, and a refusal. A fourth, "Always",
+/// when `rule` names a command rule that may be saved from a prompt.
 ///
 /// Denial is `once` on purpose, though the gate remembers a refusal just as it
 /// remembers an approval. A "deny for the session" one tap away from "deny
@@ -440,30 +451,41 @@ pub fn approval_keyboard(
     chat_id: i64,
     store: &CallbackStore,
     expires_at_ms: i64,
+    rule: Option<ExecRule>,
 ) -> InlineKeyboardMarkup {
-    let button = |text: &str, approved: bool, scope: ApprovalScope| InlineKeyboardButton {
-        text: text.to_owned(),
-        callback_data: store.put(
-            chat_id,
-            CallbackPayload::Approve {
-                call_id: call_id.to_owned(),
-                session_key: session_key.to_owned(),
-                approved,
-                scope,
-            },
-            Some(expires_at_ms),
-        ),
+    let button = |text: &str, approved: bool, scope: ApprovalScope, rule: Option<ExecRule>| {
+        InlineKeyboardButton {
+            text: text.to_owned(),
+            callback_data: store.put(
+                chat_id,
+                CallbackPayload::Approve {
+                    call_id: call_id.to_owned(),
+                    session_key: session_key.to_owned(),
+                    approved,
+                    scope,
+                    rule,
+                },
+                Some(expires_at_ms),
+            ),
+        }
     };
 
-    InlineKeyboardMarkup {
-        inline_keyboard: vec![
-            vec![
-                button("✅ Once", true, ApprovalScope::Once),
-                button("✅ This session", true, ApprovalScope::Session),
-            ],
-            vec![button("⛔ Deny", false, ApprovalScope::Once)],
-        ],
+    let mut inline_keyboard = vec![vec![
+        button("✅ Once", true, ApprovalScope::Once, None),
+        button("✅ This session", true, ApprovalScope::Session, None),
+    ]];
+    // Session scope, as the web prompt sends it with a rule.
+    if let Some(rule) = rule {
+        let label = rule_label(&rule);
+        inline_keyboard.push(vec![button(
+            &label,
+            true,
+            ApprovalScope::Session,
+            Some(rule),
+        )]);
     }
+    inline_keyboard.push(vec![button("⛔ Deny", false, ApprovalScope::Once, None)]);
+    InlineKeyboardMarkup { inline_keyboard }
 }
 
 /// A yes/no pair for something that cannot be undone.

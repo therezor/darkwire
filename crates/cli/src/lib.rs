@@ -13,6 +13,7 @@
 
 pub mod agent;
 pub mod app;
+pub mod approval;
 pub mod ask;
 pub mod ask_overlay;
 pub mod bottom_pane;

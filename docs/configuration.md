@@ -540,6 +540,11 @@ they are tuning knobs, and a panel row for each would be four rows nobody reads.
 `admins` gates the commands that reach past one conversation — `/model`, which moves the
 whole install onto another model, and the workspace manager `/workspace` opens.
 
+**Approvals arrive as a card with buttons**, a subagent's included: Once, This session,
+Always (a command rule, for `exec` without a shell) and Deny. The card shows the command,
+cut to 80 characters because a card can land in a group. Anyone on the allowlist can
+press them. Answered in the browser, or expired, the card loses its buttons and says so.
+
 > The bot's `/model` is still the install-wide one described here, and still lasts only
 > as long as the process. The web UI's and the terminal's now edit the agent the session
 > runs on and save it; see [the CLI reference](cli.md#slash-commands).

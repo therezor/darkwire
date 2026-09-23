@@ -10,13 +10,14 @@
 mod common;
 
 use common::{
-    SESSION, TURN, approval_request, context_usage, delta, error, nested_delta, nested_turn_end,
-    nested_turn_start, notice, queued, reasoning, session_status, subagent, tool_call, tool_result,
-    turn_end, turn_start,
+    SESSION, TURN, approval_error, approval_request, context_usage, delta, denied, error,
+    exec_approval_request, nested_approval_request, nested_delta, nested_denied,
+    nested_tool_result, nested_turn_end, nested_turn_start, notice, queued, reasoning,
+    session_status, subagent, tool_call, tool_result, turn_end, turn_start,
 };
 use darkwire_channels::projection::{
-    APPROVAL_METADATA_KEY, ApprovalDraftDetail, OutboundDraft, TurnProjection,
-    TurnProjectionOptions,
+    APPROVAL_ERROR_METADATA_KEY, APPROVAL_METADATA_KEY, APPROVAL_SETTLED_METADATA_KEY,
+    ApprovalDraftDetail, OutboundDraft, TurnProjection, TurnProjectionOptions,
 };
 use darkwire_core::message_bus::OutboundKind;
 use darkwire_protocol::{ServerMessage, StopReason};
@@ -293,6 +294,166 @@ fn leaves_the_models_arguments_out_of_the_approval_detail() {
     assert!(!rendered.contains("rm -rf"), "{rendered}");
     assert!(!rendered.contains("hunter2"), "{rendered}");
     assert!(!drafts[0].text.contains("rm -rf"));
+}
+
+#[test]
+fn carries_the_command_so_nobody_approves_exec_blind() {
+    let mut projection = TurnProjection::new(TurnProjectionOptions::default());
+
+    let drafts = project_all(
+        &mut projection,
+        &[turn_start(), exec_approval_request("c1", &["git", "log"])],
+    );
+
+    let detail: ApprovalDraftDetail =
+        serde_json::from_value(drafts[0].metadata[APPROVAL_METADATA_KEY].clone()).unwrap();
+    assert_eq!(detail.command.unwrap().argv, vec!["git", "log"]);
+}
+
+#[test]
+fn announces_a_subagents_approval_request_even_with_hints_off() {
+    // The subagent is stopped until somebody answers. A prompt that never
+    // reached the chat waits out its whole deadline.
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            subagent("Researcher", nested_approval_request("s1", &["ls"])),
+        ],
+    );
+
+    assert_eq!(kinds(&drafts), vec![OutboundKind::Notice]);
+    assert_eq!(
+        drafts[0].metadata[APPROVAL_METADATA_KEY]["callId"],
+        serde_json::json!("s1")
+    );
+}
+
+fn settled(draft: &OutboundDraft) -> Option<&str> {
+    draft.metadata.get(APPROVAL_SETTLED_METADATA_KEY)?["callId"].as_str()
+}
+
+#[test]
+fn marks_the_denial_notice_as_settling_its_approval() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            exec_approval_request("c1", &["ls"]),
+            denied(
+                "c1",
+                "Denied \"exec\": the approval request expired before it was answered.",
+            ),
+        ],
+    );
+
+    assert_eq!(
+        kinds(&drafts),
+        vec![OutboundKind::Notice, OutboundKind::Notice]
+    );
+    assert_eq!(settled(&drafts[1]), Some("c1"));
+    assert!(drafts[1].text.contains("expired"));
+}
+
+#[test]
+fn leaves_a_denial_with_no_open_prompt_unmarked() {
+    // A policy or rule denial never announced a prompt, so there is no card.
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(&mut projection, &[turn_start(), denied("c1", "Blocked.")]);
+
+    assert_eq!(settled(&drafts[0]), None);
+}
+
+#[test]
+fn settles_an_approval_whose_call_went_ahead_with_an_update() {
+    // Answered in a browser: the call runs, and the card in the chat should
+    // stop offering buttons.
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            exec_approval_request("c1", &["ls"]),
+            tool_result("c1", true),
+            tool_result("c1", true),
+        ],
+    );
+
+    assert_eq!(
+        kinds(&drafts),
+        vec![OutboundKind::Notice, OutboundKind::Update]
+    );
+    assert_eq!(settled(&drafts[1]), Some("c1"));
+}
+
+#[test]
+fn settles_a_subagents_approval_from_its_own_events() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            subagent("R", nested_approval_request("s1", &["ls"])),
+            subagent("R", nested_tool_result("s1")),
+            subagent("R", nested_approval_request("s2", &["ls"])),
+            subagent("R", nested_denied("s2", "Denied.")),
+        ],
+    );
+
+    assert_eq!(
+        kinds(&drafts),
+        vec![
+            OutboundKind::Notice,
+            OutboundKind::Update,
+            OutboundKind::Notice,
+            OutboundKind::Notice,
+        ]
+    );
+    assert_eq!(settled(&drafts[1]), Some("s1"));
+    assert_eq!(settled(&drafts[3]), Some("s2"));
+}
+
+#[test]
+fn settles_whatever_is_still_open_when_the_turn_ends() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            exec_approval_request("c1", &["ls"]),
+            turn_end(StopReason::Aborted),
+        ],
+    );
+
+    assert_eq!(drafts[1].kind, OutboundKind::Update);
+    assert_eq!(settled(&drafts[1]), Some("c1"));
+}
+
+#[test]
+fn names_the_approval_an_error_answers() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            approval_error("c1", "The rule does not cover this command."),
+        ],
+    );
+
+    assert_eq!(drafts[0].kind, OutboundKind::Error);
+    assert_eq!(
+        drafts[0].metadata[APPROVAL_ERROR_METADATA_KEY]["callId"],
+        serde_json::json!("c1")
+    );
 }
 
 #[test]

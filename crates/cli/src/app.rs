@@ -385,6 +385,11 @@ where
         let (app_tx, app_rx) = mpsc::unbounded_channel();
         let (sink, chunks) = chunks();
         let requester = tui.frame_requester();
+        let menu: Arc<dyn PickerMenu> = Arc::new(AppMenu { events: app_tx });
+        // From here on there is somebody to ask.
+        if let Some(gate) = &session.approvals {
+            gate.attend(Arc::clone(&menu));
+        }
         Self {
             tui,
             requester,
@@ -393,7 +398,7 @@ where
             overlay: None,
             sink,
             chunks,
-            menu: Arc::new(AppMenu { events: app_tx }),
+            menu,
             app_rx,
             rows: crate::commands::palette_rows(&session.runtime),
             view: session.view(),

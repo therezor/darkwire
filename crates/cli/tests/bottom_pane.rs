@@ -165,6 +165,20 @@ fn a_view_that_answered_is_taken_away() {
 }
 
 #[test]
+fn a_view_nobody_is_waiting_on_goes_without_a_key() {
+    // An approval whose turn stopped, or whose deadline passed: the question
+    // is gone, and the next key belongs to the composer.
+    let mut pane = pane(24);
+    let (answer, receiver) = tokio::sync::oneshot::channel();
+    pane.push_view(Box::new(menu(answer)));
+
+    drop(receiver);
+
+    assert!(!pane.has_view());
+    assert_eq!(pane.offer_key(&Key::char('a')), ViewKey::PassThrough);
+}
+
+#[test]
 fn a_cancelled_view_answers_nothing_and_still_goes() {
     let mut pane = pane(24);
     let (answer, receiver) = tokio::sync::oneshot::channel();

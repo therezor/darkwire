@@ -169,9 +169,8 @@ pub struct RuntimeOptions {
     ///
     /// Survives a reconfigure: the gate belongs to the process that built the
     /// runtime — a WebSocket hub, a channel — not to the settings, which only
-    /// say which risk bands need asking about. Absent means nothing is asked,
-    /// which is what a terminal session wants and what a browser-facing server
-    /// must not do.
+    /// say which risk bands need asking about. Absent means nothing is asked
+    /// and every `ask` tool runs, which only `darkwire chat --yes` wants.
     pub approvals: Option<Arc<dyn ApprovalGate>>,
     /// The environment to read. Defaults to the process environment.
     pub env: Option<HashMap<String, String>>,

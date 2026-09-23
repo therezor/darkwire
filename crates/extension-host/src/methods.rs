@@ -298,6 +298,7 @@ fn kind_tag(kind: OutboundKind) -> &'static str {
         OutboundKind::Progress => "progress",
         OutboundKind::Notice => "notice",
         OutboundKind::Error => "error",
+        OutboundKind::Update => "update",
     }
 }
 

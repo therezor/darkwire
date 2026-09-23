@@ -13,12 +13,12 @@
 )]
 
 use darkwire_protocol::{
-    AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, ErrorCode, ErrorEvent,
-    ErrorTag, MessageQueued, MessageQueuedTag, NestedAgentEvent, Notice, NoticeKind, NoticeTag,
-    ReasoningDelta, ReasoningDeltaTag, Sequenced, ServerMessage, SessionStatus, SessionStatusTag,
-    StopReason, SubagentEventBody, SubagentEventTag, ToolApprovalRequest, ToolApprovalRequestTag,
-    ToolCallStarted, ToolCallTag, ToolResult, ToolResultTag, ToolRisk, TurnEnd, TurnEndTag,
-    TurnStart, TurnStartTag,
+    AssistantDelta, AssistantDeltaTag, CommandPolicy, ContextUsage, ContextUsageTag, ErrorCode,
+    ErrorEvent, ErrorTag, MessageQueued, MessageQueuedTag, NestedAgentEvent, Notice, NoticeKind,
+    NoticeTag, ReasoningDelta, ReasoningDeltaTag, Sequenced, ServerMessage, SessionStatus,
+    SessionStatusTag, StopReason, SubagentEventBody, SubagentEventTag, ToolApprovalRequest,
+    ToolApprovalRequestTag, ToolCallStarted, ToolCallTag, ToolResult, ToolResultTag, ToolRisk,
+    TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -105,6 +105,79 @@ pub fn approval_request(call_id: &str, name: &str, expires_at_ms: u64) -> Server
         expires_at_ms,
         command: None,
     }))
+}
+
+/// An `exec` approval carrying what the rules made of the command.
+pub fn exec_approval_request(call_id: &str, argv: &[&str]) -> ServerMessage {
+    ServerMessage::ToolApprovalRequest(sequenced!(exec_request(call_id, argv)))
+}
+
+fn exec_request(call_id: &str, argv: &[&str]) -> ToolApprovalRequest {
+    let argv: Vec<String> = argv.iter().map(|&token| token.to_owned()).collect();
+    ToolApprovalRequest {
+        tag: ToolApprovalRequestTag,
+        turn_id: TURN.to_owned(),
+        call_id: call_id.to_owned(),
+        name: "exec".to_owned(),
+        args: json!({ "argv": argv }),
+        risk: ToolRisk::Exec,
+        expires_at_ms: 4_000_000_000_000,
+        command: Some(CommandPolicy {
+            shell: argv.first().is_some_and(|program| program == "sh"),
+            argv,
+            rule: None,
+        }),
+    }
+}
+
+/// The denial notice the loop emits for `call_id`.
+pub fn denied(call_id: &str, message: &str) -> ServerMessage {
+    ServerMessage::Notice(sequenced!(denied_notice(call_id, message)))
+}
+
+fn denied_notice(call_id: &str, message: &str) -> Notice {
+    Notice {
+        tag: NoticeTag,
+        kind: NoticeKind::ApprovalDenied,
+        message: message.to_owned(),
+        turn_id: Some(TURN.to_owned()),
+        call_id: Some(call_id.to_owned()),
+    }
+}
+
+/// The hub refusing what a `tool.approve` for `call_id` carried.
+pub fn approval_error(call_id: &str, message: &str) -> ServerMessage {
+    ServerMessage::Error(ErrorEvent {
+        tag: ErrorTag,
+        code: ErrorCode::BadRequest,
+        message: message.to_owned(),
+        retryable: false,
+        turn_id: None,
+        call_id: Some(call_id.to_owned()),
+    })
+}
+
+/// A subagent's own approval request.
+pub fn nested_approval_request(call_id: &str, argv: &[&str]) -> NestedAgentEvent {
+    NestedAgentEvent::ToolApprovalRequest(exec_request(call_id, argv))
+}
+
+/// A subagent's denial notice.
+pub fn nested_denied(call_id: &str, message: &str) -> NestedAgentEvent {
+    NestedAgentEvent::Notice(denied_notice(call_id, message))
+}
+
+/// A subagent's tool answering.
+pub fn nested_tool_result(call_id: &str) -> NestedAgentEvent {
+    NestedAgentEvent::ToolResult(ToolResult {
+        tag: ToolResultTag,
+        turn_id: TURN.to_owned(),
+        call_id: call_id.to_owned(),
+        ok: true,
+        content: "done".to_owned(),
+        truncated: false,
+        duration_ms: 5,
+    })
 }
 
 pub fn notice(message: &str) -> ServerMessage {

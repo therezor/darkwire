@@ -10,8 +10,8 @@
 use darkwire_core::ErrorKind;
 use darkwire_protocol::{CommandPolicy, ExecRule, ExecToolConfig, ToolPermission};
 use darkwire_security::{
-    ExecRules, assert_exec_rules, assert_standing_rule, exec_verdict, invocation_digest, is_shell,
-    parse_exec_rule,
+    ExecRules, assert_exec_rules, assert_standing_rule, exec_verdict, format_argv,
+    invocation_digest, is_shell, parse_exec_rule, preferred_rule, suggest_rules,
 };
 use proptest::prelude::*;
 
@@ -231,6 +231,52 @@ fn names_the_agent_when_its_rules_do_not_parse() {
     assert_eq!(error.details["agentId"], "coder");
     assert_eq!(error.details["rule"], 1);
     assert!(assert_exec_rules(&ExecToolConfig::default(), "coder").is_ok());
+}
+
+#[test]
+fn suggests_the_exact_command_then_shorter_prefixes_down_to_the_program() {
+    let suggestions = suggest_rules(&argv(&["/usr/bin/git", "log", "--oneline", "-5"]));
+    assert_eq!(
+        suggestions,
+        vec![
+            rule(Allow, &["git", "log", "--oneline", "-5"]),
+            rule(Allow, &["git", "log", "--oneline", "*"]),
+            rule(Allow, &["git", "log", "*"]),
+            rule(Allow, &["git", "*"]),
+        ]
+    );
+    assert!(suggest_rules(&[]).is_empty());
+}
+
+#[test]
+fn formats_an_argv_quoting_only_what_needs_it() {
+    assert_eq!(format_argv(&argv(&["git", "log", "*"])), "git log *");
+    assert_eq!(
+        format_argv(&argv(&["echo", "a b", "", "say \"hi\"", "c:\\x"])),
+        r#"echo "a b" '' "say \"hi\"" "c:\\x""#
+    );
+}
+
+#[test]
+fn prefers_a_rule_that_covers_the_next_call_too() {
+    // The exact command is what "This session" already covers.
+    assert_eq!(
+        preferred_rule(&argv(&["cargo", "test"])),
+        Some(rule(Allow, &["cargo", "test", "*"]))
+    );
+    assert_eq!(
+        preferred_rule(&argv(&["ls"])),
+        Some(rule(Allow, &["ls", "*"]))
+    );
+    assert_eq!(preferred_rule(&[]), None);
+}
+
+#[test]
+fn every_suggestion_stands_for_the_call_it_was_made_from() {
+    let call = ["cargo", "build", "--release"];
+    for suggestion in suggest_rules(&argv(&call)) {
+        assert_standing_rule(&[], &suggestion, &command(&call), Ask, Ask).unwrap();
+    }
 }
 
 fn token() -> impl Strategy<Value = String> {

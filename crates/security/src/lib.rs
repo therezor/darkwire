@@ -60,7 +60,7 @@ pub use exec_guard::{
 };
 pub use exec_rules::{
     ExecRules, ExecVerdict, ParsedRule, assert_exec_rules, assert_standing_rule, exec_verdict,
-    invocation_digest, is_shell, parse_exec_rule,
+    format_argv, invocation_digest, is_shell, parse_exec_rule, preferred_rule, suggest_rules,
 };
 pub use extension::{
     EXTENSION_MANIFEST_FILE, MAX_EXTENSION_BYTES, MAX_EXTENSION_FILES, assert_extension_policy,

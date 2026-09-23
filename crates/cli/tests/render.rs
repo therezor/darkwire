@@ -916,9 +916,9 @@ fn writes_its_own_notes_in_the_same_line_discipline() {
 }
 
 #[test]
-fn says_a_tool_is_waiting_for_an_approval_it_cannot_answer() {
-    // `darkwire chat` installs no gate, so reaching here means the CLI is
-    // watching a turn some other surface is driving. Saying so beats a gap.
+fn leaves_a_line_in_the_transcript_where_an_approval_was_asked() {
+    // The question is a menu under the composer, and it goes when answered.
+    // This line is what the transcript keeps.
     let text = plain(&[
         start(),
         json!({
@@ -926,7 +926,7 @@ fn says_a_tool_is_waiting_for_an_approval_it_cannot_answer() {
             "name": "exec", "args": {}, "risk": "exec", "expiresAtMs": 1,
         }),
     ]);
-    assert!(text.contains("⧗ exec is waiting for approval elsewhere"));
+    assert!(text.contains("⧗ exec is waiting for approval"));
 }
 
 /// One recorded turn, with only the fields a stats line reads set apart.
