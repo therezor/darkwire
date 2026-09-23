@@ -1859,3 +1859,261 @@ async fn usage_that_would_overflow_saturates() {
     assert_eq!(result.usage.prompt_tokens, u64::MAX);
     assert_eq!(result.usage.completion_tokens, u64::MAX);
 }
+
+// A tool call cut at the token limit
+
+#[tokio::test]
+async fn a_call_cut_at_the_token_limit_is_neither_run_nor_stored() {
+    let write = FakeTool::reading("write", "wrote");
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn {
+                finish_reason: Some(FinishReason::Length),
+                tool_calls: vec![raw_tool_call(
+                    "c1",
+                    "write",
+                    r#"{"path": "a.txt", "content": "the first half"#,
+                )],
+                ..ScriptedTurn::text("Writing it now.")
+            },
+            ScriptedTurn::text("done"),
+        ],
+        tools: vec![write.clone()],
+        ..Setup::default()
+    });
+
+    let (events, result) = harness.say("web:1", "write it").await;
+    let result = result.expect("a turn");
+
+    assert_eq!(result.text, "done");
+    assert!(write.calls().is_empty());
+    assert!(events_of(&events, "tool.call").is_empty());
+    let notices = events_of(&events, "notice");
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["kind"], json!("length_cut"));
+    assert!(
+        notices[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("call to `write`")
+    );
+
+    let stored = harness.stored("web:1");
+    assert_eq!(stored.len(), 3);
+    match &stored[1] {
+        ChatMessage::Assistant(assistant) => {
+            assert!(assistant.tool_calls.is_empty());
+            assert_eq!(darkwire_core::text_of(&stored[1]), "Writing it now.");
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let second = darkwire_core::text_of(harness.provider.requests()[1].messages.last().unwrap());
+    assert!(second.contains("Your call to `write` was cut off"));
+    for message in harness.stored("web:1") {
+        assert!(!darkwire_core::text_of(&message).contains("## Correction"));
+    }
+}
+
+#[tokio::test]
+async fn a_cut_call_with_no_text_stores_nothing() {
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn {
+                finish_reason: Some(FinishReason::Length),
+                ..ScriptedTurn::calls(vec![raw_tool_call("c1", "write", r#"{"path": "#)])
+            },
+            ScriptedTurn::text("done"),
+        ],
+        tools: vec![FakeTool::reading("write", "wrote")],
+        ..Setup::default()
+    });
+
+    let (_, result) = harness.say("web:1", "write it").await;
+    assert_eq!(result.expect("a turn").iterations, 2);
+    let stored = harness.stored("web:1");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(darkwire_core::text_of(&stored[1]), "done");
+}
+
+#[tokio::test]
+async fn the_complete_calls_beside_a_cut_one_still_run() {
+    let read = FakeTool::reading("read", "hello");
+    let write = FakeTool::reading("write", "wrote");
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn {
+                finish_reason: Some(FinishReason::Length),
+                ..ScriptedTurn::calls(vec![
+                    tool_call("c1", "read", &json!({"path": "a.txt"})),
+                    raw_tool_call("c2", "write", r#"{"path": "b.txt", "content": "#),
+                ])
+            },
+            ScriptedTurn::text("done"),
+        ],
+        tools: vec![read.clone(), write.clone()],
+        ..Setup::default()
+    });
+
+    let (events, result) = harness.say("web:1", "go").await;
+    assert_eq!(result.expect("a turn").text, "done");
+    assert_eq!(read.calls().len(), 1);
+    assert!(write.calls().is_empty());
+    assert_eq!(events_of(&events, "notice")[0]["kind"], json!("length_cut"));
+
+    let stored = harness.stored("web:1");
+    match &stored[1] {
+        ChatMessage::Assistant(assistant) => {
+            let ids: Vec<&str> = assistant.tool_calls.iter().map(|c| c.id.as_str()).collect();
+            assert_eq!(ids, vec!["c1"]);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(&stored[2], ChatMessage::Tool(tool) if tool.tool_call_id == "c1"));
+    let second = darkwire_core::text_of(harness.provider.requests()[1].messages.last().unwrap());
+    assert!(second.contains("Your call to `write` was cut off"));
+}
+
+// The context window
+
+/// Old turns, each well over a thousand estimated tokens, written straight to
+/// the store so the turn under test has a long history behind it.
+fn seed_history(harness: &Harness, turns: usize) {
+    use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
+    use darkwire_core::session_store::{AppendOptions, CreateSession};
+
+    harness
+        .store
+        .ensure_session("web:1", CreateSession::default())
+        .unwrap();
+    for index in 0..turns {
+        let options = AppendOptions {
+            turn_id: Some(format!("old-{index}")),
+        };
+        harness
+            .store
+            .append_many(
+                "web:1",
+                vec![
+                    ChatMessage::User(user_message(format!("q{index} ").repeat(1_500))),
+                    ChatMessage::Assistant(assistant_message(
+                        format!("answer {index}"),
+                        AssistantOptions::default(),
+                    )),
+                ],
+                &options,
+            )
+            .unwrap();
+    }
+}
+
+fn texts(request: &darkwire_providers::ChatRequest) -> Vec<String> {
+    request
+        .messages
+        .iter()
+        .map(darkwire_core::text_of)
+        .collect()
+}
+
+#[tokio::test]
+async fn older_turns_are_left_out_to_fit_the_window() {
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
+            ScriptedTurn::text("done"),
+        ],
+        tools: vec![FakeTool::reading("read", "x")],
+        ..Setup::default()
+    });
+    seed_history(&harness, 40);
+
+    let (events, result) = harness.say("web:1", "the question").await;
+    assert_eq!(result.expect("a turn").text, "done");
+
+    let requests = harness.provider.requests();
+    for request in &requests {
+        let texts = texts(request);
+        assert!(!texts.iter().any(|text| text.starts_with("q0 ")));
+        assert!(texts.iter().any(|text| text.starts_with("q39 ")));
+        assert!(texts.contains(&"the question".to_owned()));
+        // Whole turns: every question kept still has its answer.
+        let questions = texts.iter().filter(|t| t.starts_with('q')).count();
+        let answers = texts.iter().filter(|t| t.starts_with("answer ")).count();
+        assert_eq!(questions, answers);
+    }
+    // Two trimmed requests, one notice.
+    assert_eq!(requests.len(), 2);
+    let notices = events_of(&events, "notice");
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["kind"], json!("truncated_history"));
+}
+
+#[tokio::test]
+async fn the_question_survives_a_window_too_small_for_anything_else() {
+    let harness = Harness::build(Setup {
+        config: AgentSettings {
+            model: "test-model".to_owned(),
+            context_window_tokens: 10,
+            ..AgentSettings::default()
+        },
+        ..Setup::default()
+    });
+    seed_history(&harness, 3);
+
+    let _ = harness.say("web:1", "the question").await;
+    let request = &harness.provider.requests()[0];
+    let texts = texts(request);
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert_eq!(texts[1], "the question");
+}
+
+#[tokio::test]
+async fn no_known_window_keeps_the_message_cap_alone() {
+    let harness = Harness::build(Setup {
+        config: AgentSettings {
+            model: "test-model".to_owned(),
+            context_window_tokens: 0,
+            ..AgentSettings::default()
+        },
+        ..Setup::default()
+    });
+    seed_history(&harness, 40);
+
+    let (events, _) = harness.say("web:1", "the question").await;
+    let request = &harness.provider.requests()[0];
+    // The system prompt, eighty seeded rows, the question, the runtime half.
+    assert_eq!(request.messages.len(), 83);
+    assert!(events_of(&events, "notice").is_empty());
+}
+
+#[tokio::test]
+async fn the_context_report_prices_the_window_the_loop_sends() {
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]),
+            ScriptedTurn::text("done"),
+        ],
+        tools: vec![FakeTool::reading("read", "x")],
+        ..Setup::default()
+    });
+    seed_history(&harness, 40);
+
+    let (events, _) = harness.say("web:1", "the question").await;
+
+    // Measured after the tool ran, so it describes the second request: its
+    // history is everything between the system message and the runtime half.
+    let second = &harness.provider.requests()[1];
+    assert!(!texts(second).iter().any(|text| text.starts_with("q0 ")));
+    let sent: usize = second.messages[1..second.messages.len() - 1]
+        .iter()
+        .map(darkwire_providers::estimate_message_tokens)
+        .sum();
+    let usage = events_of(&events, "context.usage");
+    assert_eq!(usage.len(), 1);
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a token estimate far below 2^53"
+    )]
+    let sent = sent as f64;
+    assert_eq!(usage[0]["breakdown"]["messages"].as_f64(), Some(sent));
+}

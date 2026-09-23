@@ -967,12 +967,7 @@ impl StreamState {
         if let Some(inline) = chunk.get("error").filter(|e| e.is_object()) {
             // `code` is a string enum in OpenAI's schema and an HTTP status in
             // OpenRouter's. Both readings are attempted, neither is guessed at.
-            let wire = WireErrorBody {
-                message: None,
-                kind: None,
-                code: str_field(Some(inline), "code").map(str::to_owned),
-                param: str_field(Some(inline), "param").map(str::to_owned),
-            };
+            let wire = WireErrorBody::from_value(inline);
             let status = num_field(Some(inline), "code")
                 .and_then(|code| u16::try_from(code).ok())
                 .unwrap_or(400);

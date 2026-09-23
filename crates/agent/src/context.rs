@@ -23,15 +23,14 @@
 
 use std::sync::Arc;
 
-use darkwire_core::history::{DEFAULT_MAX_HISTORY_MESSAGES, HistoryOptions, history_for_llm};
 use darkwire_core::messages::{system_message, user_message};
-use darkwire_core::session_store::ReadMessages;
 use darkwire_core::{Result, SessionStore, StoredMessageRecord};
 use darkwire_protocol::{ChatMessage, ToolDefinition};
 use darkwire_providers::{estimate_message_tokens, estimate_tool_tokens};
 use indexmap::IndexMap;
 
 use crate::agent_loop::{AgentLoop, PromptPreview, PromptPreviewInput};
+use crate::history_window::{FixedCost, history_budget, windowed_history};
 use crate::prompt::runtime_reminder;
 
 /// Where the tokens went.
@@ -140,79 +139,87 @@ pub struct MeasureContext<'a> {
     pub context_window_tokens: u64,
 }
 
+/// What the window depends on beyond [`MeasureContext`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeasureWindow {
+    /// The completion the request reserves room for. `0` reserves none.
+    pub max_output_tokens: u64,
+    /// The row that opened the turn in progress, or `None` between turns.
+    pub opening_seq: Option<i64>,
+}
+
+/// The fixed half of a request, priced as the body carries it.
+///
+/// The two halves of the prompt are messages by the time they are sent, not
+/// strings, and the loop omits the trailing one entirely in raw mode and the
+/// tools entirely when there are none. Shared with the loop, which budgets the
+/// history against the same figures.
+pub(crate) fn prompt_costs(prompt: &PromptPreview, tools: &[ToolDefinition]) -> ContextBreakdown {
+    let system_prompt =
+        estimate_message_tokens(&ChatMessage::System(system_message(&prompt.static_prompt)));
+    let runtime_block = if prompt.runtime_block.is_empty() {
+        0
+    } else {
+        estimate_message_tokens(&ChatMessage::User(user_message(runtime_reminder(
+            &prompt.runtime_block,
+        ))))
+    };
+    let tools = if tools.is_empty() {
+        0
+    } else {
+        estimate_tool_tokens(tools)
+    };
+    ContextBreakdown {
+        system_prompt,
+        tools,
+        messages: 0,
+        runtime_block,
+    }
+}
+
+/// The measurement, given a prompt somebody has already built.
+///
+/// Without a [`MeasureWindow`] no output is reserved and no turn is in
+/// progress. A caller that knows the agent's `max_tokens` passes it through
+/// [`measure_context_with`], which is what makes the figure match the request.
+pub fn measure_context(input: &MeasureContext<'_>) -> Result<ContextReport> {
+    measure_context_with(input, &MeasureWindow::default())
+}
+
 /// The measurement, given a prompt somebody has already built.
 ///
 /// Split out of [`describe_context`] for one caller: the loop, which composes
 /// exactly this prompt on every iteration and can therefore report the context
 /// as it grows without paying for a second assembly. Previewing a prompt runs
-/// every contributor's static section, which may do I/O — running that once per
+/// every contributor's static section, which may do I/O. Running that once per
 /// iteration to draw a bar would be a real cost on a forty-step turn, and it is
 /// the whole reason this seam exists.
 ///
-/// Everything below the prompt is unchanged, so the two callers report the same
-/// numbers. They can differ by a few characters — the loop's runtime block
-/// names the iteration it is actually on, the preview always says 1 — which is
-/// under a token and is the only divergence by construction.
-pub fn measure_context(input: &MeasureContext<'_>) -> Result<ContextReport> {
-    // The same window the loop reads: the newest rows up to the message cap,
-    // which the history walker below then trims exactly as a turn would. The
-    // walker's first step is that cap, so reading more would change nothing.
-    let records = input.store.messages(
-        input.session_key,
-        &ReadMessages {
-            after_seq: Some(0),
-            limit: Some(DEFAULT_MAX_HISTORY_MESSAGES),
-            from_end: true,
-            ..ReadMessages::default()
-        },
-    )?;
-
-    // No truncation, so the window is the stored text rather than a shortened
-    // copy of it — and, more usefully, so the window is a *suffix* of the
-    // records. Every step the walker takes trims from the front: the message
-    // cap, the hunt for the first user message, and the legal-start scan. That
-    // is what lets each entry be matched back to the stored row carrying its id
-    // and seq, which the original did by object identity and Rust cannot.
-    let options = HistoryOptions {
-        max_messages: DEFAULT_MAX_HISTORY_MESSAGES,
-        max_tool_result_chars: 0,
-    };
-    let all: Vec<ChatMessage> = records
+/// The history is read through the helper `build_request` uses, with the same
+/// budget, so the report is the window the next request sends. The two callers
+/// can differ by a few characters (the loop's runtime block names the iteration
+/// it is on, the preview always says 1), which is under a token.
+pub fn measure_context_with(
+    input: &MeasureContext<'_>,
+    window: &MeasureWindow,
+) -> Result<ContextReport> {
+    let fixed = prompt_costs(input.prompt, input.tools);
+    // The window the loop sends, read by the same helper: the message cap,
+    // the legal-start rules, then the token budget.
+    let budget = history_budget(&FixedCost {
+        context_window_tokens: input.context_window_tokens,
+        prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
+        max_output_tokens: window.max_output_tokens,
+    });
+    let messages =
+        windowed_history(input.store, input.session_key, window.opening_seq, budget)?.records;
+    let message_tokens: usize = messages
         .iter()
-        .map(|record| record.message.clone())
-        .collect();
-    let window = history_for_llm(&all, &options);
-    let messages: Vec<StoredMessageRecord> = records
-        .into_iter()
-        .skip(all.len().saturating_sub(window.len()))
-        .collect();
-
-    // Priced as the request carries them, envelopes and all: the two halves of
-    // the prompt are messages by the time they are sent, not strings, and the
-    // loop omits the trailing one entirely in raw mode and the tools entirely
-    // when there are none. Both conditions below are those two omissions.
-    let prompt_tokens = estimate_message_tokens(&ChatMessage::System(system_message(
-        &input.prompt.static_prompt,
-    )));
-    let runtime_tokens = if input.prompt.runtime_block.is_empty() {
-        0
-    } else {
-        estimate_message_tokens(&ChatMessage::User(user_message(runtime_reminder(
-            &input.prompt.runtime_block,
-        ))))
-    };
-    let tool_tokens = if input.tools.is_empty() {
-        0
-    } else {
-        estimate_tool_tokens(input.tools)
-    };
-    let message_tokens: usize = window.iter().map(estimate_message_tokens).sum();
-
+        .map(|record| estimate_message_tokens(&record.message))
+        .sum();
     let breakdown = ContextBreakdown {
-        system_prompt: prompt_tokens,
-        tools: tool_tokens,
         messages: message_tokens,
-        runtime_block: runtime_tokens,
+        ..fixed
     };
 
     Ok(ContextReport {
@@ -221,7 +228,7 @@ pub fn measure_context(input: &MeasureContext<'_>) -> Result<ContextReport> {
         runtime_block: input.prompt.runtime_block.clone(),
         tools: input.tools.to_vec(),
         messages,
-        estimated_tokens: prompt_tokens + tool_tokens + message_tokens + runtime_tokens,
+        estimated_tokens: fixed.system_prompt + fixed.tools + message_tokens + fixed.runtime_block,
         context_window_tokens: input.context_window_tokens,
         breakdown,
     })
@@ -249,12 +256,18 @@ pub async fn describe_context(
     }
 
     let prompt = agent_loop.preview_prompt(input).await?;
-    measure_context(&MeasureContext {
-        store,
-        tools,
-        session_key: &input.session_key,
-        prompt: &prompt,
-        context_window_tokens,
-    })
+    measure_context_with(
+        &MeasureContext {
+            store,
+            tools,
+            session_key: &input.session_key,
+            prompt: &prompt,
+            context_window_tokens,
+        },
+        &MeasureWindow {
+            max_output_tokens: agent_loop.max_tokens(),
+            opening_seq: None,
+        },
+    )
     .map(Some)
 }

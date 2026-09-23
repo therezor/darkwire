@@ -70,9 +70,9 @@ pub use registry::{
     resolve_provider,
 };
 pub use resilience::{
-    BackoffOptions, DEFAULT_DEGRADATION_STEPS, DegradationStep, JitterFn, NoticeFn, NoticeKind,
-    ResilienceNotice, ResilienceOptions, Resilient, backoff_delay_ms, synthesise_stream,
-    truncate_oldest_turns, with_resilience,
+    BackoffOptions, DEFAULT_DEGRADATION_STEPS, DegradationStep, JitterFn, MAX_TRUNCATIONS,
+    NoticeFn, NoticeKind, ResilienceNotice, ResilienceOptions, Resilient, backoff_delay_ms,
+    synthesise_stream, truncate_oldest_turns, with_resilience,
 };
 pub use sse::{MAX_SSE_FRAME_CHARS, SseEvent, SseOptions, SseParser, parse_sse, parse_sse_chunks};
 pub use tokens::estimate_tokens;

@@ -1028,3 +1028,34 @@ async fn a_huge_usage_figure_saturates_rather_than_overflowing() {
     assert_eq!(result.usage.prompt_tokens, u64::MAX);
     assert_eq!(result.usage.total_tokens, u64::MAX);
 }
+
+#[tokio::test]
+async fn a_llama_cpp_overflow_is_a_context_length_error_on_both_paths() {
+    let overflow = json!({
+        "code": 400,
+        "message": "the request exceeds the available context size, try increasing it",
+        "type": "exceed_context_size_error",
+        "n_prompt_tokens": 70_000,
+        "n_ctx": 65_536
+    });
+
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::json(400, &error_body(&overflow)));
+    let error = provider_on(&server, "ollama", None)
+        .chat(&base(), &token())
+        .await
+        .unwrap_err();
+    let provider_error = ProviderError::of(&error);
+    assert_eq!(provider_error.reason, ProviderErrorReason::ContextLength);
+    assert_eq!(provider_error.code.as_deref(), Some("400"));
+
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::sse(&[json!({"error": overflow})], false));
+    let error = collect(provider_on(&server, "ollama", None).stream(base(), token()))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ProviderError::reason_of(&error),
+        ProviderErrorReason::ContextLength
+    );
+}

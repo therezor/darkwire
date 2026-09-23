@@ -18,9 +18,10 @@
 //! **A degradation is not a retry.** They have different budgets. Retries
 //! exist for transient failures and are capped low because each one costs a
 //! round trip against a provider that is already unhappy. Degradations are
-//! bounded by the ladder itself (a step that has fired cannot fire again,
-//! because the thing it removes is gone), so charging them to the retry budget
-//! would leave a request unrepairable for want of an attempt it never needed.
+//! bounded by the ladder itself (a step fires a fixed number of times, and
+//! declines once the thing it removes is gone), so charging them to the retry
+//! budget would leave a request unrepairable for want of an attempt it never
+//! needed.
 //!
 //! The honest limit: **a stream that has already emitted output is not
 //! retried.** Restarting it would replay text the user has already seen, and
@@ -28,7 +29,7 @@
 //! fallback for a malformed event stream, applies only before the first delta.
 //! After that the error propagates, which is the truthful outcome.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,12 +54,15 @@ use crate::types::{BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamE
 pub struct DegradationStep {
     /// Stable name, used to record that the step has fired.
     pub id: &'static str,
-    /// What the user is told, once, when this step fires.
+    /// What the user is told, once per request, when this step fires.
     pub description: &'static str,
     /// Whether this step could help with `error` against `request`.
     pub applies: fn(&ProviderError, &ChatRequest) -> bool,
     /// The repaired request, or `None` when there is nothing to repair.
     pub apply: fn(&ChatRequest) -> Option<ChatRequest>,
+    /// How many times the step may fire on one request. `1` for a step that
+    /// removes a thing outright, more for one that shrinks what is left.
+    pub max_fires: u32,
 }
 
 /// Reasons a *request-shaped* repair could help.
@@ -141,6 +145,12 @@ fn strip_images_apply(request: &ChatRequest) -> Option<ChatRequest> {
 
 /// How much of the history one `truncate_turns` step removes.
 const TRUNCATION_FRACTION: f64 = 0.35;
+
+/// How many times `truncate_turns` may cut one request. Each cut keeps 65% of
+/// what the last one kept, so five leave about a ninth of the history. A
+/// window still too small after that is a misconfigured window, and more
+/// round trips will not find it.
+pub const MAX_TRUNCATIONS: u32 = 5;
 
 /// Drops the oldest turns, keeping the request legal.
 ///
@@ -348,36 +358,42 @@ pub const DEFAULT_DEGRADATION_STEPS: [DegradationStep; 6] = [
         description: "retrying without prompt_cache_key",
         applies: drop_prompt_cache_key_applies,
         apply: drop_prompt_cache_key_apply,
+        max_fires: 1,
     },
     DegradationStep {
         id: "merge_trailing_user",
         description: "retrying with the trailing turn merged",
         applies: merge_trailing_user_applies,
         apply: merge_trailing_user_apply,
+        max_fires: 1,
     },
     DegradationStep {
         id: "drop_reasoning_effort",
         description: "retrying without reasoning_effort",
         applies: drop_reasoning_effort_applies,
         apply: drop_reasoning_effort_apply,
+        max_fires: 1,
     },
     DegradationStep {
         id: "drop_tool_choice",
         description: "retrying without tool_choice",
         applies: drop_tool_choice_applies,
         apply: drop_tool_choice_apply,
+        max_fires: 1,
     },
     DegradationStep {
         id: "strip_images",
         description: "retrying with images removed",
         applies: strip_images_applies,
         apply: strip_images_apply,
+        max_fires: 1,
     },
     DegradationStep {
         id: "truncate_turns",
         description: "retrying with the oldest turns dropped",
         applies: truncate_turns_applies,
         apply: truncate_turns_apply,
+        max_fires: MAX_TRUNCATIONS,
     },
 ];
 
@@ -537,11 +553,11 @@ impl Resolved {
 /// is anything left to try. The caller returns the error when it says no.
 struct Recovery {
     request: ChatRequest,
-    used: HashSet<&'static str>,
+    fired: HashMap<&'static str, u32>,
     attempt: u32,
     iteration: u32,
-    /// Each step fires at most once, so the ladder is finite; the extra room
-    /// is for the attempt that follows the last degradation.
+    /// Each step fires at most `max_fires` times, so the ladder is finite;
+    /// the extra room is for the attempt that follows the last degradation.
     ceiling: u32,
 }
 
@@ -549,12 +565,16 @@ impl Recovery {
     fn new(request: ChatRequest, config: &Resolved) -> Recovery {
         Recovery {
             request,
-            used: HashSet::new(),
+            fired: HashMap::new(),
             attempt: 1,
             iteration: 0,
-            ceiling: config.max_attempts
-                + u32::try_from(config.steps.len()).unwrap_or(u32::MAX)
-                + 1,
+            ceiling: config
+                .steps
+                .iter()
+                .fold(config.max_attempts, |total, step| {
+                    total.saturating_add(step.max_fires)
+                })
+                .saturating_add(1),
         }
     }
 
@@ -572,21 +592,25 @@ impl Recovery {
         }
 
         for step in &config.steps {
-            if self.used.contains(step.id) || !(step.applies)(error, &self.request) {
+            let fired = self.fired.get(step.id).copied().unwrap_or(0);
+            if fired >= step.max_fires || !(step.applies)(error, &self.request) {
                 continue;
             }
             let Some(degraded) = (step.apply)(&self.request) else {
                 continue;
             };
-            self.used.insert(step.id);
+            self.fired.insert(step.id, fired + 1);
             self.request = degraded;
-            config.notify(ResilienceNotice {
-                kind: NoticeKind::Degraded,
-                message: step.description.to_owned(),
-                attempt: self.attempt,
-                delay_ms: None,
-                error: error.clone(),
-            });
+            // Once per request: a step that fires again says nothing new.
+            if fired == 0 {
+                config.notify(ResilienceNotice {
+                    kind: NoticeKind::Degraded,
+                    message: step.description.to_owned(),
+                    attempt: self.attempt,
+                    delay_ms: None,
+                    error: error.clone(),
+                });
+            }
             return Ok(true);
         }
 

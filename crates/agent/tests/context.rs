@@ -14,7 +14,8 @@ mod common;
 
 use common::harness::{FakeTool, Harness, Setup};
 use darkwire_agent::context::{
-    ContextBreakdown, MeasureContext, describe_context, measure_context,
+    ContextBreakdown, MeasureContext, MeasureWindow, describe_context, measure_context,
+    measure_context_with,
 };
 use darkwire_agent::testkit::{ScriptedTurn, tool_call};
 use darkwire_agent::{PromptPreview, PromptPreviewInput};
@@ -346,4 +347,62 @@ async fn describing_a_session_uses_the_loops_own_prompt() {
     assert!(report.runtime_block.contains("Current time"));
     assert_eq!(report.context_window_tokens, 4_096);
     assert!(report.estimated_tokens > 0);
+}
+
+#[tokio::test]
+async fn between_turns_the_budget_leaves_out_the_oldest_turns() {
+    let harness = Harness::simple();
+    harness
+        .store
+        .ensure_session(
+            "web:1",
+            darkwire_core::session_store::CreateSession::default(),
+        )
+        .expect("a session");
+    for index in 0..40 {
+        let options = AppendOptions {
+            turn_id: Some(format!("old-{index}")),
+        };
+        harness
+            .store
+            .append_many(
+                "web:1",
+                vec![
+                    ChatMessage::User(user_message(format!("q{index} ").repeat(1_500))),
+                    ChatMessage::Assistant(assistant_message(
+                        format!("answer {index}"),
+                        AssistantOptions::default(),
+                    )),
+                ],
+                &options,
+            )
+            .expect("an append");
+    }
+    let input = MeasureContext {
+        store: &harness.store,
+        tools: &[],
+        session_key: "web:1",
+        prompt: &preview(),
+        context_window_tokens: 65_536,
+    };
+
+    let report = measure_context_with(
+        &input,
+        &MeasureWindow {
+            max_output_tokens: 8_192,
+            opening_seq: None,
+        },
+    )
+    .expect("a report");
+    assert!(report.messages.len() < 80);
+    assert_eq!(report.messages.len() % 2, 0, "whole turns only");
+    assert_eq!(report.messages.last().expect("a row").seq, 80);
+
+    // No window, no budget: the message cap alone.
+    let unbounded = measure_context(&MeasureContext {
+        context_window_tokens: 0,
+        ..input
+    })
+    .expect("a report");
+    assert_eq!(unbounded.messages.len(), 80);
 }

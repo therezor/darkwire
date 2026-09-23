@@ -51,7 +51,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use darkwire_core::history::HistoryOptions;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{AssistantOptions, assistant_message, system_message, user_message};
 use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
@@ -84,12 +83,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approval::ApprovalGate;
 use crate::attachments::{AttachmentCache, MaterialiseOptions, materialise_attachments};
-use crate::context::{MeasureContext, measure_context};
+use crate::context::{MeasureContext, MeasureWindow, measure_context_with, prompt_costs};
 use crate::dispatch::{
     SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions, TurnScope,
     parse_tool_args,
 };
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
+use crate::history_window::{FixedCost, history_budget, windowed_history};
+use crate::length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 use crate::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, PromptAgent,
     PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt, build_runtime_block,
@@ -613,6 +614,9 @@ struct TurnState {
     /// Set for exactly one iteration, then cleared. See `text_tool_call`.
     correction: Option<String>,
     corrected_once: bool,
+    /// The truncated-history notice goes out once a turn, however many
+    /// iterations trim.
+    trim_noted: bool,
     first_seq: i64,
     last_seq: i64,
 }
@@ -857,6 +861,11 @@ impl AgentLoop {
                 activated: Mutex::new(HashMap::new()),
             }),
         })
+    }
+
+    /// The completion cap a turn on this loop would ask for.
+    pub fn max_tokens(&self) -> u64 {
+        self.inner.config.max_tokens
     }
 
     /// The model a turn on this loop would use.
@@ -1722,7 +1731,21 @@ impl AgentLoop {
             correction.as_deref(),
             &turn.placed,
         );
-        let request = self.build_request(turn, &prompt, attachments)?;
+        let (request, trimmed) = self.build_request(turn, &prompt, state.first_seq, attachments)?;
+        if trimmed && !state.trim_noted {
+            state.trim_noted = true;
+            sink.emit(darkwire_protocol::Notice {
+                tag: darkwire_protocol::NoticeTag,
+                kind: NoticeKind::TruncatedHistory,
+                message: format!(
+                    "Older messages were left out to fit the {}-token context window.",
+                    inner.config.context_window_tokens
+                ),
+                turn_id: Some(turn.turn_id.clone()),
+                call_id: None,
+            })
+            .await;
+        }
 
         // What the adapter reports is a duration from *its* request; what a
         // reader wants is a duration from the turn. Captured here so the two
@@ -1765,6 +1788,17 @@ impl AgentLoop {
             state.first_token_ms = Some(waited + first);
         }
 
+        if result.finish_reason == FinishReason::Length && !result.message.tool_calls.is_empty() {
+            let (kept, cut) = split_cut_calls(&result.message.tool_calls);
+            if !cut.is_empty() {
+                let mut result = result;
+                result.message.tool_calls = kept;
+                return self
+                    .recover_cut_calls(turn, result, &cut, &prompt, state, sink)
+                    .await;
+            }
+        }
+
         if result.message.tool_calls.is_empty() {
             return self.finish_answer(turn, &result, state, sink).await;
         }
@@ -1772,25 +1806,88 @@ impl AgentLoop {
         self.run_tools(turn, &result, &prompt, state, sink).await
     }
 
-    /// The request one iteration sends.
+    /// The completion stopped at the token limit inside a tool call.
+    ///
+    /// `result` carries only the calls that parsed; `cut` names the rest,
+    /// which are neither run nor stored. The model is told on the next
+    /// iteration which call to send again. Not limited to once a turn like
+    /// the text-call correction: the iteration cap already bounds it, and a
+    /// retry with shorter arguments can succeed.
+    async fn recover_cut_calls(
+        &self,
+        turn: &mut TurnContext,
+        result: ChatResult,
+        cut: &[String],
+        prompt: &PromptPreview,
+        state: &mut TurnState,
+        sink: &EventSink,
+    ) -> Result<Flow> {
+        let inner = &self.inner;
+        tracing::warn!(
+            session_key = %turn.scope.session_key,
+            turn_id = %turn.turn_id,
+            iteration = state.iteration,
+            tools = ?cut,
+            "tool call cut at the token limit; asking for a retry"
+        );
+        state.correction = Some(length_cut_correction(cut, inner.config.max_tokens));
+        sink.emit(darkwire_protocol::Notice {
+            tag: darkwire_protocol::NoticeTag,
+            kind: NoticeKind::LengthCut,
+            message: length_cut_notice(cut, inner.config.max_tokens),
+            turn_id: Some(turn.turn_id.clone()),
+            call_id: None,
+        })
+        .await;
+
+        if !result.message.tool_calls.is_empty() {
+            return self.run_tools(turn, &result, prompt, state, sink).await;
+        }
+        let message = ChatMessage::Assistant(result.message);
+        if !text_of(&message).is_empty() {
+            let written = inner.store.append(
+                &turn.scope.session_key,
+                message,
+                &AppendOptions {
+                    turn_id: Some(turn.turn_id.clone()),
+                },
+            )?;
+            state.last_seq = written.seq;
+        }
+        Ok(Flow::Continue)
+    }
+
+    /// The request one iteration sends, and whether older turns were left out
+    /// to fit the context window.
     fn build_request(
         &self,
         turn: &TurnContext,
         prompt: &PromptPreview,
+        opening_seq: i64,
         attachments: &mut AttachmentCache,
-    ) -> Result<ChatRequest> {
+    ) -> Result<(ChatRequest, bool)> {
         let inner = &self.inner;
+        let system = ChatMessage::System(system_message(&prompt.static_prompt));
+        let runtime = (!prompt.runtime_block.is_empty())
+            .then(|| ChatMessage::User(user_message(runtime_reminder(&prompt.runtime_block))));
+        let fixed = prompt_costs(prompt, &turn.tool_definitions);
+        let budget = history_budget(&FixedCost {
+            context_window_tokens: inner.config.context_window_tokens,
+            prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
+            max_output_tokens: inner.config.max_tokens,
+        });
         // Re-read every iteration: the tool results this turn just wrote are
         // part of the next request, and reading them back from the store is
         // what keeps history and the request identical rather than merely
-        // similar.
-        let history = inner.store.history(
+        // similar. Windowed before attachments are read, because an inlined
+        // image priced as text would crowd out every older turn.
+        let windowed = windowed_history(
+            &inner.store,
             &turn.scope.session_key,
-            &HistoryOptions {
-                max_tool_result_chars: 0,
-                ..HistoryOptions::default()
-            },
+            Some(opening_seq),
+            budget,
         )?;
+        let history = windowed.messages();
         // Attachments become readable here and nowhere else. Storage holds a
         // path; a provider needs bytes or characters, and only this scope has
         // the jail that resolves one to the other. Doing it before the provider
@@ -1811,7 +1908,7 @@ impl AgentLoop {
         );
 
         let mut messages = Vec::with_capacity(history.len() + 2);
-        messages.push(ChatMessage::System(system_message(&prompt.static_prompt)));
+        messages.push(system);
         messages.extend(history);
         // The volatile half, after the history rather than before it. A
         // provider's cache ends at the first byte that differs from the last
@@ -1819,13 +1916,9 @@ impl AgentLoop {
         // conversation re-prices the whole conversation on every iteration.
         // Sent, never stored: the store is the conversation, and this is
         // scaffolding for one request.
-        if !prompt.runtime_block.is_empty() {
-            messages.push(ChatMessage::User(user_message(runtime_reminder(
-                &prompt.runtime_block,
-            ))));
-        }
+        messages.extend(runtime);
 
-        Ok(ChatRequest {
+        let request = ChatRequest {
             model: inner.model_id.clone(),
             messages,
             tools: turn.tool_definitions.clone(),
@@ -1841,7 +1934,8 @@ impl AgentLoop {
             // it, and the one that rejects it is handled by the degradation
             // ladder.
             cache_key: Some(turn.scope.session_key.clone()),
-        })
+        };
+        Ok((request, windowed.trimmed))
     }
 
     /// Streams one request, emitting deltas as they arrive.
@@ -2124,13 +2218,19 @@ impl AgentLoop {
         // outside `NestedAgentEvent`, so this is enforced by the compiler when
         // a subagent's events are wrapped rather than by this condition alone.
         if turn.scope.root_session_key == turn.scope.session_key {
-            let report = measure_context(&MeasureContext {
-                store: &inner.store,
-                tools: &turn.tool_definitions,
-                session_key: &turn.scope.session_key,
-                prompt,
-                context_window_tokens: inner.config.context_window_tokens,
-            })?;
+            let report = measure_context_with(
+                &MeasureContext {
+                    store: &inner.store,
+                    tools: &turn.tool_definitions,
+                    session_key: &turn.scope.session_key,
+                    prompt,
+                    context_window_tokens: inner.config.context_window_tokens,
+                },
+                &MeasureWindow {
+                    max_output_tokens: inner.config.max_tokens,
+                    opening_seq: Some(state.first_seq),
+                },
+            )?;
             sink.emit(darkwire_protocol::ContextUsage {
                 tag: darkwire_protocol::ContextUsageTag,
                 session_key: turn.scope.session_key.clone(),

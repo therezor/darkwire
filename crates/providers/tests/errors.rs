@@ -370,3 +370,69 @@ fn a_fault_without_wording_falls_back_to_the_innermost_message() {
     );
     assert_eq!(odd.message, "Could not reach x at not a url: boom.");
 }
+
+/// A provider's error body, classified the way `openai_chat` does it.
+fn classify_body(status: u16, body: &Value) -> (ProviderErrorReason, WireErrorBody) {
+    let error = body.get("error").filter(|e| e.is_object()).unwrap_or(body);
+    let wire = WireErrorBody::from_value(error);
+    (classify_status(status, Some(&wire)), wire)
+}
+
+#[test]
+fn a_llama_cpp_overflow_is_a_context_length_error() {
+    let (reason, wire) = classify_body(
+        400,
+        &json!({"error": {
+            "code": 400,
+            "message": "the request exceeds the available context size, try increasing it",
+            "type": "exceed_context_size_error",
+            "n_prompt_tokens": 70_000,
+            "n_ctx": 65_536
+        }}),
+    );
+    assert_eq!(reason, ProviderErrorReason::ContextLength);
+    assert_eq!(wire.code.as_deref(), Some("400"));
+}
+
+#[test]
+fn an_openai_overflow_is_read_from_its_code_before_its_param() {
+    let (reason, _) = classify_body(
+        400,
+        &json!({"error": {
+            "message": "This model's maximum context length is 128000 tokens.",
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "context_length_exceeded"
+        }}),
+    );
+    assert_eq!(reason, ProviderErrorReason::ContextLength);
+}
+
+#[test]
+fn a_vllm_overflow_says_so_only_in_prose_and_stays_a_bad_request() {
+    let (reason, wire) = classify_body(
+        400,
+        &json!({
+            "object": "error",
+            "message": "This model's maximum context length is 32768 tokens. \
+                        However, you requested 40000 tokens.",
+            "type": "BadRequestError",
+            "param": null,
+            "code": 400
+        }),
+    );
+    assert_eq!(reason, ProviderErrorReason::InvalidRequest);
+    assert_eq!(wire.code.as_deref(), Some("400"));
+}
+
+#[test]
+fn a_numeric_code_is_kept_and_a_missing_one_is_absent() {
+    assert_eq!(
+        WireErrorBody::from_value(&json!({"code": 429}))
+            .code
+            .as_deref(),
+        Some("429")
+    );
+    assert_eq!(WireErrorBody::from_value(&json!({"code": null})).code, None);
+    assert_eq!(WireErrorBody::from_value(&json!({})).code, None);
+}

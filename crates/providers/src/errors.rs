@@ -382,12 +382,21 @@ pub struct WireErrorBody {
 
 impl WireErrorBody {
     /// The fields this crate reads, out of a provider's `error` object.
+    ///
+    /// `code` is a string enum in OpenAI's schema and an HTTP status in
+    /// llama.cpp's and OpenRouter's, so a number is kept as its digits rather
+    /// than dropped.
     pub fn from_value(error: &Value) -> WireErrorBody {
         let field = |key: &str| error.get(key).and_then(Value::as_str).map(str::to_owned);
+        let code = match error.get("code") {
+            Some(Value::String(code)) => Some(code.clone()),
+            Some(Value::Number(code)) => Some(code.to_string()),
+            _ => None,
+        };
         WireErrorBody {
             message: field("message"),
             kind: field("type"),
-            code: field("code"),
+            code,
             param: field("param"),
         }
     }
@@ -404,6 +413,13 @@ const CONTEXT_LENGTH_CODES: &[&str] = &[
     "string_above_max_length",
     "invalid_prompt_length",
 ];
+
+/// Error classes that mean the request was too long, read from `type`.
+///
+/// llama.cpp names the overflow in `type` and puts the HTTP status in `code`.
+/// vLLM has no such field: its overflow is `BadRequestError` with the numbers
+/// only in the prose, so it stays `InvalidRequest`.
+const CONTEXT_LENGTH_TYPES: &[&str] = &["exceed_context_size_error"];
 
 const UNSUPPORTED_PARAM_CODES: &[&str] = &[
     "unsupported_parameter",
@@ -435,6 +451,13 @@ pub fn classify_status(status: u16, body: Option<&WireErrorBody>) -> ProviderErr
         503 | 529 => return ProviderErrorReason::Overloaded,
         500.. => return ProviderErrorReason::Server,
         _ => {}
+    }
+
+    if body
+        .and_then(|body| body.kind.as_deref())
+        .is_some_and(|kind| CONTEXT_LENGTH_TYPES.contains(&kind))
+    {
+        return ProviderErrorReason::ContextLength;
     }
 
     if let Some(code) = body.and_then(|body| body.code.as_deref()) {

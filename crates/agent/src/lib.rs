@@ -13,6 +13,8 @@ pub mod attachments;
 pub mod context;
 pub mod dispatch;
 pub mod events;
+pub mod history_window;
+pub mod length_cut;
 pub mod memory_contributor;
 pub mod prompt;
 pub mod skills;
@@ -42,7 +44,8 @@ pub use attachments::{
     materialise_file_part,
 };
 pub use context::{
-    ContextBreakdown, ContextReport, MeasureContext, describe_context, measure_context,
+    ContextBreakdown, ContextReport, MeasureContext, MeasureWindow, describe_context,
+    measure_context, measure_context_with,
 };
 pub use dispatch::{
     CANCELLED_TOOL_RESULT, MAX_PARALLEL_TOOL_CALLS, NoDelegation, SubagentDelegate,
@@ -50,6 +53,11 @@ pub use dispatch::{
     parse_tool_args,
 };
 pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
+pub use history_window::{
+    FixedCost, HISTORY_BUDGET_FACTOR, WindowedHistory, history_budget, token_window_start,
+    windowed_history,
+};
+pub use length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 pub use memory_contributor::{MemoryContributor, render_memory_section};
 pub use prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, Platform,

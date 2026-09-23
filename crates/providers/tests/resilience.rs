@@ -19,9 +19,9 @@ use darkwire_providers::testkit::{
 };
 use darkwire_providers::{
     BackoffOptions, BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent,
-    DEFAULT_DEGRADATION_STEPS, NoticeKind, ProviderError, ProviderErrorReason, ProviderSpec,
-    ResilienceNotice, ResilienceOptions, ToolChoice, backoff_delay_ms, synthesise_stream,
-    truncate_oldest_turns, with_resilience,
+    DEFAULT_DEGRADATION_STEPS, MAX_TRUNCATIONS, NoticeKind, ProviderError, ProviderErrorReason,
+    ProviderSpec, ResilienceNotice, ResilienceOptions, ToolChoice, backoff_delay_ms,
+    synthesise_stream, truncate_oldest_turns, with_resilience,
 };
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -874,5 +874,100 @@ fn synthesise_stream_replays_a_result_as_events() {
     assert_eq!(
         synthesise_stream(&tool_only),
         vec![ChatStreamEvent::Done(tool_only.clone())]
+    );
+}
+
+/// A long conversation: the system prompt, `turns` answered questions, and
+/// the question being asked now.
+fn conversation(turns: usize) -> Vec<ChatMessage> {
+    let mut messages = vec![common::system("rules")];
+    for index in 0..turns {
+        messages.push(long(&format!("q{index}")));
+        messages.push(common::assistant("answered"));
+    }
+    messages.push(common::user("the question"));
+    messages
+}
+
+#[tokio::test(start_paused = true)]
+async fn truncation_repeats_shrinking_the_request_each_time() {
+    let too_long = || err(ProviderErrorReason::ContextLength, "too long");
+    let inner = ScriptedProvider::new(spec(), vec![too_long(), too_long(), ok("fits")]);
+    let (provider, notices) = wrap(Arc::clone(&inner));
+    let result = provider
+        .chat(
+            &ChatRequest {
+                messages: conversation(40),
+                ..request()
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.message.content, vec![text_part("fits")]);
+
+    let sizes: Vec<usize> = inner.seen().iter().map(|r| r.messages.len()).collect();
+    assert_eq!(sizes.len(), 3);
+    assert!(sizes[0] > sizes[1] && sizes[1] > sizes[2], "{sizes:?}");
+    // Two cuts, one notice: the second says nothing the first did not.
+    assert_eq!(kinds(&notices), vec![NoticeKind::Degraded]);
+    for request in inner.seen() {
+        assert_eq!(request.messages.first(), Some(&common::system("rules")));
+        assert_eq!(request.messages.last(), Some(&common::user("the question")));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn truncation_stops_at_its_cap_on_a_window_that_never_fits() {
+    let steps = (0..=MAX_TRUNCATIONS)
+        .map(|_| err(ProviderErrorReason::ContextLength, "too long"))
+        .collect();
+    let inner = ScriptedProvider::new(spec(), steps);
+    let (provider, notices) = wrap(Arc::clone(&inner));
+    let error = provider
+        .chat(
+            &ChatRequest {
+                messages: conversation(200),
+                ..request()
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ProviderError::reason_of(&error),
+        ProviderErrorReason::ContextLength
+    );
+    assert_eq!(inner.seen().len(), 1 + MAX_TRUNCATIONS as usize);
+    assert_eq!(kinds(&notices), vec![NoticeKind::Degraded]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn truncation_stops_at_the_current_turn_before_its_cap() {
+    let steps = (0..=MAX_TRUNCATIONS)
+        .map(|_| err(ProviderErrorReason::ContextLength, "too long"))
+        .collect();
+    let inner = ScriptedProvider::new(spec(), steps);
+    let (provider, _) = wrap(Arc::clone(&inner));
+    let error = provider
+        .chat(
+            &ChatRequest {
+                messages: conversation(1),
+                ..request()
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ProviderError::reason_of(&error),
+        ProviderErrorReason::ContextLength
+    );
+    let seen = inner.seen();
+    assert!(seen.len() < 1 + MAX_TRUNCATIONS as usize, "{}", seen.len());
+    // The floor held: the last request still asks the question.
+    assert_eq!(
+        seen.last().unwrap().messages.last(),
+        Some(&common::user("the question"))
     );
 }
