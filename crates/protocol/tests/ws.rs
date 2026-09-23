@@ -8,7 +8,8 @@
 )]
 
 use darkwire_protocol::{
-    ClientMessage, PROTOCOL_VERSION, ProtocolVersion, ServerMessage, UNSEQUENCED_SERVER_EVENTS,
+    CLOSE_SIGNED_OUT, ClientMessage, PROTOCOL_VERSION, ProtocolVersion, ServerMessage,
+    UNSEQUENCED_SERVER_EVENTS,
 };
 use serde_json::json;
 
@@ -25,6 +26,30 @@ fn the_version_literal_is_pinned() {
     let mut old = base;
     old["protocolVersion"] = json!(1);
     assert!(serde_json::from_value::<ServerMessage>(old).is_err());
+}
+
+#[test]
+fn the_signed_out_close_code_is_pinned() {
+    // The browser matches on the number, so it is part of the wire.
+    assert_eq!(CLOSE_SIGNED_OUT, 4401);
+}
+
+#[test]
+fn a_stop_may_name_its_turn() {
+    let named: ClientMessage =
+        serde_json::from_value(json!({"type": "turn.stop", "sessionKey": "s", "turnId": "t1"}))
+            .unwrap();
+    let ClientMessage::StopTurn(named) = named else {
+        panic!("wrong variant")
+    };
+    assert_eq!(named.turn_id.as_deref(), Some("t1"));
+
+    let bare: ClientMessage =
+        serde_json::from_value(json!({"type": "turn.stop", "sessionKey": "s"})).unwrap();
+    assert_eq!(
+        serde_json::to_value(&bare).unwrap(),
+        json!({"type": "turn.stop", "sessionKey": "s"})
+    );
 }
 
 #[test]

@@ -60,6 +60,64 @@ describe('the turn store', () => {
     });
   });
 
+  it('names the running turn from its start until its own end', () => {
+    state().attach('web:1');
+    const start = (turnId: string, seq: number) => ({
+      type: 'turn.start' as const,
+      seq,
+      sessionKey: 'web:1',
+      turnId,
+      agentId: 'default',
+      model: 'm',
+      provider: 'p',
+    });
+
+    state().apply(start('t1', 1));
+    expect(state().runningTurnId).toBe('t1');
+
+    // Another turn's end leaves it named.
+    state().apply({
+      type: 'turn.end',
+      seq: 2,
+      turnId: 't0',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+    expect(state().runningTurnId).toBe('t1');
+
+    state().apply({
+      type: 'turn.end',
+      seq: 3,
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+    expect(state().runningTurnId).toBeUndefined();
+
+    state().apply(start('t2', 4));
+    state().apply({
+      type: 'session.status',
+      seq: 5,
+      sessionKey: 'web:1',
+      workspaceId: 'default',
+      busy: false,
+      queueDepth: 0,
+    });
+    expect(state().runningTurnId).toBeUndefined();
+
+    // A tab that attached mid-turn learns the id from the status instead.
+    state().apply({
+      type: 'session.status',
+      seq: 6,
+      sessionKey: 'web:1',
+      workspaceId: 'default',
+      busy: true,
+      queueDepth: 0,
+      turnId: 't3',
+    });
+    expect(state().runningTurnId).toBe('t3');
+  });
+
   it('leaves everything alone when re-attaching to the same session', () => {
     state().attach('web:1');
     state().applySeq(12);

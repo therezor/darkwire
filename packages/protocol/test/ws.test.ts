@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CLOSE_SIGNED_OUT,
   ClientMessageSchema,
   MAX_ATTACHMENTS,
   PROTOCOL_VERSION,
@@ -24,7 +25,30 @@ describe('protocol version', () => {
   });
 });
 
+describe('close codes', () => {
+  it('pins the signed-out close code the browser matches on', () => {
+    expect(CLOSE_SIGNED_OUT).toBe(4401);
+  });
+});
+
 describe('ClientMessageSchema', () => {
+  it('parses a stop that names its turn, and one that does not', () => {
+    expect(
+      ClientMessageSchema.parse({
+        type: 'turn.stop',
+        sessionKey: 's',
+        turnId: 't1',
+      }),
+    ).toEqual({ type: 'turn.stop', sessionKey: 's', turnId: 't1' });
+    expect(
+      ClientMessageSchema.safeParse({
+        type: 'turn.stop',
+        sessionKey: 's',
+        turnId: '',
+      }).success,
+    ).toBe(false);
+  });
+
   it('parses a user message and defaults its attachment list', () => {
     const parsed = ClientMessageSchema.parse({
       type: 'user.message',

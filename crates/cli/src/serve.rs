@@ -732,6 +732,8 @@ impl ChannelHub for HubBridge {
             unattended: false,
             workspace_id: options.workspace_id,
             max_buffered_bytes: None,
+            // A channel is not a browser login, so no sign-out closes it.
+            auth_session: None,
         });
         pump(stream, move |message| send(message));
         Arc::new(Bridged { client })
@@ -1244,6 +1246,7 @@ fn build_scheduler(
                 unattended: options.unattended,
                 workspace_id: options.workspace_id,
                 max_buffered_bytes: None,
+                auth_session: None,
             });
             pump(stream, move |message| send(message));
             Arc::new(Bridged { client }) as Arc<dyn SchedulerConnection>

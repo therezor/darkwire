@@ -38,17 +38,20 @@
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
 use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{FileDetails, file_part, text_part};
-use darkwire_core::session_store::{ReadMessages, StoredMessageRecord, to_stored_message};
+use darkwire_core::session_store::{
+    ReadMessages, StoredMessageRecord, TruncateResult, to_stored_message,
+};
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError};
 use darkwire_protocol::config::Config;
-use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason};
+use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason, StoredMessage};
 use darkwire_protocol::tools::ExecRule;
 use darkwire_protocol::uuid::new_uuid;
 use darkwire_protocol::ws::{
@@ -64,11 +67,13 @@ use darkwire_security::random::{OsRandom, RandomSource};
 use indexmap::IndexMap;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_binding::agent_for_turn;
 use crate::approvals::HubApprovalGate;
+use crate::auth_store::Revocation;
+use crate::blocking::blocking;
 use crate::errors::{code_str, resolve_error};
 use crate::exec_rules::RuleWriter;
 use crate::replay::ReplayBuffer;
@@ -102,6 +107,8 @@ pub const DEFAULT_MAX_BUFFERED_BYTES: usize = 4 * 1024 * 1024;
 
 /// The WebSocket close code for a connection that fell too far behind.
 pub const CLOSE_TRY_AGAIN_LATER: u16 = 1013;
+
+pub use darkwire_protocol::ws::CLOSE_SIGNED_OUT;
 
 /// Stored messages returned when a replay could not cover the gap.
 ///
@@ -348,8 +355,13 @@ struct Connection {
     workspace_id: Option<String>,
     /// Shared with the [`HubClient`], which reports where the connection is.
     session_key: Arc<Mutex<String>>,
-    /// No human on the other end — see [`ConnectOptions::unattended`].
+    /// No human on the other end. See [`ConnectOptions::unattended`].
     unattended: bool,
+    /// Mutable: a password change carries it to the caller's new session.
+    login: Option<Login>,
+    /// The transport closed it. Frames it sent before that still run as this
+    /// connection, and nothing is delivered to it or attached for it.
+    closing: bool,
 }
 
 impl Connection {
@@ -404,6 +416,10 @@ struct SessionState {
     /// `client_message_id` to the id it was acked with, for a retry after a
     /// dropped socket. Insertion-ordered, so the bound drops the oldest.
     acked: IndexMap<String, String>,
+    /// A regenerate or an edit is rewriting the history off the runtime. No
+    /// turn starts until it is done, so none runs against a history that is
+    /// about to change.
+    rewinding: bool,
 }
 
 /// Everything the hub mutates, behind one lock.
@@ -449,6 +465,21 @@ pub struct ConnectOptions {
     pub workspace_id: Option<String>,
     /// How much may sit queued for this connection before it is hung up on.
     pub max_buffered_bytes: Option<usize>,
+    /// The login session that authenticated the upgrade.
+    ///
+    /// Revoking it, or its expiry, closes the connection with
+    /// [`CLOSE_SIGNED_OUT`]. `None` is a connection no login stands behind:
+    /// authentication is off, or it is the scheduler's or a channel's.
+    pub auth_session: Option<Login>,
+}
+
+/// The login session behind a connection, and when it lapses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Login {
+    /// The login session's id.
+    pub id: String,
+    /// When it stops being accepted, in epoch milliseconds.
+    pub expires_at_ms: i64,
 }
 
 /// How the hub is built.
@@ -469,7 +500,8 @@ pub struct SessionHubOptions {
     /// at construction and the hub needs the runtime's loop and store. Building
     /// the gate first is what unties that knot.
     pub approvals: Arc<HubApprovalGate>,
-    /// The clock the `connected` and `pong` frames report.
+    /// The clock the `connected` and `pong` frames report, and the one a
+    /// login's expiry is read against.
     pub clock: Option<Arc<dyn Clock>>,
     /// Turn and connection ids.
     pub new_id: Option<IdSource>,
@@ -505,6 +537,34 @@ pub struct SessionHub {
     new_id: IdSource,
     max_queue_depth: usize,
     max_sessions: usize,
+    expiry: ExpiryWatch,
+}
+
+/// The one timer that closes sockets whose login lapsed.
+///
+/// Armed for the earliest expiry among the connections attached, and woken
+/// when that set changes. Started on the first connection with a login, so a
+/// hub with authentication off never runs it.
+#[derive(Default)]
+struct ExpiryWatch {
+    rearm: Arc<Notify>,
+    started: AtomicBool,
+}
+
+/// One inbound instruction, for the task that runs a connection's frames in
+/// order.
+enum Inbound {
+    Frame(Frame),
+    /// Queued behind the frames sent before it, so they still run as this
+    /// connection.
+    Close,
+}
+
+impl Drop for SessionHub {
+    fn drop(&mut self) {
+        // The timer holds the hub weakly and has to wake to see it is gone.
+        self.expiry.rearm.notify_one();
+    }
 }
 
 impl std::fmt::Debug for SessionHub {
@@ -516,10 +576,13 @@ impl std::fmt::Debug for SessionHub {
 }
 
 /// A handle on one attached connection.
+///
+/// Dropping it ends the connection, as closing it does.
 pub struct HubClient {
     hub: Arc<SessionHub>,
     id: String,
     session_key: Arc<Mutex<String>>,
+    inbound: mpsc::UnboundedSender<Inbound>,
 }
 
 impl std::fmt::Debug for HubClient {
@@ -542,15 +605,23 @@ impl HubClient {
         self.session_key.lock().clone()
     }
 
-    /// Handles one inbound frame. Never fails: a frame this cannot read
+    /// Queues one inbound frame. Never fails: a frame this cannot read
     /// becomes an `error` event on the socket that sent it.
+    ///
+    /// Frames run in the order they were queued, on the connection's own task,
+    /// because answering some of them reads the store.
     pub fn receive(&self, frame: Frame) {
-        self.hub.clone().receive(&self.id, frame);
+        let _ = self.inbound.send(Inbound::Frame(frame));
     }
 
     /// Detaches. Idempotent, so a socket's close and error can both call it.
+    ///
+    /// The connection stops being delivered to and counted at once. Frames it
+    /// queued before this still run, so a stop sent just before the close
+    /// reaches the turn it was meant for.
     pub fn close(&self) {
-        self.hub.disconnect(&self.id);
+        self.hub.leave(&self.id);
+        let _ = self.inbound.send(Inbound::Close);
     }
 }
 
@@ -588,6 +659,7 @@ impl SessionHub {
             new_id,
             max_queue_depth: options.max_queue_depth.unwrap_or(DEFAULT_MAX_QUEUE_DEPTH),
             max_sessions: options.max_sessions.unwrap_or(DEFAULT_MAX_SESSIONS),
+            expiry: ExpiryWatch::default(),
         })
     }
 
@@ -682,15 +754,20 @@ impl SessionHub {
     /// The `connected` frame carries `last_seq` so a fresh client knows where
     /// the session is before it has seen anything, and a reconnecting one can
     /// tell immediately whether it missed anything at all.
+    ///
+    /// The connection is known at once, so a revocation finds it, and joins its
+    /// session when the greeting goes out: the greeting reads the stored
+    /// workspace, and nothing is sent to a connection before it.
     pub fn connect(self: &Arc<Self>, options: ConnectOptions) -> (HubClient, OutboundStream) {
         let (tx, rx) = mpsc::unbounded_channel();
+        let (inbound, frames) = mpsc::unbounded_channel();
         let buffered = Arc::new(AtomicUsize::new(0));
         let id = (self.new_id)();
         // A fresh tab with no `?session=` gets its key here.
         let session_key = Arc::new(Mutex::new(
             options.session_key.unwrap_or_else(|| (self.new_id)()),
         ));
-        let key = session_key.lock().clone();
+        let signed_in = options.auth_session.is_some();
 
         let connection = Connection {
             tx,
@@ -703,26 +780,81 @@ impl SessionHub {
             workspace_id: options.workspace_id,
             session_key: Arc::clone(&session_key),
             unattended: options.unattended,
+            login: options.auth_session,
+            closing: false,
         };
+        self.inner.lock().connections.insert(id.clone(), connection);
+        if signed_in {
+            self.watch_expiry();
+        }
 
-        let workspace_id = self
-            .stored_workspace(&key)
+        tracing::debug!(connection_id = %id, "hub connection opened");
+
+        let hub = Arc::clone(self);
+        let task_id = id.clone();
+        tokio::spawn(async move { hub.serve_connection(task_id, frames).await });
+
+        (
+            HubClient {
+                hub: Arc::clone(self),
+                id,
+                session_key,
+                inbound,
+            },
+            OutboundStream { rx, buffered },
+        )
+    }
+
+    /// Greets a connection, then runs its frames one at a time until it goes.
+    async fn serve_connection(
+        self: Arc<Self>,
+        id: String,
+        mut frames: mpsc::UnboundedReceiver<Inbound>,
+    ) {
+        self.greet(&id).await;
+        while let Some(Inbound::Frame(frame)) = frames.recv().await {
+            // Revoked, expired or hung up on while this frame waited: nothing
+            // it asks for runs.
+            if !self.inner.lock().connections.contains_key(&id) {
+                break;
+            }
+            self.receive(&id, frame).await;
+        }
+        self.disconnect(&id);
+    }
+
+    /// Attaches a connection to its session and sends `connected`, under one
+    /// lock, so no frame of the session reaches it first.
+    async fn greet(&self, id: &str) {
+        let Some(key) = self
+            .inner
+            .lock()
+            .connections
+            .get(id)
+            .map(Connection::session_key)
+        else {
+            return;
+        };
+        let stored = self.stored_workspace(&key).await;
+
+        let mut inner = self.inner.lock();
+        let Some(connection) = inner.connections.get(id).filter(|c| !c.closing) else {
+            return;
+        };
+        let workspace_id = stored
             .or_else(|| connection.workspace_id.clone())
             .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned());
-        let last_seq = {
-            let mut inner = self.inner.lock();
-            inner.connections.insert(id.clone(), connection);
-            self.session(&mut inner, &key);
-            if let Some(state) = inner.sessions.get_mut(&key) {
-                state.clients.push(id.clone());
+        self.session(&mut inner, &key);
+        let last_seq = match inner.sessions.get_mut(&key) {
+            Some(state) => {
+                state.clients.push(id.to_owned());
+                state.seq
             }
-            inner.sessions.peek(&key).map_or(0, |state| state.seq)
+            None => 0,
         };
-
-        tracing::debug!(connection_id = %id, session_key = %key, "hub connection opened");
-
-        self.inner.lock().deliver(
-            &id,
+        tracing::debug!(connection_id = %id, session_key = %key, "hub connection greeted");
+        inner.deliver(
+            id,
             &ServerMessage::Connected(ConnectedEvent {
                 tag: ConnectedTag,
                 protocol_version: ProtocolVersion,
@@ -732,15 +864,6 @@ impl SessionHub {
                 workspace_id,
             }),
         );
-
-        (
-            HubClient {
-                hub: Arc::clone(self),
-                id,
-                session_key,
-            },
-            OutboundStream { rx, buffered },
-        )
     }
 
     /// Stops every turn and drops every session.
@@ -767,6 +890,89 @@ impl SessionHub {
         }
     }
 
+    /// Closes every connection a revoked login authenticated.
+    ///
+    /// The check at the upgrade is otherwise the last one a socket sees, so a
+    /// tab left open would keep driving an agent after its owner signed out.
+    /// A carried session keeps its connections: they now belong to the
+    /// session issued in its place, and lapse when that one does.
+    pub fn revoke(&self, revocation: &Revocation) {
+        let mut inner = self.inner.lock();
+        let mut closing = Vec::new();
+        let mut carried_any = false;
+        for (id, connection) in &mut inner.connections {
+            let Some(login) = connection.login.as_ref() else {
+                continue;
+            };
+            match revocation {
+                Revocation::Sessions(ids) => {
+                    if ids.contains(&login.id) {
+                        closing.push(id.clone());
+                    }
+                }
+                Revocation::All { carried } => match carried {
+                    Some(carried) if carried.from == login.id => {
+                        connection.login = Some(Login {
+                            id: carried.to.clone(),
+                            expires_at_ms: carried.expires_at_ms,
+                        });
+                        carried_any = true;
+                    }
+                    _ => closing.push(id.clone()),
+                },
+            }
+        }
+        for id in closing {
+            inner.sign_out(&id);
+            tracing::info!(connection_id = %id, "socket closed: its login was revoked");
+        }
+        drop(inner);
+        if carried_any {
+            self.expiry.rearm.notify_one();
+        }
+    }
+
+    /// Starts the expiry timer once, or wakes it to re-read the earliest
+    /// expiry.
+    fn watch_expiry(self: &Arc<Self>) {
+        if self.expiry.started.swap(true, Ordering::SeqCst) {
+            self.expiry.rearm.notify_one();
+            return;
+        }
+        let hub = Arc::downgrade(self);
+        let rearm = Arc::clone(&self.expiry.rearm);
+        tokio::spawn(async move { expire_logins(hub, rearm).await });
+    }
+
+    /// Closes every connection whose login has lapsed, and says how long until
+    /// the next one does.
+    fn close_expired(&self) -> Option<Duration> {
+        let now = self.clock.now_ms();
+        let mut inner = self.inner.lock();
+        let expired: Vec<String> = inner
+            .connections
+            .iter()
+            .filter(|(_, connection)| {
+                connection
+                    .login
+                    .as_ref()
+                    .is_some_and(|login| login.expires_at_ms <= now)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in expired {
+            inner.sign_out(&id);
+            tracing::info!(connection_id = %id, "socket closed: its login expired");
+        }
+        inner
+            .connections
+            .values()
+            .filter_map(|connection| connection.login.as_ref())
+            .map(|login| login.expires_at_ms)
+            .min()
+            .map(|at| Duration::from_millis(u64::try_from(at - now).unwrap_or(0)))
+    }
+
     /// Re-announces a session's workspace after something moved it.
     ///
     /// Called by `PATCH /api/sessions/:key`, so a second tab — or the Files page
@@ -782,16 +988,15 @@ impl SessionHub {
     ///
     /// Sessions with no client attached are skipped for the reason
     /// [`SessionHub::broadcast`] gives at length.
-    pub fn session_moved(&self, session_key: &str) {
-        let status = {
-            let inner = self.inner.lock();
-            match inner.sessions.peek(session_key) {
-                Some(state) if !state.clients.is_empty() => Some(self.status_event(state)),
-                _ => return,
-            }
-        };
-        if let Some(event) = status {
-            self.inner.lock().emit(session_key, event);
+    pub async fn session_moved(&self, session_key: &str) {
+        let watched = self
+            .inner
+            .lock()
+            .sessions
+            .peek(session_key)
+            .is_some_and(|state| !state.clients.is_empty());
+        if watched {
+            self.announce_status(session_key).await;
         }
     }
 
@@ -828,7 +1033,7 @@ impl SessionHub {
 
     // Inbound
 
-    fn receive(self: Arc<Self>, connection_id: &str, frame: Frame) {
+    async fn receive(self: &Arc<Self>, connection_id: &str, frame: Frame) {
         let value = match decode_frame(frame) {
             Ok(value) => value,
             Err(message) => {
@@ -845,12 +1050,12 @@ impl SessionHub {
             }
         };
 
-        self.dispatch(connection_id, message);
+        self.dispatch(connection_id, message).await;
     }
 
     /// Exhaustive on purpose: a client message added without a handler is a
     /// compile error.
-    fn dispatch(self: &Arc<Self>, connection_id: &str, message: ClientMessage) {
+    async fn dispatch(self: &Arc<Self>, connection_id: &str, message: ClientMessage) {
         match message {
             ClientMessage::Ping(_) => {
                 self.inner.lock().deliver(
@@ -861,11 +1066,16 @@ impl SessionHub {
                     }),
                 );
             }
-            ClientMessage::UserMessage(message) => self.submit(connection_id, &message),
-            ClientMessage::Regenerate(message) => self.regenerate(connection_id, &message),
-            ClientMessage::Edit(message) => self.edit(connection_id, &message),
+            ClientMessage::UserMessage(message) => self.submit(connection_id, &message).await,
+            ClientMessage::Regenerate(message) => self.regenerate(connection_id, &message).await,
+            ClientMessage::Edit(message) => self.edit(connection_id, &message).await,
             ClientMessage::StopTurn(message) => {
-                self.stop_turn(connection_id, &message.session_key);
+                self.stop_turn(
+                    connection_id,
+                    &message.session_key,
+                    message.turn_id.as_deref(),
+                )
+                .await;
             }
             ClientMessage::Steer(message) => {
                 let runner = {
@@ -922,13 +1132,14 @@ impl SessionHub {
                     }
                 }
                 let key = message.session_key.unwrap_or_else(|| (self.new_id)());
-                self.move_to(connection_id, &key);
+                self.move_to(connection_id, &key).await;
             }
             ClientMessage::SwitchSession(message) => {
-                self.move_to(connection_id, &message.session_key);
+                self.move_to(connection_id, &message.session_key).await;
             }
             ClientMessage::ResumeSession(message) => {
-                self.resume(connection_id, &message.session_key, message.last_seq);
+                self.resume(connection_id, &message.session_key, message.last_seq)
+                    .await;
             }
             ClientMessage::ToolApprove(message) => {
                 if let Some(rule) = &message.rule
@@ -957,7 +1168,7 @@ impl SessionHub {
     /// yet, and an ack that waited for persistence would be an ack that waits
     /// for the turn in front of it to finish, which is the one moment the client
     /// needs it.
-    fn submit(self: &Arc<Self>, connection_id: &str, message: &UserMessageRequest) {
+    async fn submit(self: &Arc<Self>, connection_id: &str, message: &UserMessageRequest) {
         {
             let mut inner = self.inner.lock();
             self.session(&mut inner, &message.session_key);
@@ -1008,7 +1219,8 @@ impl SessionHub {
             to_content(&message.content, &message.attachments),
             message.client_message_id.clone(),
             message.agent_id.clone(),
-        );
+        )
+        .await;
     }
 
     /// The queue rules, in the one place that has them.
@@ -1018,7 +1230,7 @@ impl SessionHub {
     /// decision are the contract a client renders against, and three copies of
     /// it would be three chances for a retry path to behave unlike the path it
     /// retries.
-    fn enqueue(
+    async fn enqueue(
         self: &Arc<Self>,
         connection_id: &str,
         session_key: &str,
@@ -1108,7 +1320,7 @@ impl SessionHub {
         };
 
         if queued {
-            self.announce_status(session_key);
+            self.announce_status(session_key).await;
         } else {
             self.drain(session_key);
         }
@@ -1120,7 +1332,7 @@ impl SessionHub {
     /// comes before the truncation**: discovering there is no model *after*
     /// deleting the answer would destroy what the user had and give nothing
     /// back, and it is the one ordering mistake here that is not recoverable.
-    fn regenerate(self: &Arc<Self>, connection_id: &str, message: &RegenerateMessage) {
+    async fn regenerate(self: &Arc<Self>, connection_id: &str, message: &RegenerateMessage) {
         if matches!((self.loop_for)(None), Ok(None)) {
             self.error(
                 connection_id,
@@ -1131,7 +1343,7 @@ impl SessionHub {
             return;
         }
 
-        if self.busy_or_queued(&message.session_key) {
+        if !self.begin_rewind(&message.session_key) {
             self.error(
                 connection_id,
                 ErrorCode::SessionBusy,
@@ -1141,26 +1353,44 @@ impl SessionHub {
             return;
         }
 
-        let target = match message.seq {
-            None => self.last_question(&message.session_key),
-            Some(seq) => self.user_message_at(&message.session_key, seq),
-        };
-        let Some(target) = target else {
+        let store = Arc::clone(&self.store);
+        let key = message.session_key.clone();
+        let seq = message.seq;
+        // Lookup and truncation in one call, so nothing lands between them.
+        let found = blocking(move || {
+            let target = match seq {
+                None => last_question(&store, &key),
+                Some(seq) => user_message_at(&store, &key, seq),
+            };
+            Ok(target.map(|target| {
+                // Read before the delete, because the delete is what removes
+                // it.
+                let content = match &target.message {
+                    ChatMessage::User(user) => user.content.clone(),
+                    _ => Vec::new(),
+                };
+                (content, truncated(&store, &key, target.seq))
+            }))
+        })
+        .await
+        .ok()
+        .flatten();
+        self.end_rewind(&message.session_key);
+
+        let Some((content, cut)) = found else {
             self.error(
                 connection_id,
                 ErrorCode::BadRequest,
                 "There is nothing to regenerate on this session.",
                 false,
             );
+            // Another tab's message may have queued behind the claim.
+            self.drain(&message.session_key);
             return;
         };
-
-        // Read before the delete, because the delete is what removes it.
-        let content = match &target.message {
-            ChatMessage::User(user) => user.content.clone(),
-            _ => Vec::new(),
-        };
-        self.rewind(&message.session_key, target.seq);
+        if let Some((result, tail)) = cut {
+            self.announce_truncation(&message.session_key, result, tail);
+        }
         self.enqueue(
             connection_id,
             &message.session_key,
@@ -1171,11 +1401,12 @@ impl SessionHub {
             // to claim it.
             message.client_message_id.clone(),
             None,
-        );
+        )
+        .await;
     }
 
     /// Replaces a message and re-runs from it. Same guards as a regenerate.
-    fn edit(self: &Arc<Self>, connection_id: &str, message: &EditMessage) {
+    async fn edit(self: &Arc<Self>, connection_id: &str, message: &EditMessage) {
         if matches!((self.loop_for)(None), Ok(None)) {
             self.error(
                 connection_id,
@@ -1186,7 +1417,7 @@ impl SessionHub {
             return;
         }
 
-        if self.busy_or_queued(&message.session_key) {
+        if !self.begin_rewind(&message.session_key) {
             self.error(
                 connection_id,
                 ErrorCode::SessionBusy,
@@ -1196,52 +1427,92 @@ impl SessionHub {
             return;
         }
 
-        let seq = i64::try_from(message.seq).unwrap_or(i64::MAX);
-        if self
-            .user_message_at(&message.session_key, message.seq)
-            .is_none()
-        {
-            self.error(
-                connection_id,
-                ErrorCode::BadRequest,
-                "That message cannot be edited.",
-                false,
-            );
-            return;
-        }
+        let store = Arc::clone(&self.store);
+        let key = message.session_key.clone();
+        let seq = message.seq;
+        let empty = message.content.is_empty() && message.attachments.is_empty();
+        let outcome = blocking(move || {
+            if user_message_at(&store, &key, seq).is_none() {
+                return Ok(Edited::NotEditable);
+            }
+            if empty {
+                return Ok(Edited::Empty);
+            }
+            let seq = i64::try_from(seq).unwrap_or(i64::MAX);
+            Ok(Edited::Rewound(truncated(&store, &key, seq)))
+        })
+        .await
+        .unwrap_or(Edited::NotEditable);
+        self.end_rewind(&message.session_key);
 
-        if message.content.is_empty() && message.attachments.is_empty() {
-            self.error(
-                connection_id,
-                ErrorCode::BadRequest,
-                "Message is empty",
-                false,
-            );
-            return;
+        match outcome {
+            Edited::NotEditable => {
+                self.error(
+                    connection_id,
+                    ErrorCode::BadRequest,
+                    "That message cannot be edited.",
+                    false,
+                );
+                self.drain(&message.session_key);
+                return;
+            }
+            Edited::Empty => {
+                self.error(
+                    connection_id,
+                    ErrorCode::BadRequest,
+                    "Message is empty",
+                    false,
+                );
+                self.drain(&message.session_key);
+                return;
+            }
+            Edited::Rewound(Some((result, tail))) => {
+                self.announce_truncation(&message.session_key, result, tail);
+            }
+            Edited::Rewound(None) => {}
         }
-
-        self.rewind(&message.session_key, seq);
         self.enqueue(
             connection_id,
             &message.session_key,
             to_content(&message.content, &message.attachments),
             message.client_message_id.clone(),
             message.agent_id.clone(),
-        );
+        )
+        .await;
     }
 
-    /// Drops the question at `seq` and everything after it, then says so.
+    /// Claims a session for a rewind, or `false` when a turn is running or
+    /// waiting, or another rewind is under way.
     ///
-    /// **Minus one is load-bearing.** The loop appends the user message
-    /// unconditionally at the top of every turn, so truncating *to* `seq` and
-    /// then re-running would write the same question twice — once from history
-    /// and once from the loop. The question is deleted here and rewritten there.
-    fn rewind(&self, session_key: &str, seq: i64) {
-        let Ok(result) = self.store.truncate_after(session_key, seq - 1) else {
-            return;
+    /// A queued message would otherwise run against a history that is about
+    /// to change underneath it. The claim holds across the store call, so a
+    /// frame from another tab cannot start a turn in that gap either.
+    fn begin_rewind(&self, session_key: &str) -> bool {
+        let mut inner = self.inner.lock();
+        self.session(&mut inner, session_key);
+        let Some(state) = inner.sessions.get_mut(session_key) else {
+            return false;
         };
-        let tail = self.tail(session_key);
+        if state.running.is_some() || !state.queue.is_empty() || state.rewinding {
+            return false;
+        }
+        state.rewinding = true;
+        true
+    }
 
+    fn end_rewind(&self, session_key: &str) {
+        if let Some(state) = self.inner.lock().sessions.get_mut(session_key) {
+            state.rewinding = false;
+        }
+    }
+
+    /// Says that a suffix of the conversation was dropped.
+    fn announce_truncation(
+        &self,
+        session_key: &str,
+        result: TruncateResult,
+        tail: Vec<StoredMessage>,
+    ) {
         let mut inner = self.inner.lock();
         // The turn the log was holding is part of what was just deleted. Cleared
         // before the event, so a resume racing it cannot be sent frames
@@ -1264,60 +1535,6 @@ impl SessionHub {
         );
     }
 
-    /// The stored row at `seq`, if it is a message the user wrote.
-    fn user_message_at(&self, session_key: &str, seq: u64) -> Option<StoredMessageRecord> {
-        let seq = i64::try_from(seq).unwrap_or(i64::MAX);
-        let records = self
-            .store
-            .messages(
-                session_key,
-                &ReadMessages {
-                    after_seq: Some(seq - 1),
-                    before_seq: Some(seq + 1),
-                    ..ReadMessages::default()
-                },
-            )
-            .ok()?;
-        records
-            .into_iter()
-            .next()
-            .filter(|record| matches!(record.message, ChatMessage::User(_)))
-    }
-
-    /// The question that started the most recent turn.
-    ///
-    /// The *earliest* user row of that turn, not the latest: steering appends
-    /// user rows mid-turn under the same turn id, and the last of those is a
-    /// correction to the answer rather than the question that asked for it.
-    fn last_question(&self, session_key: &str) -> Option<StoredMessageRecord> {
-        let tail = self
-            .store
-            .messages(
-                session_key,
-                &ReadMessages {
-                    limit: Some(RESUME_MESSAGE_LIMIT),
-                    from_end: true,
-                    ..ReadMessages::default()
-                },
-            )
-            .ok()?;
-        let turn_id = tail.last()?.turn_id.clone()?;
-        tail.into_iter().find(|record| {
-            record.turn_id.as_deref() == Some(turn_id.as_str())
-                && matches!(record.message, ChatMessage::User(_))
-        })
-    }
-
-    fn busy_or_queued(&self, session_key: &str) -> bool {
-        // A queued message would otherwise run against a history that is about
-        // to change underneath it.
-        self.inner
-            .lock()
-            .sessions
-            .peek(session_key)
-            .is_some_and(|state| state.running.is_some() || !state.queue.is_empty())
-    }
-
     // Turns
 
     /// Starts the next queued turn if the session is free.
@@ -1331,7 +1548,7 @@ impl SessionHub {
             let Some(state) = inner.sessions.get_mut(session_key) else {
                 return false;
             };
-            if state.running.is_some() {
+            if state.running.is_some() || state.rewinding {
                 return false;
             }
             let Some(next) = state.queue.pop_front() else {
@@ -1353,13 +1570,17 @@ impl SessionHub {
         true
     }
 
-    /// Stops the running turn.
+    /// Stops the running turn, or the one `turn_id` names.
+    ///
+    /// A named stop reaches only that turn: running, it is cancelled, and
+    /// queued, it is withdrawn. A stop sent as one turn ends must not land on
+    /// the next one to start.
     ///
     /// A connection with nobody on it (a scheduled run) may stop only what it
     /// submitted: its time limit is not a reason to cancel a turn somebody else
     /// started on a shared session. It also withdraws what it still has
     /// queued, since the run that asked for it has already given up.
-    fn stop_turn(&self, connection_id: &str, session_key: &str) {
+    async fn stop_turn(&self, connection_id: &str, session_key: &str, turn_id: Option<&str>) {
         let withdrawn = {
             let mut inner = self.inner.lock();
             let unattended = inner
@@ -1373,12 +1594,18 @@ impl SessionHub {
                 return;
             };
             let before = state.queue.len();
-            if unattended {
-                state
-                    .queue
-                    .retain(|turn| turn.connection_id != connection_id);
-            }
+            state.queue.retain(|turn| {
+                let owned = !unattended || turn.connection_id == connection_id;
+                let withdraw = match turn_id {
+                    Some(id) => turn.id == id && owned,
+                    // Unnamed, only an unattended run withdraws, and only its
+                    // own.
+                    None => unattended && owned,
+                };
+                !withdraw
+            });
             if let Some(running) = state.running.as_ref()
+                && turn_id.is_none_or(|id| running.turn_id == id)
                 && (!unattended || running.connection_id == connection_id)
             {
                 tracing::info!(
@@ -1391,7 +1618,7 @@ impl SessionHub {
             state.queue.len() != before
         };
         if withdrawn {
-            self.announce_status(session_key);
+            self.announce_status(session_key).await;
         }
     }
 
@@ -1428,7 +1655,7 @@ impl SessionHub {
         // The next turn's own `turn.start` and status say the session is busy
         // again; announcing idle first would make a queue look like a gap.
         if !self.drain(&session_key) {
-            self.announce_status(&session_key);
+            self.announce_status(&session_key).await;
         }
     }
 
@@ -1448,9 +1675,10 @@ impl SessionHub {
         // — becomes the default agent rather than a refusal. A conversation must
         // not stop working because an agent it was bound to was deleted, and the
         // binding is left alone, so re-creating that agent silently restores it.
-        let stored = self
-            .store
-            .get_session(session_key)
+        let store = Arc::clone(&self.store);
+        let key = session_key.to_owned();
+        let stored = blocking(move || store.get_session(&key))
+            .await
             .ok()
             .flatten()
             .and_then(|record| record.agent_id);
@@ -1519,6 +1747,7 @@ impl SessionHub {
             },
             token,
         );
+        let workspace = self.stored_workspace(session_key).await;
 
         {
             let mut inner = self.inner.lock();
@@ -1536,7 +1765,7 @@ impl SessionHub {
             let status = inner
                 .sessions
                 .peek(session_key)
-                .map(|state| self.status_event(state));
+                .map(|state| status_event(state, workspace));
             if let Some(status) = status {
                 inner.emit(session_key, status);
             }
@@ -1697,6 +1926,7 @@ impl SessionHub {
                 queue: VecDeque::new(),
                 running: None,
                 acked: IndexMap::new(),
+                rewinding: false,
             },
         );
         // Excluded from its own eviction: nothing has attached to it yet, so by
@@ -1725,6 +1955,7 @@ impl SessionHub {
                         && state.clients.is_empty()
                         && state.running.is_none()
                         && state.queue.is_empty()
+                        && !state.rewinding
                 })
                 .map(|(key, _)| key.clone());
             let Some(victim) = victim else {
@@ -1737,13 +1968,17 @@ impl SessionHub {
     }
 
     /// Moves a connection onto another session and reports where it landed.
-    fn move_to(self: &Arc<Self>, connection_id: &str, session_key: &str) {
+    ///
+    /// A connection its transport has closed is not attached anywhere, so a
+    /// switch it queued before closing cannot bring it back.
+    async fn move_to(self: &Arc<Self>, connection_id: &str, session_key: &str) {
         {
             let mut inner = self.inner.lock();
             self.session(&mut inner, session_key);
             let previous = inner
                 .connections
                 .get(connection_id)
+                .filter(|connection| !connection.closing)
                 .map(Connection::session_key);
             if let Some(previous) = previous
                 && previous != session_key
@@ -1759,7 +1994,7 @@ impl SessionHub {
                 }
             }
         }
-        self.announce_status(session_key);
+        self.announce_status(session_key).await;
     }
 
     /// Rebuilds a reconnecting client.
@@ -1779,8 +2014,8 @@ impl SessionHub {
     /// overlap on: `resuming_turn_id` tells the client to drop that turn from the
     /// tail it was just handed and rebuild it from the frames, which are the
     /// whole of it. The rest of the tail is history the frames say nothing about.
-    fn resume(self: &Arc<Self>, connection_id: &str, session_key: &str, last_seq: u64) {
-        self.move_to(connection_id, session_key);
+    async fn resume(self: &Arc<Self>, connection_id: &str, session_key: &str, last_seq: u64) {
+        self.move_to(connection_id, session_key).await;
 
         let (complete, resuming) = {
             let inner = self.inner.lock();
@@ -1809,7 +2044,11 @@ impl SessionHub {
         let messages = if complete {
             Vec::new()
         } else {
-            self.tail(session_key)
+            let store = Arc::clone(&self.store);
+            let key = session_key.to_owned();
+            blocking(move || Ok(tail(&store, &key)))
+                .await
+                .unwrap_or_default()
         };
 
         // To the resuming connection alone, like the frames that follow it.
@@ -1870,61 +2109,27 @@ impl SessionHub {
         }
     }
 
-    /// The status frame for a session, read fresh from the stored row.
-    fn status_event(&self, state: &SessionState) -> HubEvent {
-        HubEvent::SessionStatus(SessionStatus {
-            tag: SessionStatusTag,
-            session_key: state.key.clone(),
-            busy: state.running.is_some(),
-            queue_depth: state.queue.len() as u64,
-            workspace_id: self
-                .stored_workspace(&state.key)
-                .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned()),
-            turn_id: state
-                .running
-                .as_ref()
-                .map(|running| running.turn_id.clone()),
-        })
-    }
-
-    fn announce_status(&self, session_key: &str) {
-        let event = {
-            let inner = self.inner.lock();
-            inner
-                .sessions
-                .peek(session_key)
-                .map(|state| self.status_event(state))
+    /// Says where a session stands, with its workspace read fresh from the
+    /// stored row before the hub is locked.
+    async fn announce_status(&self, session_key: &str) {
+        let workspace = self.stored_workspace(session_key).await;
+        let mut inner = self.inner.lock();
+        let Some(state) = inner.sessions.peek(session_key) else {
+            return;
         };
-        if let Some(event) = event {
-            self.inner.lock().emit(session_key, event);
-        }
+        let event = status_event(state, workspace);
+        inner.emit(session_key, event);
     }
 
     /// The workspace a session is bound to, or `None` before its first turn.
-    fn stored_workspace(&self, session_key: &str) -> Option<String> {
-        self.store
-            .get_session(session_key)
+    async fn stored_workspace(&self, session_key: &str) -> Option<String> {
+        let store = Arc::clone(&self.store);
+        let key = session_key.to_owned();
+        blocking(move || store.get_session(&key))
+            .await
             .ok()
             .flatten()
             .map(|record| record.workspace_id)
-    }
-
-    /// The last messages of a conversation, as a replay or a truncation reports
-    /// them.
-    fn tail(&self, session_key: &str) -> Vec<darkwire_protocol::messages::StoredMessage> {
-        self.store
-            .messages(
-                session_key,
-                &ReadMessages {
-                    limit: Some(RESUME_MESSAGE_LIMIT),
-                    from_end: true,
-                    ..ReadMessages::default()
-                },
-            )
-            .unwrap_or_default()
-            .iter()
-            .map(to_stored_message)
-            .collect()
     }
 
     // Outbound
@@ -1997,9 +2202,33 @@ impl SessionHub {
         );
     }
 
-    fn disconnect(&self, connection_id: &str) {
+    /// Stops delivering to a connection and counting it, and keeps its record
+    /// for the frames it queued before closing.
+    fn leave(&self, connection_id: &str) {
         let mut inner = self.inner.lock();
-        inner.detach(connection_id);
+        let Some(connection) = inner.connections.get_mut(connection_id) else {
+            return;
+        };
+        connection.closing = true;
+        let key = connection.session_key();
+        if let Some(state) = inner.sessions.get_mut(&key) {
+            state.clients.retain(|id| id != connection_id);
+        }
+    }
+
+    fn disconnect(&self, connection_id: &str) {
+        let signed_in = {
+            let mut inner = self.inner.lock();
+            let signed_in = inner
+                .connections
+                .get(connection_id)
+                .is_some_and(|connection| connection.login.is_some());
+            inner.detach(connection_id);
+            signed_in
+        };
+        if signed_in {
+            self.expiry.rearm.notify_one();
+        }
     }
 }
 
@@ -2030,7 +2259,11 @@ impl HubInner {
     }
 
     fn deliver(&mut self, connection_id: &str, message: &ServerMessage) {
-        let Some(connection) = self.connections.get(connection_id) else {
+        let Some(connection) = self
+            .connections
+            .get(connection_id)
+            .filter(|connection| !connection.closing)
+        else {
             return;
         };
         let Ok(text) = serde_json::to_string(message) else {
@@ -2059,6 +2292,14 @@ impl HubInner {
         }
     }
 
+    /// Closes a connection with [`CLOSE_SIGNED_OUT`] and drops it.
+    fn sign_out(&mut self, connection_id: &str) {
+        if let Some(connection) = self.connections.get(connection_id) {
+            let _ = connection.tx.send((Outbound::Close(CLOSE_SIGNED_OUT), 0));
+        }
+        self.detach(connection_id);
+    }
+
     /// Drops a connection. Idempotent.
     ///
     /// The session state stays: the case a replay buffer exists for is a tab
@@ -2077,6 +2318,127 @@ impl HubInner {
 }
 
 // Helpers
+
+/// The expiry timer. Holds the hub weakly, so a dropped hub ends it.
+async fn expire_logins(hub: Weak<SessionHub>, rearm: Arc<Notify>) {
+    loop {
+        let next = match hub.upgrade() {
+            Some(hub) => hub.close_expired(),
+            None => return,
+        };
+        match next {
+            Some(wait) => {
+                tokio::select! {
+                    () = tokio::time::sleep(wait) => {}
+                    () = rearm.notified() => {}
+                }
+            }
+            None => rearm.notified().await,
+        }
+    }
+}
+
+/// The status frame for a session.
+fn status_event(state: &SessionState, workspace_id: Option<String>) -> HubEvent {
+    HubEvent::SessionStatus(SessionStatus {
+        tag: SessionStatusTag,
+        session_key: state.key.clone(),
+        busy: state.running.is_some(),
+        queue_depth: state.queue.len() as u64,
+        workspace_id: workspace_id.unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned()),
+        turn_id: state
+            .running
+            .as_ref()
+            .map(|running| running.turn_id.clone()),
+    })
+}
+
+/// What an edit's store call found.
+enum Edited {
+    NotEditable,
+    Empty,
+    Rewound(Option<(TruncateResult, Vec<StoredMessage>)>),
+}
+
+/// The stored row at `seq`, if it is a message the user wrote.
+fn user_message_at(
+    store: &SessionStore,
+    session_key: &str,
+    seq: u64,
+) -> Option<StoredMessageRecord> {
+    let seq = i64::try_from(seq).unwrap_or(i64::MAX);
+    let records = store
+        .messages(
+            session_key,
+            &ReadMessages {
+                after_seq: Some(seq - 1),
+                before_seq: Some(seq + 1),
+                ..ReadMessages::default()
+            },
+        )
+        .ok()?;
+    records
+        .into_iter()
+        .next()
+        .filter(|record| matches!(record.message, ChatMessage::User(_)))
+}
+
+/// The question that started the most recent turn.
+///
+/// The *earliest* user row of that turn, not the latest: steering appends
+/// user rows mid-turn under the same turn id, and the last of those is a
+/// correction to the answer rather than the question that asked for it.
+fn last_question(store: &SessionStore, session_key: &str) -> Option<StoredMessageRecord> {
+    let tail = store
+        .messages(
+            session_key,
+            &ReadMessages {
+                limit: Some(RESUME_MESSAGE_LIMIT),
+                from_end: true,
+                ..ReadMessages::default()
+            },
+        )
+        .ok()?;
+    let turn_id = tail.last()?.turn_id.clone()?;
+    tail.into_iter().find(|record| {
+        record.turn_id.as_deref() == Some(turn_id.as_str())
+            && matches!(record.message, ChatMessage::User(_))
+    })
+}
+
+/// Drops the question at `seq` and everything after it, and reads the tail
+/// that survives. `None` when the store refused.
+///
+/// **Minus one is load-bearing.** The loop appends the user message
+/// unconditionally at the top of every turn, so truncating *to* `seq` and
+/// then re-running would write the same question twice: once from history
+/// and once from the loop. The question is deleted here and rewritten there.
+fn truncated(
+    store: &SessionStore,
+    session_key: &str,
+    seq: i64,
+) -> Option<(TruncateResult, Vec<StoredMessage>)> {
+    let result = store.truncate_after(session_key, seq - 1).ok()?;
+    Some((result, tail(store, session_key)))
+}
+
+/// The last messages of a conversation, as a replay or a truncation reports
+/// them.
+fn tail(store: &SessionStore, session_key: &str) -> Vec<StoredMessage> {
+    store
+        .messages(
+            session_key,
+            &ReadMessages {
+                limit: Some(RESUME_MESSAGE_LIMIT),
+                from_end: true,
+                ..ReadMessages::default()
+            },
+        )
+        .unwrap_or_default()
+        .iter()
+        .map(to_stored_message)
+        .collect()
+}
 
 /// Bytes from a socket, a JSON string, or a value someone already parsed.
 fn decode_frame(frame: Frame) -> std::result::Result<serde_json::Value, String> {

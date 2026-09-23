@@ -14,11 +14,14 @@
 //! through `requested_agent_id` so a reader can be told what they are looking
 //! at rather than quietly shown something else.
 
-use darkwire_agent::{MeasureContext, PromptPreviewInput, measure_context};
+use std::sync::Arc;
+
+use darkwire_agent::{MeasureContext, MeasureWindow, PromptPreviewInput, measure_context_with};
 use darkwire_core::{Result, to_stored_message};
 use darkwire_protocol::messages::{ChatMessage, StoredMessage};
 use darkwire_protocol::rest::ContextResponse;
 
+use crate::blocking::blocking;
 use crate::runtime::ServerRuntime;
 
 /// Measures one session, or `None` when there is nothing to measure.
@@ -32,7 +35,12 @@ pub async fn build_context_response(
     session_key: &str,
 ) -> Result<Option<ContextResponse>> {
     let store = runtime.store();
-    let Some(session) = store.get_session(session_key)? else {
+    let found = {
+        let store = Arc::clone(&store);
+        let key = session_key.to_owned();
+        blocking(move || store.get_session(&key)).await?
+    };
+    let Some(session) = found else {
         return Ok(None);
     };
 
@@ -62,13 +70,27 @@ pub async fn build_context_response(
     // The measurement itself lives in `darkwire-agent`, so every surface reports
     // the same numbers from the same code rather than a second implementation
     // of the windowing rules.
-    let report = measure_context(&MeasureContext {
-        store: &store,
-        tools: &tools,
-        session_key,
-        prompt: &prompt,
-        context_window_tokens: agent.context_window_tokens().into(),
-    })?;
+    // Reserving the agent's `max_tokens` as the loop does, so the window shown
+    // is the one a turn sends.
+    let window = MeasureWindow {
+        max_output_tokens: agent.max_tokens(),
+        opening_seq: None,
+    };
+    let context_window_tokens = agent.context_window_tokens().into();
+    let key = session_key.to_owned();
+    let report = blocking(move || {
+        measure_context_with(
+            &MeasureContext {
+                store: &store,
+                tools: &tools,
+                session_key: &key,
+                prompt: &prompt,
+                context_window_tokens,
+            },
+            &window,
+        )
+    })
+    .await?;
 
     Ok(Some(ContextResponse {
         session_key: report.session_key,

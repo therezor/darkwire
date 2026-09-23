@@ -466,7 +466,16 @@ async fn clearing_a_transcript_keeps_the_session() {
 }
 
 /// A server whose one turn is still running when the next request arrives.
-async fn server_mid_turn(key: &str) -> (TestServer, darkwire_server::hub::HubClient) {
+///
+/// The stream comes back with it: a connection whose stream is dropped is
+/// detached, and what it had queued never runs.
+type MidTurn = (
+    TestServer,
+    darkwire_server::hub::HubClient,
+    darkwire_server::hub::OutboundStream,
+);
+
+async fn server_mid_turn(key: &str) -> MidTurn {
     let test = start_test_server(TestServerOptions {
         answers: vec!["held".to_owned()],
         hold_ms: Some(60_000),
@@ -478,7 +487,6 @@ async fn server_mid_turn(key: &str) -> (TestServer, darkwire_server::hub::HubCli
         session_key: Some(key.to_owned()),
         ..ConnectOptions::default()
     });
-    drop(stream);
     client.receive(Frame::Value(
         json!({ "type": "user.message", "sessionKey": key, "content": "go" }),
     ));
@@ -489,12 +497,12 @@ async fn server_mid_turn(key: &str) -> (TestServer, darkwire_server::hub::HubCli
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
     assert!(test.hub.busy(key), "the turn is running");
-    (test, client)
+    (test, client, stream)
 }
 
 #[tokio::test]
 async fn a_session_is_not_deleted_under_a_running_turn() {
-    let (test, client) = server_mid_turn("s-1").await;
+    let (test, client, _stream) = server_mid_turn("s-1").await;
 
     let answer = delete(&test, "/api/sessions/s-1").await;
     assert_eq!(answer.status, StatusCode::CONFLICT);
@@ -504,7 +512,7 @@ async fn a_session_is_not_deleted_under_a_running_turn() {
 
 #[tokio::test]
 async fn a_transcript_is_not_cleared_under_a_running_turn() {
-    let (test, client) = server_mid_turn("s-1").await;
+    let (test, client, _stream) = server_mid_turn("s-1").await;
 
     let answer = delete(&test, "/api/sessions/s-1/messages").await;
     assert_eq!(answer.status, StatusCode::CONFLICT);

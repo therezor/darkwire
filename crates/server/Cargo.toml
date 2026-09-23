@@ -45,6 +45,8 @@ axum-extra.workspace = true
 base64.workspace = true
 futures.workspace = true
 garde.workspace = true
+# The machine's own name is one of the `Host` values it always answers to.
+gethostname.workspace = true
 hmac.workspace = true
 indexmap.workspace = true
 lru.workspace = true
@@ -80,6 +82,8 @@ darkwire-providers = { workspace = true, features = ["testkit"] }
 darkwire-security = { workspace = true, features = ["testkit"] }
 darkwire-tools = { workspace = true, features = ["testkit"] }
 tempfile.workspace = true
+# Paused time, so a test can move the login-expiry timer by hand.
+tokio = { workspace = true, features = ["test-util"] }
 # A real client for the one test that has to complete a WebSocket handshake;
 # everything else goes through `tower::ServiceExt::oneshot` with no listener.
 tokio-tungstenite.workspace = true

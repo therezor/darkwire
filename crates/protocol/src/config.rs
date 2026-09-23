@@ -378,6 +378,15 @@ pub struct ServerConfig {
     #[serde(default = "default_port")]
     #[garde(range(min = 1, max = 65_535))]
     pub port: u16,
+    /// Host names the server answers to, beyond the ones it always does.
+    ///
+    /// Every request's `Host` is checked, so a page on a name that was pointed
+    /// at this machine cannot read from it (DNS rebinding). `localhost`, the
+    /// loopback addresses, any IP literal, the bind host and the machine's
+    /// hostname are always accepted. A name here is for a reverse proxy or a
+    /// DNS alias. An entry with a port matches only that port.
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
     /// Who may reach it.
     #[serde(default)]
     #[schemars(transform = prefault)]
@@ -427,6 +436,7 @@ impl Default for ServerConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            allowed_hosts: Vec::new(),
             auth: AuthConfig::default(),
             replay_buffer_size: default_replay_buffer_size(),
             turn_log_max_bytes: default_turn_log_max_bytes(),
@@ -1666,6 +1676,9 @@ pub struct ServerConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(min = 1, max = 65_535))]
     pub port: Option<u16>,
+    /// See [`ServerConfig::allowed_hosts`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_hosts: Option<Vec<String>>,
     /// See [`ServerConfig::auth`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]

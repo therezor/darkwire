@@ -323,6 +323,7 @@ See [Providers](providers.md) for the registry table and the resolution order.
 | ------------------------- | ----------- | ------------- | --------------------------------------------------------------------------------- |
 | `host`                    | string      | `'127.0.0.1'` | A non-loopback host with `auth.enabled: false` **refuses to start**.              |
 | `port`                    | int 1–65535 | `3000`        | One port for the API, the WebSocket and the UI.                                   |
+| `allowedHosts`            | string[]    | `[]`          | Extra `Host` names to answer to. See [below](#serverallowedhosts).                |
 | `replayBufferSize`        | int ≥ 0     | `512`         | Events retained per session so a reconnecting tab can replay across turns.        |
 | `turnLogMaxBytes`         | int ≥ 0     | 16 MiB        | Budget for keeping the _running_ turn whole, so a reload comes back to all of it. |
 | `auth.enabled`            | boolean     | `true`        |                                                                                   |
@@ -353,6 +354,38 @@ turns the log off outright and makes that the behaviour always. See
 `0.0.0.0` and `::` count as remote. All of `127.0.0.0/8`, `localhost` and `::1` count as
 loopback. The refusal is a startup error rather than a warning because a warning scrolls
 past, and the result is an unauthenticated shell-capable agent on a LAN address.
+
+### `server.allowedHosts`
+
+Every request is checked against the `Host` it names, the UI and the socket included. A
+name the server does not recognise gets `421 Misdirected Request`. This is the defence
+against DNS rebinding: a page on `evil.example` can point that name at `127.0.0.1` after
+it loads, but the browser still sends `Host: evil.example`.
+
+Always accepted, on any port:
+
+- `localhost`, and any name under `.localhost`.
+- Any IP address, such as `127.0.0.1`, `[::1]` or a LAN address. A page can only have an
+  IP origin by being served from that address, so there is no name to rebind.
+- The `host` the server binds to.
+- The machine's hostname, and its `.local` form.
+
+List anything else here: the public name of a reverse proxy, or a DNS alias. Names match
+without regard to case. An entry with no port matches any port, and an entry with a port
+(`proxy.example.com:8443`) matches only that one.
+
+```yaml
+server:
+  allowedHosts:
+    - darkwire.example.com
+```
+
+A listed name is also accepted as the WebSocket `Origin`. That is what a proxy that
+rewrites `Host` to `127.0.0.1:3000` needs, because the browser's `Origin` still names the
+public host. The names that are always accepted are not trusted as an `Origin`: a page
+from another server on `localhost` is still another page.
+
+Read at startup, like `host` and `port`.
 
 ---
 

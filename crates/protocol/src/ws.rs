@@ -42,6 +42,12 @@ use crate::tools::{ApprovalScope, CommandPolicy, ExecRule, ToolDefinition, ToolR
 /// Version of the wire protocol. Bumped on any breaking envelope change.
 pub const PROTOCOL_VERSION: u64 = 2;
 
+/// The close code for a socket whose login was revoked.
+///
+/// In the 4000 range, which RFC 6455 leaves to applications. The client reads
+/// it as "sign in again" rather than as a drop to reconnect from.
+pub const CLOSE_SIGNED_OUT: u16 = 4401;
+
 /// The protocol version as a type: serialises to [`PROTOCOL_VERSION`] and
 /// refuses any other number, so a client built against another version fails
 /// on the handshake rather than three frames later.
@@ -208,6 +214,11 @@ pub struct StopTurnMessage {
     /// The conversation.
     #[garde(length(utf16, min = 1))]
     pub session_key: String,
+    /// The turn to stop. A running turn with another id is left alone, and a
+    /// queued one with this id is withdrawn. Absent stops whatever is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(length(utf16, min = 1))]
+    pub turn_id: Option<String>,
 }
 
 /// Start a conversation.

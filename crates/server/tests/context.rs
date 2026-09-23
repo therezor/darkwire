@@ -215,3 +215,46 @@ async fn a_session_row_with_no_messages_still_measures() {
     assert_eq!(report.session_key, "web:quiet");
     assert!(report.messages.is_empty());
 }
+
+/// How many stored messages the report carries under one agent's caps.
+async fn window_length(context_window_tokens: u64, max_tokens: u64) -> usize {
+    let config = darkwire_protocol::config::parse_config(json!({
+        "agents": {"list": {"default": {
+            "contextWindowTokens": context_window_tokens,
+            "maxTokens": max_tokens,
+        }}},
+    }))
+    .expect("a parseable config");
+    let test = server(Some(config));
+    let store = test.runtime.store();
+    store
+        .ensure_session("web:long", CreateSession::default())
+        .expect("a session row");
+    for index in 0..30 {
+        store
+            .append(
+                "web:long",
+                ChatMessage::User(user_message(format!("{index} {}", "word ".repeat(40)))),
+                &AppendOptions::default(),
+            )
+            .expect("a stored message");
+    }
+
+    build_context_response(test.runtime.as_ref(), "web:long")
+        .await
+        .expect("the measurement ran")
+        .expect("a measured conversation")
+        .messages
+        .len()
+}
+
+#[tokio::test]
+async fn the_window_reserves_the_agents_output_tokens_as_the_loop_does() {
+    // The whole history fits the window when nothing is kept back for the
+    // answer, and a meter drawn that way shows more than a turn would send.
+    let roomy = window_length(3000, 1).await;
+    let reserved = window_length(3000, 2000).await;
+    assert_eq!(roomy, 30);
+    assert!(reserved < roomy, "{reserved} of {roomy} messages were kept");
+    assert!(reserved > 0);
+}

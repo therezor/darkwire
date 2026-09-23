@@ -114,6 +114,57 @@ impl Connection {
     async fn close(mut self) {
         let _ = self.socket.close(None).await;
     }
+
+    /// Reads until the server closes the socket, and answers its close code.
+    async fn closed_with(&mut self) -> Option<u16> {
+        let deadline = tokio::time::Instant::now() + FRAME_TIMEOUT;
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, self.socket.next())
+                .await
+                .unwrap_or_else(|_| panic!("the socket was never closed"))
+            {
+                Some(Ok(Message::Close(frame))) => {
+                    return frame.map(|frame| u16::from(frame.code));
+                }
+                Some(Ok(_)) => {}
+                Some(Err(_)) | None => return None,
+            }
+        }
+    }
+
+    /// Whether the server still answers on this socket.
+    async fn answers(&mut self) -> bool {
+        self.seen.clear();
+        self.send(&json!({ "type": "ping" })).await;
+        self.next_of("pong").await["type"] == "pong"
+    }
+}
+
+/// Sends one request through the router with a bearer token.
+async fn post(server: &Listening, path: &str, token: &str, body: &Value) -> (StatusCode, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("a well-formed request");
+    let response = server
+        .test
+        .router
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("the router answered");
+    let status = response.status();
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    (status, cookie)
 }
 
 /// Opens a socket, with a credential unless `token` is `None`.
@@ -458,4 +509,111 @@ async fn the_page_this_server_served_opens_the_socket() {
         .expect("the upgrade was accepted");
     socket.next_of("connected").await;
     socket.close().await;
+}
+
+// A login that is revoked
+
+#[tokio::test]
+async fn logging_out_closes_every_socket_that_login_opened_and_no_other() {
+    let server = listening(TestServerOptions::default()).await;
+    let mine = server.test.token.clone();
+    let theirs = server.test.auth.issue("web").expect("a second login").token;
+
+    let mut first = connect(&server, "?session=web:a", Some(&mine))
+        .await
+        .expect("the handshake completed");
+    first.next_of("connected").await;
+    let mut second = connect(&server, "?session=web:b", Some(&mine))
+        .await
+        .expect("the handshake completed");
+    second.next_of("connected").await;
+    let mut other = connect(&server, "?session=web:c", Some(&theirs))
+        .await
+        .expect("the handshake completed");
+    other.next_of("connected").await;
+
+    let (status, _) = post(&server, "/api/auth/logout", &mine, &json!({})).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    assert_eq!(first.closed_with().await, Some(4401));
+    assert_eq!(second.closed_with().await, Some(4401));
+    assert!(other.answers().await, "another login's socket stays open");
+    other.close().await;
+}
+
+#[tokio::test]
+async fn a_password_change_signs_other_sockets_out_and_keeps_the_callers() {
+    let server = listening(TestServerOptions::default()).await;
+    let mine = server.test.token.clone();
+    let theirs = server.test.auth.issue("web").expect("a second login").token;
+
+    let mut kept = connect(&server, "", Some(&mine))
+        .await
+        .expect("the handshake completed");
+    kept.next_of("connected").await;
+    let mut other = connect(&server, "", Some(&theirs))
+        .await
+        .expect("the handshake completed");
+    other.next_of("connected").await;
+
+    let (status, cookie) = post(
+        &server,
+        "/api/setup/password",
+        &mine,
+        &json!({
+            "password": "a brand new password",
+            "currentPassword": "correct horse battery staple",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(other.closed_with().await, Some(4401));
+    assert!(kept.answers().await, "the caller's own socket stays open");
+
+    // It now belongs to the session the change issued, so signing that one
+    // out reaches it.
+    let token = cookie
+        .split(';')
+        .next()
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, value)| value.to_owned())
+        .expect("a session cookie");
+    let (status, _) = post(&server, "/api/auth/logout", &token, &json!({})).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(kept.closed_with().await, Some(4401));
+}
+
+#[tokio::test]
+async fn an_origin_named_in_allowed_hosts_opens_the_socket() {
+    // A reverse proxy that rewrites `Host` to the loopback address leaves the
+    // browser's `Origin` naming the public host.
+    let mut config = darkwire_protocol::config::Config::default();
+    config.server.auth.enabled = false;
+    config.server.allowed_hosts = vec!["darkwire.example.com".to_owned()];
+    let server = listening(TestServerOptions {
+        config: Some(config),
+        ..TestServerOptions::default()
+    })
+    .await;
+
+    let mut socket = connect_from(&server, "", None, Some("https://darkwire.example.com"))
+        .await
+        .expect("the upgrade was accepted");
+    socket.next_of("connected").await;
+    socket.close().await;
+
+    // The names every server answers to are not origins it trusts: a page
+    // from another local server is still another page.
+    for origin in ["https://other.example.com", "http://localhost:1"] {
+        let refused = connect_from(&server, "", None, Some(origin))
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{origin} was let in"));
+        assert_eq!(
+            handshake_status(&refused),
+            Some(StatusCode::FORBIDDEN),
+            "{origin}"
+        );
+    }
 }

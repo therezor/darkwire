@@ -11,7 +11,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ClientMessage, ServerMessage } from '@darkwire/protocol';
+import {
+  CLOSE_SIGNED_OUT,
+  type ClientMessage,
+  type ServerMessage,
+} from '@darkwire/protocol';
 
 import { useToastStore } from '@/components/ui/toast.js';
 import { useTurnStore } from '@/state/turn.js';
@@ -22,7 +26,9 @@ import {
   regenerateTurn,
   editMessage,
   onServerMessage,
+  onSignedOut,
   openConnection,
+  resumeConnection,
   sendUserMessage,
   steerTurn,
   stopTurn,
@@ -34,7 +40,7 @@ class FakeSocket {
 
   readonly sent: ClientMessage[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { readonly code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
@@ -47,7 +53,7 @@ class FakeSocket {
   }
 
   close(): void {
-    this.onclose?.();
+    this.onclose?.({ code: 1000 });
   }
 }
 
@@ -293,7 +299,7 @@ describe('switching', () => {
 
   it('redials when the socket is down rather than buffering the switch', () => {
     open('web:1');
-    socket().onclose?.();
+    socket().onclose?.({ code: 1006 });
 
     switchSession('web:2');
 
@@ -358,6 +364,18 @@ describe('speaking', () => {
     expect(socket().sent).toEqual([
       { type: 'turn.stop', sessionKey: 'web:1' },
       { type: 'turn.steer', sessionKey: 'web:1', content: 'be brief' },
+    ]);
+  });
+
+  it('names the turn it stops once it has seen that turn start', () => {
+    open('web:1');
+    deliver(START);
+
+    stopTurn();
+
+    // A click that lands as `t1` ends must not stop the queued turn after it.
+    expect(socket().sent).toEqual([
+      { type: 'turn.stop', sessionKey: 'web:1', turnId: 't1' },
     ]);
   });
 
@@ -716,12 +734,31 @@ describe('resuming', () => {
   });
 });
 
+describe('being signed out', () => {
+  it('tells its listeners, and dials again only when resumed', () => {
+    const heard = vi.fn();
+    onSignedOut(heard);
+    open('web:1');
+
+    socket().onclose?.({ code: CLOSE_SIGNED_OUT });
+
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(useTurnStore.getState().connection).toBe('closed');
+    // Not a dropped connection, so nothing says it is reconnecting.
+    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(FakeSocket.opened).toHaveLength(1);
+
+    resumeConnection();
+    expect(FakeSocket.opened).toHaveLength(2);
+  });
+});
+
 describe('losing the connection', () => {
   it('says so once, on the way down from open', () => {
     open('web:1');
     deliver({ type: 'pong', serverTimeMs: 1 });
 
-    socket().onclose?.();
+    socket().onclose?.({ code: 1006 });
 
     expect(useToastStore.getState().toasts[0]).toMatchObject({
       title: 'Connection lost',
@@ -731,7 +768,7 @@ describe('losing the connection', () => {
 
   it('says nothing when it never got there in the first place', () => {
     openConnection('web:1');
-    socket().onclose?.();
+    socket().onclose?.({ code: 1006 });
 
     // A socket that reconnects six times over a lunch break should not leave
     // six toasts stacked up.

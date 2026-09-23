@@ -605,6 +605,7 @@ impl ServerRuntime for CliServerRuntime {
             tools_enabled: agent.settings.tools_enabled,
             context_window_tokens: u32::try_from(agent.settings.context_window_tokens)
                 .unwrap_or(u32::MAX),
+            max_tokens: agent.settings.max_tokens,
             tools: agent.tools.clone(),
             agent_loop,
         }))
@@ -774,6 +775,7 @@ struct CliAgentView {
     is_default: bool,
     tools_enabled: bool,
     context_window_tokens: u32,
+    max_tokens: u64,
     tools: darkwire_protocol::ToolPermissions,
     agent_loop: Option<darkwire_agent::AgentLoop>,
     /// The endpoint a turn would reach, resolved once at construction.
@@ -861,6 +863,12 @@ impl AgentView for CliAgentView {
 
     fn context_window_tokens(&self) -> u32 {
         self.context_window_tokens
+    }
+
+    fn max_tokens(&self) -> u64 {
+        self.agent_loop
+            .as_ref()
+            .map_or(self.max_tokens, darkwire_agent::AgentLoop::max_tokens)
     }
 
     /// The loop's own composition, not a second assembly of it: memory and

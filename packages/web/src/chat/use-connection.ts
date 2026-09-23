@@ -19,17 +19,20 @@
  * cache instead.
  */
 
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import type { ContextResponse } from '@darkwire/protocol';
 
+import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
   closeConnection,
   onServerMessage,
+  onSignedOut,
   openConnection,
+  resumeConnection,
   switchSession,
 } from '@/lib/connection.js';
 import { toast } from '@/components/ui/toast.js';
@@ -64,6 +67,24 @@ export function useConnection(sessionKey: string | undefined): void {
   useEffect(() => {
     if (sessionKey !== undefined) switchSession(sessionKey);
   }, [sessionKey]);
+
+  // A socket the server signed out waits for a login rather than redialling
+  // into a refusal. Refetching `me` is what raises the login overlay, and `me`
+  // answering again is the login it was waiting for.
+  const me = useQuery({
+    queryKey: queryKeys.me,
+    queryFn: ({ signal }) => api.me(signal),
+  });
+  useEffect(
+    () =>
+      onSignedOut(() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      }),
+    [queryClient],
+  );
+  useEffect(() => {
+    if (me.dataUpdatedAt > 0) resumeConnection();
+  }, [me.dataUpdatedAt]);
 
   useEffect(
     () =>

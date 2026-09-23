@@ -20,13 +20,15 @@
 //! and the message window is produced by the same windowing code the loop
 //! calls rather than by a second implementation of the rules.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, SessionCursor, SessionOrderBy,
-    SessionRecord, TurnStatsRecord, UpdateSession,
+    SessionRecord, SessionStore, TurnStatsRecord, UpdateSession,
 };
 use darkwire_core::to_stored_message;
 use darkwire_protocol::json::Object;
@@ -42,6 +44,7 @@ use darkwire_protocol::uuid::new_uuid;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::blocking::blocking;
 use crate::context::build_context_response;
 use crate::cursor::{
     MessageCursor, SessionListCursor, assert_one_paging_mode, decode_message_cursor,
@@ -140,12 +143,14 @@ fn to_turn_stats(record: TurnStatsRecord) -> TurnStats {
     }
 }
 
-/// The session, or a 404 — never an empty listing standing in for one.
-fn require_session(runtime: &dyn ServerRuntime, key: &str) -> Result<SessionRecord, HttpError> {
-    runtime
-        .store()
-        .get_session(key)?
-        .ok_or_else(|| HttpError::not_found(format!("No session \"{key}\"")))
+/// The session, or a 404. Never an empty listing standing in for one.
+async fn require_session(store: &Arc<SessionStore>, key: &str) -> Result<SessionRecord, HttpError> {
+    let found = {
+        let store = Arc::clone(store);
+        let key = key.to_owned();
+        blocking(move || store.get_session(&key)).await?
+    };
+    found.ok_or_else(|| HttpError::not_found(format!("No session \"{key}\"")))
 }
 
 /// Refuses a binding to an agent that cannot run, the way the workspace guard
@@ -236,7 +241,7 @@ pub async fn list(
     };
 
     let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
-    let rows = store.list_sessions(&ListSessions {
+    let page_filter = ListSessions {
         // One more than asked for: the extra row is what decides whether a
         // cursor is issued, and it is dropped rather than returned.
         limit: Some(limit + 1),
@@ -247,7 +252,7 @@ pub async fn list(
         descending: query.desc,
         after,
         ..filter.clone()
-    })?;
+    };
 
     // A cursor encodes `(updated_at_ms, key)`, which is a position in the
     // default ordering and in no other. Issuing one while the caller has sorted
@@ -257,26 +262,32 @@ pub async fn list(
     let default_order = query.sort.unwrap_or(SessionSort::Updated) == SessionSort::Updated
         && query.desc.unwrap_or(true);
 
-    let page = paginate(
-        rows,
-        limit,
-        |last| {
-            encode_session_cursor(&SessionListCursor {
-                updated_at_ms: last.session.updated_at_ms,
-                key: last.session.key.clone(),
-            })
-        },
-        default_order,
-    );
+    let (page, usage, total) = blocking(move || {
+        let rows = store.list_sessions(&page_filter)?;
+        let page = paginate(
+            rows,
+            limit,
+            |last| {
+                encode_session_cursor(&SessionListCursor {
+                    updated_at_ms: last.session.updated_at_ms,
+                    key: last.session.key.clone(),
+                })
+            },
+            default_order,
+        );
 
-    // One statement for the whole page. A per-row lookup here is the difference
-    // between a listing and fifty of them.
-    let keys: Vec<&str> = page
-        .rows
-        .iter()
-        .map(|record| record.session.key.as_str())
-        .collect();
-    let usage = store.session_usage(&keys)?;
+        // One statement for the whole page. A per-row lookup here is the
+        // difference between a listing and fifty of them.
+        let keys: Vec<&str> = page
+            .rows
+            .iter()
+            .map(|record| record.session.key.as_str())
+            .collect();
+        let usage = store.session_usage(&keys)?;
+        let total = store.count_sessions(&filter)?;
+        Ok((page, usage, total))
+    })
+    .await?;
 
     Ok(Json(SessionListResponse {
         sessions: page
@@ -290,7 +301,7 @@ pub async fn list(
                 )
             })
             .collect(),
-        total: as_u64(store.count_sessions(&filter)?),
+        total: as_u64(total),
         next_cursor: page.next_cursor,
     }))
 }
@@ -320,17 +331,21 @@ pub async fn create(
     // already owns.
     let store = runtime.store();
     let key = request.key.unwrap_or_else(|| mint_key(&state));
-    let record = store.ensure_session(
-        &key,
-        CreateSession {
-            title: request.title,
-            origin: Some("web".to_owned()),
-            workspace_id: request.workspace_id,
-            agent_id: request.agent_id,
-            metadata: None,
-        },
-    )?;
-    let count = store.message_count(&record.key)?;
+    let (record, count) = blocking(move || {
+        let record = store.ensure_session(
+            &key,
+            CreateSession {
+                title: request.title,
+                origin: Some("web".to_owned()),
+                workspace_id: request.workspace_id,
+                agent_id: request.agent_id,
+                metadata: None,
+            },
+        )?;
+        let count = store.message_count(&record.key)?;
+        Ok((record, count))
+    })
+    .await?;
     Ok((StatusCode::CREATED, Json(to_summary(&record, count, None))))
 }
 
@@ -339,11 +354,16 @@ pub async fn get(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
 ) -> Result<Json<SessionSummary>, HttpError> {
-    let runtime = state.runtime.as_ref();
-    let record = require_session(runtime, &params.key)?;
-    let store = runtime.store();
-    let usage = store.session_usage(&[record.key.as_str()])?;
-    let count = store.message_count(&record.key)?;
+    let store = state.runtime.store();
+    let record = require_session(&store, &params.key).await?;
+    let key = record.key.clone();
+    let (usage, count) = blocking(move || {
+        Ok((
+            store.session_usage(&[key.as_str()])?,
+            store.message_count(&key)?,
+        ))
+    })
+    .await?;
     let total = usage.get(&record.key).copied();
     Ok(Json(to_summary(&record, count, total)))
 }
@@ -356,21 +376,27 @@ pub async fn update(
 ) -> Result<Json<SessionSummary>, HttpError> {
     let request: UpdateSessionRequest = read_json("body", body)?;
     let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
+    let store = runtime.store();
+    require_session(&store, &params.key).await?;
     require_workspace(runtime, request.workspace_id.as_deref())?;
     require_agent(runtime, request.agent_id.as_deref())?;
 
-    let store = runtime.store();
     let moved = request.workspace_id.is_some();
-    let updated = store.update_session(
-        &params.key,
-        UpdateSession {
-            title: request.title,
-            agent_id: request.agent_id.map(Some),
-            workspace_id: request.workspace_id,
-            metadata: None,
-        },
-    )?;
+    let key = params.key.clone();
+    let (updated, count) = blocking(move || {
+        let updated = store.update_session(
+            &key,
+            UpdateSession {
+                title: request.title,
+                agent_id: request.agent_id.map(Some),
+                workspace_id: request.workspace_id,
+                metadata: None,
+            },
+        )?;
+        let count = store.message_count(&key)?;
+        Ok((updated, count))
+    })
+    .await?;
 
     // Deliberately not refused while a turn is running. The loop captures its
     // jail once, when the turn starts, so the turn in flight finishes in the
@@ -378,10 +404,9 @@ pub async fn update(
     // state for a guard here to protect. Announced, though, so a second tab
     // does not keep showing the workspace it moved out of.
     if moved {
-        state.hub.session_moved(&params.key);
+        state.hub.session_moved(&params.key).await;
     }
 
-    let count = store.message_count(&params.key)?;
     Ok(Json(to_summary(&updated, count, None)))
 }
 
@@ -397,7 +422,9 @@ pub async fn delete(
             "A turn is running on this session. Stop it, then delete.",
         ));
     }
-    if state.runtime.store().delete_session(&params.key)? {
+    let store = state.runtime.store();
+    let key = params.key.clone();
+    if blocking(move || store.delete_session(&key)).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(HttpError::not_found(format!(
@@ -414,9 +441,8 @@ pub async fn messages(
     query: Result<Query<PageQuery>, QueryRejection>,
 ) -> Result<Json<SessionMessagesResponse>, HttpError> {
     let query = read_query(query)?;
-    let runtime = state.runtime.as_ref();
-    let record = require_session(runtime, &params.key)?;
-    let store = runtime.store();
+    let store = state.runtime.store();
+    let record = require_session(&store, &params.key).await?;
 
     let after_seq = match query.cursor.as_deref() {
         Some(cursor) => Some(decode_message_cursor(cursor)?.seq),
@@ -424,14 +450,19 @@ pub async fn messages(
     };
 
     let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
-    let rows = store.messages(
-        &params.key,
-        &ReadMessages {
-            after_seq,
-            limit: Some(limit + 1),
-            ..ReadMessages::default()
-        },
-    )?;
+    let key = params.key.clone();
+    let (rows, turns) = blocking(move || {
+        let rows = store.messages(
+            &key,
+            &ReadMessages {
+                after_seq,
+                limit: Some(limit + 1),
+                ..ReadMessages::default()
+            },
+        )?;
+        Ok((rows, store.turn_stats(&key, None)?))
+    })
+    .await?;
 
     let page = paginate(
         rows,
@@ -453,8 +484,7 @@ pub async fn messages(
         // Beside the runs, sent whole for the same reason. A failed turn
         // appends nothing, so without this a rebuilt transcript shows the
         // question, no answer, and no sign that anything went wrong.
-        failures: store
-            .turn_stats(&params.key, None)?
+        failures: turns
             .into_iter()
             .filter_map(|turn| turn.error.map(|error| (turn.turn_id, error)))
             .collect(),
@@ -466,8 +496,8 @@ pub async fn clear(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
 ) -> Result<StatusCode, HttpError> {
-    let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
+    let store = state.runtime.store();
+    require_session(&store, &params.key).await?;
     // The loop appends the turn's answer when it ends, so a clear under a
     // running turn is undone a moment later by half a conversation.
     if state.hub.busy(&params.key) {
@@ -475,7 +505,8 @@ pub async fn clear(
             "A turn is running on this session. Stop it, then clear.",
         ));
     }
-    runtime.store().clear_messages(&params.key)?;
+    let key = params.key.clone();
+    blocking(move || store.clear_messages(&key)).await?;
     // The same courtesy the update route pays: a tab attached to this
     // conversation is still rendering the history that has just been deleted.
     state.hub.session_cleared(&params.key);
@@ -488,7 +519,7 @@ pub async fn context(
     Path(params): Path<SessionParams>,
 ) -> Result<Json<ContextResponse>, HttpError> {
     let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
+    require_session(&runtime.store(), &params.key).await?;
 
     // The agent-resolution policy lives in the context module, so the chat
     // channels measure against the same agent this panel does.
@@ -505,8 +536,8 @@ pub async fn branch(
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<(StatusCode, Json<SessionSummary>), HttpError> {
     let request: BranchSessionRequest = read_json("body", body)?;
-    let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
+    let store = state.runtime.store();
+    require_session(&store, &params.key).await?;
 
     // Forking mid-turn would copy a question whose answer has not been written
     // yet: the loop appends an assistant turn and all of its tool traffic in
@@ -518,18 +549,21 @@ pub async fn branch(
         ));
     }
 
-    let store = runtime.store();
-    let fork = store.fork_session(
-        &params.key,
-        i64::try_from(request.seq).unwrap_or(i64::MAX),
-        ForkSession {
-            key: request.key,
-            title: request.title,
-            ..ForkSession::default()
-        },
-    )?;
-
-    let usage = store.session_usage(&[fork.session.key.as_str()])?;
+    let key = params.key.clone();
+    let (fork, usage) = blocking(move || {
+        let fork = store.fork_session(
+            &key,
+            i64::try_from(request.seq).unwrap_or(i64::MAX),
+            ForkSession {
+                key: request.key,
+                title: request.title,
+                ..ForkSession::default()
+            },
+        )?;
+        let usage = store.session_usage(&[fork.session.key.as_str()])?;
+        Ok((fork, usage))
+    })
+    .await?;
     let total = usage.get(&fork.session.key).copied();
     Ok((
         StatusCode::CREATED,
@@ -550,11 +584,11 @@ pub async fn tasks(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
 ) -> Result<Json<TasksResponse>, HttpError> {
-    let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
-
+    let store = state.runtime.store();
+    require_session(&store, &params.key).await?;
+    let key = params.key.clone();
     Ok(Json(TasksResponse {
-        tasks: runtime.store().tasks(&params.key)?,
+        tasks: blocking(move || store.tasks(&key)).await?,
     }))
 }
 
@@ -567,9 +601,10 @@ pub async fn clear_tasks(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
 ) -> Result<StatusCode, HttpError> {
-    let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
-    runtime.store().set_tasks(&params.key, &[])?;
+    let store = state.runtime.store();
+    require_session(&store, &params.key).await?;
+    let key = params.key.clone();
+    blocking(move || store.set_tasks(&key, &[])).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -580,19 +615,14 @@ pub async fn turns(
     query: Result<Query<TurnsQuery>, QueryRejection>,
 ) -> Result<Json<TurnStatsResponse>, HttpError> {
     let query = read_query(query)?;
-    let runtime = state.runtime.as_ref();
-    require_session(runtime, &params.key)?;
+    let store = state.runtime.store();
+    require_session(&store, &params.key).await?;
+    let key = params.key.clone();
+    let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
+    let turns = blocking(move || store.turn_stats(&key, Some(limit))).await?;
 
     Ok(Json(TurnStatsResponse {
         session_key: params.key.clone(),
-        turns: runtime
-            .store()
-            .turn_stats(
-                &params.key,
-                Some(usize::try_from(query.limit).unwrap_or(usize::MAX)),
-            )?
-            .into_iter()
-            .map(to_turn_stats)
-            .collect(),
+        turns: turns.into_iter().map(to_turn_stats).collect(),
     }))
 }

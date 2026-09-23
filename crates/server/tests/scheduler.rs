@@ -368,6 +368,16 @@ async fn finishing_by_hand_wins_and_is_idempotent() {
     assert_eq!(settled.text, "");
 }
 
+#[test]
+fn the_collector_reports_its_turn_once_the_ack_names_it() {
+    let (collector, _outcome) = TurnCollector::new("run-1");
+    assert_eq!(collector.turn_id(), None);
+    collector.receive(&ack(Some("someone-else"), "turn-0"));
+    assert_eq!(collector.turn_id(), None);
+    collector.receive(&ack(Some("run-1"), "turn-1"));
+    assert_eq!(collector.turn_id().as_deref(), Some("turn-1"));
+}
+
 // The engine
 
 /// A connection that answers the turn it is given, on a script.
@@ -375,8 +385,9 @@ struct ScriptedConnection {
     send: Arc<dyn Fn(ServerMessage) + Send + Sync>,
     session_key: String,
     answer: String,
-    /// When set, the connection says nothing at all — for the guards that only
-    /// exist while a turn is in flight.
+    /// When set, the connection acks the message and then says nothing, which
+    /// is a turn that started and never ends. For the guards that only exist
+    /// while a turn is in flight.
     silent: bool,
     frames: Arc<Mutex<Vec<ClientMessage>>>,
 }
@@ -384,11 +395,11 @@ struct ScriptedConnection {
 impl SchedulerConnection for ScriptedConnection {
     fn receive(&self, frame: ClientMessage) {
         self.frames.lock().push(frame.clone());
-        if self.silent {
-            return;
-        }
         if let ClientMessage::UserMessage(message) = frame {
             (self.send)(ack(message.client_message_id.as_deref(), "turn-1"));
+            if self.silent {
+                return;
+            }
             (self.send)(ServerMessage::TurnStart(Sequenced {
                 seq: 1,
                 event: TurnStart {
@@ -1120,6 +1131,18 @@ async fn stopping_cancels_what_is_in_flight() {
     let runs = h.jobs.list_runs("j1", &ListRuns::default()).unwrap();
     assert_eq!(runs[0].status, RunStatus::Error);
     assert!(runs[0].error.as_deref().unwrap().contains("shutdown"));
+    // The stop names the run's own turn, so a turn that started after it on a
+    // shared session is left alone.
+    let stops: Vec<Option<String>> = h
+        .frames
+        .lock()
+        .iter()
+        .filter_map(|frame| match frame {
+            ClientMessage::StopTurn(stop) => Some(stop.turn_id.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stops, [Some("turn-1".to_owned())]);
     // And a tick after a stop does nothing.
     h.scheduler.tick().unwrap();
     assert_eq!(h.scheduler.in_flight(), 0);

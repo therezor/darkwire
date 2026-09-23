@@ -19,7 +19,8 @@ use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
 use darkwire_core::session_store::AppendOptions;
-use darkwire_core::{Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
+use darkwire_core::testkit::ManualClock;
+use darkwire_core::{Clock, Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
 use darkwire_protocol::tools::{ApprovalScope, CommandPolicy, ToolRisk};
@@ -30,9 +31,10 @@ use darkwire_protocol::ws::{
 };
 use darkwire_providers::BoxFuture;
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
+use darkwire_server::auth_store::{Carried, Revocation};
 use darkwire_server::hub::{
-    AgentMissReason, AgentResolution, ConnectOptions, Frame, HubClient, HubEvent, Outbound,
-    SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
+    AgentMissReason, AgentResolution, CLOSE_SIGNED_OUT, ConnectOptions, Frame, HubClient, HubEvent,
+    Login, Outbound, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
 };
 use parking_lot::Mutex;
 use serde_json::json;
@@ -285,6 +287,8 @@ struct HarnessOptions {
     unconfigured: bool,
     /// An agent id whose loop cannot be built.
     unbuildable: Option<&'static str>,
+    /// The clock a login's expiry is read against. The host's when absent.
+    clock: Option<Arc<dyn Clock>>,
 }
 
 fn harness(options: &HarnessOptions) -> Harness {
@@ -353,7 +357,7 @@ fn harness(options: &HarnessOptions) -> Harness {
                 },
             }
         }),
-        clock: None,
+        clock: options.clock.clone(),
         new_id: Some({
             let ids = Arc::clone(&ids);
             Arc::new(move || format!("id-{}", ids.fetch_add(1, Ordering::SeqCst) + 1))
@@ -408,6 +412,17 @@ impl Harness {
         self.connect(ConnectOptions::default())
     }
 }
+
+/// A login that lapses at `expires_at_ms`.
+fn login(id: &str, expires_at_ms: i64) -> Login {
+    Login {
+        id: id.to_owned(),
+        expires_at_ms,
+    }
+}
+
+/// Far enough out that no test reaches it.
+const NEVER: i64 = i64::MAX;
 
 fn user(session_key: &str, content: &str) -> serde_json::Value {
     json!({ "type": "user.message", "sessionKey": session_key, "content": content })
@@ -886,6 +901,170 @@ async fn an_unattended_stop_leaves_a_turn_it_did_not_submit_alone() {
 }
 
 #[tokio::test]
+async fn a_stop_sent_just_before_a_close_still_runs_as_the_connection_that_sent_it() {
+    // What the scheduler does at its time limit: a stop, then a close. Were the
+    // stop to run as nobody in particular, it would cancel the operator's turn
+    // and leave the run's own message queued.
+    let h = harness(&HarnessOptions::default());
+    let operator = h.plain();
+    operator.until_seen("connected").await;
+    let run = h.connect(ConnectOptions {
+        unattended: true,
+        ..ConnectOptions::default()
+    });
+    run.until_seen("connected").await;
+
+    operator.send(user(SESSION, "mine"));
+    until_turns(&h, 1).await;
+    h.runner.turn(0).start();
+    operator.until_seen("turn.start").await;
+    run.send(user(SESSION, "scheduled"));
+    run.until_seen("message.queued").await;
+    operator.reset();
+
+    run.send(json!({ "type": "turn.stop", "sessionKey": SESSION }));
+    run.client.close();
+    assert_eq!(h.hub.watchers(SESSION), 1, "gone from the count at once");
+
+    operator
+        .until("an empty queue", |frames| {
+            frames.iter().any(|frame| {
+                matches!(frame, ServerMessage::SessionStatus(status)
+                    if status.event.busy && status.event.queue_depth == 0)
+            })
+        })
+        .await;
+    assert!(!h.runner.turn(0).token.is_cancelled());
+    h.runner.turn(0).end();
+    operator.until_seen("turn.end").await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(h.runner.count(), 1, "the withdrawn message never ran");
+}
+
+#[tokio::test]
+async fn a_message_queued_behind_a_failed_rewind_still_runs() {
+    // Another tab's message lands while a regenerate holds the session, and
+    // the regenerate then finds nothing to re-run.
+    let h = harness(&HarnessOptions::default());
+    let rewinding = h.plain();
+    let asking = h.plain();
+    rewinding.until_seen("connected").await;
+    asking.until_seen("connected").await;
+
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = {
+        let store = Arc::clone(&h.store);
+        std::thread::spawn(move || {
+            let guard = store.database().lock();
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
+            drop(guard);
+        })
+    };
+    locked_rx.recv().unwrap();
+
+    rewinding.reset();
+    rewinding.send(json!({ "type": "turn.regenerate", "sessionKey": SESSION, "seq": 99 }));
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    asking.send(user(SESSION, "mine"));
+    asking.until_seen("message.ack").await;
+    assert_eq!(h.runner.count(), 0, "held behind the rewind");
+
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    rewinding.until_seen("error").await;
+    let ServerMessage::Error(error) = &rewinding.of("error")[0] else {
+        panic!("expected an error frame");
+    };
+    assert_eq!(
+        error.message,
+        "There is nothing to regenerate on this session."
+    );
+    until_turns(&h, 1).await;
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_switch_queued_before_a_close_does_not_attach_it_again() {
+    let h = harness(&HarnessOptions::default());
+    let leaving = h.plain();
+    let watching = h.connect(ConnectOptions {
+        session_key: Some("web:2".to_owned()),
+        ..ConnectOptions::default()
+    });
+    leaving.until_seen("connected").await;
+    watching.until_seen("connected").await;
+
+    leaving.send(json!({ "type": "session.switch", "sessionKey": "web:2" }));
+    leaving.client.close();
+    // The switch still announces where it would have landed.
+    watching.until_seen("session.status").await;
+    assert_eq!(h.hub.watchers("web:2"), 1);
+    assert_eq!(h.hub.watchers(SESSION), 0);
+}
+
+#[tokio::test]
+async fn a_slow_store_does_not_stall_another_sessions_stream() {
+    // One session's frame waits on the database while another's turn keeps
+    // streaming, because the store is read off the runtime and outside the
+    // hub's lock.
+    let h = harness(&HarnessOptions::default());
+    let streaming = h.plain();
+    let switching = h.connect(ConnectOptions {
+        session_key: Some("web:2".to_owned()),
+        ..ConnectOptions::default()
+    });
+    streaming.until_seen("connected").await;
+    switching.until_seen("connected").await;
+    streaming.send(user(SESSION, "go"));
+    until_turns(&h, 1).await;
+    h.runner.turn(0).start();
+    streaming.until_seen("turn.start").await;
+
+    let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = {
+        let store = Arc::clone(&h.store);
+        let released = Arc::clone(&released);
+        std::thread::spawn(move || {
+            let guard = store.database().lock();
+            locked_tx.send(()).unwrap();
+            // Bounded, so a regression fails the assertion below rather than
+            // hanging the suite.
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
+            released.store(true, Ordering::SeqCst);
+            drop(guard);
+        })
+    };
+    locked_rx.recv().unwrap();
+
+    switching.reset();
+    switching.send(json!({ "type": "session.switch", "sessionKey": "web:3" }));
+    streaming.reset();
+    h.runner.turn(0).delta("still flowing");
+    streaming.until_seen("assistant.delta").await;
+    assert!(
+        !released.load(Ordering::SeqCst),
+        "the delta arrived while the store was held"
+    );
+    assert!(
+        switching.of("session.status").is_empty(),
+        "the switch waits"
+    );
+
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    switching.until_seen("session.status").await;
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
 async fn an_unattended_connection_can_stop_the_turn_it_submitted() {
     // A scheduled run's time limit, which is the whole reason it sends a stop.
     let h = harness(&HarnessOptions::default());
@@ -906,6 +1085,9 @@ async fn an_unattended_connection_can_stop_the_turn_it_submitted() {
     run.until_seen("turn.start").await;
 
     run.send(json!({ "type": "turn.stop", "sessionKey": SESSION }));
+    // Frames run in order, so the pong says the stop has been handled.
+    run.send(json!({ "type": "ping" }));
+    run.until_seen("pong").await;
     assert!(h.runner.turn(0).token.is_cancelled());
     h.runner.turn(0).end_with(StopReason::Aborted);
 }
@@ -1052,6 +1234,284 @@ async fn aborts_the_running_turn_on_turn_stop_and_ignores_a_stop_with_nothing_ru
     turn.end_with(StopReason::Aborted);
     client.until_seen("turn.end").await;
     assert!(!h.hub.busy(SESSION), "the session is usable again");
+}
+
+/// Waits until the runner has been asked for `count` turns.
+async fn until_turns(h: &Harness, count: usize) {
+    for _ in 0..2_000 {
+        if h.runner.count() >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("the runner never reached {count} turns");
+}
+
+/// The id the hub acked the `index`th message with.
+fn acked_id(client: &TestClient, index: usize) -> String {
+    let ServerMessage::MessageAck(ack) = &client.of("message.ack")[index] else {
+        panic!("expected an ack");
+    };
+    ack.event.message_id.clone()
+}
+
+#[tokio::test]
+async fn a_stop_naming_a_finished_turn_leaves_the_next_one_running() {
+    // The user clicks Stop as the first turn ends and the queued one starts.
+    // The frame names the turn they were looking at, and that one is gone.
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    client.send(user(SESSION, "first"));
+    until_turns(&h, 1).await;
+    h.runner.turn(0).start();
+    client.send(user(SESSION, "second"));
+    client.until_seen("message.queued").await;
+
+    let first = h.runner.turn(0).turn_id();
+    h.runner.turn(0).end();
+    until_turns(&h, 2).await;
+    h.runner.turn(1).start();
+    client.until_count("turn.start", 2).await;
+
+    client.send(json!({ "type": "turn.stop", "sessionKey": SESSION, "turnId": first }));
+    client.send(json!({ "type": "ping" }));
+    client.until_seen("pong").await;
+    assert!(
+        !h.runner.turn(1).token.is_cancelled(),
+        "a stop for the first turn does not reach the second"
+    );
+
+    let second = h.runner.turn(1).turn_id();
+    client.reset();
+    client.send(json!({ "type": "turn.stop", "sessionKey": SESSION, "turnId": second }));
+    client.send(json!({ "type": "ping" }));
+    client.until_seen("pong").await;
+    assert!(h.runner.turn(1).token.is_cancelled());
+    h.runner.turn(1).end_with(StopReason::Aborted);
+}
+
+#[tokio::test]
+async fn a_stop_naming_a_queued_turn_withdraws_it_and_leaves_the_running_one() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    client.send(user(SESSION, "first"));
+    until_turns(&h, 1).await;
+    h.runner.turn(0).start();
+    client.until_seen("turn.start").await;
+    client.send(user(SESSION, "second"));
+    client.until_seen("message.queued").await;
+    let queued = acked_id(&client, 1);
+    client.reset();
+
+    client.send(json!({ "type": "turn.stop", "sessionKey": SESSION, "turnId": queued }));
+    client
+        .until("an empty queue", |frames| {
+            frames.iter().any(|frame| {
+                matches!(frame, ServerMessage::SessionStatus(status)
+                    if status.event.busy && status.event.queue_depth == 0)
+            })
+        })
+        .await;
+    assert!(!h.runner.turn(0).token.is_cancelled());
+
+    h.runner.turn(0).end();
+    client
+        .until("an idle status", |frames| {
+            frames.iter().any(
+                |frame| matches!(frame, ServerMessage::SessionStatus(status) if !status.event.busy),
+            )
+        })
+        .await;
+    assert_eq!(h.runner.count(), 1, "the withdrawn message never ran");
+}
+
+// Revoked logins
+
+#[tokio::test]
+async fn closes_only_the_connections_a_revoked_login_opened() {
+    let h = harness(&HarnessOptions::default());
+    let revoked = h.connect(ConnectOptions {
+        auth_session: Some(login("login-a", NEVER)),
+        ..ConnectOptions::default()
+    });
+    let other = h.connect(ConnectOptions {
+        auth_session: Some(login("login-b", NEVER)),
+        ..ConnectOptions::default()
+    });
+    // Authentication off, or the scheduler's own connection.
+    let anonymous = h.plain();
+    for client in [&revoked, &other, &anonymous] {
+        client.until_seen("connected").await;
+    }
+
+    h.hub
+        .revoke(&Revocation::Sessions(vec!["login-a".to_owned()]));
+    revoked
+        .until("the close", |_| revoked.closed().is_some())
+        .await;
+    assert_eq!(revoked.closed(), Some(CLOSE_SIGNED_OUT));
+    assert_eq!(other.closed(), None);
+    assert_eq!(anonymous.closed(), None);
+    assert_eq!(h.hub.watchers(SESSION), 2, "the revoked one detached");
+}
+
+#[tokio::test]
+async fn a_password_change_keeps_the_callers_connections_under_its_new_login() {
+    let h = harness(&HarnessOptions::default());
+    let caller = h.connect(ConnectOptions {
+        auth_session: Some(login("old", NEVER)),
+        ..ConnectOptions::default()
+    });
+    let elsewhere = h.connect(ConnectOptions {
+        auth_session: Some(login("stolen", NEVER)),
+        ..ConnectOptions::default()
+    });
+    let anonymous = h.plain();
+    for client in [&caller, &elsewhere, &anonymous] {
+        client.until_seen("connected").await;
+    }
+
+    h.hub.revoke(&Revocation::All {
+        carried: Some(Carried {
+            from: "old".to_owned(),
+            to: "new".to_owned(),
+            expires_at_ms: NEVER,
+        }),
+    });
+    elsewhere
+        .until("the close", |_| elsewhere.closed().is_some())
+        .await;
+    assert_eq!(elsewhere.closed(), Some(CLOSE_SIGNED_OUT));
+    assert_eq!(caller.closed(), None);
+    assert_eq!(anonymous.closed(), None);
+
+    // Carried, not exempted: revoking the new login reaches it.
+    h.hub.revoke(&Revocation::Sessions(vec!["new".to_owned()]));
+    caller
+        .until("the close", |_| caller.closed().is_some())
+        .await;
+    assert_eq!(caller.closed(), Some(CLOSE_SIGNED_OUT));
+}
+
+#[tokio::test]
+async fn a_revoked_connection_runs_nothing_it_had_queued() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.connect(ConnectOptions {
+        auth_session: Some(login("login-a", NEVER)),
+        ..ConnectOptions::default()
+    });
+    // Queued and revoked before the connection's task has had a turn to run.
+    client.send(user(SESSION, "hello"));
+    h.hub
+        .revoke(&Revocation::Sessions(vec!["login-a".to_owned()]));
+
+    client
+        .until("the close", |_| client.closed().is_some())
+        .await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(h.runner.count(), 0);
+    assert!(client.of("message.ack").is_empty());
+}
+
+// Expired logins
+
+/// A harness on a clock the test moves, with tokio's timer paused so the
+/// expiry sleep moves only when the test advances it.
+fn expiring() -> (Harness, Arc<ManualClock>) {
+    let clock = Arc::new(ManualClock::at(1_000_000));
+    let h = harness(&HarnessOptions {
+        clock: Some(Arc::clone(&clock) as Arc<dyn Clock>),
+        ..HarnessOptions::default()
+    });
+    (h, clock)
+}
+
+/// Moves both clocks, then lets the timer's task run.
+async fn advance(clock: &ManualClock, by: Duration) {
+    clock.advance(by);
+    tokio::time::advance(by).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn closes_a_socket_when_its_login_expires_and_leaves_the_rest() {
+    let (h, clock) = expiring();
+    let now = clock.now_ms();
+    // The later one first, so the timer has to be re-armed for the earlier.
+    let later = h.connect(ConnectOptions {
+        auth_session: Some(login("later", now + 60_000)),
+        ..ConnectOptions::default()
+    });
+    later.until_seen("connected").await;
+    let sooner = h.connect(ConnectOptions {
+        auth_session: Some(login("sooner", now + 10_000)),
+        ..ConnectOptions::default()
+    });
+    let anonymous = h.plain();
+    for client in [&sooner, &anonymous] {
+        client.until_seen("connected").await;
+    }
+
+    advance(&clock, Duration::from_millis(9_999)).await;
+    assert_eq!(sooner.closed(), None, "not yet");
+
+    advance(&clock, Duration::from_millis(1)).await;
+    assert_eq!(sooner.closed(), Some(CLOSE_SIGNED_OUT));
+    assert_eq!(later.closed(), None);
+    assert_eq!(anonymous.closed(), None);
+    assert_eq!(h.hub.watchers(SESSION), 2);
+
+    advance(&clock, Duration::from_secs(50)).await;
+    assert_eq!(later.closed(), Some(CLOSE_SIGNED_OUT));
+    // Authentication off, so there is nothing for it to outlive.
+    advance(&clock, Duration::from_hours(24)).await;
+    assert_eq!(anonymous.closed(), None);
+    assert_eq!(h.hub.watchers(SESSION), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_carried_socket_lapses_with_its_new_login_not_its_old_one() {
+    let (h, clock) = expiring();
+    let now = clock.now_ms();
+    let caller = h.connect(ConnectOptions {
+        auth_session: Some(login("old", now + 10_000)),
+        ..ConnectOptions::default()
+    });
+    caller.until_seen("connected").await;
+
+    h.hub.revoke(&Revocation::All {
+        carried: Some(Carried {
+            from: "old".to_owned(),
+            to: "new".to_owned(),
+            expires_at_ms: now + 60_000,
+        }),
+    });
+    advance(&clock, Duration::from_secs(10)).await;
+    assert_eq!(caller.closed(), None, "the old expiry no longer applies");
+
+    advance(&clock, Duration::from_secs(50)).await;
+    assert_eq!(caller.closed(), Some(CLOSE_SIGNED_OUT));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_login_that_had_already_lapsed_is_closed_at_once() {
+    let (h, clock) = expiring();
+    let client = h.connect(ConnectOptions {
+        auth_session: Some(login("stale", clock.now_ms())),
+        ..ConnectOptions::default()
+    });
+    client
+        .until("the close", |_| client.closed().is_some())
+        .await;
+    assert_eq!(client.closed(), Some(CLOSE_SIGNED_OUT));
 }
 
 #[tokio::test]
@@ -2125,7 +2585,7 @@ async fn re_emits_the_status_with_the_workspace_the_store_now_holds() {
         )
         .unwrap();
     client.reset();
-    h.hub.session_moved(SESSION);
+    h.hub.session_moved(SESSION).await;
     client.until_seen("session.status").await;
 
     let ServerMessage::SessionStatus(status) = &client.of("session.status")[0] else {
@@ -2139,7 +2599,7 @@ async fn says_nothing_for_a_session_nobody_has_open() {
     let h = harness(&HarnessOptions::default());
     // A PATCH for a conversation nobody has open must not bring hub state into
     // existence for it.
-    h.hub.session_moved("never-opened");
+    h.hub.session_moved("never-opened").await;
     assert_eq!(h.hub.session_count(), 0);
 }
 

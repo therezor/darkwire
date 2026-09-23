@@ -200,12 +200,12 @@ parameters `?session=` and `?agent=`.
 | `ping`            | Answered with `pong`.                                                         |
 | `user.message`    | Starts a turn. Content may be text or parts, for images.                      |
 | `turn.steer`      | Injects guidance into a running turn.                                         |
-| `turn.stop`       | Aborts.                                                                       |
+| `turn.stop`       | Aborts. With `turnId`, only that turn, and withdrawn if still queued.         |
 | `turn.regenerate` | Drops the last answer and re-runs.                                            |
 | `user.edit`       | Rewrites a user message and re-runs from it.                                  |
 | `session.new`     | Starts a session.                                                             |
 | `session.switch`  | Rebinds this socket.                                                          |
-| `session.resume`  | `{ lastSeq }` — replays what was missed.                                      |
+| `session.resume`  | `{ lastSeq }`: replays what was missed.                                       |
 | `tool.approve`    | Answers an approval prompt, with a scope and an optional `exec` rule to save. |
 
 ### Server → client
@@ -285,6 +285,12 @@ copy of the answer text.
 One session runs one turn at a time; further messages queue FIFO up to 8, and past that
 the client gets `session_busy` rather than a silent drop. A socket that buffers more than
 4 MiB is closed with code 1013 — a client that cannot keep up is better told than starved.
+
+A socket whose login is revoked is closed with code 4401 (`CLOSE_SIGNED_OUT`), after a
+logout or a password change. The web client does not redial on 4401. It shows the login
+overlay and dials again once someone signs in. A password change keeps the caller's own
+sockets open, because they move to the session the change issues. With authentication
+off no socket carries a login, so none is closed this way.
 
 An agent event and a sequence number are the whole of a server message, which is what lets
 the CLI, the browser and a channel consume identical events.

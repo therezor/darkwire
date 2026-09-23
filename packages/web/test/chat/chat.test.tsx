@@ -885,8 +885,9 @@ describe('stopping', () => {
       await screen.findByRole('button', { name: 'Stop the current turn' }),
     );
 
+    // Named, so a click that lands as `t1` ends cannot stop the next turn.
     expect(framesOf('turn.stop')).toEqual([
-      { type: 'turn.stop', sessionKey: SESSION },
+      { type: 'turn.stop', sessionKey: SESSION, turnId: 't1' },
     ]);
 
     deliver(
@@ -938,7 +939,7 @@ describe('stopping', () => {
 
     await waitFor(() => {
       expect(framesOf('turn.stop')).toEqual([
-        { type: 'turn.stop', sessionKey: SESSION },
+        { type: 'turn.stop', sessionKey: SESSION, turnId: 't1' },
       ]);
     });
     expect(framesOf('user.message')).toEqual([]);

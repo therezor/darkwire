@@ -354,6 +354,12 @@
           "minimum": 1,
           "maximum": 65535
         },
+        "allowedHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "auth": {
           "type": "object",
           "properties": {

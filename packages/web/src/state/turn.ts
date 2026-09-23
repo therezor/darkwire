@@ -54,6 +54,14 @@ interface TurnState {
   readonly connection: ConnectionStatus;
   /** True between `turn.start` and `turn.end` — what drives send ⇄ stop. */
   readonly busy: boolean;
+  /**
+   * The turn Stop names, from its `turn.start` or a busy `session.status`
+   * until its `turn.end`.
+   *
+   * Named so a click that lands as the turn ends cannot stop the queued one
+   * that starts next.
+   */
+  readonly runningTurnId: string | undefined;
   /** Messages accepted and not yet started. Shown beside the composer. */
   readonly queueDepth: number;
   /** The last server `seq` applied, which a reconnect resumes from. */
@@ -106,6 +114,7 @@ const INITIAL = {
   workspaceId: undefined,
   connection: 'closed' as ConnectionStatus,
   busy: false,
+  runningTurnId: undefined,
   queueDepth: 0,
   lastSeq: 0,
   clockOffsetMs: 0,
@@ -132,6 +141,7 @@ export const useTurnStore = create<TurnState>((set) => ({
             sessionKey,
             lastSeq: 0,
             busy: false,
+            runningTurnId: undefined,
             queueDepth: 0,
             transcript: EMPTY_TRANSCRIPT,
           },
@@ -167,6 +177,12 @@ export const useTurnStore = create<TurnState>((set) => ({
           break;
         case 'session.status':
           next.busy = message.busy;
+          // A tab that attached mid-turn never saw its `turn.start`.
+          if (!message.busy) {
+            next.runningTurnId = undefined;
+          } else if (message.turnId !== undefined) {
+            next.runningTurnId = message.turnId;
+          }
           next.queueDepth = message.queueDepth;
           // Restated on every switch, which is the point: opening someone
           // else's session moves the UI to that session's workspace rather
@@ -175,6 +191,12 @@ export const useTurnStore = create<TurnState>((set) => ({
           break;
         case 'turn.start':
           next.busy = true;
+          next.runningTurnId = message.turnId;
+          break;
+        case 'turn.end':
+          if (message.turnId === state.runningTurnId) {
+            next.runningTurnId = undefined;
+          }
           break;
         default:
           break;

@@ -49,6 +49,14 @@ import {
 /** Version of the wire protocol. Bumped on any breaking envelope change. */
 export const PROTOCOL_VERSION = 2 as const;
 
+/**
+ * The close code for a socket whose login was revoked.
+ *
+ * In the 4000 range, which RFC 6455 leaves to applications. The client reads
+ * it as "sign in again" rather than as a drop to reconnect from.
+ */
+export const CLOSE_SIGNED_OUT = 4401;
+
 // Client → server
 
 /**
@@ -112,6 +120,11 @@ export const UserMessageRequestSchema = z.object({
 export const StopTurnMessageSchema = z.object({
   type: z.literal('turn.stop'),
   sessionKey: z.string().min(1),
+  /**
+   * The turn to stop. A running turn with another id is left alone, and a
+   * queued one with this id is withdrawn. Absent stops whatever is running.
+   */
+  turnId: z.string().min(1).optional(),
 });
 
 export const NewSessionMessageSchema = z.object({

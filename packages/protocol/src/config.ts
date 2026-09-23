@@ -384,6 +384,16 @@ export const ServerConfigSchema = z.object({
    * reconnect-and-HTTP-fallback client a split-process topology would need.
    */
   port: z.number().int().min(1).max(65_535).default(3000),
+  /**
+   * Host names the server answers to, beyond the ones it always does.
+   *
+   * Every request's `Host` is checked, so a page on a name that was pointed at
+   * this machine cannot read from it (DNS rebinding). `localhost`, the loopback
+   * addresses, any IP literal, the bind host and the machine's hostname are
+   * always accepted. A name here is for a reverse proxy or a DNS alias. An
+   * entry with a port matches only that port.
+   */
+  allowedHosts: z.array(z.string()).default([]),
   auth: AuthConfigSchema.prefault({}),
   /**
    * How many server events to retain per session so a reconnecting tab can

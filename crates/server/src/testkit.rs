@@ -241,6 +241,7 @@ pub struct FakeAgentView {
     configured: bool,
     tools: Vec<ToolDefinition>,
     context_window_tokens: u32,
+    max_tokens: u64,
     paths: WirePaths,
     jails: Mutex<HashMap<String, Arc<WorkspaceJail>>>,
     system_prompt: String,
@@ -304,6 +305,10 @@ impl AgentView for FakeAgentView {
 
     fn context_window_tokens(&self) -> u32 {
         self.context_window_tokens
+    }
+
+    fn max_tokens(&self) -> u64 {
+        self.max_tokens
     }
 
     fn system_prompt<'a>(
@@ -409,6 +414,10 @@ impl FakeRuntime {
                 .map_or(65_536, |entry| {
                     u32::try_from(entry.settings.context_window_tokens).unwrap_or(u32::MAX)
                 }),
+            max_tokens: config.agents.list.get(DEFAULT_AGENT_ID).map_or_else(
+                || darkwire_protocol::config::AgentSettings::default().max_tokens,
+                |entry| entry.settings.max_tokens,
+            ),
             paths,
             jails: Mutex::new(HashMap::new()),
             system_prompt: options

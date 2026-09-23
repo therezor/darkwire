@@ -88,6 +88,10 @@ pub trait AgentView: Send + Sync {
     /// against.
     fn context_window_tokens(&self) -> u32;
 
+    /// The completion cap a turn on this agent asks for, which the loop
+    /// reserves out of the window before it fits the history.
+    fn max_tokens(&self) -> u64;
+
     /// The prompt a turn on this session would carry, in its two halves.
     ///
     /// Comes from the loop itself rather than being reassembled here, so the

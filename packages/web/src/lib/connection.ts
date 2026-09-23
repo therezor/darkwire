@@ -42,6 +42,7 @@ import {
 type Listener = (message: ServerMessage) => void;
 
 const listeners = new Set<Listener>();
+const signedOutListeners = new Set<() => void>();
 
 let socket: ReconnectingSocket | undefined;
 /** The session the *URL* asked for, which is not always the one attached yet. */
@@ -92,6 +93,25 @@ export function onServerMessage(listener: Listener): () => void {
   };
 }
 
+/**
+ * Subscribe to the server signing this socket out, which it does when the
+ * login behind it is revoked. Returns the unsubscribe.
+ */
+export function onSignedOut(listener: () => void): () => void {
+  signedOutListeners.add(listener);
+  return () => {
+    signedOutListeners.delete(listener);
+  };
+}
+
+/**
+ * Dials again after a sign-out, once there is a login to dial with. Safe to
+ * call at any time: a socket that was not signed out ignores it.
+ */
+export function resumeConnection(): void {
+  socket?.resume();
+}
+
 /** Opens the socket on `sessionKey`, or on a server-minted one when absent. */
 export function openConnection(sessionKey: string | undefined): void {
   requested = sessionKey;
@@ -140,6 +160,9 @@ export function openConnection(sessionKey: string | undefined): void {
         });
       }
       reconnecting = true;
+    },
+    onSignedOut: () => {
+      for (const listener of signedOutListeners) listener();
     },
     onInvalidFrame: (reason) => {
       // A server this client cannot read is a version skew, and the honest
@@ -306,10 +329,21 @@ export function sendUserMessage(
   return true;
 }
 
+/**
+ * Stops the turn on screen, by name when this tab knows it.
+ *
+ * Named, because the click can reach the server after that turn ended and a
+ * queued one began. Unnamed stops whatever is running, which is the best a
+ * tab that was never told the id can do.
+ */
 export function stopTurn(): void {
-  const sessionKey = useTurnStore.getState().sessionKey;
+  const { sessionKey, runningTurnId } = useTurnStore.getState();
   if (sessionKey === undefined) return;
-  socket?.send({ type: 'turn.stop', sessionKey });
+  socket?.send({
+    type: 'turn.stop',
+    sessionKey,
+    ...(runningTurnId === undefined ? {} : { turnId: runningTurnId }),
+  });
 }
 
 export function steerTurn(content: string): void {
@@ -422,6 +456,7 @@ export function resetConnection(): void {
   switchingTo = undefined;
   resuming = undefined;
   listeners.clear();
+  signedOutListeners.clear();
 }
 
 function handleStatus(status: ConnectionStatus): void {

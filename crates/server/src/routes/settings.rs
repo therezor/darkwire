@@ -30,6 +30,7 @@ use darkwire_protocol::rest::{
 };
 use indexmap::IndexMap;
 
+use crate::blocking::blocking;
 use crate::boot::assert_boot_policy;
 use crate::errors::HttpError;
 use crate::routes::AppState;
@@ -85,11 +86,19 @@ pub async fn patch(
     //
     // One transaction rather than one per rename, so a save carrying two cannot
     // land half of them.
-    let moves: Vec<(&str, &str)> = renames
+    let store = state.runtime.store();
+    let pairs: Vec<(String, String)> = renames
         .iter()
-        .map(|rename| (rename.from.as_str(), rename.to.as_str()))
+        .map(|rename| (rename.from.clone(), rename.to.clone()))
         .collect();
-    state.runtime.store().reassign_agents(&moves)?;
+    blocking(move || {
+        let moves: Vec<(&str, &str)> = pairs
+            .iter()
+            .map(|(from, to)| (from.as_str(), to.as_str()))
+            .collect();
+        store.reassign_agents(&moves)
+    })
+    .await?;
 
     // A patch and a reload can each move `scheduler.*`. The engine reads
     // `enabled`, `concurrency` and `runRetention` live, but its *timer* is armed

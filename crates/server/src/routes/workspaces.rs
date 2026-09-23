@@ -18,6 +18,8 @@
 //! conversations still name it answers 409 with the count, and the move route
 //! is the way through.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
@@ -29,6 +31,7 @@ use darkwire_protocol::rest::{
     WorkspaceListResponse, WorkspaceSummary,
 };
 
+use crate::blocking::blocking;
 use crate::errors::HttpError;
 use crate::queries::IdParams;
 use crate::routes::AppState;
@@ -84,7 +87,11 @@ fn require(runtime: &dyn ServerRuntime, id: &str) -> Result<WorkspaceRecord, Htt
 
 /// Every workspace, the default first.
 pub async fn list(State(state): State<AppState>) -> Result<Json<WorkspaceListResponse>, HttpError> {
-    let runtime = state.runtime.as_ref();
+    let runtime = Arc::clone(&state.runtime);
+    blocking(move || Ok(list_blocking(runtime.as_ref()))).await?
+}
+
+fn list_blocking(runtime: &dyn ServerRuntime) -> Result<Json<WorkspaceListResponse>, HttpError> {
     let rows = runtime.workspaces().list()?;
     let mut workspaces = Vec::with_capacity(rows.len());
     for record in &rows {
@@ -99,18 +106,22 @@ pub async fn create(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<(StatusCode, Json<WorkspaceSummary>), HttpError> {
     let request: CreateWorkspaceRequest = read_json("body", body)?;
-    let runtime = state.runtime.as_ref();
+    let runtime = Arc::clone(&state.runtime);
 
-    // The store owns slug derivation, uniqueness, the reserved names and the
-    // refusal to sit on top of an existing file. Its failures already carry the
-    // kind the error mapping turns into a status, so there is nothing to
-    // re-validate here.
-    let created = runtime.workspaces().create(CreateWorkspace {
-        name: request.name,
-        id: request.id,
-        metadata: None,
-    })?;
-    Ok((StatusCode::CREATED, Json(summarise(runtime, &created)?)))
+    blocking(move || {
+        let runtime = runtime.as_ref();
+        // The store owns slug derivation, uniqueness, the reserved names and
+        // the refusal to sit on top of an existing file. Its failures already
+        // carry the kind the error mapping turns into a status, so there is
+        // nothing to re-validate here.
+        let created = runtime.workspaces().create(CreateWorkspace {
+            name: request.name,
+            id: request.id,
+            metadata: None,
+        })?;
+        Ok(summarise(runtime, &created).map(|summary| (StatusCode::CREATED, Json(summary))))
+    })
+    .await?
 }
 
 /// Renames a workspace, moves its folder, or both.
@@ -120,8 +131,16 @@ pub async fn update(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<WorkspaceSummary>, HttpError> {
     let request: UpdateWorkspaceRequest = read_json("body", body)?;
-    let runtime = state.runtime.as_ref();
-    let mut record = require(runtime, &params.id)?;
+    let runtime = Arc::clone(&state.runtime);
+    blocking(move || Ok(update_blocking(runtime.as_ref(), &params.id, request))).await?
+}
+
+fn update_blocking(
+    runtime: &dyn ServerRuntime,
+    id: &str,
+    request: UpdateWorkspaceRequest,
+) -> Result<Json<WorkspaceSummary>, HttpError> {
+    let mut record = require(runtime, id)?;
 
     // The name first, and against the *old* id, so a body carrying both does
     // not have to guess which one the row is keyed on mid-request.
@@ -152,8 +171,12 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<StatusCode, HttpError> {
-    let runtime = state.runtime.as_ref();
-    let record = require(runtime, &params.id)?;
+    let runtime = Arc::clone(&state.runtime);
+    blocking(move || Ok(delete_blocking(runtime.as_ref(), &params.id))).await?
+}
+
+fn delete_blocking(runtime: &dyn ServerRuntime, id: &str) -> Result<StatusCode, HttpError> {
+    let record = require(runtime, id)?;
 
     // Counted before anything is removed. The count is what the UI renders in
     // its "move them to Default first" affordance, so it belongs in the error
@@ -179,12 +202,19 @@ pub async fn move_sessions(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<MoveSessionsResponse>, HttpError> {
     let request: MoveSessionsRequest = read_json("body", body)?;
-    let runtime = state.runtime.as_ref();
+    let runtime = Arc::clone(&state.runtime);
+    blocking(move || Ok(move_blocking(runtime.as_ref(), &params.id, &request))).await?
+}
 
+fn move_blocking(
+    runtime: &dyn ServerRuntime,
+    id: &str,
+    request: &MoveSessionsRequest,
+) -> Result<Json<MoveSessionsResponse>, HttpError> {
     // Both ends must exist. Moving *into* a workspace nobody can name would
     // strand the conversations somewhere the UI cannot show them, which is
     // worse than the delete this was meant to unblock.
-    let from = require(runtime, &params.id)?;
+    let from = require(runtime, id)?;
     require(runtime, &request.to)?;
     if from.id == request.to {
         return Err(

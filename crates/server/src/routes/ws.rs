@@ -14,11 +14,15 @@
 //!    WebSocket is not subject to the same-origin policy, so without this any
 //!    page the operator visits could open one to a loopback install with
 //!    authentication off, send a message, and approve its own tool calls. A
-//!    request with no `Origin` is not a browser's and is let through.
+//!    request with no `Origin` is not a browser's and is let through. An
+//!    `Origin` named in `server.allowedHosts` is also accepted, for a reverse
+//!    proxy that rewrites `Host`.
 //!  - **The upgrade is authenticated, by the same layer as every other route.**
 //!    It is `Required` in the manifest, so the auth matrix covers it — an
 //!    unauthenticated socket is an anonymous, shell-capable agent, and it would
-//!    not even show up in the route table it was missing from.
+//!    not even show up in the route table it was missing from. The connection
+//!    carries the login session it was opened with, so revoking that session
+//!    closes it with [`CLOSE_SIGNED_OUT`].
 //!  - **A plain GET answers 426 rather than 404.** A route that existed only as
 //!    an upgrade handler would be hidden from the generated document and would
 //!    answer a bare 404; a client that forgot the upgrade headers then reads it
@@ -29,6 +33,9 @@
 //!    draining grows the process by the whole of a turn's output for as long as
 //!    it stays open.
 
+use std::sync::Arc;
+
+use axum::Extension;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
@@ -36,11 +43,14 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::Response;
 use darkwire_core::ErrorKind;
-use darkwire_protocol::ws::ErrorCode;
+use darkwire_protocol::ws::{CLOSE_SIGNED_OUT, ErrorCode};
 use futures::{SinkExt as _, StreamExt as _};
 
+use crate::auth_store::AuthSession;
+use crate::blocking::blocking;
 use crate::errors::HttpError;
-use crate::hub::{ConnectOptions, Frame, Outbound};
+use crate::hosts::{Authority, HostPolicy};
+use crate::hub::{CLOSE_TRY_AGAIN_LATER, ConnectOptions, Frame, Login, Outbound};
 use crate::queries::WsQuery;
 use crate::routes::AppState;
 use crate::schema::validated;
@@ -60,12 +70,13 @@ const NOT_AN_UPGRADE: &str =
 /// and looks to the user like it lost the one they were in.
 pub async fn connect(
     State(state): State<AppState>,
+    session: Option<Extension<AuthSession>>,
     headers: HeaderMap,
     uri: Uri,
     query: Result<Query<WsQuery>, QueryRejection>,
     upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Result<Response, HttpError> {
-    if !same_origin(&headers, &uri) {
+    if !same_origin(&headers, &uri) && !listed_origin(&headers, &state.hosts) {
         return Err(HttpError::new(
             StatusCode::FORBIDDEN,
             ErrorCode::Unauthorized,
@@ -94,7 +105,24 @@ pub async fn connect(
         )
     })?;
 
-    Ok(upgrade.on_upgrade(move |socket| serve(state, socket, query)))
+    let login = session.map(|Extension(session)| Login {
+        id: session.id,
+        expires_at_ms: session.expires_at_ms,
+    });
+    Ok(upgrade.on_upgrade(move |socket| serve(state, socket, query, login)))
+}
+
+/// Whether a request's `Origin` is one `server.allowedHosts` names.
+fn listed_origin(headers: &HeaderMap, hosts: &HostPolicy) -> bool {
+    let Some((scheme, authority)) = headers
+        .get(header::ORIGIN)
+        .and_then(|origin| origin.to_str().ok())
+        .and_then(|origin| origin.split_once("://"))
+    else {
+        return false;
+    };
+    Authority::parse(&without_default_port(scheme, authority))
+        .is_some_and(|origin| hosts.lists(&origin))
 }
 
 /// Whether a request's `Origin`, when it has one, names the host it was sent
@@ -143,16 +171,40 @@ fn without_default_port(scheme: &str, authority: &str) -> String {
 /// close instruction and the client's own frames are then ordered against each
 /// other by the same `select!`, so a connection told to go away cannot keep
 /// feeding the hub frames on its way out.
-async fn serve(state: AppState, socket: WebSocket, query: WsQuery) {
+async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option<Login>) {
     let (client, mut outbound) = state.hub.connect(ConnectOptions {
         session_key: query.session,
         agent_id: query.agent,
         channel: Some(WEB_CHANNEL.to_owned()),
         max_buffered_bytes: Some(MAX_BUFFERED_BYTES),
+        auth_session: login.clone(),
         ..ConnectOptions::default()
     });
     let connection_id = client.id().to_owned();
     let (mut sink, mut stream) = socket.split();
+
+    // A logout between the check at the upgrade and the attach above found no
+    // connection to close. Asked after attaching, so every revocation lands on
+    // one side of this or the other.
+    let live = match login {
+        Some(login) => {
+            let auth = Arc::clone(&state.auth);
+            blocking(move || auth.is_live(&login.id))
+                .await
+                .unwrap_or(false)
+        }
+        None => true,
+    };
+    if !live {
+        let _ = sink
+            .send(Message::Close(Some(CloseFrame {
+                code: CLOSE_SIGNED_OUT,
+                reason: close_reason(CLOSE_SIGNED_OUT).into(),
+            })))
+            .await;
+        client.close();
+        return;
+    }
 
     loop {
         tokio::select! {
@@ -163,13 +215,12 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery) {
                     }
                 }
                 Some(Outbound::Close(code)) => {
-                    // Best effort: the peer this is aimed at is by definition
-                    // one that has stopped reading, so a failure to deliver the
-                    // courtesy frame changes nothing about the outcome.
+                    // Best effort: a peer that has stopped reading will not get
+                    // the frame either, and the outcome is the same.
                     let _ = sink
                         .send(Message::Close(Some(CloseFrame {
                             code,
-                            reason: "client is not reading".into(),
+                            reason: close_reason(code).into(),
                         })))
                         .await;
                     break;
@@ -199,6 +250,15 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery) {
     // Idempotent, so the close frame above and a peer hang-up can both land
     // here without the hub seeing two departures.
     client.close();
+}
+
+/// The reason a close frame carries, for a person reading a network log.
+fn close_reason(code: u16) -> &'static str {
+    match code {
+        CLOSE_SIGNED_OUT => "signed out",
+        CLOSE_TRY_AGAIN_LATER => "client is not reading",
+        _ => "",
+    }
 }
 
 /// How much a connection may have queued before it is dropped.

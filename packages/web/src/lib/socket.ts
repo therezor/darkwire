@@ -24,6 +24,7 @@
  */
 
 import {
+  CLOSE_SIGNED_OUT,
   ServerMessageSchema,
   type ClientMessage,
   type ServerMessage,
@@ -58,7 +59,7 @@ export interface SocketLike {
   send(data: string): void;
   close(): void;
   onopen: (() => void) | null;
-  onclose: (() => void) | null;
+  onclose: ((event: { readonly code: number }) => void) | null;
   onerror: (() => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
 }
@@ -82,6 +83,13 @@ export interface ReconnectingSocketOptions {
   readonly onOpen?: (send: (message: ClientMessage) => void) => void;
   /** A frame the schema refused. Reported rather than thrown: the socket lives. */
   readonly onInvalidFrame?: (reason: string, raw: unknown) => void;
+  /**
+   * The server closed the socket because its login was revoked.
+   *
+   * No reconnect is scheduled: the upgrade would be refused until someone
+   * signs in again, and `resume()` is what dials after that.
+   */
+  readonly onSignedOut?: () => void;
   /** Injected by tests. Defaults to the global `WebSocket`. */
   readonly create?: (url: string) => SocketLike;
   /** Injected by tests. `[0, 1)`, multiplied into the delay as ±25%. */
@@ -100,6 +108,8 @@ export class ReconnectingSocket {
   private currentStatus: ConnectionStatus = 'closed';
   /** True from `close()` until the next `open()`, and no reconnect happens in it. */
   private stopped = true;
+  /** True from a signed-out close until `resume()`. */
+  private signedOut = false;
 
   constructor(options: ReconnectingSocketOptions) {
     this.options = options;
@@ -119,6 +129,7 @@ export class ReconnectingSocket {
   open(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    this.signedOut = false;
     this.attempt = 0;
     this.dial('connecting');
   }
@@ -144,9 +155,20 @@ export class ReconnectingSocket {
    * than dialling again.
    */
   reconnectNow(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.signedOut) return;
     this.clearTimer();
     this.teardown();
+    this.attempt = 0;
+    this.dial('reconnecting');
+  }
+
+  /**
+   * Dials again after the server signed this socket out. Does nothing
+   * otherwise, so a caller may ask every time the login is confirmed.
+   */
+  resume(): void {
+    if (this.stopped || !this.signedOut) return;
+    this.signedOut = false;
     this.attempt = 0;
     this.dial('reconnecting');
   }
@@ -206,10 +228,16 @@ export class ReconnectingSocket {
     // from both would dial twice for one failure.
     socket.onerror = null;
 
-    socket.onclose = (): void => {
+    socket.onclose = (event): void => {
       if (this.socket !== socket) return;
       this.socket = undefined;
       if (this.stopped) return;
+      if (event.code === CLOSE_SIGNED_OUT) {
+        this.signedOut = true;
+        this.setStatus('closed');
+        this.options.onSignedOut?.();
+        return;
+      }
       this.scheduleReconnect();
     };
   }

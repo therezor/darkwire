@@ -38,6 +38,7 @@ use darkwire_protocol::rest::{
 };
 use darkwire_security::random::{OsRandom, RandomSource};
 use garde::Validate as _;
+use parking_lot::RwLock;
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
@@ -226,6 +227,36 @@ pub struct IssuedToken {
     pub expires_at_ms: i64,
 }
 
+/// Which sessions a deletion removed.
+///
+/// Told to whoever holds a connection a session authenticated, because a check
+/// made once at the upgrade is otherwise the last one a socket ever sees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Revocation {
+    /// These sessions are gone.
+    Sessions(Vec<String>),
+    /// Every session is gone.
+    All {
+        /// The caller's session, and the one issued to replace it in the same
+        /// step. What `from` authenticated now belongs to `to`.
+        carried: Option<Carried>,
+    },
+}
+
+/// A session replaced by its successor, for the holder that asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Carried {
+    /// The session that was deleted.
+    pub from: String,
+    /// The one issued in its place.
+    pub to: String,
+    /// When the one issued in its place stops being accepted.
+    pub expires_at_ms: i64,
+}
+
+/// Called after a deletion, outside the database lock.
+pub type RevocationListener = Arc<dyn Fn(&Revocation) + Send + Sync>;
+
 /// How an [`AuthStore`] is wired.
 pub struct AuthStoreOptions {
     /// Shared with the session store and the scheduler.
@@ -264,6 +295,8 @@ pub struct AuthStore {
     /// Computed at most once, on the first login against an install that has no
     /// password.
     decoy_digest: OnceLock<String>,
+    /// Late, because the hub it reaches is built after the store.
+    listener: RwLock<Option<RevocationListener>>,
 }
 
 impl std::fmt::Debug for AuthStore {
@@ -287,7 +320,21 @@ impl AuthStore {
             hasher: options.hasher,
             ttl_ms: options.session_ttl_ms,
             decoy_digest: OnceLock::new(),
+            listener: RwLock::new(None),
         })
+    }
+
+    /// Where every deletion from `auth_sessions` is reported. Replaces any
+    /// earlier listener.
+    pub fn on_revoke(&self, listener: RevocationListener) {
+        *self.listener.write() = Some(listener);
+    }
+
+    fn announce(&self, revocation: &Revocation) {
+        let listener = self.listener.read().clone();
+        if let Some(listener) = listener {
+            listener(revocation);
+        }
     }
 
     /// Whether this install has been claimed.
@@ -314,6 +361,33 @@ impl AuthStore {
     /// password is that the old one may be known — and a token minted under it
     /// outliving the rotation makes the rotation cosmetic.
     pub fn set_password(&self, password: &str, username: Option<&str>) -> Result<()> {
+        self.write_password(password, username, None).map(|_| ())
+    }
+
+    /// [`AuthStore::set_password`], and a session for the caller in the same
+    /// transaction.
+    ///
+    /// Whatever `caller` authenticated moves to the new session rather than
+    /// being signed out with the rest. That is the tab that proved the old
+    /// password, and a socket it holds must not read as signed out while the
+    /// cookie that replaces its session is still in flight.
+    pub fn rotate_password(
+        &self,
+        password: &str,
+        username: Option<&str>,
+        caller: Option<&str>,
+        label: &str,
+    ) -> Result<IssuedToken> {
+        let issued = self.write_password(password, username, Some((caller, label)))?;
+        issued.ok_or_else(|| WireError::new(ErrorKind::Internal, "No session was issued"))
+    }
+
+    fn write_password(
+        &self,
+        password: &str,
+        username: Option<&str>,
+        successor: Option<(Option<&str>, &str)>,
+    ) -> Result<Option<IssuedToken>> {
         assert_password_policy(password)?;
         let now = self.clock.now_ms();
 
@@ -347,6 +421,7 @@ impl AuthStore {
         }
 
         let digest = self.hasher.hash(password)?;
+        let minted = successor.map(|(caller, label)| (caller, label, self.mint(now)));
         self.db.transaction(|conn| {
             let mut write = conn.prepare(
                 "INSERT INTO auth_secrets (name, value, updated_at_ms) VALUES (?, ?, ?)
@@ -366,8 +441,21 @@ impl AuthStore {
                 params![SETUP_CODE_SECRET],
             )?;
             conn.execute("DELETE FROM auth_sessions", [])?;
+            if let Some((_, label, (issued, digest))) = &minted {
+                insert_session(conn, issued, digest, label, now)?;
+            }
             Ok(())
-        })
+        })?;
+
+        let carried = minted.as_ref().and_then(|(caller, _, (issued, _))| {
+            caller.map(|from| Carried {
+                from: from.to_owned(),
+                to: issued.id.clone(),
+                expires_at_ms: issued.expires_at_ms,
+            })
+        });
+        self.announce(&Revocation::All { carried });
+        Ok(minted.map(|(_, _, (issued, _))| issued))
     }
 
     /// Mints the one-time code that claims an unclaimed install, replacing any
@@ -510,26 +598,27 @@ impl AuthStore {
     /// is the only thing that makes a session list worth showing.
     pub fn issue(&self, label: &str) -> Result<IssuedToken> {
         let now = self.clock.now_ms();
+        let (issued, digest) = self.mint(now);
+        insert_session(&self.db.lock(), &issued, &digest, label, now)?;
+        Ok(issued)
+    }
+
+    /// A fresh token and the digest its row stores, not yet written.
+    fn mint(&self, now: i64) -> (IssuedToken, Vec<u8>) {
         let mut id_bytes = [0u8; TOKEN_ID_BYTES];
         self.random.fill(&mut id_bytes);
         let mut secret_bytes = [0u8; TOKEN_SECRET_BYTES];
         self.random.fill(&mut secret_bytes);
         let id = URL_SAFE_NO_PAD.encode(id_bytes);
         let secret = URL_SAFE_NO_PAD.encode(secret_bytes);
-        let expires_at_ms = now + self.ttl_ms;
-
-        self.db.lock().execute(
-            "INSERT INTO auth_sessions
-               (id, token_sha256, label, created_at_ms, expires_at_ms, last_seen_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?)",
-            params![id, sha256(&secret), label, now, expires_at_ms, now],
-        )?;
-
-        Ok(IssuedToken {
-            token: format!("{id}.{secret}"),
-            id,
-            expires_at_ms,
-        })
+        (
+            IssuedToken {
+                token: format!("{id}.{secret}"),
+                id,
+                expires_at_ms: now + self.ttl_ms,
+            },
+            sha256(&secret),
+        )
     }
 
     /// A named server secret, created on first use.
@@ -643,20 +732,48 @@ impl AuthStore {
             .db
             .lock()
             .execute("DELETE FROM auth_sessions WHERE id = ?", params![id])?;
+        if changed > 0 {
+            self.announce(&Revocation::Sessions(vec![id.to_owned()]));
+        }
         Ok(changed > 0)
     }
 
     /// Drops every session, and reports how many.
     pub fn revoke_all(&self) -> Result<usize> {
-        Ok(self.db.lock().execute("DELETE FROM auth_sessions", [])?)
+        let changed = self.db.lock().execute("DELETE FROM auth_sessions", [])?;
+        self.announce(&Revocation::All { carried: None });
+        Ok(changed)
     }
 
     /// Called at boot so a long-down instance does not accumulate dead rows.
     pub fn purge_expired(&self) -> Result<usize> {
-        Ok(self.db.lock().execute(
-            "DELETE FROM auth_sessions WHERE expires_at_ms <= ?",
-            params![self.clock.now_ms()],
-        )?)
+        let ids = {
+            let guard = self.db.lock();
+            let mut statement =
+                guard.prepare("DELETE FROM auth_sessions WHERE expires_at_ms <= ? RETURNING id")?;
+            let mut rows = statement.query(params![self.clock.now_ms()])?;
+            let mut ids = Vec::new();
+            while let Some(row) = rows.next()? {
+                ids.push(ROWS.string(row, "id")?);
+            }
+            ids
+        };
+        let count = ids.len();
+        if count > 0 {
+            self.announce(&Revocation::Sessions(ids));
+        }
+        Ok(count)
+    }
+
+    /// Whether a session still has its row, whatever its credential.
+    ///
+    /// For a socket that was verified at the upgrade and attached a moment
+    /// later: a revocation in that gap found nothing to close.
+    pub fn is_live(&self, id: &str) -> Result<bool> {
+        let guard = self.db.lock();
+        let mut statement =
+            guard.prepare("SELECT 1 FROM auth_sessions WHERE id = ? AND expires_at_ms > ?")?;
+        Ok(statement.exists(params![id, self.clock.now_ms()])?)
     }
 
     fn read_secret(&self, name: &str) -> Result<Option<String>> {
@@ -668,6 +785,23 @@ impl AuthStore {
             Some(row) => Ok(row.get::<_, String>("value").ok()),
         }
     }
+}
+
+/// Writes a minted session's row.
+fn insert_session(
+    conn: &rusqlite::Connection,
+    issued: &IssuedToken,
+    digest: &[u8],
+    label: &str,
+    now: i64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO auth_sessions
+           (id, token_sha256, label, created_at_ms, expires_at_ms, last_seen_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        params![issued.id, digest, label, now, issued.expires_at_ms, now],
+    )?;
+    Ok(())
 }
 
 /// The name as it is compared, or empty for one too malformed to normalise.

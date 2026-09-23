@@ -22,7 +22,7 @@ use darkwire_core::testkit::ManualClock;
 use darkwire_core::{Clock, Database, ErrorKind, Result};
 use darkwire_security::random::RandomSource;
 use darkwire_server::auth_store::{
-    Argon2Hasher, AuthStore, AuthStoreOptions, PasswordHasher, SCHEMA,
+    Argon2Hasher, AuthStore, AuthStoreOptions, Carried, PasswordHasher, Revocation, SCHEMA,
 };
 use rusqlite::params;
 use serde_json::Value;
@@ -558,6 +558,98 @@ fn purging_drops_only_what_has_expired() {
     assert_eq!(built.store.purge_expired().unwrap(), 1);
     assert!(built.store.verify(&early.token).unwrap().is_none());
     assert!(built.store.verify(&late.token).unwrap().is_some());
+}
+
+// revocations
+
+/// Every revocation the store announces, in order.
+fn listen(store: &AuthStore) -> Arc<parking_lot::Mutex<Vec<Revocation>>> {
+    let heard = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let sink = Arc::clone(&heard);
+    store.on_revoke(Arc::new(move |revocation| {
+        sink.lock().push(revocation.clone());
+    }));
+    heard
+}
+
+#[test]
+fn every_deletion_is_announced_with_what_it_removed() {
+    let built = build(1_000, Arc::new(FakeHasher));
+    let heard = listen(&built.store);
+    let one = built.store.issue("").unwrap();
+
+    assert!(built.store.revoke_by_id(&one.id).unwrap());
+    // Nothing was there the second time, so nothing is said.
+    assert!(!built.store.revoke_by_id(&one.id).unwrap());
+
+    let early = built.store.issue("").unwrap();
+    built.clock.advance(Duration::from_millis(1_500));
+    assert_eq!(built.store.purge_expired().unwrap(), 1);
+
+    let expired = built.store.issue("").unwrap();
+    built.clock.advance(Duration::from_millis(1_500));
+    assert!(built.store.verify(&expired.token).unwrap().is_none());
+
+    built.store.revoke_all().unwrap();
+    built
+        .store
+        .set_password("a long enough password", None)
+        .unwrap();
+
+    assert_eq!(
+        *heard.lock(),
+        [
+            Revocation::Sessions(vec![one.id]),
+            Revocation::Sessions(vec![early.id]),
+            Revocation::Sessions(vec![expired.id]),
+            Revocation::All { carried: None },
+            Revocation::All { carried: None },
+        ]
+    );
+}
+
+#[test]
+fn a_rotation_names_the_callers_successor_and_it_verifies() {
+    let built = fake();
+    let caller = built.store.issue("web").unwrap();
+    let other = built.store.issue("web").unwrap();
+    let heard = listen(&built.store);
+
+    let issued = built
+        .store
+        .rotate_password("a long enough password", None, Some(&caller.id), "web")
+        .unwrap();
+
+    assert!(built.store.verify(&caller.token).unwrap().is_none());
+    assert!(built.store.verify(&other.token).unwrap().is_none());
+    assert!(built.store.verify(&issued.token).unwrap().is_some());
+    assert_eq!(
+        *heard.lock(),
+        [Revocation::All {
+            carried: Some(Carried {
+                from: caller.id,
+                to: issued.id,
+                // The successor's own expiry, so a carried socket lapses with
+                // the login it now belongs to.
+                expires_at_ms: issued.expires_at_ms,
+            }),
+        }]
+    );
+}
+
+#[test]
+fn a_session_is_live_until_it_is_revoked_or_expires() {
+    let built = build(1_000, Arc::new(FakeHasher));
+    let revoked = built.store.issue("").unwrap();
+    let expiring = built.store.issue("").unwrap();
+
+    assert!(built.store.is_live(&revoked.id).unwrap());
+    built.store.revoke_by_id(&revoked.id).unwrap();
+    assert!(!built.store.is_live(&revoked.id).unwrap());
+
+    built.clock.advance(Duration::from_secs(1));
+    assert!(!built.store.is_live(&expiring.id).unwrap());
+    assert!(!built.store.is_live("never-issued").unwrap());
 }
 
 // last seen

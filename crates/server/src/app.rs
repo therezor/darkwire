@@ -34,6 +34,7 @@ use crate::auth_store::{Argon2Hasher, AuthStore, AuthStoreOptions, PasswordHashe
 use crate::automation_store::AutomationStore;
 use crate::boot::assert_boot_policy;
 use crate::errors::{HttpError, error_body};
+use crate::hosts::{HostPolicy, require_known_host};
 use crate::hub::SessionHub;
 use crate::login_throttle::LoginThrottle;
 use crate::notifications::NotificationStore;
@@ -250,12 +251,24 @@ pub fn create_server(options: ServerOptions) -> Result<WireServer> {
         Arc::clone(&options.clock),
     )?);
 
+    // Every deletion from `auth_sessions` reaches the sockets that session
+    // authenticated. Weak, because the hub outlives nothing here and a strong
+    // reference would be a cycle through the store it is registered on.
+    let hub = Arc::downgrade(&options.hub);
+    auth.on_revoke(Arc::new(move |revocation| {
+        if let Some(hub) = hub.upgrade() {
+            hub.revoke(revocation);
+        }
+    }));
+
+    let hosts = Arc::new(HostPolicy::for_this_machine(&options.config.server));
     let ui = options.ui.clone();
     let state: AppState = Arc::new(RouteDeps {
         config: options.config.clone(),
         runtime: Arc::clone(&options.runtime),
         hub: Arc::clone(&options.hub),
         auth: Arc::clone(&auth),
+        hosts: Arc::clone(&hosts),
         login_throttle,
         notifications: Arc::clone(&notifications),
         automation: Arc::clone(&automation),
@@ -283,8 +296,16 @@ pub fn create_server(options: ServerOptions) -> Result<WireServer> {
     // (4) Routes from the manifest, then the fallback under them: a single-page
     // app owns URLs the server has never heard of, and the router matching none
     // of them is what "the client routed it" looks like from here.
-    let router =
-        router(state, global.as_ref()).fallback(axum::routing::any(not_found).with_state(ui));
+    //
+    // The host check goes around all of it, the fallback included: a rebound
+    // name that could still load the UI shell would be a page an attacker can
+    // script against the API.
+    let router = router(state, global.as_ref())
+        .fallback(axum::routing::any(not_found).with_state(ui))
+        .layer(axum::middleware::from_fn_with_state(
+            hosts,
+            require_known_host,
+        ));
 
     Ok(WireServer {
         router,

@@ -377,12 +377,16 @@ pub async fn setup_password(
         .username
         .as_ref()
         .map(|name| name.as_str().to_owned());
-    blocking(move || auth.set_password(&password, username.as_deref())).await?;
+    let caller = session_of(&parts.extensions).map(|session| session.id.clone());
 
-    // Setting a password revokes every session, including the caller's own.
-    // Re-issuing is not a convenience: without it the browser is signed out in
-    // the middle of the wizard, with the code it would need to get back in
+    // Setting a password revokes every session, including the caller's own, and
+    // closes the sockets they opened. The caller gets a new one in the same
+    // step, and its sockets move to it. Without that the browser is signed out
+    // in the middle of the wizard, with the code it would need to get back in
     // already spent.
-    let issued = state.auth.issue(WEB_LABEL)?;
+    let issued = blocking(move || {
+        auth.rotate_password(&password, username.as_deref(), caller.as_deref(), WEB_LABEL)
+    })
+    .await?;
     Ok(session_response(&parts, &issued, state.clock.now_ms()))
 }

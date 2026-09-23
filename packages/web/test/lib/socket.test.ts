@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ServerMessage } from '@darkwire/protocol';
+import { CLOSE_SIGNED_OUT, type ServerMessage } from '@darkwire/protocol';
 
 import {
   ReconnectingSocket,
@@ -26,7 +26,7 @@ class FakeSocket implements SocketLike {
 
   readonly sent: string[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { readonly code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   closed = false;
@@ -54,9 +54,10 @@ class FakeSocket implements SocketLike {
     });
   }
 
-  drop(): void {
+  /** The connection went away, with the code the browser reports. */
+  drop(code = 1006): void {
     this.closed = true;
-    this.onclose?.();
+    this.onclose?.({ code });
   }
 }
 
@@ -77,7 +78,10 @@ interface Harness {
 }
 
 function harness(
-  options: { readonly onOpen?: ReconnectingSocketOptions['onOpen'] } = {},
+  options: {
+    readonly onOpen?: ReconnectingSocketOptions['onOpen'];
+    readonly onSignedOut?: () => void;
+  } = {},
 ): Harness {
   const messages: ServerMessage[] = [];
   const statuses: string[] = [];
@@ -94,6 +98,7 @@ function harness(
     random: () => 0.5,
     delays: [100, 400],
     ...(options.onOpen ? { onOpen: options.onOpen } : {}),
+    ...(options.onSignedOut ? { onSignedOut: options.onSignedOut } : {}),
   });
 
   return { socket, messages, statuses, invalid };
@@ -327,6 +332,40 @@ describe('the reconnecting socket', () => {
     expect(socket.send({ type: 'ping' })).toBe(true);
     // Held for the next connection rather than lost between two checks.
     expect(socket.buffered).toBe(1);
+  });
+
+  it('waits for a login after the server signs it out', () => {
+    const signedOut = vi.fn();
+    const { socket, statuses } = harness({ onSignedOut: signedOut });
+    socket.open();
+    latest().open();
+
+    latest().drop(CLOSE_SIGNED_OUT);
+
+    expect(signedOut).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toBe('closed');
+    // Redialling would only be refused until someone signs in again.
+    vi.advanceTimersByTime(60_000);
+    socket.reconnectNow();
+    expect(FakeSocket.opened).toHaveLength(1);
+
+    socket.send({ type: 'ping' });
+    socket.resume();
+    expect(FakeSocket.opened).toHaveLength(2);
+    latest().open();
+    expect(latest().sent).toHaveLength(1);
+  });
+
+  it('ignores a resume when it was not signed out', () => {
+    const { socket } = harness();
+    socket.open();
+    latest().open();
+
+    socket.resume();
+    latest().drop();
+    socket.resume();
+
+    expect(FakeSocket.opened).toHaveLength(1);
   });
 
   it('ignores a late event from a socket it has already replaced', () => {

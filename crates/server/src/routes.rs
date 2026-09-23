@@ -24,6 +24,7 @@ use darkwire_security::random::RandomSource;
 
 use crate::auth_store::AuthStore;
 use crate::automation_store::AutomationStore;
+use crate::hosts::HostPolicy;
 use crate::hub::SessionHub;
 use crate::login_throttle::LoginThrottle;
 use crate::manifest::{ROUTE_MANIFEST, Route, RouteAuth, RouteId, RouteMethod};
@@ -84,6 +85,9 @@ pub struct RouteDeps {
     pub hub: Arc<SessionHub>,
     /// Passwords, sessions and the signing secret.
     pub auth: Arc<AuthStore>,
+    /// The names this server answers to, which the socket's `Origin` check
+    /// also reads.
+    pub hosts: Arc<HostPolicy>,
     /// The brute-force throttle the credential routes share.
     ///
     /// One instance, shared rather than one per route, because the account

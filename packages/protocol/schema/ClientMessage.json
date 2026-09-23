@@ -167,6 +167,10 @@
         "sessionKey": {
           "type": "string",
           "minLength": 1
+        },
+        "turnId": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [

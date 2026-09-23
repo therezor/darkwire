@@ -357,6 +357,11 @@ impl TurnCollector {
         (collector, rx)
     }
 
+    /// The id the hub acked this run's message with, once it has.
+    pub fn turn_id(&self) -> Option<String> {
+        self.inner.lock().turn_id.clone()
+    }
+
     /// Folds one frame in.
     ///
     /// The match is exhaustive rather than swept up by a wildcard, and that is
@@ -1178,13 +1183,14 @@ impl Scheduler {
             client_message_id: Some(run.id.clone()),
         }));
 
-        // The frame names no turn, but the hub lets a connection like this one
-        // stop only the turn it submitted, and withdraw it if it is still
-        // queued, so a shared session's other turns are left alone.
+        // Names the run's own turn once the ack has said which it is. Before
+        // that the frame names none, and the hub still lets a connection like
+        // this one stop or withdraw only what it submitted.
         let stop = || {
             connection.receive(ClientMessage::StopTurn(StopTurnMessage {
                 tag: StopTurnTag,
                 session_key: session_key.clone(),
+                turn_id: collector.turn_id(),
             }));
         };
 
