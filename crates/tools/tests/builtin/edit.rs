@@ -15,7 +15,7 @@ use darkwire_tools::edit_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, fifo, run, run_on_fifo, text};
+use crate::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
 
 fn code(ws: &TestWorkspace, body: &str) {
     fs::write(ws.root().join("code.ts"), body).unwrap();
@@ -394,4 +394,43 @@ async fn edit_refuses_a_file_it_could_not_have_written_in_place() {
     .await;
     assert_eq!(result.kind, Some(ErrorKind::PermissionDenied));
     assert_eq!(read_code(&ws), "const a = 1;\n");
+}
+
+#[tokio::test]
+async fn edit_refuses_a_file_behind_a_symlinked_directory_that_leads_out() {
+    let ws = TestWorkspace::new();
+    let elsewhere = link_out(&ws);
+    let error = failure(
+        &edit_tool(),
+        json!({"path": "linked/secret.txt", "oldText": "stolen", "newText": "edited"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(error.kind, Some(ErrorKind::JailEscape));
+    assert_eq!(
+        fs::read_to_string(elsewhere.join("secret.txt")).unwrap(),
+        "stolen"
+    );
+}
+
+#[tokio::test]
+async fn edit_goes_through_a_symlinked_directory_that_stays_inside() {
+    let ws = TestWorkspace::new();
+    link_in(&ws);
+    text(
+        &edit_tool(),
+        json!({"path": "alias/notes.md", "oldText": "inside", "newText": "edited"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(
+        fs::read_to_string(ws.root().join("real/notes.md")).unwrap(),
+        "edited\n"
+    );
+    assert!(
+        fs::symlink_metadata(ws.root().join("alias"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }

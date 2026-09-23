@@ -7,8 +7,10 @@
 //!
 //! A *key* is not a path, but it does put a model-chosen string into a
 //! filename, so the guarantee the jail gives a path has to be re-established
-//! here. It is, in `memory_slug` — the result is `[a-z0-9-]` and cannot contain
-//! a separator or a `..`, so it cannot leave `memory/` by construction.
+//! here. It is, in `memory_slug`: the result is `[a-z0-9-]` and cannot contain
+//! a separator or a `..`, so it cannot leave `memory/` by construction. The
+//! folder itself is workspace content and can be a link, so it goes through
+//! the jail and every open goes through the root, as the other file tools do.
 //!
 //! ## Why a tool rather than `read` and `exec`
 //!
@@ -32,7 +34,8 @@
 
 use darkwire_core::Result;
 use darkwire_core::memory::{
-    MAX_MEMORY_NAME_CHARS, delete_memory, memory_slug, read_memory, save_memory,
+    MAX_MEMORY_NAME_CHARS, MEMORY_DIRNAME, delete_memory_in, memory_slug, read_memory_in,
+    save_memory_in,
 };
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
@@ -40,6 +43,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::builtin::built;
+use crate::builtin::shared::{in_root, open_options, root_failure};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -94,27 +98,43 @@ impl ToolHandler for Memory {
                     args.key
                 )));
             };
-            let root = ctx.jail.root();
+            let content = args.content.as_deref().map_or("", js_trim).to_owned();
+            if args.action == Action::Save {
+                if content.is_empty() {
+                    return Ok(ToolOutput::error("Give content to save."));
+                }
+                if content.chars().count() > MAX_CONTENT_CHARS {
+                    return Ok(ToolOutput::error(format!(
+                        "Too long: {MAX_CONTENT_CHARS} characters at most. Split it across keys, one topic each."
+                    )));
+                }
+            }
+
+            let accepted = ctx.jail.accept(MEMORY_DIRNAME)?;
+            let file = format!("{}/{key}.md", accepted.relative);
+            let failed = |error: std::io::Error| root_failure(&error, MEMORY_DIRNAME, &file, "");
+            let name = key.clone();
 
             Ok(match args.action {
-                Action::Read => match read_memory(root, &key) {
-                    Some(memory) => ToolOutput::text(memory.content).with_detail("key", key),
-                    None => ToolOutput::error(format!(
-                        "No memory `{key}`. The keys are listed under Memory in your prompt."
-                    )),
-                },
+                Action::Read => {
+                    let found = in_root(&ctx.jail, &accepted, "memory", move |root, dir| {
+                        read_memory_in(root, dir, &name, &open_options())
+                    })
+                    .await?
+                    .map_err(failed)?;
+                    match found {
+                        Some(memory) => ToolOutput::text(memory.content).with_detail("key", key),
+                        None => ToolOutput::error(format!(
+                            "No memory `{key}`. The keys are listed under Memory in your prompt."
+                        )),
+                    }
+                }
                 Action::Save => {
-                    let content = args.content.as_deref().map_or("", js_trim);
-                    if content.is_empty() {
-                        return Ok(ToolOutput::error("Give content to save."));
-                    }
-                    if content.chars().count() > MAX_CONTENT_CHARS {
-                        return Ok(ToolOutput::error(format!(
-                            "Too long: {MAX_CONTENT_CHARS} characters at most. Split it across keys, one topic each."
-                        )));
-                    }
-
-                    let saved = save_memory(root, &key, content)?;
+                    let saved = in_root(&ctx.jail, &accepted, "memory", move |root, dir| {
+                        save_memory_in(root, dir, &name, &content, &open_options())
+                    })
+                    .await?
+                    .map_err(failed)?;
                     let verb = if saved.replaced { "Replaced" } else { "Saved" };
                     ToolOutput::text(format!("{verb} {}", saved.key))
                         .with_detail("key", saved.key.as_str())
@@ -122,7 +142,11 @@ impl ToolHandler for Memory {
                         .with_detail("total", saved.total)
                 }
                 Action::Delete => {
-                    let removed = delete_memory(root, &key)?;
+                    let removed = in_root(&ctx.jail, &accepted, "memory", move |root, dir| {
+                        delete_memory_in(root, dir, &name)
+                    })
+                    .await?
+                    .map_err(failed)?;
                     let text = if removed.existed {
                         format!("Deleted {}", removed.key)
                     } else {

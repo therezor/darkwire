@@ -15,7 +15,7 @@ use darkwire_tools::read_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, fifo, run_on_fifo, text};
+use crate::common::{failure, fifo, link_in, link_out, run_on_fifo, text};
 
 /// `count` lines, each naming its own number, so a window can be checked.
 fn numbered(count: u32) -> String {
@@ -251,4 +251,31 @@ async fn read_refuses_a_fifo_rather_than_blocking_on_it() {
         "{}",
         result.content
     );
+}
+
+#[tokio::test]
+async fn read_refuses_a_file_behind_a_symlinked_directory_that_leads_out() {
+    let ws = TestWorkspace::new();
+    link_out(&ws);
+    let error = failure(
+        &read_tool(),
+        json!({"path": "linked/secret.txt"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(error.kind, Some(ErrorKind::JailEscape));
+    assert!(!error.content.contains("stolen"));
+}
+
+#[tokio::test]
+async fn read_follows_a_symlinked_directory_that_stays_inside() {
+    let ws = TestWorkspace::new();
+    link_in(&ws);
+    let result = text(
+        &read_tool(),
+        json!({"path": "alias/notes.md"}),
+        ws.context(),
+    )
+    .await;
+    assert!(result.contains("inside"), "{result}");
 }

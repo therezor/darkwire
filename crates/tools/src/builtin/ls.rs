@@ -11,19 +11,26 @@
 //! it sounds: a workspace containing a self-referential link is an ordinary
 //! mistake, and a walk that followed it would run until it exhausted the path
 //! length limit.
+//!
+//! Every directory is opened through the workspace root without following its
+//! last component, so one swapped for a symlink mid-walk is not descended.
 
 use std::cmp::Ordering;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use darkwire_core::{ErrorKind, Result, WireError};
+use cap_fs_ext::DirExt as _;
+use cap_std::fs::Dir;
+use darkwire_core::Result;
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::{JailCheck, WorkspaceJail};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use walkdir::{DirEntry, WalkDir};
 
 use crate::builtin::built;
-use crate::builtin::shared::{clamp_note, format_bytes, fs_failure};
+use crate::builtin::shared::{clamp_note, format_bytes, in_root, root_failure};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -74,89 +81,160 @@ struct Listing {
     unreadable: usize,
 }
 
+/// One directory entry, as the walk sorts it.
+struct Item {
+    name: OsString,
+    is_dir: bool,
+    is_symlink: bool,
+    /// Bytes, or `None` for a symlink, which is measured by following it.
+    size: Option<u64>,
+}
+
 /// Directories first, then name, within each directory: the order someone
 /// reading a listing expects, and stable across filesystems, which directory
 /// order is not. A recursive listing is in tree order.
-fn listing_order(left: &DirEntry, right: &DirEntry) -> Ordering {
-    right
-        .file_type()
-        .is_dir()
-        .cmp(&left.file_type().is_dir())
-        .then_with(|| {
-            left.file_name()
-                .to_string_lossy()
-                .encode_utf16()
-                .cmp(right.file_name().to_string_lossy().encode_utf16())
-        })
+fn listing_order(left: &Item, right: &Item) -> Ordering {
+    right.is_dir.cmp(&left.is_dir).then_with(|| {
+        left.name
+            .to_string_lossy()
+            .encode_utf16()
+            .cmp(right.name.to_string_lossy().encode_utf16())
+    })
 }
 
-/// The entries under `root`, keeping at most `cap` of them.
-///
-/// Blocking, so it runs off the async runtime. An unreadable entry below the
-/// root is counted and skipped; one at the root itself is the whole answer.
-fn walk(
-    root: &Path,
+/// A directory's entries, sorted, with the unreadable ones counted.
+fn entries(dir: &Dir, unreadable: &mut usize) -> std::io::Result<Vec<Item>> {
+    let mut items = Vec::new();
+    for entry in dir.entries()? {
+        let Ok(entry) = entry else {
+            *unreadable = unreadable.saturating_add(1);
+            continue;
+        };
+        let Ok(kind) = entry.file_type() else {
+            *unreadable = unreadable.saturating_add(1);
+            continue;
+        };
+        let size = if kind.is_symlink() || kind.is_dir() {
+            None
+        } else {
+            entry.metadata().ok().map(|stats| stats.len())
+        };
+        items.push(Item {
+            name: entry.file_name(),
+            is_dir: kind.is_dir(),
+            is_symlink: kind.is_symlink(),
+            size,
+        });
+    }
+    items.sort_by(listing_order);
+    Ok(items)
+}
+
+/// Where one walk starts and what it may keep.
+struct Walk<'a> {
+    jail: &'a WorkspaceJail,
+    root: &'a Dir,
+    /// The start, relative to the workspace root.
+    start: &'a Path,
     recursive: bool,
     cap: usize,
-    token: &CancellationToken,
-) -> std::result::Result<Listing, std::io::Error> {
-    let mut walker = WalkDir::new(root)
-        .follow_links(false)
-        .min_depth(1)
-        .sort_by(listing_order);
-    if !recursive {
-        walker = walker.max_depth(1);
-    }
+}
+
+/// The entries under `start`, keeping at most `cap` of them.
+///
+/// Blocking, so it runs off the async runtime. An unreadable entry below the
+/// start is counted and skipped; one at the start itself is the whole answer.
+fn walk(walk: &Walk<'_>, token: &CancellationToken) -> std::io::Result<Listing> {
     let mut listing = Listing::default();
+    if !walk.root.symlink_metadata(walk.start)?.is_dir() {
+        return Ok(listing);
+    }
+    let first = entries(
+        &walk.root.open_dir_nofollow(walk.start)?,
+        &mut listing.unreadable,
+    )?;
+    // Depth first, in order: each frame is the entries still to visit in one
+    // directory, its path under the start, and the same path for display. A
+    // frame holds no handle, so a deep tree cannot run the process out of
+    // descriptors.
+    let mut stack = vec![(first.into_iter(), PathBuf::new(), String::new())];
     let mut visited = 0usize;
-    for item in walker {
+    while let Some((items, below_start, prefix)) = stack.last_mut() {
         if token.is_cancelled() {
             break;
         }
-        let entry = match item {
-            Ok(entry) => entry,
-            Err(error) if error.depth() == 0 => {
-                return Err(error
-                    .into_io_error()
-                    .unwrap_or_else(|| std::io::Error::other("directory walk failed")));
-            }
-            Err(_) => {
+        let Some(item) = items.next() else {
+            stack.pop();
+            continue;
+        };
+        let name = format!("{prefix}{}", item.name.to_string_lossy());
+        let below = if walk.recursive && item.is_dir {
+            let path = below_start.join(&item.name);
+            let opened = walk
+                .root
+                .open_dir_nofollow(walk.start.join(&path))
+                .and_then(|child| {
+                    let children = entries(&child, &mut listing.unreadable)?;
+                    Ok((children.into_iter(), path, format!("{name}/")))
+                });
+            if opened.is_err() {
                 listing.unreadable = listing.unreadable.saturating_add(1);
-                continue;
             }
+            opened.ok()
+        } else {
+            None
         };
         visited = visited.saturating_add(1);
-        if listing.lines.len() >= cap {
+        if listing.lines.len() >= walk.cap {
             listing.omitted = listing.omitted.saturating_add(1);
             if visited >= COUNT_SCAN_LIMIT {
                 listing.counted_partially = true;
                 break;
             }
-            continue;
+        } else {
+            listing.lines.push(line(walk, &name, &item));
         }
-        listing.lines.push(line(root, &entry));
+        if let Some(frame) = below {
+            stack.push(frame);
+        }
     }
     Ok(listing)
 }
 
 /// One entry as the model reads it.
-fn line(root: &Path, entry: &DirEntry) -> String {
-    let name = entry
-        .path()
-        .strip_prefix(root)
-        .unwrap_or(entry.path())
-        .to_string_lossy();
-    if entry.file_type().is_dir() {
+fn line(walk: &Walk<'_>, name: &str, item: &Item) -> String {
+    if item.is_dir {
         return format!("{name}/");
     }
-    // A `stat` per file, following a link: sizes are what make a listing
-    // useful for deciding whether to read something, and the cap already
-    // bounds how many of these run.
-    let size = match std::fs::metadata(entry.path()) {
-        Ok(stats) => format_bytes(stats.len()),
-        Err(_) => "unreadable".to_owned(),
+    let size = if item.is_symlink {
+        followed_size(walk, name)
+    } else {
+        item.size
     };
+    let size = size.map_or_else(|| "unreadable".to_owned(), format_bytes);
     format!("{name} ({size})")
+}
+
+/// The size of what a symlink points at, when that is inside the workspace.
+///
+/// Sizes are what make a listing useful for deciding whether to read
+/// something, and the cap already bounds how many of these run. The jail
+/// resolves the link, so one pointing out of the workspace reads as
+/// unreadable rather than reporting a file outside it.
+fn followed_size(walk: &Walk<'_>, name: &str) -> Option<u64> {
+    let start = walk.start.to_string_lossy();
+    let path = if start == "." {
+        name.to_owned()
+    } else {
+        format!("{start}/{name}")
+    };
+    let JailCheck::Accept(accepted) = walk.jail.check(&path) else {
+        return None;
+    };
+    walk.root
+        .metadata(walk.jail.beneath(&accepted))
+        .ok()
+        .map(|stats| stats.len())
 }
 
 struct ListDir;
@@ -179,16 +257,22 @@ impl ToolHandler for ListDir {
             };
             let note = clamp_note(&args.path, &accepted);
 
-            let root = accepted.path.clone();
+            let jail = Arc::clone(&ctx.jail);
             let recursive = args.recursive;
             let cap = usize::try_from(args.max_entries).unwrap_or(usize::MAX);
             let token = ctx.token.clone();
-            let listing = tokio::task::spawn_blocking(move || walk(&root, recursive, cap, &token))
-                .await
-                .map_err(|error| {
-                    WireError::new(ErrorKind::Internal, format!("listing failed: {error}"))
-                })?
-                .map_err(|error| fs_failure(&error, where_, &note))?;
+            let listing = in_root(&ctx.jail, &accepted, "listing", move |root, start| {
+                let request = Walk {
+                    jail: &jail,
+                    root,
+                    start,
+                    recursive,
+                    cap,
+                };
+                walk(&request, &token)
+            })
+            .await?
+            .map_err(|error| root_failure(&error, &args.path, where_, &note))?;
             assert_not_aborted(&ctx.token, "ls")?;
 
             let mut lines = listing.lines;

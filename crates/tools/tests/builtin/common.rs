@@ -57,3 +57,20 @@ pub async fn run_on_fifo(
 pub fn fifo(path: &std::path::Path) {
     nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).unwrap();
 }
+
+/// Links `linked` in the workspace to a directory outside it holding
+/// `secret.txt`, and returns that directory.
+pub fn link_out(ws: &darkwire_tools::testkit::TestWorkspace) -> std::path::PathBuf {
+    let elsewhere = ws.outside().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("secret.txt"), "stolen").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, ws.root().join("linked")).unwrap();
+    elsewhere
+}
+
+/// Links `alias` in the workspace to `real`, which holds `notes.md`.
+pub fn link_in(ws: &darkwire_tools::testkit::TestWorkspace) {
+    std::fs::create_dir(ws.root().join("real")).unwrap();
+    std::fs::write(ws.root().join("real/notes.md"), "inside\n").unwrap();
+    std::os::unix::fs::symlink(ws.root().join("real"), ws.root().join("alias")).unwrap();
+}

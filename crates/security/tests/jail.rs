@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use darkwire_core::ErrorKind;
 use darkwire_security::{
-    JailCheck, JailOptions, JailRejection, JailResolver, PathShape, WorkspaceJail, path_shapes,
-    single_jail,
+    JailCheck, JailOptions, JailRejection, JailResolver, PathShape, WorkspaceJail, escape_refusal,
+    led_outside, path_shapes, single_jail,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -303,6 +303,57 @@ fn refuses_symlinks_that_lead_out() {
     assert!(!jail.check("up/outside/secret.txt").is_ok());
     symlink(&ws.outside.join("secret.txt"), &ws.root.join("alias.txt"));
     assert!(!jail.check("alias.txt").is_ok());
+}
+
+#[test]
+fn the_root_refuses_a_directory_swapped_for_a_symlink_after_the_check() {
+    let ws = workspace();
+    let jail = jail_at(&ws.root);
+    write(&ws.root.join("sub/secret.txt"), "mine");
+    let accepted = accept(&jail, "sub/secret.txt");
+    assert_eq!(jail.beneath(&accepted), PathBuf::from("sub/secret.txt"));
+
+    std::fs::remove_dir_all(ws.root.join("sub")).unwrap();
+    symlink(&ws.outside, &ws.root.join("sub"));
+    let root = jail.open_root().unwrap();
+    let error = root.open(jail.beneath(&accepted)).unwrap_err();
+    assert!(led_outside(&error), "{error:?}");
+
+    let refusal = escape_refusal("sub/secret.txt");
+    assert_eq!(refusal.kind, ErrorKind::JailEscape);
+    assert_eq!(
+        refusal.message,
+        "Path resolves outside the workspace: sub/secret.txt"
+    );
+    assert_eq!(refusal.details["rejection"], json!("outside_root"));
+}
+
+#[test]
+fn the_root_follows_a_symlink_that_stays_inside() {
+    let ws = workspace();
+    let jail = jail_at(&ws.root);
+    write(&ws.root.join("real/notes.md"), "inside");
+    write(&ws.root.join("sub/notes.md"), "before");
+    let accepted = accept(&jail, "sub/notes.md");
+
+    std::fs::remove_dir_all(ws.root.join("sub")).unwrap();
+    // Relative: the capability layer reads an absolute target as leaving.
+    symlink(Path::new("real"), &ws.root.join("sub"));
+    let root = jail.open_root().unwrap();
+    let text = root.read_to_string(jail.beneath(&accepted)).unwrap();
+    assert_eq!(text, "inside");
+    assert_eq!(jail.beneath(&accept(&jail, ".")), PathBuf::from("."));
+}
+
+#[test]
+fn a_real_permission_error_is_not_an_escape() {
+    // `EACCES`, which is 13 on every Unix this builds for.
+    let error = std::io::Error::from_raw_os_error(13);
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(!led_outside(&error));
+    assert!(!led_outside(&std::io::Error::from(
+        std::io::ErrorKind::NotFound
+    )));
 }
 
 #[test]

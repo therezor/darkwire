@@ -20,9 +20,11 @@
 //! which is precisely when the first one is useless.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::WorkspaceJail;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
 use ignore::overrides::OverrideBuilder;
@@ -31,8 +33,8 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::builtin::built;
-use crate::builtin::shared::clamp_note;
-use crate::builtin::walk::{WalkTally, files};
+use crate::builtin::shared::{clamp_note, fs_failure, open_options};
+use crate::builtin::walk::{WalkTally, beneath, files};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -121,6 +123,8 @@ struct GrepArgs {
 /// model wrote.
 #[derive(Debug, Clone)]
 pub struct GrepRequest {
+    /// The jail that accepted `root`, whose root every file is opened through.
+    pub jail: Arc<WorkspaceJail>,
     /// The canonical path the jail accepted.
     pub root: PathBuf,
     /// The pattern, already known to compile.
@@ -275,10 +279,15 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
         .after_context(context)
         .build();
 
-    let (candidates, tally) = search_set(request, token)?;
+    let workspace = request
+        .jail
+        .open_root()
+        .map_err(|error| fs_failure(&error, ".", ""))?;
+    let single = is_file(request, &workspace);
+    let (candidates, tally) = search_set(request, single, token)?;
     // A search of a single file strips to nothing against itself, so the paths
     // are shown relative to its directory and the file keeps its name.
-    let base = if request.root.is_file() {
+    let base = if single {
         request.root.parent().unwrap_or(&request.root)
     } else {
         request.root.as_path()
@@ -288,6 +297,8 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
         ..GrepReport::default()
     };
     let limit = usize::try_from(request.limit).unwrap_or(usize::MAX);
+    let mut options = open_options();
+    options.read(true);
 
     for file in candidates {
         if token.is_cancelled() {
@@ -301,7 +312,13 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
             limit,
             here: 0,
         };
-        let outcome = searcher.search_path(&matcher, &file, &mut collector);
+        let opened = beneath(&request.jail, &file)
+            .and_then(|inside| workspace.open_with(inside, &options).ok());
+        let Some(opened) = opened else {
+            report.unreadable = report.unreadable.saturating_add(1);
+            continue;
+        };
+        let outcome = searcher.search_file(&matcher, &opened.into_std(), &mut collector);
         let here = collector.here;
         if outcome.is_err() {
             report.unreadable = report.unreadable.saturating_add(1);
@@ -321,12 +338,20 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
     Ok(report)
 }
 
+/// Whether the request names one file rather than a directory.
+fn is_file(request: &GrepRequest, workspace: &cap_std::fs::Dir) -> bool {
+    beneath(&request.jail, &request.root)
+        .and_then(|inside| workspace.symlink_metadata(inside).ok())
+        .is_some_and(|stats| stats.is_file())
+}
+
 /// The files one request searches: the root itself, or the walk under it.
 fn search_set(
     request: &GrepRequest,
+    single: bool,
     token: &CancellationToken,
 ) -> Result<(Vec<PathBuf>, WalkTally)> {
-    if request.root.is_file() {
+    if single {
         return Ok((vec![request.root.clone()], WalkTally::default()));
     }
     let (mut found, tally) = files(&request.root, token, NAME)?;
@@ -390,6 +415,7 @@ impl ToolHandler for Grep {
             let note = clamp_note(&args.path, &accepted);
 
             let request = GrepRequest {
+                jail: Arc::clone(&ctx.jail),
                 root: accepted.path.clone(),
                 pattern: args.pattern.clone(),
                 glob: args.glob.clone(),

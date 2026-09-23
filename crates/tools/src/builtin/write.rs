@@ -6,20 +6,20 @@
 //! "swap one string in `src/index.ts`" are different decisions, and a single
 //! tool with a `mode` argument would present them as the same one.
 //!
-//! Parent directories are created. The path has already been through the jail,
-//! so every directory created is inside the workspace by construction — and
-//! refusing to create them would leave the model to call a directory tool it
-//! does not have.
+//! Parent directories are created, through the workspace root, so every
+//! directory created is inside the workspace. Refusing to create them would
+//! leave the model to call a directory tool it does not have.
+
+use std::io::Write as _;
 
 use darkwire_core::Result;
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use tokio::io::AsyncWriteExt as _;
 
 use crate::builtin::built;
 use crate::builtin::shared::{
-    assert_regular, assert_regular_or_missing, clamp_note, format_bytes, fs_failure, open_flags,
+    clamp_note, format_bytes, in_root, is_irregular, not_regular, open_options, root_failure,
 };
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
@@ -55,30 +55,43 @@ impl ToolHandler for WriteFile {
             let note = clamp_note(&args.path, &accepted);
             let bytes = u64::try_from(args.content.len()).unwrap_or(u64::MAX);
 
-            if let Some(parent) = accepted.path.parent() {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(|error| fs_failure(&error, where_, &note))?;
-            }
+            let failed = |error: std::io::Error| root_failure(&error, &args.path, where_, &note);
+            let irregular = in_root(&ctx.jail, &accepted, "write", |root, inside| {
+                if let Some(parent) = inside
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    root.create_dir_all(parent)?;
+                }
+                Ok(is_irregular(root, inside))
+            })
+            .await?
+            .map_err(failed)?;
             assert_not_aborted(&ctx.token, "write")?;
             // Checked before the open for a clear refusal, and again on the
             // open file, because a FIFO with a reader opens without error.
-            assert_regular_or_missing(&accepted.path, where_, &note)?;
-            let failed = |error: std::io::Error| fs_failure(&error, where_, &note);
-            let mut file = tokio::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .custom_flags(open_flags())
-                .open(&accepted.path)
-                .await
-                .map_err(failed)?;
-            assert_regular(&file.metadata().await.map_err(failed)?, where_, &note)?;
-            file.set_len(0).await.map_err(failed)?;
-            file.write_all(args.content.as_bytes())
-                .await
-                .map_err(failed)?;
-            file.flush().await.map_err(failed)?;
+            if irregular {
+                return Err(not_regular(where_, &note));
+            }
+            let content = args.content;
+            let written = in_root(&ctx.jail, &accepted, "write", move |root, inside| {
+                let mut options = open_options();
+                options.write(true).create(true).truncate(false);
+                let mut file = root.open_with(inside, &options)?.into_std();
+                let stats = file.metadata()?;
+                if !stats.is_dir() && !stats.is_file() {
+                    return Ok(false);
+                }
+                file.set_len(0)?;
+                file.write_all(content.as_bytes())?;
+                file.flush()?;
+                Ok(true)
+            })
+            .await?
+            .map_err(failed)?;
+            if !written {
+                return Err(not_regular(where_, &note));
+            }
 
             Ok(
                 ToolOutput::text(format!("Wrote {} to {where_}.{note}", format_bytes(bytes)))

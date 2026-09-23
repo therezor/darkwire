@@ -1169,6 +1169,122 @@ fn does_not_snap_a_cut_that_is_already_legal() {
     assert_eq!(store.truncate_after("s", 3).unwrap().seq, 3);
 }
 
+/// Appends `turns`, each a user message, its tool exchanges and an answer.
+/// Each entry of a turn is how many calls one exchange makes.
+fn append_turns(store: &SessionStore, turns: &[Vec<usize>]) {
+    for (turn, exchanges) in turns.iter().enumerate() {
+        append(store, "s", user_message("ask"));
+        for (exchange, calls) in exchanges.iter().enumerate() {
+            let ids: Vec<String> = (0..*calls)
+                .map(|index| format!("t{turn}-e{exchange}-c{index}"))
+                .collect();
+            append(
+                store,
+                "s",
+                assistant_message("", ids.iter().map(|id| call(id)).collect()),
+            );
+            for id in &ids {
+                append(store, "s", tool_message(id, "read", "x"));
+            }
+        }
+        append(store, "s", assistant_message("done", vec![]));
+    }
+}
+
+/// The cut the whole prefix gives, read in one go.
+fn legal_cut_of_whole_prefix(store: &SessionStore, seq: i64) -> i64 {
+    let records = store
+        .messages(
+            "s",
+            &ReadMessages {
+                before_seq: Some(seq.saturating_add(1)),
+                ..ReadMessages::default()
+            },
+        )
+        .unwrap();
+    let messages: Vec<ChatMessage> = records.iter().map(|r| r.message.clone()).collect();
+    let end = darkwire_core::history::find_legal_end(&messages);
+    if end == records.len() {
+        seq
+    } else if end == 0 {
+        0
+    } else {
+        records[end - 1].seq
+    }
+}
+
+#[test]
+fn snaps_back_across_a_page_of_tool_results() {
+    // One call per result row, and more results than one step of the backward
+    // scan reads, so the call that owns them sits a page below the cut.
+    let (store, _) = make_store();
+    for _ in 0..20 {
+        append(&store, "s", user_message("ask"));
+        append(&store, "s", assistant_message("fine", vec![]));
+    }
+    let asked = append(&store, "s", user_message("read them all"));
+    let ids: Vec<String> = (0..80).map(|index| format!("c{index}")).collect();
+    append(
+        &store,
+        "s",
+        assistant_message("", ids.iter().map(|id| call(id)).collect()),
+    );
+    let mut last = 0;
+    for id in &ids {
+        last = append(&store, "s", tool_message(id, "read", "x"));
+    }
+
+    // Short of the last result, so the exchange is cut through.
+    let result = store.truncate_after("s", last - 1).unwrap();
+    assert_eq!(result.seq, asked);
+    assert_eq!(seqs(&store, "s").last(), Some(&asked));
+}
+
+#[test]
+fn keeps_a_cut_whose_exchange_is_whole_across_pages() {
+    let (store, _) = make_store();
+    append(&store, "s", user_message("read them all"));
+    let ids: Vec<String> = (0..80).map(|index| format!("c{index}")).collect();
+    append(
+        &store,
+        "s",
+        assistant_message("", ids.iter().map(|id| call(id)).collect()),
+    );
+    let mut last = 0;
+    for id in &ids {
+        last = append(&store, "s", tool_message(id, "read", "x"));
+    }
+    append(&store, "s", assistant_message("done", vec![]));
+
+    assert_eq!(store.truncate_after("s", last).unwrap().seq, last);
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(200))]
+
+    /// The backward scan settles where reading the whole prefix would, for any
+    /// history the loop could have written.
+    #[test]
+    fn the_paged_cut_matches_the_whole_prefix(
+        turns in proptest::collection::vec(
+            proptest::collection::vec(0usize..4, 0..4),
+            0..12,
+        ),
+        pick in 0usize..200,
+    ) {
+        let (store, _) = make_store();
+        store.ensure_session("s", CreateSession::default()).unwrap();
+        append_turns(&store, &turns);
+        let count = i64::try_from(store.message_count("s").unwrap()).unwrap();
+        let seq = i64::try_from(pick).unwrap() % (count + 2);
+
+        let expected = legal_cut_of_whole_prefix(&store, seq);
+        let fork = store.fork_session("s", seq, ForkSession::default()).unwrap();
+        proptest::prop_assert_eq!(fork.seq, expected);
+        proptest::prop_assert_eq!(store.truncate_after("s", seq).unwrap().seq, expected);
+    }
+}
+
 #[test]
 fn is_a_no_op_past_the_end_and_does_not_bump_the_session() {
     let (store, clock) = make_store();

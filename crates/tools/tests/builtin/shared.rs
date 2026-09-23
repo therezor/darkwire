@@ -8,8 +8,9 @@
 use std::io;
 
 use darkwire_core::ErrorKind;
-use darkwire_tools::builtin::shared::fs_failure;
+use darkwire_tools::builtin::shared::{fs_failure, in_root, open_options, root_failure};
 use darkwire_tools::format_bytes;
+use darkwire_tools::testkit::TestWorkspace;
 use nix::errno::Errno;
 use serde_json::json;
 
@@ -107,4 +108,45 @@ fn renders_bytes_readably() {
     for (bytes, expected) in cases {
         assert_eq!(format_bytes(bytes), expected, "{bytes}");
     }
+}
+
+#[test]
+fn root_failure_names_an_escape_as_the_jail_would() {
+    let escape = io::Error::new(io::ErrorKind::PermissionDenied, "led outside");
+    let error = root_failure(&escape, "/linked/x", "linked/x", "");
+    assert_eq!(error.kind, ErrorKind::JailEscape);
+    assert_eq!(
+        error.message,
+        "Path resolves outside the workspace: /linked/x"
+    );
+    assert_eq!(error.details.get("rejection"), Some(&json!("outside_root")));
+
+    let denied = io::Error::from_raw_os_error(Errno::EACCES as i32);
+    let error = root_failure(&denied, "x", "x", "");
+    assert_eq!(error.kind, ErrorKind::PermissionDenied);
+}
+
+#[tokio::test]
+async fn in_root_refuses_a_directory_swapped_for_a_symlink_after_the_jail_looked() {
+    let ws = TestWorkspace::new();
+    std::fs::create_dir(ws.root().join("sub")).unwrap();
+    std::fs::write(ws.root().join("sub/notes.md"), "mine").unwrap();
+    let accepted = ws.jail().accept("sub/notes.md").unwrap();
+
+    let elsewhere = ws.outside().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("notes.md"), "stolen").unwrap();
+    std::fs::remove_dir_all(ws.root().join("sub")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, ws.root().join("sub")).unwrap();
+
+    let opened = in_root(ws.jail(), &accepted, "read", |root, inside| {
+        let mut options = open_options();
+        options.read(true);
+        root.open_with(inside, &options).map(|_| ())
+    })
+    .await
+    .unwrap();
+    let error = opened.expect_err("the swap leads out of the workspace");
+    let refusal = root_failure(&error, "sub/notes.md", "sub/notes.md", "");
+    assert_eq!(refusal.kind, ErrorKind::JailEscape);
 }

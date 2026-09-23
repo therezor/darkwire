@@ -14,18 +14,20 @@
 //! answers nothing to a reasonable question gets replaced by an `exec` call.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::{WorkspaceJail, led_outside};
 use globset::{GlobBuilder, GlobMatcher};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::builtin::built;
-use crate::builtin::shared::clamp_note;
-use crate::builtin::walk::files;
+use crate::builtin::shared::{clamp_note, fs_failure};
+use crate::builtin::walk::{beneath, files};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -69,6 +71,8 @@ struct FindArgs {
 /// One search, resolved.
 #[derive(Debug, Clone)]
 pub struct FindRequest {
+    /// The jail that accepted `root`, whose root every hit is measured through.
+    pub jail: Arc<WorkspaceJail>,
     /// The canonical path the jail accepted.
     pub root: PathBuf,
     /// The glob, as written.
@@ -128,7 +132,11 @@ fn build(pattern: &str) -> Result<GlobMatcher> {
 /// The search itself, synchronous, so a test can drive it without a runtime.
 pub fn find_blocking(request: &FindRequest, token: &CancellationToken) -> Result<FindReport> {
     let matcher = compile(&request.pattern)?;
-    let (candidates, tally) = files(&request.root, token, NAME)?;
+    let workspace = request
+        .jail
+        .open_root()
+        .map_err(|error| fs_failure(&error, ".", ""))?;
+    let (candidates, mut tally) = files(&request.root, token, NAME)?;
 
     let mut hits: Vec<(Option<SystemTime>, String)> = Vec::new();
     for file in candidates {
@@ -139,9 +147,19 @@ pub fn find_blocking(request: &FindRequest, token: &CancellationToken) -> Result
         if !matcher.is_match(relative) {
             continue;
         }
-        let modified = std::fs::metadata(&file)
+        let stats = beneath(&request.jail, &file)
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
+            .and_then(|inside| workspace.symlink_metadata(inside));
+        // A name the walk saw through a directory that has since led out of
+        // the workspace is not a hit inside it.
+        if stats.as_ref().is_err_and(led_outside) {
+            tally.unreadable = tally.unreadable.saturating_add(1);
+            continue;
+        }
+        let modified = stats
             .ok()
-            .and_then(|stats| stats.modified().ok());
+            .and_then(|stats| stats.modified().ok())
+            .map(cap_std::time::SystemTime::into_std);
         hits.push((modified, relative.to_string_lossy().into_owned()));
     }
 
@@ -187,6 +205,7 @@ impl ToolHandler for Find {
             let note = clamp_note(&args.path, &accepted);
 
             let request = FindRequest {
+                jail: Arc::clone(&ctx.jail),
                 root: accepted.path.clone(),
                 pattern: args.pattern.clone(),
                 limit: args.limit,

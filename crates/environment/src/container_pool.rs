@@ -30,7 +30,6 @@
 //! that is the one failure mode where the operator believes there is a boundary
 //! and there is not.
 
-use std::fs;
 use std::process;
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,28 +110,34 @@ pub fn owner_process_looks_alive(owner: &str) -> bool {
 }
 
 /// Spawns and stops containers. Injected so the pool is testable with no daemon.
+///
+/// Every call is a future because every real one is a child process that can
+/// take a minute, and the pool runs on the runtime that answers every other
+/// request.
 pub trait ContainerEngine: Send + Sync {
     /// Provision enforced egress before any sandbox joins its namespace.
-    fn gateway(
-        &self,
-        _name: &str,
-        _container: &EnvironmentDefinition,
-        network: &EnvironmentNetwork,
-    ) -> Result<Option<String>> {
-        if network.mode == NetworkMode::Allowlist {
-            return Err(WireError::new(
-                ErrorKind::Tool,
-                "This engine cannot enforce restricted egress",
-            ));
-        }
-        Ok(None)
+    fn gateway<'a>(
+        &'a self,
+        _name: &'a str,
+        _container: &'a EnvironmentDefinition,
+        network: &'a EnvironmentNetwork,
+    ) -> BoxFuture<'a, Result<Option<String>>> {
+        Box::pin(async move {
+            if network.mode == NetworkMode::Allowlist {
+                return Err(WireError::new(
+                    ErrorKind::Tool,
+                    "This engine cannot enforce restricted egress",
+                ));
+            }
+            Ok(None)
+        })
     }
     /// Starts the container `argv` describes.
-    fn start(&self, argv: &[String]) -> Result<()>;
+    fn start<'a>(&'a self, argv: &'a [String]) -> BoxFuture<'a, Result<()>>;
     /// Stops one by name.
-    fn stop(&self, name: &str) -> Result<()>;
+    fn stop<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<()>>;
     /// Fails when the daemon is unreachable. Called once per container start.
-    fn probe(&self) -> Result<()>;
+    fn probe(&self) -> BoxFuture<'_, Result<()>>;
     /// Removes sandbox containers left behind by a previous process.
     ///
     /// Shutdown reaps what this process started, and reaps nothing at all when
@@ -141,18 +146,20 @@ pub trait ContainerEngine: Send + Sync {
     /// workspace mount and its share of memory, and the only sign is a machine
     /// that is slowly more loaded than it should be. Every sandbox carries a
     /// `darkwire.session` label so this can find them without guessing at names.
-    fn reap_orphans(&self) -> Result<()>;
+    fn reap_orphans(&self) -> BoxFuture<'_, Result<()>>;
     /// Turns an image reference into the digest a definition may pin.
     ///
     /// Fetches it first when the engine does not already hold it, which is why
     /// this is the one engine call that can take minutes. Default is a refusal
     /// rather than a guess: an engine that cannot resolve must not hand back
     /// something that looks like a digest.
-    fn resolve_image(&self, _reference: &str) -> Result<ResolvedImage> {
-        Err(WireError::new(
-            ErrorKind::Tool,
-            "This engine cannot resolve an image reference",
-        ))
+    fn resolve_image<'a>(&'a self, _reference: &'a str) -> BoxFuture<'a, Result<ResolvedImage>> {
+        Box::pin(async {
+            Err(WireError::new(
+                ErrorKind::Tool,
+                "This engine cannot resolve an image reference",
+            ))
+        })
     }
 }
 
@@ -293,7 +300,9 @@ struct Live {
 
 /// Live sandboxes, and the runners that reach them.
 pub struct ContainerPool {
-    starting: Mutex<()>,
+    /// Held across a start, which awaits the daemon for up to a minute, so it
+    /// is an async lock: a waiter parks its task rather than a runtime thread.
+    starting: tokio::sync::Mutex<()>,
     options: ContainerPoolOptions,
     owner: String,
     live: Mutex<Live>,
@@ -373,8 +382,8 @@ impl ContainerPool {
     /// fresh instance from the same definition. There is nothing an operator
     /// could lose here that a refusal would have saved, which is why there is no
     /// longer a flag to get past one.
-    pub fn stop_instance(&self, name: &str) -> Result<()> {
-        let _starting = self.starting.lock();
+    pub async fn stop_instance(&self, name: &str) -> Result<()> {
+        let _starting = self.starting.lock().await;
         let key = {
             let live = self.live.lock();
             let (key, _) = live
@@ -387,12 +396,12 @@ impl ContainerPool {
             key.clone()
         };
         *self.live.lock().epochs.entry(key.clone()).or_default() += 1;
-        self.drop_entry(&key);
+        self.drop_entry(&key).await;
         Ok(())
     }
 
     /// Restart an exact managed instance using its registered policy.
-    pub fn restart_instance(&self, name: &str) -> Result<()> {
+    pub async fn restart_instance(&self, name: &str) -> Result<()> {
         let (key, spec) = {
             let live = self.live.lock();
             let (key, entry) = live
@@ -404,13 +413,13 @@ impl ContainerPool {
                 })?;
             (key.clone(), entry.request.clone())
         };
-        self.stop_instance(name)?;
-        self.ensure(&key, &spec)
+        self.stop_instance(name).await?;
+        self.ensure(&key, &spec).await
     }
 
     /// Explicitly warm an approved instance without executing a tool.
-    pub fn warm(&self, request: &PlacementRequest) -> Result<()> {
-        self.resolve_turn(request)?;
+    pub async fn warm(&self, request: &PlacementRequest) -> Result<()> {
+        self.resolve_turn(request).await?;
         let keys: Vec<String> = self
             .live
             .lock()
@@ -420,7 +429,7 @@ impl ContainerPool {
             .map(|(key, _)| key.clone())
             .collect();
         for key in keys {
-            self.ensure(&key, request)?;
+            self.ensure(&key, request).await?;
         }
         Ok(())
     }
@@ -428,8 +437,8 @@ impl ContainerPool {
     /// Periodic cleanup, plus a sweep for instances whose definition moved out
     /// from under them. An in-flight operation re-reads on its own ticker; this
     /// is what catches an idle warm container nothing is about to call.
-    pub fn maintain(&self) {
-        self.reap_idle();
+    pub async fn maintain(&self) {
+        self.reap_idle().await;
         let valid: std::collections::BTreeSet<String> = self
             .options
             .policies
@@ -447,7 +456,7 @@ impl ContainerPool {
             .map(|(key, _)| key.clone())
             .collect();
         for key in invalid {
-            self.drop_entry(&key);
+            self.drop_entry(&key).await;
         }
     }
 
@@ -455,7 +464,7 @@ impl ContainerPool {
     pub fn new(options: ContainerPoolOptions) -> Arc<ContainerPool> {
         let owner = options.owner.clone().unwrap_or_else(owner_tag);
         Arc::new_cyclic(|me| ContainerPool {
-            starting: Mutex::new(()),
+            starting: tokio::sync::Mutex::new(()),
             options,
             owner,
             live: Mutex::new(Live {
@@ -480,10 +489,10 @@ impl ContainerPool {
     }
 
     /// Stops everything. Called on reconfigure and on shutdown.
-    pub fn close(&self) {
+    pub async fn close(&self) {
         let doomed: Vec<String> = self.live.lock().entries.keys().cloned().collect();
         for key in doomed {
-            self.drop_entry(&key);
+            self.drop_entry(&key).await;
         }
     }
 
@@ -499,7 +508,7 @@ impl ContainerPool {
     ///
     /// Failure is logged rather than raised: an orphan nobody could remove is
     /// untidy, and refusing the turn over it would turn untidy into unusable.
-    fn sweep_once(&self) {
+    async fn sweep_once(&self) {
         {
             let mut live = self.live.lock();
             if live.swept {
@@ -507,7 +516,7 @@ impl ContainerPool {
             }
             live.swept = true;
         }
-        if let Err(error) = self.options.engine.reap_orphans() {
+        if let Err(error) = self.options.engine.reap_orphans().await {
             tracing::warn!(error = %error.message, "could not sweep orphaned sandboxes");
         }
     }
@@ -571,8 +580,8 @@ impl ContainerPool {
     /// idle instance makes room, and when every instance has a command in it the
     /// turn is told to come back. Evicting a busy container would kill work
     /// somebody is waiting on to serve somebody who has not started yet.
-    fn ensure(&self, key: &str, spec: &PlacementRequest) -> Result<()> {
-        let _starting = self.starting.lock();
+    async fn ensure(&self, key: &str, spec: &PlacementRequest) -> Result<()> {
+        let _starting = self.starting.lock().await;
         let approved = self
             .container_spec(spec)?
             .ok_or_else(|| WireError::new(ErrorKind::Config, "No container selected"))?;
@@ -581,7 +590,7 @@ impl ContainerPool {
             entry.agents.insert(spec.agent_id.clone());
             return Ok(());
         }
-        self.reap_idle();
+        self.reap_idle().await;
         let candidate = {
             let live = self.live.lock();
             if self.options.max_live == 0 || live.entries.len() < self.options.max_live {
@@ -602,9 +611,9 @@ impl ContainerPool {
             }
         };
         if let Some(candidate) = candidate {
-            self.drop_entry(&candidate);
+            self.drop_entry(&candidate).await;
         }
-        let entry = self.start(spec, &approved)?;
+        let entry = self.start(spec, &approved).await?;
         self.live.lock().entries.insert(key.to_owned(), entry);
         Ok(())
     }
@@ -642,10 +651,11 @@ impl ContainerPool {
     }
 
     /// Builds and registers one container.
-    fn start(&self, request: &PlacementRequest, approved: &ContainerSpec) -> Result<Entry> {
+    async fn start(&self, request: &PlacementRequest, approved: &ContainerSpec) -> Result<Entry> {
         let container = &approved.definition;
         let name = format!("dw-sbx-{}", self.next_id());
-        fs::create_dir_all(self.options.runs_dir.join(&name))
+        tokio::fs::create_dir_all(self.options.runs_dir.join(&name))
+            .await
             .map_err(|e| WireError::new(ErrorKind::Tool, e.to_string()))?;
 
         // **Every** path handed to the daemon goes through the translation, not
@@ -694,7 +704,7 @@ impl ContainerPool {
         // not see a directory created microseconds earlier — so the mounted path
         // has to be one that already existed. The per-container subdirectory is
         // created on the host side, inside a mount the container already has.
-        if let Err(error) = fs::create_dir_all(&self.options.runs_dir) {
+        if let Err(error) = tokio::fs::create_dir_all(&self.options.runs_dir).await {
             return Err(WireError::new(
                 ErrorKind::Tool,
                 format!(
@@ -711,31 +721,25 @@ impl ContainerPool {
         // distinguishing it from "the container failed to start" is the
         // difference between an operator starting the daemon and an operator
         // debugging a manifest.
-        self.options.engine.probe().map_err(|error| {
-            WireError::new(
-                ErrorKind::Tool,
-                format!(
-                    "No container runtime is reachable, so agent \"{}\" could not run its \
-                     command.\n  Start Docker (or Podman) and try again. Everything that does \
-                     not need a\n  sandbox keeps working meanwhile.",
-                    request.agent_id
-                ),
-            )
-            .with_detail("agentId", request.agent_id.clone())
-            .with_detail("environment", container.name.clone())
-            .with_source(error)
-        })?;
-        self.sweep_once();
+        self.options
+            .engine
+            .probe()
+            .await
+            .map_err(|error| unreachable_runtime(request, container, error))?;
+        self.sweep_once().await;
 
-        create.gateway_container =
-            self.options
-                .engine
-                .gateway(&name, container, &create.network)?;
-        let argv = container_create_argv(&create).inspect_err(|_| {
-            if let Some(gateway) = &create.gateway_container {
-                let _ = self.options.engine.stop(gateway);
+        create.gateway_container = self
+            .options
+            .engine
+            .gateway(&name, container, &create.network)
+            .await?;
+        let argv = match container_create_argv(&create) {
+            Ok(argv) => argv,
+            Err(error) => {
+                self.stop_gateway(create.gateway_container.as_deref()).await;
+                return Err(error);
             }
-        })?;
+        };
 
         // Refused, never downgraded to the host. See the module header.
         //
@@ -743,11 +747,9 @@ impl ContainerPool {
         // a bare "could not be started" sends the reader to the logs for the one
         // fact that would have told them what to do — a missing image, a bad
         // flag, a mount source the daemon cannot see.
-        self.options.engine.start(&argv).map_err(|error| {
-            if let Some(gateway) = &create.gateway_container {
-                let _ = self.options.engine.stop(gateway);
-            }
-            WireError::new(
+        if let Err(error) = self.options.engine.start(&argv).await {
+            self.stop_gateway(create.gateway_container.as_deref()).await;
+            return Err(WireError::new(
                 ErrorKind::Tool,
                 format!(
                     "The sandbox for agent \"{}\" could not be started, so the command was not \
@@ -757,8 +759,8 @@ impl ContainerPool {
             )
             .with_detail("agentId", request.agent_id.clone())
             .with_detail("environment", container.name.clone())
-            .with_source(error)
-        })?;
+            .with_source(error));
+        }
 
         tracing::info!(instance = %name, container = %container.name, "container started");
 
@@ -777,6 +779,13 @@ impl ContainerPool {
             last_used_ms: self.options.clock.now_ms(),
             busy: 0,
         })
+    }
+
+    /// Stops the egress gateway a failed start had already provisioned.
+    async fn stop_gateway(&self, gateway: Option<&str>) {
+        if let Some(gateway) = gateway {
+            let _ = self.options.engine.stop(gateway).await;
+        }
     }
 
     /// Runs one command in this key's container, marking it busy meanwhile.
@@ -822,7 +831,7 @@ impl ContainerPool {
     }
 
     /// Drops idle containers.
-    fn reap_idle(&self) {
+    async fn reap_idle(&self) {
         if self.options.idle_ms <= 0 {
             return;
         }
@@ -836,12 +845,12 @@ impl ContainerPool {
                 .collect()
         };
         for key in doomed {
-            self.drop_entry(&key);
+            self.drop_entry(&key).await;
         }
     }
 
     /// Stops one container and forgets it.
-    fn drop_entry(&self, key: &str) {
+    async fn drop_entry(&self, key: &str) {
         let entry = {
             let mut live = self.live.lock();
             live.entries.shift_remove(key)
@@ -852,16 +861,39 @@ impl ContainerPool {
         // The transcripts go with the container. Nothing prunes them otherwise,
         // and a scanning agent writes a lot of them. A directory that will not
         // delete is untidy, never fatal.
-        let _ = fs::remove_dir_all(self.options.runs_dir.join(&entry.name));
-        if let Err(error) = self.options.engine.stop(&entry.name) {
+        let _ = tokio::fs::remove_dir_all(self.options.runs_dir.join(&entry.name)).await;
+        if let Err(error) = self.options.engine.stop(&entry.name).await {
             // A container that is already gone is the common case, and a failure
             // to stop one must not take down the turn that triggered the sweep.
             tracing::warn!(container = %entry.name, error = %error.message, "sandbox stop failed");
         }
         if let Some(gateway) = entry.gateway {
-            let _ = self.options.engine.stop(&gateway);
+            let _ = self.options.engine.stop(&gateway).await;
         }
     }
+}
+
+/// The refusal for a start that found no container runtime to talk to.
+///
+/// Told apart from "the container failed to start" because the fix is
+/// different: an operator starting the daemon, not debugging a manifest.
+fn unreachable_runtime(
+    request: &PlacementRequest,
+    container: &EnvironmentDefinition,
+    error: WireError,
+) -> WireError {
+    WireError::new(
+        ErrorKind::Tool,
+        format!(
+            "No container runtime is reachable, so agent \"{}\" could not run its \
+             command.\n  Start Docker (or Podman) and try again. Everything that does \
+             not need a\n  sandbox keeps working meanwhile.",
+            request.agent_id
+        ),
+    )
+    .with_detail("agentId", request.agent_id.clone())
+    .with_detail("environment", container.name.clone())
+    .with_source(error)
 }
 
 /// The runner a turn holds, which outlives any one container.
@@ -913,7 +945,7 @@ impl CommandRunner for Facade {
             // — a dead daemon, a revoked container — fails the command, which the
             // tool registry renders as a failed tool card rather than letting it
             // unwind the turn.
-            pool.ensure(&self.key, &self.spec)?;
+            pool.ensure(&self.key, &self.spec).await?;
 
             let outcome = pool.run_on(&self.key, request.clone()).await?;
             if !container_is_gone(&outcome) {
@@ -935,8 +967,8 @@ impl CommandRunner for Facade {
                 "sandbox disappeared; rebuilding it and retrying the command"
             );
 
-            pool.drop_entry(&self.key);
-            pool.ensure(&self.key, &self.spec)?;
+            pool.drop_entry(&self.key).await;
+            pool.ensure(&self.key, &self.spec).await?;
             // Once. A second disappearance is something other than a stale
             // handle, and a loop that keeps rebuilding would hide it.
             pool.run_on(&self.key, request).await
@@ -947,16 +979,16 @@ impl CommandRunner for Facade {
 impl ContainerPool {
     /// Check whether the configured container daemon is reachable without
     /// starting or changing an instance.
-    pub fn probe_engine(&self) -> Result<()> {
-        self.options.engine.probe()
+    pub async fn probe_engine(&self) -> Result<()> {
+        self.options.engine.probe().await
     }
 
     /// The digest an image reference pins to, fetching it if need be.
     ///
     /// Touches no instance and takes no lock: it is the one operation here that
     /// is about an image rather than a container.
-    pub fn resolve_image(&self, reference: &str) -> Result<ResolvedImage> {
-        self.options.engine.resolve_image(reference)
+    pub async fn resolve_image(&self, reference: &str) -> Result<ResolvedImage> {
+        self.options.engine.resolve_image(reference).await
     }
 
     /// The runner for a turn, decided without touching the daemon.
@@ -971,14 +1003,14 @@ impl ContainerPool {
     /// is not a refusal. An error is a container that cannot be honoured —
     /// revoked, edited since approval, asked for egress nothing could enforce —
     /// and the service reports it where the operator can act on it.
-    pub fn resolve_turn(
+    pub async fn resolve_turn(
         &self,
         request: &PlacementRequest,
     ) -> Result<Option<Arc<dyn CommandRunner>>> {
         let Some(approved) = self.container_spec(request)? else {
             return Ok(None);
         };
-        self.reap_idle();
+        self.reap_idle().await;
 
         // **Before the cache, not after.** Requiring the container is the only
         // thing that re-reads the definition and re-checks its hash against the
@@ -1017,7 +1049,7 @@ impl ContainerPool {
             }
         };
         if stale {
-            self.drop_entry(&key);
+            self.drop_entry(&key).await;
         }
 
         let epoch = self.epoch_of(&key);
@@ -1112,9 +1144,9 @@ impl std::fmt::Debug for DockerEngineOptions {
 
 /// The real engine: the `docker` (or `podman`) CLI.
 ///
-/// Synchronous because every call here is a control-plane operation on the order
-/// of tens of milliseconds, and the alternative is an async `for_turn` that every
-/// caller above would have to await for the sake of one detached run.
+/// Each call is a child process awaited under its own deadline, so a daemon
+/// that has gone away costs the waiting task that deadline and costs the
+/// runtime nothing.
 pub struct DockerEngine {
     gateway_image: Option<String>,
     bin: String,
@@ -1163,8 +1195,8 @@ impl DockerEngine {
     /// A timeout arrives as a killing signal rather than as a non-zero status,
     /// so checking the status alone would read "killed after 5s" as a clean
     /// failure of the command itself.
-    fn run(&self, argv: &[String], what: &str, timeout: Duration) -> Result<()> {
-        let output = self.capture_raw(argv, timeout)?;
+    async fn run(&self, argv: &[String], what: &str, timeout: Duration) -> Result<()> {
+        let output = self.capture_raw(argv, timeout).await?;
         if output.code == Some(0) {
             return Ok(());
         }
@@ -1190,18 +1222,20 @@ impl DockerEngine {
 
     /// The raw result of one call, with a hard deadline.
     ///
-    /// A deadline that fires does **not** then read the pipes to EOF. A CLI that
-    /// forks — and `docker` does — leaves the grandchild holding the write ends,
-    /// so draining them would wait out the very command the deadline exists to
-    /// abandon: the bound would be no bound at all. The killed child is reported
-    /// with no exit code and no output, which is exactly what `run` needs to
-    /// tell a deadline from a refusal.
-    fn capture_raw(&self, argv: &[String], timeout: Duration) -> Result<CliOutput> {
-        let mut child = process::Command::new(&self.bin)
+    /// The deadline covers the exit and both pipes together, and when it fires
+    /// the child is killed and the pipes are abandoned rather than read to EOF.
+    /// A CLI that forks, and `docker` does, leaves the grandchild holding the
+    /// write ends, so draining them would wait out the very command the
+    /// deadline exists to abandon. The killed child is reported with no exit
+    /// code and no output, which is what `run` needs to tell a deadline from a
+    /// refusal.
+    async fn capture_raw(&self, argv: &[String], timeout: Duration) -> Result<CliOutput> {
+        let mut child = tokio::process::Command::new(&self.bin)
             .args(argv)
             .stdin(process::Stdio::null())
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
+            .kill_on_drop(true)
             .spawn()
             .map_err(|error| {
                 WireError::new(
@@ -1211,41 +1245,40 @@ impl DockerEngine {
                 .with_detail("bin", self.bin.clone())
                 .with_source(error)
             })?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
 
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if std::time::Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(CliOutput {
-                        code: None,
-                        stdout: String::new(),
-                        stderr: String::new(),
-                    });
-                }
-                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-                Err(error) => {
-                    return Err(WireError::new(
-                        ErrorKind::Tool,
-                        format!("Could not wait for {}: {error}", self.bin),
-                    )
-                    .with_source(error));
-                }
-            }
-        }
-        let output = child.wait_with_output().map_err(|error| {
+        let finished = tokio::time::timeout(timeout, async {
+            tokio::join!(child.wait(), drain(stdout), drain(stderr))
+        })
+        .await;
+        let Ok((status, stdout, stderr)) = finished else {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return Ok(CliOutput {
+                code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        };
+        let status = status.map_err(|error| {
+            WireError::new(
+                ErrorKind::Tool,
+                format!("Could not wait for {}: {error}", self.bin),
+            )
+            .with_source(error)
+        })?;
+        let unreadable = |error: std::io::Error| {
             WireError::new(
                 ErrorKind::Tool,
                 format!("Could not read {} output: {error}", self.bin),
             )
             .with_source(error)
-        })?;
+        };
         Ok(CliOutput {
-            code: Some(output.status.code().unwrap_or(-1)),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            code: Some(status.code().unwrap_or(-1)),
+            stdout: String::from_utf8_lossy(&stdout.map_err(unreadable)?).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr.map_err(unreadable)?).into_owned(),
         })
     }
 
@@ -1256,36 +1289,40 @@ impl DockerEngine {
     /// too. An image built locally and never pushed has none, so its own `Id`
     /// is the fallback: still a content address, still immutable, just only
     /// meaningful on this engine. `None` means the engine does not hold it.
-    fn inspect_digest(&self, reference: &str) -> Option<String> {
-        let repo = self.capture(&argv(&[
-            "image",
-            "inspect",
-            reference,
-            "--format",
-            "{{index .RepoDigests 0}}",
-        ]));
+    async fn inspect_digest(&self, reference: &str) -> Option<String> {
+        let repo = self
+            .capture(&argv(&[
+                "image",
+                "inspect",
+                reference,
+                "--format",
+                "{{index .RepoDigests 0}}",
+            ]))
+            .await;
         if let Some(digest) = first_line(&repo).filter(|line| line.contains("@sha256:")) {
             return Some(digest.to_owned());
         }
-        let id = self.capture(&argv(&[
-            "image", "inspect", reference, "--format", "{{.Id}}",
-        ]));
+        let id = self
+            .capture(&argv(&[
+                "image", "inspect", reference, "--format", "{{.Id}}",
+            ]))
+            .await;
         first_line(&id)
             .filter(|line| line.starts_with("sha256:"))
             .map(str::to_owned)
     }
 
     /// Stdout of one call, or empty when it failed.
-    fn capture(&self, argv: &[String]) -> String {
-        match self.capture_raw(argv, self.control_timeout) {
+    async fn capture(&self, argv: &[String]) -> String {
+        match self.capture_raw(argv, self.control_timeout).await {
             Ok(output) if output.code == Some(0) => output.stdout,
             _ => String::new(),
         }
     }
 }
 
-impl ContainerEngine for DockerEngine {
-    fn gateway(
+impl DockerEngine {
+    async fn start_gateway(
         &self,
         name: &str,
         container: &EnvironmentDefinition,
@@ -1336,37 +1373,32 @@ impl ContainerEngine for DockerEngine {
         // destination against the blocks, so the two enforcement points read the
         // same entries rather than two halves of them.
         args.extend(network.allow.clone());
-        self.run(&args, "gateway start", self.start_timeout)?;
-        let ready = self.run(&argv(&["exec", &gateway, "sh", "-c", "for n in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/ready && exit 0; sleep 0.2; done; exit 1"]), "gateway readiness", self.control_timeout);
+        self.run(&args, "gateway start", self.start_timeout).await?;
+        let ready = self.run(&argv(&["exec", &gateway, "sh", "-c", "for n in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/ready && exit 0; sleep 0.2; done; exit 1"]), "gateway readiness", self.control_timeout).await;
         if let Err(error) = ready {
-            let _ = self.stop(&gateway);
+            let _ = self.stop_container(&gateway).await;
             return Err(error);
         }
         Ok(Some(gateway))
     }
-    fn probe(&self) -> Result<()> {
-        self.run(
-            &argv(&["version", "--format", "{{.Server.Version}}"]),
-            "version",
-            self.control_timeout,
-        )
-    }
 
-    fn reap_orphans(&self) -> Result<()> {
+    async fn reap(&self) -> Result<()> {
         // A label filter rather than a name prefix: a label is what the
         // container was *created* with, so it cannot drift from whatever this
         // version happens to name things. The owner comes back in the same call
         // because the daemon cannot filter on *not* matching a label, so the
         // decision has to be made here.
         let format = format!("{{{{.ID}}}} {{{{.Label \"{OWNER_LABEL}\"}}}}");
-        let rows = self.capture(&argv(&[
-            "ps",
-            "--all",
-            "--filter",
-            "label=darkwire.session",
-            "--format",
-            &format,
-        ]));
+        let rows = self
+            .capture(&argv(&[
+                "ps",
+                "--all",
+                "--filter",
+                "label=darkwire.session",
+                "--format",
+                &format,
+            ]))
+            .await;
 
         for row in rows.lines().map(str::trim).filter(|row| !row.is_empty()) {
             let (id, container_owner) = match row.split_once(' ') {
@@ -1386,8 +1418,8 @@ impl ContainerEngine for DockerEngine {
             if container_owner == self.owner {
                 continue;
             }
-            // A peer's, and it is still running. An unlabelled container — from
-            // a version before this label existed — is reaped, which is the
+            // A peer's, and it is still running. An unlabelled container, from
+            // a version before this label existed, is reaped, which is the
             // behaviour it was created under.
             if !container_owner.is_empty() && (self.is_owner_alive)(container_owner) {
                 continue;
@@ -1396,22 +1428,24 @@ impl ContainerEngine for DockerEngine {
             // A force removal, not a stop: these are already unowned, and a stop
             // on a container whose process is gone waits out the timeout for
             // nothing.
-            self.capture(&argv(&["rm", "--force", id]));
+            self.capture(&argv(&["rm", "--force", id])).await;
         }
         Ok(())
     }
 
-    fn resolve_image(&self, reference: &str) -> Result<ResolvedImage> {
+    async fn resolve(&self, reference: &str) -> Result<ResolvedImage> {
         // Locally first, so a reference the engine already holds answers
         // instantly and an operator fixing a typo is not made to wait on a
         // network round trip.
-        if let Some(image) = self.inspect_digest(reference) {
+        if let Some(image) = self.inspect_digest(reference).await {
             return Ok(ResolvedImage {
                 image,
                 pulled: false,
             });
         }
-        let pull = self.capture_raw(&argv(&["pull", reference]), self.pull_timeout)?;
+        let pull = self
+            .capture_raw(&argv(&["pull", reference]), self.pull_timeout)
+            .await?;
         if pull.code != Some(0) {
             // The engine's own words. It knows whether this was a typo, a
             // private registry or no network, and a sentence invented here
@@ -1423,7 +1457,7 @@ impl ContainerEngine for DockerEngine {
             )
             .with_detail("reference", reference.to_owned()));
         }
-        let image = self.inspect_digest(reference).ok_or_else(|| {
+        let image = self.inspect_digest(reference).await.ok_or_else(|| {
             WireError::new(
                 ErrorKind::Tool,
                 format!("Pulled \"{reference}\" but the engine reported no digest for it"),
@@ -1436,8 +1470,8 @@ impl ContainerEngine for DockerEngine {
         })
     }
 
-    fn start(&self, args: &[String]) -> Result<()> {
-        match self.run(args, "run", self.start_timeout) {
+    async fn start_container(&self, args: &[String]) -> Result<()> {
+        match self.run(args, "run", self.start_timeout).await {
             Ok(()) => Ok(()),
             Err(error) => {
                 // A desktop daemon's file sharing does not see a directory the
@@ -1449,13 +1483,13 @@ impl ContainerEngine for DockerEngine {
                 if !error.message.contains("bind source path does not exist") {
                     return Err(error);
                 }
-                std::thread::sleep(Duration::from_millis(250));
-                self.run(args, "run", self.start_timeout)
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                self.run(args, "run", self.start_timeout).await
             }
         }
     }
 
-    fn stop(&self, name: &str) -> Result<()> {
+    async fn stop_container(&self, name: &str) -> Result<()> {
         // Two seconds: a sandbox holds no state worth a graceful shutdown, and a
         // reap that blocks ten seconds per container is a reap nobody runs.
         self.run(
@@ -1463,7 +1497,55 @@ impl ContainerEngine for DockerEngine {
             "stop",
             self.control_timeout,
         )
+        .await
     }
+}
+
+impl ContainerEngine for DockerEngine {
+    fn gateway<'a>(
+        &'a self,
+        name: &'a str,
+        container: &'a EnvironmentDefinition,
+        network: &'a EnvironmentNetwork,
+    ) -> BoxFuture<'a, Result<Option<String>>> {
+        Box::pin(self.start_gateway(name, container, network))
+    }
+
+    fn probe(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async {
+            self.run(
+                &argv(&["version", "--format", "{{.Server.Version}}"]),
+                "version",
+                self.control_timeout,
+            )
+            .await
+        })
+    }
+
+    fn reap_orphans(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(self.reap())
+    }
+
+    fn resolve_image<'a>(&'a self, reference: &'a str) -> BoxFuture<'a, Result<ResolvedImage>> {
+        Box::pin(self.resolve(reference))
+    }
+
+    fn start<'a>(&'a self, argv: &'a [String]) -> BoxFuture<'a, Result<()>> {
+        Box::pin(self.start_container(argv))
+    }
+
+    fn stop<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<()>> {
+        Box::pin(self.stop_container(name))
+    }
+}
+
+/// Everything a pipe holds until it closes, or nothing for a pipe not taken.
+async fn drain(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    if let Some(mut pipe) = pipe {
+        tokio::io::AsyncReadExt::read_to_end(&mut pipe, &mut bytes).await?;
+    }
+    Ok(bytes)
 }
 
 /// Borrowed argv as owned, which is what the engine's calls take.

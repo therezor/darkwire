@@ -23,6 +23,7 @@
 //! file-per-session store needs to avoid re-reading the whole transcript on
 //! every access.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use darkwire_protocol::json::Object;
@@ -38,13 +39,14 @@ use serde_json::{Map, Value, json};
 use crate::clock::Clock;
 use crate::db::Database;
 use crate::errors::{ErrorKind, Result, WireError};
-use crate::history::{
-    HistoryOptions, MessageWindow, SessionHistorySource, find_legal_end, session_history,
-};
+use crate::history::{HistoryOptions, MessageWindow, SessionHistorySource, session_history};
 use crate::ids::DEFAULT_WORKSPACE_ID;
 use crate::messages::text_of;
 use crate::session_title::derive_session_title;
 use crate::sqlite_row::{RowReader, parse_metadata};
+
+/// Rows read per step while [`SessionStore::legal_seq`] scans back for a cut.
+const LEGAL_CUT_PAGE: usize = 32;
 
 /// The `sessions` table.
 ///
@@ -1276,25 +1278,65 @@ impl SessionStore {
     /// `0` when no cut is legal: every message in the session is at or above
     /// seq 1, so a floor of zero means "keep nothing", which is what a session
     /// whose very first exchange is the unsplittable one has to fall back to.
+    ///
+    /// Read backwards from `seq` a page at a time, and settled at the first
+    /// point no exchange straddles. What lies below that point is taken as
+    /// already legal, because the loop commits a turn's tool traffic in one
+    /// transaction. Reading the whole prefix instead cost a deserialise per
+    /// message on every regenerate of a long session.
     fn legal_seq(&self, session_key: &str, seq: i64) -> Result<i64> {
-        let records = self.messages(
-            session_key,
-            &ReadMessages {
-                after_seq: Some(0),
-                before_seq: Some(seq.saturating_add(1)),
-                ..ReadMessages::default()
-            },
-        )?;
-        let messages: Vec<ChatMessage> = records.iter().map(|r| r.message.clone()).collect();
-        let end = find_legal_end(&messages);
-
-        if end == records.len() {
-            return Ok(seq);
+        // Results since the latest cut, as `find_legal_end` keeps them.
+        let mut answered: HashSet<String> = HashSet::new();
+        // Results whose call has not been read yet, cut or not.
+        let mut straddling: HashSet<String> = HashSet::new();
+        // `None` while the cut sits just below a row not read yet.
+        let mut cut = Some(seq);
+        let mut before = seq.saturating_add(1);
+        loop {
+            let page = self.messages(
+                session_key,
+                &ReadMessages {
+                    after_seq: Some(0),
+                    before_seq: Some(before),
+                    limit: Some(LEGAL_CUT_PAGE),
+                    from_end: true,
+                },
+            )?;
+            for record in page.iter().rev() {
+                if cut.is_none() {
+                    cut = Some(record.seq);
+                }
+                match &record.message {
+                    ChatMessage::Tool(tool) => {
+                        answered.insert(tool.tool_call_id.clone());
+                        straddling.insert(tool.tool_call_id.clone());
+                    }
+                    ChatMessage::Assistant(assistant) if !assistant.tool_calls.is_empty() => {
+                        let stranded = assistant
+                            .tool_calls
+                            .iter()
+                            .any(|call| !answered.contains(&call.id));
+                        for call in &assistant.tool_calls {
+                            straddling.remove(&call.id);
+                        }
+                        if stranded {
+                            cut = None;
+                            answered.clear();
+                        }
+                    }
+                    ChatMessage::Assistant(_) | ChatMessage::User(_) | ChatMessage::System(_) => {}
+                }
+                if straddling.is_empty()
+                    && let Some(cut) = cut
+                {
+                    return Ok(cut);
+                }
+            }
+            match page.first() {
+                Some(first) if page.len() == LEGAL_CUT_PAGE => before = first.seq,
+                _ => return Ok(cut.unwrap_or(0)),
+            }
         }
-        if end == 0 {
-            return Ok(0);
-        }
-        Ok(records.get(end - 1).map_or(0, |record| record.seq))
     }
 
     /// Drops every message after `seq`, and reports where the cut actually

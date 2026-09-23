@@ -281,6 +281,7 @@ async fn grep_stops_on_a_cancelled_token_part_way_through_a_tree() {
     token.cancel();
     let failed = grep_blocking(
         &GrepRequest {
+            jail: std::sync::Arc::clone(ws.jail()),
             root: ws.root().to_path_buf(),
             pattern: "needle".to_owned(),
             glob: None,
@@ -294,4 +295,33 @@ async fn grep_stops_on_a_cancelled_token_part_way_through_a_tree() {
     )
     .expect_err("a cancelled search reports it");
     assert_eq!(failed.kind, ErrorKind::Aborted);
+}
+
+#[test]
+fn grep_reads_nothing_behind_a_directory_swapped_to_lead_out_after_the_check() {
+    let ws = TestWorkspace::new();
+    fs::create_dir(ws.root().join("sub")).unwrap();
+    let accepted = ws.jail().accept("sub").unwrap();
+    let elsewhere = ws.outside().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(elsewhere.join("secret.txt"), "needle\n").unwrap();
+    fs::remove_dir(ws.root().join("sub")).unwrap();
+    symlink(&elsewhere, ws.root().join("sub")).unwrap();
+    let report = grep_blocking(
+        &GrepRequest {
+            jail: std::sync::Arc::clone(ws.jail()),
+            root: accepted.path,
+            pattern: "needle".to_owned(),
+            glob: None,
+            ignore_case: false,
+            literal: false,
+            context: 0,
+            mode: GrepMode::Matches,
+            limit: 100,
+        },
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert!(report.lines.is_empty(), "{:?}", report.lines);
+    assert!(report.unreadable >= 1);
 }

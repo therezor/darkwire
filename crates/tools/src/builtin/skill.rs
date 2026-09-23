@@ -28,13 +28,15 @@
 //! what may be read. Checking it here would gate one door while `read`
 //! walks past the other.
 
+use std::io::Read as _;
+
 use darkwire_core::Result;
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::builtin::built;
-use crate::builtin::shared::fs_failure;
+use crate::builtin::shared::{in_root, open_options, root_failure};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -75,9 +77,17 @@ impl ToolHandler for Skill {
             let where_ = format!("{SKILLS_DIRNAME}/{}/{SKILL_FILENAME}", args.name);
             let accepted = ctx.jail.accept(&where_)?;
 
-            let text = tokio::fs::read_to_string(&accepted.path)
-                .await
-                .map_err(|error| fs_failure(&error, &accepted.relative, ""))?;
+            let text = in_root(&ctx.jail, &accepted, "skill", |root, inside| {
+                let mut options = open_options();
+                options.read(true);
+                let mut text = String::new();
+                root.open_with(inside, &options)?
+                    .into_std()
+                    .read_to_string(&mut text)?;
+                Ok(text)
+            })
+            .await?
+            .map_err(|error| root_failure(&error, &where_, &accepted.relative, ""))?;
 
             Ok(ToolOutput::text(text)
                 .with_detail("path", accepted.relative.as_str())

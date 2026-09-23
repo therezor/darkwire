@@ -452,7 +452,8 @@ impl Service {
         };
         let runner = self
             .pool
-            .resolve_turn(spec)?
+            .resolve_turn(spec)
+            .await?
             .ok_or_else(|| invalid("Container runner unavailable"))?;
         let run_token = token.child_token();
         let run = runner.run(RunRequest {
@@ -526,7 +527,7 @@ impl Service {
         progress: Option<tokio::sync::mpsc::Sender<Value>>,
     ) -> Result<Value> {
         match request {
-            SandboxRequest::Health => match self.pool.probe_engine() {
+            SandboxRequest::Health => match self.pool.probe_engine().await {
                 Ok(()) => Ok(
                     json!({"version":1,"status":"ready","engine":self.config.engine,"engineReady":true}),
                 ),
@@ -536,15 +537,9 @@ impl Service {
             },
             SandboxRequest::List => Ok(json!({"instances":self.pool.status()})),
             SandboxRequest::ResolveImage { reference } => {
-                // On a blocking pool thread: a pull can take minutes and this
-                // runs on the reactor that answers every other request. The
-                // accept loop spawns a task per connection, so an `exec` in
-                // another session is unaffected either way.
-                let pool = Arc::clone(&self.pool);
-                let asked = reference.clone();
-                let resolved = tokio::task::spawn_blocking(move || pool.resolve_image(&asked))
-                    .await
-                    .map_err(|error| invalid(format!("Resolving the image panicked: {error}")))??;
+                // A pull can take minutes. It is awaited on this connection's
+                // own task, so every other request is answered meanwhile.
+                let resolved = self.pool.resolve_image(&reference).await?;
                 serde_json::to_value(ResolveImageResponse {
                     reference,
                     image: resolved.image,
@@ -553,11 +548,11 @@ impl Service {
                 .map_err(|e| invalid(e.to_string()))
             }
             SandboxRequest::Stop { instance } => {
-                self.pool.stop_instance(&instance)?;
+                self.pool.stop_instance(&instance).await?;
                 Ok(json!({"stopped":instance}))
             }
             SandboxRequest::Restart { instance } => {
-                self.pool.restart_instance(&instance)?;
+                self.pool.restart_instance(&instance).await?;
                 Ok(json!({"restarted":instance}))
             }
             SandboxRequest::Start {
@@ -568,7 +563,7 @@ impl Service {
                 network,
             } => {
                 let spec = self.spec(&environment, &workspace, &agent, &session, &network)?;
-                self.pool.warm(&spec)?;
+                self.pool.warm(&spec).await?;
                 Ok(json!({"instances":self.pool.status()}))
             }
             SandboxRequest::Exec {
@@ -671,15 +666,21 @@ pub async fn serve_with(
         lookup,
     });
     let connections = Arc::new(tokio::sync::Semaphore::new(64));
-    let mut maintenance = tokio::time::interval(MAINTENANCE_EVERY);
     let mut termination = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|e| invalid(e.to_string()))?;
+    let stopping = CancellationToken::new();
+    // An early return from the accept loop stops the sweep as well.
+    let _stop_on_exit = stopping.clone().drop_guard();
+    let maintenance = tokio::spawn(maintain(Arc::clone(&service.pool), stopping.clone()));
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => { service.pool.close(); let _ = std::fs::remove_file(&service.config.socket); return Ok(()); },
-            _ = termination.recv() => { service.pool.close(); let _ = std::fs::remove_file(&service.config.socket); return Ok(()); },
-            _ = maintenance.tick() => {
-                service.pool.maintain();
+            _ = tokio::signal::ctrl_c() => {
+                shut_down(&service, &stopping, maintenance).await;
+                return Ok(());
+            },
+            _ = termination.recv() => {
+                shut_down(&service, &stopping, maintenance).await;
+                return Ok(());
             },
             accepted = listener.accept() => {
                 let (socket, _) = accepted.map_err(|e| invalid(e.to_string()))?;
@@ -692,6 +693,31 @@ pub async fn serve_with(
             }
         }
     }
+}
+
+/// Sweeps the pool on its own task, so the accept loop never waits on the
+/// daemon. A sweep in progress finishes before `stopping` is honoured.
+async fn maintain(pool: Arc<ContainerPool>, stopping: CancellationToken) {
+    let mut every = tokio::time::interval(MAINTENANCE_EVERY);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            () = stopping.cancelled() => return,
+            _ = every.tick() => pool.maintain().await,
+        }
+    }
+}
+
+/// Stops the sweep, then every instance, then removes the socket.
+async fn shut_down(
+    service: &Service,
+    stopping: &CancellationToken,
+    maintenance: tokio::task::JoinHandle<()>,
+) {
+    stopping.cancel();
+    let _ = maintenance.await;
+    service.pool.close().await;
+    let _ = std::fs::remove_file(&service.config.socket);
 }
 
 /// The pool the service runs everything in.

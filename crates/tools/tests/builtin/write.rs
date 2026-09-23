@@ -15,7 +15,7 @@ use darkwire_tools::testkit::TestWorkspace;
 use darkwire_tools::write_tool;
 use serde_json::json;
 
-use crate::common::{failure, fifo, run, run_on_fifo, text};
+use crate::common::{failure, fifo, link_in, link_out, run, run_on_fifo, text};
 
 #[tokio::test]
 async fn write_writes_a_file_and_reports_its_size() {
@@ -161,5 +161,46 @@ async fn write_refuses_a_fifo_rather_than_blocking_on_it() {
         result.content.contains("not a regular file"),
         "{}",
         result.content
+    );
+}
+
+#[tokio::test]
+async fn write_refuses_a_file_behind_a_symlinked_directory_that_leads_out() {
+    let ws = TestWorkspace::new();
+    let elsewhere = link_out(&ws);
+    for path in [
+        "linked/secret.txt",
+        "linked/new.txt",
+        "linked/deeper/new.txt",
+    ] {
+        let error = failure(
+            &write_tool(),
+            json!({"path": path, "content": "x"}),
+            ws.context(),
+        )
+        .await;
+        assert_eq!(error.kind, Some(ErrorKind::JailEscape), "{path}");
+    }
+    assert_eq!(
+        fs::read_to_string(elsewhere.join("secret.txt")).unwrap(),
+        "stolen"
+    );
+    assert!(!elsewhere.join("new.txt").exists());
+    assert!(!elsewhere.join("deeper").exists());
+}
+
+#[tokio::test]
+async fn write_goes_through_a_symlinked_directory_that_stays_inside() {
+    let ws = TestWorkspace::new();
+    link_in(&ws);
+    text(
+        &write_tool(),
+        json!({"path": "alias/fresh/new.txt", "content": "x"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(
+        fs::read_to_string(ws.root().join("real/fresh/new.txt")).unwrap(),
+        "x"
     );
 }

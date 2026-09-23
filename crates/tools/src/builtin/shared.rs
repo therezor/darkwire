@@ -11,9 +11,12 @@
 use std::fs::Metadata;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt as _};
+use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt as _};
 use darkwire_core::{ErrorKind, WireError};
-use darkwire_security::JailAccept;
+use darkwire_security::{JailAccept, WorkspaceJail, escape_refusal, led_outside};
 use nix::errno::Errno;
 use nix::fcntl::OFlag;
 
@@ -95,15 +98,52 @@ pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> WireError {
         .with_detail("code", format!("{:?}", error.kind()))
 }
 
-/// Open flags for a path the jail has already accepted.
+/// [`fs_failure`], except that a path which led out of the workspace during a
+/// call through [`in_root`] is refused the way the jail refuses it.
 ///
-/// `O_NONBLOCK` so a FIFO cannot hang the open, and `O_NOFOLLOW` so a final
-/// component swapped for a symlink after the jail looked is refused rather
-/// than followed. The jail canonicalised the path, so a legitimate one never
-/// ends in a symlink. Earlier components are not re-checked here: that needs
-/// a per-component `openat` walk.
-pub fn open_flags() -> i32 {
-    (OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW).bits()
+/// `requested` is what the model asked for, which is what the jail's own
+/// refusal names.
+pub fn root_failure(error: &io::Error, requested: &str, path: &str, note: &str) -> WireError {
+    if led_outside(error) {
+        return escape_refusal(requested);
+    }
+    fs_failure(error, path, note)
+}
+
+/// Runs blocking filesystem work against the workspace root, off the runtime.
+///
+/// `work` gets the root as a capability and the accepted path relative to it.
+/// The jail looked at the path a moment ago; opening through the root is what
+/// keeps a component swapped for a symlink since then from leading out.
+pub async fn in_root<T, F>(
+    jail: &Arc<WorkspaceJail>,
+    accepted: &JailAccept,
+    tool: &str,
+    work: F,
+) -> Result<io::Result<T>, WireError>
+where
+    T: Send + 'static,
+    F: FnOnce(&Dir, &Path) -> io::Result<T> + Send + 'static,
+{
+    let jail = Arc::clone(jail);
+    let inside = jail.beneath(accepted);
+    tokio::task::spawn_blocking(move || work(&jail.open_root()?, &inside))
+        .await
+        .map_err(|error| WireError::new(ErrorKind::Internal, format!("{tool} failed: {error}")))
+}
+
+/// Open options for a path the jail has already accepted.
+///
+/// `O_NONBLOCK` so a FIFO cannot hang the open. The last component is not
+/// followed, so one swapped for a symlink after the jail looked is refused;
+/// the jail canonicalised the path, so a legitimate one never ends in a
+/// symlink. Earlier components are the root's to refuse.
+pub fn open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options
+        .follow(FollowSymlinks::No)
+        .custom_flags(OFlag::O_NONBLOCK.bits());
+    options
 }
 
 /// Refuses anything but a regular file, before a tool reads or writes it.
@@ -111,19 +151,23 @@ pub fn assert_regular(stats: &Metadata, path: &str, note: &str) -> Result<(), Wi
     if stats.is_dir() || stats.is_file() {
         return Ok(());
     }
-    Err(WireError::new(
+    Err(not_regular(path, note))
+}
+
+/// The refusal for a FIFO, a socket or a device.
+pub fn not_regular(path: &str, note: &str) -> WireError {
+    WireError::new(
         ErrorKind::InvalidInput,
         format!("{path} is not a regular file.{note}"),
     )
-    .with_detail("path", path))
+    .with_detail("path", path)
 }
 
-/// [`assert_regular`] for a path that may not exist yet.
-pub fn assert_regular_or_missing(target: &Path, path: &str, note: &str) -> Result<(), WireError> {
-    match std::fs::symlink_metadata(target) {
-        Ok(stats) => assert_regular(&stats, path, note),
-        Err(_) => Ok(()),
-    }
+/// Whether `inside` names something other than a regular file or a directory.
+/// A path that does not exist yet is neither.
+pub fn is_irregular(root: &Dir, inside: &Path) -> bool {
+    root.symlink_metadata(inside)
+        .is_ok_and(|stats| !stats.is_dir() && !stats.is_file())
 }
 
 /// Bytes as something readable in a directory listing.

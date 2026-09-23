@@ -50,6 +50,12 @@
 //! — a permission error, a symlink loop, a name too long for the filesystem —
 //! are refused. A path whose containment cannot be established is not safe to
 //! touch, and the alternative is trusting the string.
+//!
+//! A verdict holds for the moment the jail looked. A directory component
+//! swapped for a symlink after that is followed by any open by name, so the
+//! file tools open through [`WorkspaceJail::open_root`] instead, relative to
+//! [`WorkspaceJail::beneath`]. That refuses a path that leads out as the open
+//! happens, and [`led_outside`] recognises the refusal.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -57,6 +63,8 @@ use std::io;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::Arc;
 
+use cap_std::ambient_authority;
+use cap_std::fs::Dir;
 use darkwire_core::{ErrorKind, Result, WireError, ensure_dir};
 use serde::{Deserialize, Serialize};
 
@@ -578,6 +586,33 @@ impl WorkspaceJail {
         }
     }
 
+    /// The root, opened as a directory that no path handed to it can leave.
+    ///
+    /// Every call through it resolves one component at a time, and a
+    /// component, symlink or `..` that would lead out is refused as the call
+    /// happens rather than when the jail looked.
+    pub fn open_root(&self) -> io::Result<Dir> {
+        Dir::open_ambient_dir(&self.root, ambient_authority())
+    }
+
+    /// An accepted path relative to the root, for a call through
+    /// [`open_root`](Self::open_root). The root itself is `.`.
+    ///
+    /// Built from the canonical path, so every symlink the jail saw is already
+    /// resolved and one met on the way is a change since.
+    pub fn beneath(&self, accepted: &JailAccept) -> PathBuf {
+        let inside: PathBuf = accepted
+            .path
+            .components()
+            .skip(self.root.components().count())
+            .collect();
+        if inside.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            inside
+        }
+    }
+
     /// `accept(input).path`, for callers that need nothing else.
     pub fn resolve(&self, input: &str) -> Result<PathBuf> {
         Ok(self.accept(input)?.path)
@@ -670,6 +705,26 @@ impl WorkspaceJail {
             path.to_path_buf()
         }
     }
+}
+
+/// Whether an error from a call through [`WorkspaceJail::open_root`] means the
+/// path led outside the root.
+///
+/// Told apart by shape, not by message: the capability layer reports an escape
+/// as a permission error with no OS error code, and a real `EACCES` has one.
+pub fn led_outside(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::PermissionDenied && error.raw_os_error().is_none()
+}
+
+/// The refusal for a path that led outside the root, worded as
+/// [`WorkspaceJail::accept`] words it.
+pub fn escape_refusal(input: &str) -> WireError {
+    WireError::new(
+        ErrorKind::JailEscape,
+        format!("Path resolves outside the workspace: {input}"),
+    )
+    .with_detail("path", input)
+    .with_detail("rejection", JailRejection::OutsideRoot.as_str())
 }
 
 /// Supplies the jail a turn runs inside, keyed by its session's workspace.

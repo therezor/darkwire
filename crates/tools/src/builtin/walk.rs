@@ -15,10 +15,16 @@
 //! thousand copies of the answer is noise that costs the budget the real hits
 //! needed. Dotfiles are still searched: `.github` and `.env` are places code
 //! lives, and only `.git` itself is skipped.
+//!
+//! The walk reads directories by name. What it finds is opened or measured
+//! through the workspace root, relative to [`beneath`], so a directory swapped
+//! for a symlink mid-walk can show the walk a name from outside but never let
+//! a tool read what is behind it.
 
 use std::path::{Path, PathBuf};
 
 use darkwire_core::{Result, WireError};
+use darkwire_security::WorkspaceJail;
 use ignore::WalkBuilder;
 use tokio_util::sync::CancellationToken;
 
@@ -89,4 +95,14 @@ pub fn files(
         found.push(entry.into_path());
     }
     Ok((found, tally))
+}
+
+/// A path under the workspace root, relative to it, for a call through
+/// [`WorkspaceJail::open_root`]. `None` for a path that is not under it.
+pub fn beneath(jail: &WorkspaceJail, path: &Path) -> Option<PathBuf> {
+    let inside = path.strip_prefix(jail.root()).ok()?;
+    if inside.as_os_str().is_empty() {
+        return Some(PathBuf::from("."));
+    }
+    Some(inside.to_path_buf())
 }

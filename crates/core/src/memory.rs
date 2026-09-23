@@ -39,15 +39,23 @@
 //! **Every write is atomic.** A temp file beside the target, then a rename, so
 //! a crash midway cannot leave half a memory for the next turn to index.
 //!
+//! **Every file is opened through the workspace root as a capability.** The
+//! folder is workspace content, so `memory` or anything under it can be a
+//! symlink, and one that leads out is refused as the call resolves it rather
+//! than followed. The `*_in` functions take that root; the path functions open
+//! it and call them.
+//!
 //! The folder lives in the workspace, inside the jail, so `write` and `exec`
 //! can both edit it. The `memory` tool is the *intended* way to write these
 //! files, not an enforced one.
 
 use std::collections::HashMap;
-use std::fs;
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, MetadataExt as _, OpenOptions};
 use darkwire_protocol::json::js_trim;
 use parking_lot::Mutex;
 use regex::Regex;
@@ -250,18 +258,22 @@ pub fn derive_title(content: &str, key: &str) -> String {
 /// count that does not know about the other's file. A lock owned by an instance
 /// would not be seen by a second one.
 ///
+/// Keyed by the root's device and inode rather than its path, so a caller
+/// holding the root as a capability and one holding its path share one lock.
+///
 /// In-process is enough: one process owns an install. Entries are dropped when
 /// their last holder lets go, so this does not grow an entry per workspace
 /// forever.
-static LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
+static LOCKS: LazyLock<Mutex<HashMap<DirIdentity, Arc<Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn with_memory_lock<T>(workspace_root: &Path, work: impl FnOnce() -> T) -> T {
-    let lock = LOCKS
-        .lock()
-        .entry(workspace_root.to_path_buf())
-        .or_default()
-        .clone();
+/// A directory's device and inode.
+type DirIdentity = (u64, u64);
+
+fn with_memory_lock<T>(root: &Dir, work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    let stats = root.dir_metadata()?;
+    let identity = (stats.dev(), stats.ino());
+    let lock = LOCKS.lock().entry(identity).or_default().clone();
     let result = {
         let _held = lock.lock();
         work()
@@ -270,15 +282,15 @@ fn with_memory_lock<T>(workspace_root: &Path, work: impl FnOnce() -> T) -> T {
     // and the entry stays for them.
     let mut locks = LOCKS.lock();
     if locks
-        .get(workspace_root)
+        .get(&identity)
         .is_some_and(|entry| Arc::ptr_eq(entry, &lock) && Arc::strong_count(entry) == 2)
     {
-        locks.remove(workspace_root);
+        locks.remove(&identity);
     }
     result
 }
 
-/// Every memory key in a workspace, sorted.
+/// Every memory key in a folder, sorted.
 ///
 /// Sorted because the result lands in the provider's cached prefix, and a
 /// directory order that varies between hosts would move that prefix for no
@@ -291,9 +303,11 @@ fn with_memory_lock<T>(workspace_root: &Path, work: impl FnOnce() -> T) -> T {
 /// a line in every prompt naming a memory the tool answers "no memory" for, and
 /// that line could never be removed from inside the session. A warning says
 /// which file and what to do about it.
-fn memory_keys(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
+fn memory_keys(root: &Dir, dir: &Path) -> io::Result<Vec<String>> {
+    let entries = match root.read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
     };
     let mut keys: Vec<String> = entries
         .filter_map(std::result::Result::ok)
@@ -318,7 +332,29 @@ fn memory_keys(dir: &Path) -> Vec<String> {
         })
         .collect();
     keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-    keys
+    Ok(keys)
+}
+
+/// The workspace root as a capability, for the path functions below.
+fn open_workspace(workspace_root: &Path) -> io::Result<Dir> {
+    Dir::open_ambient_dir(workspace_root, ambient_authority())
+}
+
+/// Where `memory/` sits beneath the root, with a link that stays inside
+/// resolved the way the jail resolves one. A link that leads out is left as
+/// it is, for the root to refuse.
+fn memory_dir(workspace_root: &Path) -> PathBuf {
+    let named = PathBuf::from(MEMORY_DIRNAME);
+    let (Ok(root), Ok(real)) = (
+        workspace_root.canonicalize(),
+        workspace_root.join(MEMORY_DIRNAME).canonicalize(),
+    ) else {
+        return named;
+    };
+    match real.strip_prefix(&root) {
+        Ok(inside) if !inside.as_os_str().is_empty() => inside.to_path_buf(),
+        _ => named,
+    }
 }
 
 /// Every loadable memory in a workspace, sorted by key.
@@ -326,12 +362,27 @@ fn memory_keys(dir: &Path) -> Vec<String> {
 /// A workspace with no `memory/` folder is the empty list. That is the ordinary
 /// case rather than a misconfiguration, so it is not logged.
 pub fn read_memories(workspace_root: &Path) -> Vec<Memory> {
-    let dir = workspace_root.join(MEMORY_DIRNAME);
-    let mut keys = memory_keys(&dir);
+    let dir = memory_dir(workspace_root);
+    let listed = open_workspace(workspace_root).and_then(|root| {
+        let keys = memory_keys(&root, &dir)?;
+        Ok((root, keys))
+    });
+    let (root, mut keys) = match listed {
+        Ok(listed) => listed,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(
+                workspace = %workspace_root.display(),
+                %error,
+                "memory folder could not be listed"
+            );
+            return Vec::new();
+        }
+    };
 
     if keys.len() > MAX_MEMORIES {
         tracing::warn!(
-            dir = %dir.display(),
+            dir = %workspace_root.join(&dir).display(),
             found = keys.len(),
             max = MAX_MEMORIES,
             "more memory files than the cap; the rest are not advertised"
@@ -339,7 +390,10 @@ pub fn read_memories(workspace_root: &Path) -> Vec<Memory> {
         keys.truncate(MAX_MEMORIES);
     }
 
-    keys.iter().filter_map(|key| read_one(&dir, key)).collect()
+    let options = OpenOptions::new();
+    keys.iter()
+        .filter_map(|key| readable(key, read_one(&root, &dir, key, &options)))
+        .collect()
 }
 
 /// One memory by key, or `None` when there is nothing readable under it.
@@ -348,28 +402,78 @@ pub fn read_memories(workspace_root: &Path) -> Vec<Memory> {
 /// already has the key: the index gave it one.
 pub fn read_memory(workspace_root: &Path, key: &str) -> Option<Memory> {
     let key = memory_slug(key)?;
-    read_one(&workspace_root.join(MEMORY_DIRNAME), &key)
+    let root = open_workspace(workspace_root).ok()?;
+    readable(
+        &key,
+        read_one(
+            &root,
+            &memory_dir(workspace_root),
+            &key,
+            &OpenOptions::new(),
+        ),
+    )
+}
+
+/// One memory by key, read from `dir` beneath `root`. `Ok(None)` when nothing
+/// is saved under it.
+///
+/// `options` is the caller's base for the open, so a tool can bring its own
+/// rules for the last component.
+pub fn read_memory_in(
+    root: &Dir,
+    dir: &Path,
+    key: &str,
+    options: &OpenOptions,
+) -> io::Result<Option<Memory>> {
+    let key = slug_or_invalid(key)?;
+    match read_one(root, dir, &key, options) {
+        Ok(memory) => Ok(Some(memory)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Creates or replaces one memory.
 pub fn save_memory(workspace_root: &Path, key: &str, content: &str) -> Result<SaveMemoryResult> {
+    // Slugged here as well as below, so a bad key is refused with the key in
+    // its details before anything is opened.
+    let key = slug_or_error(key)?;
+    let root = open_workspace(workspace_root)?;
+    Ok(save_memory_in(
+        &root,
+        &memory_dir(workspace_root),
+        &key,
+        content,
+        &OpenOptions::new(),
+    )?)
+}
+
+/// Creates or replaces one memory in `dir` beneath `root`.
+pub fn save_memory_in(
+    root: &Dir,
+    dir: &Path,
+    key: &str,
+    content: &str,
+    options: &OpenOptions,
+) -> io::Result<SaveMemoryResult> {
     // Slugged here as well as by the caller, and deliberately: this is the
     // function that turns a string into a path, so it is the one that must not
     // be able to be handed a bad one.
-    let key = slug_or_error(key)?;
-    let dir = workspace_root.join(MEMORY_DIRNAME);
+    let key = slug_or_invalid(key)?;
 
-    with_memory_lock(workspace_root, || {
+    with_memory_lock(root, || {
         let file = dir.join(format!("{key}.md"));
-        let replaced = file.is_file();
+        let replaced = root
+            .symlink_metadata(&file)
+            .is_ok_and(|stats| stats.is_file());
 
-        fs::create_dir_all(&dir)?;
-        write_atomic(&file, &render_memory(content))?;
+        root.create_dir_all(dir)?;
+        write_atomic(root, &file, &render_memory(content), options)?;
 
         Ok(SaveMemoryResult {
             key,
             replaced,
-            total: memory_keys(&dir).len(),
+            total: memory_keys(root, dir)?.len(),
         })
     })
 }
@@ -377,19 +481,25 @@ pub fn save_memory(workspace_root: &Path, key: &str, content: &str) -> Result<Sa
 /// Removes one memory. A key with nothing under it is not an error.
 pub fn delete_memory(workspace_root: &Path, key: &str) -> Result<DeleteMemoryResult> {
     let key = slug_or_error(key)?;
-    let dir = workspace_root.join(MEMORY_DIRNAME);
+    let root = open_workspace(workspace_root)?;
+    Ok(delete_memory_in(&root, &memory_dir(workspace_root), &key)?)
+}
 
-    with_memory_lock(workspace_root, || {
-        let existed = match fs::remove_file(dir.join(format!("{key}.md"))) {
+/// Removes one memory from `dir` beneath `root`.
+pub fn delete_memory_in(root: &Dir, dir: &Path, key: &str) -> io::Result<DeleteMemoryResult> {
+    let key = slug_or_invalid(key)?;
+
+    with_memory_lock(root, || {
+        let existed = match root.remove_file(dir.join(format!("{key}.md"))) {
             Ok(()) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(error) => return Err(error.into()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error),
         };
 
         Ok(DeleteMemoryResult {
             key,
             existed,
-            total: memory_keys(&dir).len(),
+            total: memory_keys(root, dir)?.len(),
         })
     })
 }
@@ -409,16 +519,42 @@ fn slug_or_error(key: &str) -> Result<String> {
     })
 }
 
-fn read_one(dir: &Path, key: &str) -> Option<Memory> {
-    let file = dir.join(format!("{key}.md"));
+fn slug_or_invalid(key: &str) -> io::Result<String> {
+    memory_slug(key).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("memory key is not usable as a filename: {key}"),
+        )
+    })
+}
 
-    let Ok(text) = fs::read_to_string(&file) else {
-        tracing::warn!(memory = key, file = %file.display(), "memory could not be read");
-        return None;
-    };
+/// A read for the prompt index, where a broken memory costs only itself.
+fn readable(key: &str, read: io::Result<Memory>) -> Option<Memory> {
+    match read {
+        Ok(memory) => Some(memory),
+        Err(error) => {
+            tracing::warn!(memory = key, %error, "memory could not be read");
+            None
+        }
+    }
+}
+
+fn read_one(root: &Dir, dir: &Path, key: &str, options: &OpenOptions) -> io::Result<Memory> {
+    let mut options = options.clone();
+    options.read(true);
+    let mut file = root.open_with(dir.join(format!("{key}.md")), &options)?;
+    // Opened without blocking, so a FIFO is refused here rather than read.
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "memory is not a regular file",
+        ));
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
 
     let content = truncate_bytes(&text).to_owned();
-    Some(Memory {
+    Ok(Memory {
         title: derive_title(&content, key),
         key: key.to_owned(),
         content,
@@ -429,13 +565,16 @@ fn read_one(dir: &Path, key: &str) -> Option<Memory> {
 ///
 /// The temp file is in the same directory deliberately: a rename across
 /// filesystems is a copy, and a copy is not atomic.
-fn write_atomic(target: &Path, text: &str) -> Result<()> {
+fn write_atomic(root: &Dir, target: &Path, text: &str, options: &OpenOptions) -> io::Result<()> {
     let mut temp = target.as_os_str().to_owned();
     temp.push(".tmp");
     let temp = PathBuf::from(temp);
-    fs::write(&temp, text)?;
-    fs::rename(&temp, target)?;
-    Ok(())
+    let mut options = options.clone();
+    options.write(true).create(true).truncate(true);
+    let mut file = root.open_with(&temp, &options)?;
+    file.write_all(text.as_bytes())?;
+    file.flush()?;
+    root.rename(&temp, root, target)
 }
 
 /// One line, whatever it arrived as. A title spanning two breaks an index.

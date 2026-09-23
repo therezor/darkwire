@@ -15,7 +15,7 @@ use darkwire_tools::ls_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, run, text};
+use crate::common::{failure, link_in, link_out, run, text};
 
 #[tokio::test]
 async fn ls_lists_directories_first_then_files_with_sizes() {
@@ -165,4 +165,38 @@ async fn ls_counts_what_a_recursive_walk_left_past_the_cap() {
             "… 5 more entries not shown (maxEntries=3)."
         ]
     );
+}
+
+#[tokio::test]
+async fn ls_refuses_a_symlinked_directory_that_leads_out() {
+    let ws = TestWorkspace::new();
+    link_out(&ws);
+    let error = failure(&ls_tool(), json!({"path": "linked"}), ws.context()).await;
+    assert_eq!(error.kind, Some(ErrorKind::JailEscape));
+    assert!(!error.content.contains("secret.txt"));
+}
+
+#[tokio::test]
+async fn ls_lists_a_symlinked_directory_that_stays_inside() {
+    let ws = TestWorkspace::new();
+    link_in(&ws);
+    let result = text(&ls_tool(), json!({"path": "alias"}), ws.context()).await;
+    assert_eq!(result, "notes.md (7 B)");
+}
+
+#[tokio::test]
+async fn ls_sizes_a_symlink_that_stays_inside_and_not_one_that_leads_out() {
+    let ws = TestWorkspace::new();
+    link_in(&ws);
+    link_out(&ws);
+    symlink(ws.root().join("real/notes.md"), ws.root().join("near")).unwrap();
+    symlink(
+        ws.outside().join("elsewhere/secret.txt"),
+        ws.root().join("far"),
+    )
+    .unwrap();
+    let result = text(&ls_tool(), json!({}), ws.context()).await;
+    assert!(result.contains("near (7 B)"), "{result}");
+    assert!(result.contains("far (unreadable)"), "{result}");
+    assert!(result.contains("linked (unreadable)"), "{result}");
 }

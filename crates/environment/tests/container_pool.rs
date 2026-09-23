@@ -92,36 +92,42 @@ impl FakeEngine {
 }
 
 impl ContainerEngine for FakeEngine {
-    fn start(&self, argv: &[String]) -> Result<()> {
+    fn start<'a>(&'a self, argv: &'a [String]) -> BoxFuture<'a, Result<()>> {
         self.calls.lock().push(Call::Start(argv.to_vec()));
-        match self.start_fails.lock().clone() {
+        let outcome = match self.start_fails.lock().clone() {
             Some(reason) => Err(WireError::new(ErrorKind::Tool, reason)),
             None => Ok(()),
-        }
+        };
+        Box::pin(async move { outcome })
     }
 
-    fn stop(&self, name: &str) -> Result<()> {
+    fn stop<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<()>> {
         self.calls.lock().push(Call::Stop(name.to_owned()));
-        if self.stop_fails {
-            return Err(WireError::new(ErrorKind::Tool, "no such container"));
-        }
-        Ok(())
+        let outcome = if self.stop_fails {
+            Err(WireError::new(ErrorKind::Tool, "no such container"))
+        } else {
+            Ok(())
+        };
+        Box::pin(async move { outcome })
     }
 
-    fn probe(&self) -> Result<()> {
+    fn probe(&self) -> BoxFuture<'_, Result<()>> {
         self.calls.lock().push(Call::Probe);
-        match self.probe_fails.lock().clone() {
+        let outcome = match self.probe_fails.lock().clone() {
             Some(reason) => Err(WireError::new(ErrorKind::Tool, reason)),
             None => Ok(()),
-        }
+        };
+        Box::pin(async move { outcome })
     }
 
-    fn reap_orphans(&self) -> Result<()> {
+    fn reap_orphans(&self) -> BoxFuture<'_, Result<()>> {
         self.calls.lock().push(Call::Reap);
-        if self.reap_fails {
-            return Err(WireError::new(ErrorKind::Tool, "docker ps failed"));
-        }
-        Ok(())
+        let outcome = if self.reap_fails {
+            Err(WireError::new(ErrorKind::Tool, "docker ps failed"))
+        } else {
+            Ok(())
+        };
+        Box::pin(async move { outcome })
     }
 }
 
@@ -367,9 +373,9 @@ async fn puts_every_agent_and_conversation_in_one_container() {
     let alice = request("alice", "work", "one", "dev");
     let bob = request("bob", "work", "two", "dev");
 
-    let first = pool.resolve_turn(&alice).unwrap().unwrap();
+    let first = pool.resolve_turn(&alice).await.unwrap().unwrap();
     run(&first).await.unwrap();
-    let second = pool.resolve_turn(&bob).unwrap().unwrap();
+    let second = pool.resolve_turn(&bob).await.unwrap().unwrap();
     run(&second).await.unwrap();
     assert_eq!(pool.live().len(), 1);
 
@@ -380,6 +386,7 @@ async fn puts_every_agent_and_conversation_in_one_container() {
     // The workspace decides what is mounted, so it cannot be shared across one.
     let separate = pool
         .resolve_turn(&request("bob", "another", "two", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&separate).await.unwrap();
@@ -398,10 +405,12 @@ async fn runs_two_commands_at_once_rather_than_queueing_them() {
     let pool = h.pool();
     let alice = pool
         .resolve_turn(&request("alice", "work", "one", "dev"))
+        .await
         .unwrap()
         .unwrap();
     let bob = pool
         .resolve_turn(&request("bob", "work", "two", "dev"))
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(pool.live().len(), 0);
@@ -439,7 +448,7 @@ async fn gives_two_agents_asking_for_different_egress_two_instances() {
     let walled = reaching(NetworkMode::None, request("alice", "work", "one", "dev"));
     let open = reaching(NetworkMode::Open, request("bob", "work", "two", "dev"));
     for spec in [&walled, &open] {
-        let runner = pool.resolve_turn(spec).unwrap().unwrap();
+        let runner = pool.resolve_turn(spec).await.unwrap().unwrap();
         run(&runner).await.unwrap();
     }
     assert_eq!(pool.live().len(), 2);
@@ -447,7 +456,7 @@ async fn gives_two_agents_asking_for_different_egress_two_instances() {
     // A third agent asking for the reach the first one asked for joins it
     // rather than starting a third.
     let same = reaching(NetworkMode::None, request("carol", "work", "three", "dev"));
-    let runner = pool.resolve_turn(&same).unwrap().unwrap();
+    let runner = pool.resolve_turn(&same).await.unwrap().unwrap();
     run(&runner).await.unwrap();
     assert_eq!(pool.live().len(), 2);
 }
@@ -458,11 +467,11 @@ async fn explicit_stop_invalidates_queued_handles_without_replaying_commands() {
     h.install("shared", &json!({"shared": true}));
     let pool = h.pool();
     let spec = request("alice", "work", "one", "shared");
-    let runner = pool.resolve_turn(&spec).unwrap().unwrap();
+    let runner = pool.resolve_turn(&spec).await.unwrap().unwrap();
     run(&runner).await.unwrap();
-    pool.stop_instance(&pool.live()[0]).unwrap();
+    pool.stop_instance(&pool.live()[0]).await.unwrap();
     assert!(run(&runner).await.is_err());
-    let fresh = pool.resolve_turn(&spec).unwrap().unwrap();
+    let fresh = pool.resolve_turn(&spec).await.unwrap().unwrap();
     run(&fresh).await.unwrap();
     assert_eq!(pool.live().len(), 1);
 }
@@ -485,7 +494,7 @@ async fn stops_an_instance_that_is_in_the_middle_of_a_command() {
     h.install("shared", &json!({"shared": true}));
     let pool = h.pool();
     let spec = request("alice", "work", "one", "shared");
-    let runner = pool.resolve_turn(&spec).unwrap().unwrap();
+    let runner = pool.resolve_turn(&spec).await.unwrap().unwrap();
 
     h.hold_commands();
     let busy = Arc::clone(&runner);
@@ -497,14 +506,14 @@ async fn stops_an_instance_that_is_in_the_middle_of_a_command() {
     }
 
     let name = pool.live()[0].clone();
-    pool.stop_instance(&name).unwrap();
+    pool.stop_instance(&name).await.unwrap();
     assert!(h.engine.stops().contains(&name));
     h.release_commands();
     inflight.await.unwrap().unwrap();
 
     // The handle is dead, and a fresh resolve gets a new container.
     assert!(run(&runner).await.is_err());
-    let fresh = pool.resolve_turn(&spec).unwrap().unwrap();
+    let fresh = pool.resolve_turn(&spec).await.unwrap().unwrap();
     run(&fresh).await.unwrap();
     assert_eq!(pool.live().len(), 1);
 }
@@ -517,7 +526,10 @@ async fn does_not_touch_the_container_runtime_until_a_turn_needs_one() {
     // Building the pool probes nothing: an install with a sandboxed agent must
     // still boot with the daemon closed.
     assert!(h.engine.calls().is_empty());
-    let runner = pool.resolve_turn(&request("a", "w", "s", "dev")).unwrap();
+    let runner = pool
+        .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
+        .unwrap();
     // And opening the turn still probes nothing — only a command does.
     assert!(runner.is_some());
     assert!(h.engine.calls().is_empty());
@@ -530,6 +542,7 @@ async fn sweeps_containers_a_previous_process_left_behind_on_first_use() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -558,6 +571,7 @@ async fn still_runs_the_turn_when_the_sweep_fails() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     // An orphan nobody could remove is untidy; refusing the turn over it would
@@ -572,6 +586,7 @@ async fn returns_no_runner_for_an_agent_that_names_no_container() {
     // Not a refusal: a request that selects no container is the host.
     assert!(
         pool.resolve_turn(&request("a", "w", "s", ""))
+            .await
             .unwrap()
             .is_none()
     );
@@ -584,7 +599,7 @@ async fn refuses_an_environment_that_is_not_installed() {
     // **Never a downgrade to the host.** `Ok(None)` would mean "run it here",
     // so an environment that cannot be honoured is an error rather than an
     // absent runner.
-    let error = refusal(pool.resolve_turn(&request("a", "w", "s", "dev")));
+    let error = refusal(pool.resolve_turn(&request("a", "w", "s", "dev")).await);
     assert_eq!(error.kind, ErrorKind::Config);
     assert!(
         error.message.contains("No environment is installed"),
@@ -600,6 +615,7 @@ async fn allows_a_sandbox_without_starting_one_then_starts_it_on_the_first_comma
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     assert!(pool.live().is_empty());
@@ -619,6 +635,7 @@ async fn opens_a_turn_without_a_daemon_and_fails_only_the_command() {
     // inside a live turn rather than a refusal with no turn to belong to.
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     let error = common::err(run(&runner).await);
@@ -640,6 +657,7 @@ async fn starts_the_container_once_the_daemon_comes_back() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     assert!(run(&runner).await.is_err());
@@ -658,6 +676,7 @@ async fn refuses_rather_than_falling_back_to_the_host_when_the_engine_fails() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     let error = common::err(run(&runner).await);
@@ -677,7 +696,10 @@ async fn refuses_an_allow_list_with_nothing_in_it() {
     // An allow-list that reaches nothing is a mode chosen by mistake, and the
     // pool says so on the turn rather than starting a container around it.
     let asking = reaching(NetworkMode::Allowlist, request("a", "w", "s", "dev"));
-    assert_eq!(refusal(pool.resolve_turn(&asking)).kind, ErrorKind::Config);
+    assert_eq!(
+        refusal(pool.resolve_turn(&asking).await).kind,
+        ErrorKind::Config
+    );
 }
 
 #[tokio::test]
@@ -687,11 +709,13 @@ async fn reuses_the_container_for_a_second_turn_in_the_same_session() {
     let pool = h.pool();
     let first = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&first).await.unwrap();
     let second = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&second).await.unwrap();
@@ -712,6 +736,7 @@ async fn gives_two_workspaces_two_containers_because_the_mount_differs() {
     for workspace in ["w1", "w2"] {
         let runner = pool
             .resolve_turn(&request("a", workspace, "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -726,6 +751,7 @@ async fn stops_a_container_that_has_gone_idle() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -735,7 +761,9 @@ async fn stops_a_container_that_has_gone_idle() {
         u64::try_from(CONTAINER_IDLE_MS).unwrap() + 1,
     ));
     // The sweep runs on the next turn to ask for a runner.
-    pool.resolve_turn(&request("b", "w", "s2", "dev")).unwrap();
+    pool.resolve_turn(&request("b", "w", "s2", "dev"))
+        .await
+        .unwrap();
     assert!(pool.live().is_empty());
     assert_eq!(h.engine.stops(), vec!["dw-sbx-1".to_owned()]);
 }
@@ -749,10 +777,13 @@ async fn a_zero_idle_window_disables_the_sweep_rather_than_reaping_everything() 
     let pool = ContainerPool::new(options);
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
-    pool.resolve_turn(&request("a", "w", "s", "dev")).unwrap();
+    pool.resolve_turn(&request("a", "w", "s", "dev"))
+        .await
+        .unwrap();
     assert_eq!(pool.live().len(), 1);
 }
 
@@ -768,6 +799,7 @@ async fn evicts_the_least_recently_used_beyond_the_cap() {
     for workspace in ["w1", "w2", "w3"] {
         let runner = pool
             .resolve_turn(&request("a", workspace, "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -787,6 +819,7 @@ async fn a_cap_of_one_still_hands_back_the_container_it_started() {
     let pool = ContainerPool::new(options);
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -807,6 +840,7 @@ async fn a_zero_cap_means_no_cap_rather_than_no_containers() {
     for workspace in 0..=MAX_LIVE_CONTAINERS {
         let runner = pool
             .resolve_turn(&request("a", &workspace.to_string(), "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -823,11 +857,12 @@ async fn stops_everything_on_close() {
     for workspace in ["w1", "w2"] {
         let runner = pool
             .resolve_turn(&request("a", workspace, "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
     }
-    pool.close();
+    pool.close().await;
     assert!(pool.live().is_empty());
     assert_eq!(h.engine.stops().len(), 2);
 }
@@ -844,12 +879,13 @@ async fn survives_an_engine_that_cannot_stop_a_container() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
     // A container that is already gone is the common case, and a failure to stop
     // one must not take down the turn that triggered the sweep.
-    pool.close();
+    pool.close().await;
     assert!(pool.live().is_empty());
 }
 
@@ -860,6 +896,7 @@ async fn labels_the_container_with_its_session_definition_and_owning_process() {
     let pool = h.pool();
     let runner = pool
         .resolve_turn(&request("a", "w", "chat", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -884,6 +921,7 @@ async fn translates_every_mount_for_a_containerised_darkwire() {
     let pool = ContainerPool::new(options);
     let runner = pool
         .resolve_turn(&request("a", "w", "s", "dev"))
+        .await
         .unwrap()
         .unwrap();
     run(&runner).await.unwrap();
@@ -910,6 +948,7 @@ async fn masks_the_host_identifying_corners_of_sysfs_only_where_that_works() {
         let pool = ContainerPool::new(options);
         let runner = pool
             .resolve_turn(&request("a", "w", bin, "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -960,6 +999,7 @@ mod a_container_with_a_command_in_it {
         let (pool, release) = blocking_pool(&h, MAX_LIVE_CONTAINERS);
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
 
@@ -977,7 +1017,9 @@ mod a_container_with_a_command_in_it {
         h.clock.advance(Duration::from_millis(
             u64::try_from(CONTAINER_IDLE_MS).unwrap() + 1,
         ));
-        pool.resolve_turn(&request("b", "w", "s2", "dev")).unwrap();
+        pool.resolve_turn(&request("b", "w", "s2", "dev"))
+            .await
+            .unwrap();
         assert_eq!(
             pool.live().len(),
             1,
@@ -995,6 +1037,7 @@ mod a_container_with_a_command_in_it {
         let (pool, release) = blocking_pool(&h, 1);
         let busy = pool
             .resolve_turn(&request("a", "w1", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         let running = tokio::spawn({
@@ -1013,6 +1056,7 @@ mod a_container_with_a_command_in_it {
         // with the daemon's words and no stated reason.
         let second = pool
             .resolve_turn(&request("a", "w2", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         let error = common::err(run(&second).await);
@@ -1042,6 +1086,7 @@ mod a_container_that_disappeared {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
 
@@ -1061,6 +1106,7 @@ mod a_container_that_disappeared {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -1088,6 +1134,7 @@ mod a_container_that_disappeared {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         let outcome = run(&runner).await.unwrap();
@@ -1102,6 +1149,7 @@ mod a_container_that_disappeared {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -1109,7 +1157,7 @@ mod a_container_that_disappeared {
         // The two causes are told apart by the epoch, which a stop bumps and a
         // daemon restart does not. Rebuilding here would make the stop look
         // like it did nothing.
-        pool.stop_instance(&pool.live()[0]).unwrap();
+        pool.stop_instance(&pool.live()[0]).await.unwrap();
         assert_eq!(common::err(run(&runner).await).kind, ErrorKind::Aborted);
         assert_eq!(h.engine.starts().len(), 1);
         assert!(pool.live().is_empty());
@@ -1126,6 +1174,7 @@ mod the_definition_is_re_read_every_turn {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -1134,7 +1183,7 @@ mod the_definition_is_re_read_every_turn {
         // notifies this pool; asking every turn is what makes it take effect.
         std::fs::remove_file(h.root.join("environments/dev.yaml")).unwrap();
         assert_eq!(
-            refusal(pool.resolve_turn(&request("a", "w", "s", "dev"))).kind,
+            refusal(pool.resolve_turn(&request("a", "w", "s", "dev")).await).kind,
             ErrorKind::Config
         );
     }
@@ -1146,6 +1195,7 @@ mod the_definition_is_re_read_every_turn {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         std::fs::remove_file(h.root.join("environments/dev.yaml")).unwrap();
@@ -1162,6 +1212,7 @@ mod the_definition_is_re_read_every_turn {
         let pool = h.pool();
         let runner = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         run(&runner).await.unwrap();
@@ -1171,6 +1222,7 @@ mod the_definition_is_re_read_every_turn {
         h.install("dev", &json!({"user": "1001:1001"}));
         let next = pool
             .resolve_turn(&request("a", "w", "s", "dev"))
+            .await
             .unwrap()
             .unwrap();
         assert!(pool.live().is_empty());

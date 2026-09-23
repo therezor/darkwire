@@ -297,3 +297,42 @@ async fn skill_cannot_be_pointed_outside_the_workspace_by_its_name() {
     assert!(!error.content.contains(".."));
     assert!(!error.content.contains("not yours"));
 }
+
+#[tokio::test]
+async fn memory_refuses_a_memory_folder_that_leads_out() {
+    let ws = TestWorkspace::new();
+    let elsewhere = ws.outside().join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join("secret.md"), "# Not yours").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, ws.root().join("memory")).unwrap();
+
+    for args in [read("secret"), save("planted", "# Mine"), delete("secret")] {
+        let result = run(&memory_tool(), args.clone(), ws.context()).await;
+        assert!(result.is_error, "{args}: {}", result.content);
+        assert_eq!(result.kind, Some(ErrorKind::JailEscape), "{args}");
+    }
+    assert_eq!(
+        fs::read_to_string(elsewhere.join("secret.md")).unwrap(),
+        "# Not yours"
+    );
+    assert!(!elsewhere.join("planted.md").exists());
+    assert!(!elsewhere.join("planted.md.tmp").exists());
+}
+
+#[tokio::test]
+async fn memory_goes_through_a_memory_folder_that_stays_inside() {
+    let ws = TestWorkspace::new();
+    fs::create_dir(ws.root().join("kept")).unwrap();
+    std::os::unix::fs::symlink(ws.root().join("kept"), ws.root().join("memory")).unwrap();
+
+    let saved = run(&memory_tool(), save("auth-sessions", CONTENT), ws.context()).await;
+    assert!(!saved.is_error, "{}", saved.content);
+    assert_eq!(
+        fs::read_to_string(ws.root().join("kept/auth-sessions.md")).unwrap(),
+        format!("{CONTENT}\n")
+    );
+    let read_back = run(&memory_tool(), read("auth-sessions"), ws.context()).await;
+    assert_eq!(read_back.content, format!("{CONTENT}\n"));
+    let removed = run(&memory_tool(), delete("auth-sessions"), ws.context()).await;
+    assert_eq!(removed.details.get("existed"), Some(&json!(true)));
+}

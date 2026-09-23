@@ -23,19 +23,23 @@
 //!
 //! The new contents go to a temporary file beside the original, which is then
 //! renamed over it. A failed or interrupted write leaves the old file whole.
+//! Both happen through the workspace root, so neither can land outside it.
 
 use std::io::{Read as _, Write as _};
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt as _};
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
+use darkwire_security::{JailAccept, WorkspaceJail};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::builtin::built;
-use crate::builtin::shared::{clamp_note, format_bytes, fs_failure, open_flags};
+use crate::builtin::shared::{clamp_note, format_bytes, in_root, open_options, root_failure};
 use crate::builtin::walk::MAX_FILE_BYTES;
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
@@ -287,12 +291,10 @@ impl ToolHandler for Edit {
             let where_ = accepted.relative.as_str();
             let note = clamp_note(&args.path, &accepted);
 
-            let path = accepted.path.clone();
-            let loaded = tokio::task::spawn_blocking(move || load(&path))
-                .await
-                .map_err(|error| {
-                    WireError::new(ErrorKind::Internal, format!("edit failed: {error}"))
-                })?;
+            let loaded = in_root(&ctx.jail, &accepted, "edit", |root, inside| {
+                load(root, inside)
+            })
+            .await?;
             let (raw, mode) = match loaded {
                 Ok(Loaded::Text { text, mode }) => (text, mode),
                 Ok(Loaded::NotRegular) => {
@@ -314,7 +316,7 @@ impl ToolHandler for Edit {
                     .with_detail("path", where_)
                     .with_detail("size", size));
                 }
-                Err(error) => return Err(fs_failure(&error, where_, &note)),
+                Err(error) => return Err(root_failure(&error, &args.path, where_, &note)),
             };
             // A byte-order mark is invisible, so the model never includes one in
             // `oldText`. Matching without it and writing it back is the only
@@ -346,7 +348,7 @@ impl ToolHandler for Edit {
                 let text = apply(&original, &spans);
                 let shown = diff(&original, &spans);
                 assert_not_aborted(&ctx.token, "edit")?;
-                return write_back(&accepted.path, mode, mark, &text, where_, &note)
+                return write_back(&ctx.jail, &accepted, mode, mark, &text, &args.path, &note)
                     .await
                     .map(|()| {
                         report(
@@ -362,7 +364,10 @@ impl ToolHandler for Edit {
             };
 
             assert_not_aborted(&ctx.token, "edit")?;
-            write_back(&accepted.path, mode, mark, &updated, where_, &note).await?;
+            write_back(
+                &ctx.jail, &accepted, mode, mark, &updated, &args.path, &note,
+            )
+            .await?;
             Ok(report(
                 &original,
                 &updated,
@@ -428,12 +433,10 @@ enum Loaded {
 /// Opened for writing as well, so a file this process may not write is refused
 /// here. The rename would otherwise replace it, since only the directory's
 /// permission governs that.
-fn load(path: &Path) -> std::io::Result<Loaded> {
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(open_flags())
-        .open(path)?;
+fn load(root: &Dir, inside: &Path) -> std::io::Result<Loaded> {
+    let mut options = open_options();
+    options.read(true).write(true);
+    let file = root.open_with(inside, &options)?.into_std();
     let stats = file.metadata()?;
     if !stats.is_file() {
         return Ok(Loaded::NotRegular);
@@ -462,8 +465,8 @@ static TEMPORARY: AtomicU64 = AtomicU64::new(0);
 /// `create_new` so a name planted in the directory is never written through.
 /// The set-id bits are not carried over, as a write by anyone but root would
 /// clear them anyway.
-fn replace(target: &Path, mode: u32, bytes: &[u8]) -> std::io::Result<()> {
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+fn replace(root: &Dir, target: &Path, mode: u32, bytes: &[u8]) -> std::io::Result<()> {
+    let parent = target.parent().unwrap_or_else(|| Path::new(""));
     let name = target
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -472,13 +475,10 @@ fn replace(target: &Path, mode: u32, bytes: &[u8]) -> std::io::Result<()> {
         let serial = TEMPORARY.fetch_add(1, Ordering::Relaxed);
         let candidate: PathBuf =
             parent.join(format!(".{name}.{}.{serial}.edit", std::process::id()));
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(mode & 0o777)
-            .open(&candidate)
-        {
-            Ok(file) => break (candidate, file),
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true).mode(mode & 0o777);
+        match root.open_with(&candidate, &options) {
+            Ok(file) => break (candidate, file.into_std()),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error),
         }
@@ -488,30 +488,31 @@ fn replace(target: &Path, mode: u32, bytes: &[u8]) -> std::io::Result<()> {
         .and_then(|()| file.flush())
         // The umask narrowed `mode` at create time.
         .and_then(|()| file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777)))
-        .and_then(|()| std::fs::rename(&temporary, target));
+        .and_then(|()| root.rename(&temporary, root, target));
     if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = root.remove_file(&temporary);
     }
     written
 }
 
 /// Writes the file back, byte-order mark restored.
 async fn write_back(
-    path: &Path,
+    jail: &Arc<WorkspaceJail>,
+    accepted: &JailAccept,
     mode: u32,
     mark: &str,
     text: &str,
-    where_: &str,
+    requested: &str,
     note: &str,
 ) -> Result<()> {
     let mut bytes = Vec::with_capacity(mark.len() + text.len());
     bytes.extend_from_slice(mark.as_bytes());
     bytes.extend_from_slice(text.as_bytes());
-    let target = path.to_path_buf();
-    tokio::task::spawn_blocking(move || replace(&target, mode, &bytes))
-        .await
-        .map_err(|error| WireError::new(ErrorKind::Internal, format!("edit failed: {error}")))?
-        .map_err(|error| fs_failure(&error, where_, note))
+    in_root(jail, accepted, "edit", move |root, inside| {
+        replace(root, inside, mode, &bytes)
+    })
+    .await?
+    .map_err(|error| root_failure(&error, requested, &accepted.relative, note))
 }
 
 /// What the model reads after a successful edit.

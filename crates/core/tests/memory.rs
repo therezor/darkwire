@@ -487,3 +487,48 @@ mod index {
         );
     }
 }
+
+mod symlinked_folder {
+    use super::*;
+
+    /// A `memory` folder that is a link to a directory outside the workspace.
+    fn linked_out(root: &Path) -> TempDir {
+        let outside = workspace();
+        fs::write(outside.path().join("secret.md"), "# Not yours").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("memory")).unwrap();
+        outside
+    }
+
+    #[test]
+    fn is_not_followed_out_of_the_workspace() {
+        let root = workspace();
+        let outside = linked_out(root.path());
+
+        assert_eq!(read_memories(root.path()), Vec::new());
+        assert_eq!(read_memory(root.path(), "secret"), None);
+        assert!(save_memory(root.path(), "planted", "# Mine").is_err());
+        assert!(delete_memory(root.path(), "secret").is_err());
+
+        assert!(!outside.path().join("planted.md").exists());
+        assert!(!outside.path().join("planted.md.tmp").exists());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("secret.md")).unwrap(),
+            "# Not yours"
+        );
+    }
+
+    #[test]
+    fn is_followed_when_it_stays_inside() {
+        let root = workspace();
+        fs::create_dir(root.path().join("kept")).unwrap();
+        std::os::unix::fs::symlink(root.path().join("kept"), root.path().join("memory")).unwrap();
+
+        save_memory(root.path(), "auth-sessions", FIXTURE).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.path().join("kept/auth-sessions.md")).unwrap(),
+            format!("{FIXTURE}\n")
+        );
+        assert_eq!(read_memories(root.path()).len(), 1);
+        assert!(delete_memory(root.path(), "auth-sessions").unwrap().existed);
+    }
+}

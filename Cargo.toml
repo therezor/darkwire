@@ -126,6 +126,12 @@ oauth2 = { version = "=5.0.0", default-features = false }
 jsonschema = { version = "=0.56.0", default-features = false }
 nix = { version = "=0.31.3", features = ["signal", "fs", "process"] }
 walkdir = "=2.5.0"
+# Workspace files opened relative to an open root directory, so a path component
+# swapped for a symlink after the jail looked cannot lead out of it.
+cap-std = "=4.0.3"
+# `follow(No)`, so a final component that turned into a symlink is refused
+# rather than followed.
+cap-fs-ext = "=4.0.3"
 # ripgrep as a library, for the `grep` and `find` tools. In-process rather than
 # a child `rg`, because the file tools must hold inside the workspace jail and
 # must work in a container image that ships no search binary.

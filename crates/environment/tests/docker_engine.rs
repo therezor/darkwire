@@ -88,19 +88,19 @@ fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-#[test]
-fn probe_asks_the_daemon_for_its_version() {
+#[tokio::test]
+async fn probe_asks_the_daemon_for_its_version() {
     let fake = fake("exit 0");
-    assert!(fake.engine().probe().is_ok());
+    assert!(fake.engine().probe().await.is_ok());
     assert_eq!(fake.calls(), vec!["version --format {{.Server.Version}}"]);
 }
 
-#[test]
-fn a_non_zero_exit_carries_the_daemons_own_words() {
+#[tokio::test]
+async fn a_non_zero_exit_carries_the_daemons_own_words() {
     // A bare "could not be started" sends the reader to the logs for the one
     // fact that would have told them what to do.
     let fake = fake("echo 'Cannot connect to the Docker daemon' >&2\nexit 1");
-    let error = fake.engine().probe().unwrap_err();
+    let error = fake.engine().probe().await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::Tool);
     assert!(
         error.message.contains("Cannot connect"),
@@ -110,13 +110,13 @@ fn a_non_zero_exit_carries_the_daemons_own_words() {
     assert_eq!(error.details["what"], "version");
 }
 
-#[test]
-fn a_call_that_never_returns_is_a_deadline_rather_than_a_clean_failure() {
+#[tokio::test]
+async fn a_call_that_never_returns_is_a_deadline_rather_than_a_clean_failure() {
     // A CLI talking to a socket whose daemon has gone away does not fail fast:
     // it blocks. A timeout arrives as a killing signal rather than as a status,
     // so checking the status alone would read "killed" as an ordinary refusal.
     let fake = fake("sleep 30");
-    let error = fake.engine().probe().unwrap_err();
+    let error = fake.engine().probe().await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::Tool);
     assert!(
         error.message.contains("did not respond within"),
@@ -125,38 +125,82 @@ fn a_call_that_never_returns_is_a_deadline_rather_than_a_clean_failure() {
     );
 }
 
-#[test]
-fn a_binary_that_is_not_there_names_itself() {
+#[tokio::test]
+async fn a_call_past_its_deadline_is_killed_rather_than_left_running() {
+    let temp = TempDir::new().unwrap();
+    let pid_file = temp.path().join("pid");
+    let fake = fake(&format!(
+        "echo $$ > '{}'\nexec sleep 30",
+        pid_file.display()
+    ));
+    // Long enough for the script to have written its pid on a loaded machine.
+    let engine = fake.engine_with(DockerEngineOptions {
+        control_timeout: Some(Duration::from_secs(2)),
+        ..DockerEngineOptions::default()
+    });
+    engine.probe().await.unwrap_err();
+    let pid: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let signalled = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
+    assert_eq!(signalled, Err(nix::errno::Errno::ESRCH));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_slow_call_leaves_the_runtime_free_for_other_work() {
+    // One runtime thread, so a call that blocked it would hold this sleep
+    // until the call's own deadline.
+    let fake = fake("sleep 30");
+    let engine = fake.engine_with(DockerEngineOptions {
+        control_timeout: Some(Duration::from_secs(3)),
+        ..DockerEngineOptions::default()
+    });
+    let probe = tokio::spawn(async move { engine.probe().await });
+    let started = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(probe.await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn a_binary_that_is_not_there_names_itself() {
     let engine = docker_engine(DockerEngineOptions {
         bin: "/nonexistent/docker".to_owned(),
         ..DockerEngineOptions::default()
     });
-    let error = engine.probe().unwrap_err();
+    let error = engine.probe().await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::Tool);
     assert!(error.message.contains("Could not run"), "{}", error.message);
     assert_eq!(error.details["bin"], "/nonexistent/docker");
 }
 
-#[test]
-fn stop_gives_a_sandbox_two_seconds_rather_than_ten() {
+#[tokio::test]
+async fn stop_gives_a_sandbox_two_seconds_rather_than_ten() {
     // A sandbox holds no state worth a graceful shutdown, and a reap that blocks
     // ten seconds per container is a reap nobody runs.
     let fake = fake("exit 0");
-    fake.engine().stop("dw-sbx-1").unwrap();
+    fake.engine().stop("dw-sbx-1").await.unwrap();
     assert_eq!(fake.calls(), vec!["stop --time 2 dw-sbx-1"]);
 }
 
-#[test]
-fn start_runs_the_argv_it_was_handed() {
+#[tokio::test]
+async fn start_runs_the_argv_it_was_handed() {
     let fake = fake("exit 0");
     fake.engine()
         .start(&argv(&["run", "--detach", "x"]))
+        .await
         .unwrap();
     assert_eq!(fake.calls(), vec!["run --detach x"]);
 }
 
-#[test]
-fn start_retries_once_for_a_mount_source_the_daemon_cannot_see_yet() {
+#[tokio::test]
+async fn start_retries_once_for_a_mount_source_the_daemon_cannot_see_yet() {
     // A desktop daemon's file sharing does not see a directory the instant it is
     // created, and the transcript directory is made microseconds before this.
     let fake = fake(
@@ -167,23 +211,23 @@ fn start_retries_once_for_a_mount_source_the_daemon_cannot_see_yet() {
          fi\n\
          exit 0",
     );
-    assert!(fake.engine().start(&argv(&["run", "x"])).is_ok());
+    assert!(fake.engine().start(&argv(&["run", "x"])).await.is_ok());
     assert_eq!(fake.calls().len(), 2);
 }
 
-#[test]
-fn start_does_not_retry_a_genuinely_absent_path() {
+#[tokio::test]
+async fn start_does_not_retry_a_genuinely_absent_path() {
     // Scoped to that exact message, so a path that is really missing fails fast.
     let fake = fake("echo 'no such image' >&2\nexit 1");
-    let error = fake.engine().start(&argv(&["run", "x"])).unwrap_err();
+    let error = fake.engine().start(&argv(&["run", "x"])).await.unwrap_err();
     assert!(error.message.contains("no such image"), "{}", error.message);
     assert_eq!(fake.calls().len(), 1);
 }
 
-#[test]
-fn start_gives_up_when_the_retry_fails_too() {
+#[tokio::test]
+async fn start_gives_up_when_the_retry_fails_too() {
     let fake = fake("echo 'bind source path does not exist: /runs' >&2\nexit 1");
-    assert!(fake.engine().start(&argv(&["run", "x"])).is_err());
+    assert!(fake.engine().start(&argv(&["run", "x"])).await.is_err());
     assert_eq!(fake.calls().len(), 2);
 }
 
@@ -217,10 +261,10 @@ mod reaping {
         })
     }
 
-    #[test]
-    fn filters_on_the_label_a_container_was_created_with() {
+    #[tokio::test]
+    async fn filters_on_the_label_a_container_was_created_with() {
         let fake = sweeper("");
-        engine(&fake, &[]).reap_orphans().unwrap();
+        engine(&fake, &[]).reap_orphans().await.unwrap();
         let ps = fake.calls().remove(0);
         // A label rather than a name prefix: a label cannot drift from whatever
         // this version happens to name things.
@@ -228,49 +272,49 @@ mod reaping {
         assert!(ps.contains(OWNER_LABEL), "{ps}");
     }
 
-    #[test]
-    fn spares_this_processs_own_containers() {
+    #[tokio::test]
+    async fn spares_this_processs_own_containers() {
         // Shutdown reaps them, and doing it here would kill the container the
         // turn that triggered this sweep is about to use.
         let fake = sweeper("abc me:1\\n");
-        engine(&fake, &[]).reap_orphans().unwrap();
+        engine(&fake, &[]).reap_orphans().await.unwrap();
         assert!(removed(&fake).is_empty());
     }
 
-    #[test]
-    fn spares_a_peers_container_while_that_peer_is_running() {
+    #[tokio::test]
+    async fn spares_a_peers_container_while_that_peer_is_running() {
         let fake = sweeper("abc peer:2\\n");
-        engine(&fake, &["peer:2"]).reap_orphans().unwrap();
+        engine(&fake, &["peer:2"]).reap_orphans().await.unwrap();
         assert!(removed(&fake).is_empty());
     }
 
-    #[test]
-    fn removes_a_container_whose_owner_is_gone() {
+    #[tokio::test]
+    async fn removes_a_container_whose_owner_is_gone() {
         let fake = sweeper("abc peer:2\\ndef peer:3\\n");
-        engine(&fake, &["peer:3"]).reap_orphans().unwrap();
+        engine(&fake, &["peer:3"]).reap_orphans().await.unwrap();
         // A force removal, not a stop: these are already unowned, and a stop on
         // a container whose process is gone waits out the timeout for nothing.
         assert_eq!(removed(&fake), vec!["rm --force abc".to_owned()]);
     }
 
-    #[test]
-    fn removes_an_unlabelled_container_from_before_the_label_existed() {
+    #[tokio::test]
+    async fn removes_an_unlabelled_container_from_before_the_label_existed() {
         // Reaped, which is the behaviour it was created under.
         let fake = sweeper("bare\\n");
-        engine(&fake, &[]).reap_orphans().unwrap();
+        engine(&fake, &[]).reap_orphans().await.unwrap();
         assert_eq!(removed(&fake), vec!["rm --force bare".to_owned()]);
     }
 
-    #[test]
-    fn ignores_blank_lines_and_a_listing_that_failed() {
+    #[tokio::test]
+    async fn ignores_blank_lines_and_a_listing_that_failed() {
         let fake = sweeper("\\n   \\n");
-        engine(&fake, &[]).reap_orphans().unwrap();
+        engine(&fake, &[]).reap_orphans().await.unwrap();
         assert!(removed(&fake).is_empty());
 
         // A `ps` that exits non-zero yields nothing rather than a refusal: an
         // orphan nobody could list is untidy, never fatal.
         let failing = fake_failing();
-        engine(&failing, &[]).reap_orphans().unwrap();
+        engine(&failing, &[]).reap_orphans().await.unwrap();
         assert!(removed(&failing).is_empty());
     }
 
@@ -317,8 +361,8 @@ mod resolving_an_image {
         })
     }
 
-    #[test]
-    fn an_image_already_here_resolves_without_a_pull() {
+    #[tokio::test]
+    async fn an_image_already_here_resolves_without_a_pull() {
         // The common case once an operator has the image: instant, and no
         // network. `pulled` says so, because the screen that waited on it is
         // the one that has to explain the difference.
@@ -326,7 +370,10 @@ mod resolving_an_image {
             "case \"$*\" in\n  *RepoDigests*) echo '{REGISTRY_DIGEST}'; exit 0;;\n  *) exit 1;;\nesac"
         ));
 
-        let resolved = engine(&fake).resolve_image("node:22").expect("a digest");
+        let resolved = engine(&fake)
+            .resolve_image("node:22")
+            .await
+            .expect("a digest");
 
         assert_eq!(resolved.image, REGISTRY_DIGEST);
         assert!(!resolved.pulled);
@@ -337,15 +384,18 @@ mod resolving_an_image {
         );
     }
 
-    #[test]
-    fn an_image_that_is_not_here_yet_is_pulled_first() {
+    #[tokio::test]
+    async fn an_image_that_is_not_here_yet_is_pulled_first() {
         // Two inspects around one pull: the first misses, the pull fetches, the
         // second reads the digest off what arrived.
         let fake = fake(&format!(
             "if [ -f \"$(dirname \"$0\")/pulled\" ]; then\n  case \"$*\" in *RepoDigests*) echo '{REGISTRY_DIGEST}'; exit 0;; esac\nfi\ncase \"$*\" in\n  pull*) touch \"$(dirname \"$0\")/pulled\"; exit 0;;\nesac\nexit 1"
         ));
 
-        let resolved = engine(&fake).resolve_image("node:22").expect("a digest");
+        let resolved = engine(&fake)
+            .resolve_image("node:22")
+            .await
+            .expect("a digest");
 
         assert_eq!(resolved.image, REGISTRY_DIGEST);
         assert!(resolved.pulled);
@@ -356,22 +406,25 @@ mod resolving_an_image {
         );
     }
 
-    #[test]
-    fn an_image_built_here_and_never_pushed_falls_back_to_its_id() {
+    #[tokio::test]
+    async fn an_image_built_here_and_never_pushed_falls_back_to_its_id() {
         // No `RepoDigests` at all, which is what a local `docker build`
         // produces. Its own id is still a content address, so it still pins.
         let fake = fake(&format!(
             "case \"$*\" in\n  *RepoDigests*) exit 1;;\n  *'{{{{.Id}}}}'*) echo '{LOCAL_ID}'; exit 0;;\n  *) exit 1;;\nesac"
         ));
 
-        let resolved = engine(&fake).resolve_image("mine:dev").expect("an id");
+        let resolved = engine(&fake)
+            .resolve_image("mine:dev")
+            .await
+            .expect("an id");
 
         assert_eq!(resolved.image, LOCAL_ID);
         assert!(!resolved.pulled);
     }
 
-    #[test]
-    fn a_reference_that_does_not_exist_reports_what_the_engine_said() {
+    #[tokio::test]
+    async fn a_reference_that_does_not_exist_reports_what_the_engine_said() {
         // The engine knows whether this was a typo, a private registry or no
         // network at all. Any sentence invented here would be a worse guess.
         let fake = fake(
@@ -380,6 +433,7 @@ mod resolving_an_image {
 
         let error = engine(&fake)
             .resolve_image("node:nope")
+            .await
             .expect_err("a refusal");
 
         assert_eq!(error.kind, ErrorKind::Tool);

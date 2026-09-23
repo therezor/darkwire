@@ -181,6 +181,7 @@ async fn find_stops_on_a_cancelled_token_part_way_through_a_tree() {
     token.cancel();
     let failed = find_blocking(
         &FindRequest {
+            jail: std::sync::Arc::clone(ws.jail()),
             root: ws.root().to_path_buf(),
             pattern: "*.txt".to_owned(),
             limit: 1000,
@@ -189,4 +190,28 @@ async fn find_stops_on_a_cancelled_token_part_way_through_a_tree() {
     )
     .expect_err("a cancelled search reports it");
     assert_eq!(failed.kind, ErrorKind::Aborted);
+}
+
+#[test]
+fn find_drops_a_hit_whose_directory_was_swapped_to_lead_out_after_the_check() {
+    let ws = TestWorkspace::new();
+    fs::create_dir(ws.root().join("sub")).unwrap();
+    let accepted = ws.jail().accept("sub").unwrap();
+    let elsewhere = ws.outside().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(elsewhere.join("secret.txt"), "needle\n").unwrap();
+    fs::remove_dir(ws.root().join("sub")).unwrap();
+    symlink(&elsewhere, ws.root().join("sub")).unwrap();
+    let report = find_blocking(
+        &FindRequest {
+            jail: std::sync::Arc::clone(ws.jail()),
+            root: accepted.path,
+            pattern: "*.txt".to_owned(),
+            limit: 1000,
+        },
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert!(report.paths.is_empty(), "{:?}", report.paths);
+    assert!(report.unreadable >= 1);
 }

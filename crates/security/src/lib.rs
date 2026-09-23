@@ -77,7 +77,7 @@ pub use ip::{
 };
 pub use jail::{
     JailAccept, JailCheck, JailOptions, JailRejection, JailResolver, PathShape, SingleJail,
-    WorkspaceJail, path_shapes, single_jail,
+    WorkspaceJail, escape_refusal, led_outside, path_shapes, single_jail,
 };
 pub use keychain::{
     CommandResult, CommandRunner, KeychainOptions, KeychainStore, Platform, SystemCommandRunner,

@@ -21,6 +21,8 @@ testkit = ["dep:tempfile"]
 darkwire-core.workspace = true
 darkwire-protocol.workspace = true
 darkwire-security.workspace = true
+cap-fs-ext.workspace = true
+cap-std.workspace = true
 chrono.workspace = true
 dom_query.workspace = true
 dom_smoothie.workspace = true
@@ -46,7 +48,6 @@ serde_json.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-walkdir.workspace = true
 tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
