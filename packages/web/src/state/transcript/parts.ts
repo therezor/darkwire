@@ -53,6 +53,22 @@ export function unwrapToolOutput(content: string): string {
   return match[2].replace(/<\\(\/?)tool_output_/gi, '<$1tool_output_');
 }
 
+/**
+ * The line the agent puts above a mid-turn steer before storing it.
+ *
+ * Restated from `STEERING_PREFIX` in `darkwire-agent`, for the same reason as
+ * the envelope above. `transcript.test.ts` pins the exact text.
+ */
+const STEER_PREFIX =
+  '[Steering: sent by the user while this task was running]\n\n';
+
+/** The steer's own words, or `undefined` for an ordinary user row. */
+export function steerText(text: string): string | undefined {
+  return text.startsWith(STEER_PREFIX)
+    ? text.slice(STEER_PREFIX.length)
+    : undefined;
+}
+
 export function unloadedSubagent(run: SubagentRunRef): SubagentPart {
   return {
     agentId: run.agentId,
@@ -152,20 +168,22 @@ export function orphanTurn(turnId: string): TurnItem {
   };
 }
 
-export function openTurn(items: TranscriptItem[], turnId: string): TurnItem {
-  const last = items.at(-1);
-  if (last?.kind === 'turn' && last.id === turnId) return last;
+/**
+ * The index of the turn `turnId` when it is the one still open at the end, or
+ * of a new one pushed for it.
+ *
+ * Trailing steers are looked past: the answer after a steer belongs to the turn
+ * the steer corrected, and a second item with the same id is a duplicate React
+ * key.
+ */
+export function openTurn(items: TranscriptItem[], turnId: string): number {
+  let index = items.length - 1;
+  while (items[index]?.kind === 'steer') index -= 1;
+  const last = items[index];
+  if (last?.kind === 'turn' && last.id === turnId) return index;
 
-  const turn: TurnItem = { ...orphanTurn(turnId), done: true };
-  items.push(turn);
-  return turn;
-}
-
-export function replaceLast(
-  items: TranscriptItem[],
-  item: TranscriptItem,
-): void {
-  items[items.length - 1] = item;
+  items.push({ ...orphanTurn(turnId), done: true });
+  return items.length - 1;
 }
 
 /**

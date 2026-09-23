@@ -198,6 +198,9 @@ export async function requestVoid(
  * in `SettingsResponse.credentialsPresent`. A client method that returned what
  * it stored would be a read path for a store that has none.
  */
+/** The route's own maximum: fewest round trips for a long transcript. */
+const MESSAGE_PAGE_LIMIT = 200;
+
 export const api = {
   me: (signal?: AbortSignal): Promise<AuthSessionResponse> =>
     request('/api/auth/me', AuthSessionResponseSchema, {
@@ -291,17 +294,33 @@ export const api = {
       ...(options.signal ? { signal: options.signal } : {}),
     }),
 
-  messages: (
+  /**
+   * The whole transcript. The route pages, and a transcript rebuilt from its
+   * first page would lose every turn after it.
+   */
+  messages: async (
     key: string,
     signal?: AbortSignal,
-  ): Promise<SessionMessagesResponse> =>
-    request(
-      `/api/sessions/${encodeURIComponent(key)}/messages`,
-      SessionMessagesResponseSchema,
-      {
+  ): Promise<SessionMessagesResponse> => {
+    const path = `/api/sessions/${encodeURIComponent(key)}/messages`;
+    const first = await request(path, SessionMessagesResponseSchema, {
+      query: { limit: MESSAGE_PAGE_LIMIT },
+      ...(signal ? { signal } : {}),
+    });
+    const messages = [...first.messages];
+    let cursor = first.nextCursor;
+    while (cursor !== undefined) {
+      const page = await request(path, SessionMessagesResponseSchema, {
+        query: { limit: MESSAGE_PAGE_LIMIT, cursor },
         ...(signal ? { signal } : {}),
-      },
-    ),
+      });
+      messages.push(...page.messages);
+      cursor = page.nextCursor;
+    }
+    // The runs and failures come whole on every page.
+    const { nextCursor, ...rest } = first;
+    return { ...rest, messages };
+  },
 
   /**
    * Drops a conversation's transcript, keeping the conversation.

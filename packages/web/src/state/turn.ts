@@ -58,6 +58,11 @@ interface TurnState {
   readonly queueDepth: number;
   /** The last server `seq` applied, which a reconnect resumes from. */
   readonly lastSeq: number;
+  /**
+   * The server's clock minus this one's, taken at connect. An approval
+   * deadline is in server time, and the two clocks need not agree.
+   */
+  readonly clockOffsetMs: number;
   readonly transcript: Transcript;
 
   readonly setConnection: (connection: ConnectionStatus) => void;
@@ -103,6 +108,7 @@ const INITIAL = {
   busy: false,
   queueDepth: 0,
   lastSeq: 0,
+  clockOffsetMs: 0,
   transcript: EMPTY_TRANSCRIPT,
 };
 
@@ -154,6 +160,10 @@ export const useTurnStore = create<TurnState>((set) => ({
           // gets its key here and nowhere else.
           next.sessionKey = message.sessionKey;
           next.workspaceId = message.workspaceId;
+          next.clockOffsetMs = message.serverTimeMs - Date.now();
+          // A server that restarted counts from zero again. Keeping the higher
+          // number would resume from a seq it never emitted.
+          if (message.lastSeq < state.lastSeq) next.lastSeq = message.lastSeq;
           break;
         case 'session.status':
           next.busy = message.busy;

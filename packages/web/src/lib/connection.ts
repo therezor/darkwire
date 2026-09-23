@@ -63,6 +63,20 @@ let durableSeq = 0;
 let resumeFloor: number | undefined;
 /** Whether the socket has been open before. See `onOpen`. */
 let reconnecting = false;
+/**
+ * The session a switch moved to, until a frame from it arrives.
+ *
+ * Deltas name no session, so a frame the old session sent before the switch
+ * reached the server would otherwise land on the new transcript.
+ */
+let switchingTo: string | undefined;
+/**
+ * The session this tab asked to resume, until its `session.replay` arrives.
+ *
+ * An incomplete replay rebuilds the transcript, and one answering another
+ * tab's resume must not rebuild this one.
+ */
+let resuming: string | undefined;
 
 /**
  * Subscribe to every parsed frame.
@@ -92,6 +106,10 @@ export function openConnection(sessionKey: string | undefined): void {
     onStatus: handleStatus,
     onMessage: handleMessage,
     onOpen: (send) => {
+      // A new socket: nothing is in flight from before, and a resume sent on
+      // the old one is not waiting for an answer any more.
+      switchingTo = undefined;
+      resuming = undefined;
       const { sessionKey: attached, lastSeq } = useTurnStore.getState();
       if (attached === undefined) return;
 
@@ -110,9 +128,11 @@ export function openConnection(sessionKey: string | undefined): void {
       // render each of them twice.
       if (reconnecting) {
         if (lastSeq > 0) {
+          resuming = attached;
           send({ type: 'session.resume', sessionKey: attached, lastSeq });
         }
       } else if (resumeFloor !== undefined) {
+        resuming = attached;
         send({
           type: 'session.resume',
           sessionKey: attached,
@@ -135,6 +155,8 @@ export function closeConnection(): void {
   socket?.close();
   socket = undefined;
   requested = undefined;
+  switchingTo = undefined;
+  resuming = undefined;
 }
 
 /**
@@ -169,6 +191,8 @@ export function switchSession(sessionKey: string): void {
 
   if (socket === undefined) return;
   if (socket.status === 'open') {
+    switchingTo = sessionKey;
+    resuming = sessionKey;
     socket.send({ type: 'session.resume', sessionKey, lastSeq });
     return;
   }
@@ -247,7 +271,8 @@ export function startFreshSession(
 }
 
 /**
- * Sends a message, and says which agent it should run on.
+ * Sends a message, and says which agent it should run on. Returns whether it
+ * went, so the composer keeps the text when there was nothing to send it on.
  *
  * The agent is carried on every message rather than only on the first, because
  * the socket may have minted this session key without a `session.new` frame —
@@ -259,10 +284,10 @@ export function sendUserMessage(
   text: string,
   attachments: readonly Attachment[] = [],
   agentId?: string,
-): void {
+): boolean {
   const store = useTurnStore.getState();
   const sessionKey = store.sessionKey;
-  if (sessionKey === undefined || socket === undefined) return;
+  if (sessionKey === undefined || socket === undefined) return false;
 
   // The idempotency key. A retry after a dropped socket — which the buffer in
   // `socket.ts` makes routine — is acked with the id the first attempt got,
@@ -278,6 +303,7 @@ export function sendUserMessage(
     clientMessageId,
     ...(agentId === undefined ? {} : { agentId }),
   });
+  return true;
 }
 
 export function stopTurn(): void {
@@ -393,6 +419,8 @@ export function resetConnection(): void {
   durableSeq = 0;
   resumeFloor = undefined;
   reconnecting = false;
+  switchingTo = undefined;
+  resuming = undefined;
   listeners.clear();
 }
 
@@ -412,8 +440,74 @@ function handleStatus(status: ConnectionStatus): void {
   }
 }
 
+/**
+ * Whether a frame is for the session this tab is on.
+ *
+ * A dropped frame is not applied and does not move the cursor, so a frame from
+ * the new session that beat the switch is still asked for by the resume.
+ */
+function belongsHere(message: ServerMessage): boolean {
+  const attached = useTurnStore.getState().sessionKey;
+  if (message.type === 'connected' || message.type === 'session.status') {
+    if (attached !== undefined && message.sessionKey !== attached) {
+      return false;
+    }
+  }
+  if (switchingTo === undefined) return true;
+
+  if (sessionOf(message) === switchingTo) {
+    switchingTo = undefined;
+    return true;
+  }
+  return (
+    message.type === 'pong' ||
+    (message.type === 'error' && message.turnId === undefined)
+  );
+}
+
+/**
+ * The session a frame is about, when it says.
+ *
+ * Not a subagent's frame, whose key is the child's, and not a notification,
+ * whose key is only where it was raised.
+ */
+function sessionOf(message: ServerMessage): string | undefined {
+  switch (message.type) {
+    case 'connected':
+    case 'message.ack':
+    case 'message.queued':
+    case 'turn.start':
+    case 'context.usage':
+    case 'session.status':
+    case 'session.reset':
+    case 'session.replay':
+    case 'session.truncated':
+    case 'steer':
+      return message.sessionKey;
+    default:
+      return undefined;
+  }
+}
+
 function handleMessage(message: ServerMessage): void {
+  if (!belongsHere(message)) {
+    // Not for this transcript, but what the subscribers do with it is not
+    // about the transcript either: the old session's `turn.end` is still what
+    // puts its title in the session list.
+    for (const listener of listeners) listener(message);
+    return;
+  }
+
   const store = useTurnStore.getState();
+  if (message.type === 'session.replay') {
+    const asked = resuming === message.sessionKey;
+    if (asked) resuming = undefined;
+    // Only the seq: the rebuild it carries was for another tab.
+    if (!message.complete && !asked) {
+      store.applySeq(message.seq);
+      return;
+    }
+  }
   store.apply(message);
 
   // Written here rather than on a schedule: the whole value of the cursor is
@@ -434,6 +528,11 @@ function handleMessage(message: ServerMessage): void {
   // mid-turn", which the store already knows as `busy`.
   const { sessionKey, lastSeq, busy } = useTurnStore.getState();
   if (!busy) durableSeq = lastSeq;
+  // A restarted server counts from zero, and a boundary above its count names
+  // frames it never sent.
+  if (message.type === 'connected') {
+    durableSeq = Math.min(durableSeq, message.lastSeq);
+  }
   // Written even when the boundary is still zero. A zero *entry* is the record
   // that this tab has rendered this conversation, and the only case that
   // produces one is a turn that started before any other frame arrived — which

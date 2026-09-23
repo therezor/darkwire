@@ -72,6 +72,15 @@ function deliver(frame: Unsequenced<ServerMessage>): void {
   socket().onmessage?.({ data: JSON.stringify(stamped) });
 }
 
+const START = {
+  type: 'turn.start',
+  sessionKey: 'web:1',
+  turnId: 't1',
+  agentId: 'default',
+  model: 'm',
+  provider: 'p',
+} as const;
+
 function open(sessionKey: string | undefined = 'web:1'): void {
   openConnection(sessionKey);
   socket().onopen?.();
@@ -112,7 +121,8 @@ describe('opening', () => {
   });
 
   it('takes the session the server minted when the URL named none', () => {
-    open(undefined);
+    openConnection(undefined);
+    socket().onopen?.();
     deliver({
       type: 'connected',
       workspaceId: 'default',
@@ -156,7 +166,8 @@ describe('switching', () => {
     // and the route then writes that key into the URL. Reading that as a switch
     // would resume a session already being watched, and the ring would
     // re-deliver frames this client had just applied.
-    open(undefined);
+    openConnection(undefined);
+    socket().onopen?.();
     deliver({
       type: 'connected',
       workspaceId: 'default',
@@ -169,6 +180,115 @@ describe('switching', () => {
     switchSession('web:minted');
 
     expect(socket().sent).toEqual([]);
+  });
+
+  it('drops what the old session sent until the new one speaks', () => {
+    open('web:1');
+    deliver(START);
+    switchSession('web:2');
+    const cursor = useTurnStore.getState().lastSeq;
+
+    // Still in flight when the resume reached the server. Deltas name no
+    // session, so only the order tells them apart.
+    deliver({ type: 'assistant.delta', turnId: 't1', text: 'old words' });
+    deliver({
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: 'web:1',
+      busy: true,
+      queueDepth: 0,
+    });
+
+    expect(useTurnStore.getState()).toMatchObject({
+      transcript: [],
+      busy: false,
+      lastSeq: cursor,
+    });
+
+    deliver({
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: 'web:2',
+      busy: true,
+      queueDepth: 0,
+    });
+    deliver({ type: 'assistant.delta', turnId: 't2', text: 'new words' });
+
+    expect(useTurnStore.getState().busy).toBe(true);
+    expect(useTurnStore.getState().transcript).toMatchObject([
+      { kind: 'turn', id: 't2' },
+    ]);
+  });
+
+  it('still tells its subscribers what the old session said', () => {
+    const seen: string[] = [];
+    open('web:1');
+    deliver(START);
+    switchSession('web:2');
+    const off = onServerMessage((message) => seen.push(message.type));
+
+    deliver({
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+    off();
+
+    expect(seen).toEqual(['turn.end']);
+    expect(useTurnStore.getState().transcript).toEqual([]);
+  });
+
+  it('drops a turn’s error from the old session, but not the connection’s', () => {
+    open('web:1');
+    deliver(START);
+    switchSession('web:2');
+
+    deliver({
+      type: 'error',
+      code: 'provider_error',
+      message: 'the old turn failed',
+      retryable: true,
+      turnId: 't1',
+    });
+    deliver({
+      type: 'error',
+      code: 'internal',
+      message: 'it broke',
+      retryable: false,
+    });
+
+    expect(useTurnStore.getState().transcript).toEqual([]);
+    expect(useToastStore.getState().toasts).toHaveLength(1);
+  });
+
+  it('ignores a connected frame for a session it is not on', () => {
+    open('web:1');
+
+    deliver({
+      type: 'connected',
+      workspaceId: 'default',
+      protocolVersion: 2,
+      sessionKey: 'web:9',
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+
+    expect(useTurnStore.getState().sessionKey).toBe('web:1');
+  });
+
+  it('ignores a status for a session it is not on', () => {
+    open('web:1');
+
+    deliver({
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: 'web:9',
+      busy: true,
+      queueDepth: 0,
+    });
+
+    expect(useTurnStore.getState().busy).toBe(false);
   });
 
   it('redials when the socket is down rather than buffering the switch', () => {
@@ -221,7 +341,7 @@ describe('speaking', () => {
   it('refuses to send before there is a session to send on', () => {
     openConnection(undefined);
 
-    sendUserMessage('hello');
+    expect(sendUserMessage('hello')).toBe(false);
     stopTurn();
     steerTurn('be brief');
 
@@ -254,6 +374,8 @@ describe('speaking', () => {
   });
 
   it('keeps the question on screen while the turn it started is re-run', () => {
+    // A cursor, so the open resumes and the replay below answers it.
+    writeCursor('web:1', 0);
     open('web:1');
     // The stored question and the answer it produced, as a fetch would supply
     // them. Regenerating deletes both server-side, so anything still on screen
@@ -294,6 +416,7 @@ describe('speaking', () => {
   });
 
   it('does not lose the question to the truncation the server announces', () => {
+    writeCursor('web:1', 0);
     open('web:1');
     deliver({
       type: 'session.replay',
@@ -528,6 +651,68 @@ describe('listening', () => {
     expect(useToastStore.getState().toasts[0]).toMatchObject({
       title: 'Unreadable message from the server',
     });
+  });
+});
+
+describe('resuming', () => {
+  it('keeps its live turn when another tab’s resume fell outside the ring', () => {
+    open('web:1');
+    deliver(START);
+    deliver({ type: 'assistant.delta', turnId: 't1', text: 'still here' });
+
+    deliver({
+      type: 'session.replay',
+      sessionKey: 'web:1',
+      complete: false,
+      resumingTurnId: 't1',
+      messages: [],
+    });
+
+    expect(useTurnStore.getState().transcript).toMatchObject([
+      { kind: 'turn', parts: [{ kind: 'text', text: 'still here' }] },
+    ]);
+    expect(useTurnStore.getState().lastSeq).toBe(3);
+  });
+
+  it('counts from the server’s number again after a restart', () => {
+    writeCursor('web:1', 12);
+    open('web:1');
+
+    deliver({
+      type: 'connected',
+      workspaceId: 'default',
+      protocolVersion: 2,
+      sessionKey: 'web:1',
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+    deliver({
+      type: 'session.replay',
+      sessionKey: 'web:1',
+      complete: false,
+      messages: [],
+    });
+
+    // The next resume asks from 1, a seq this server did send.
+    expect(useTurnStore.getState().lastSeq).toBe(1);
+    expect(readCursor('web:1')).toBe(1);
+  });
+
+  it('keeps the boundary below a restarted server’s count mid-turn', () => {
+    writeCursor('web:1', 12);
+    open('web:1');
+    deliver(START);
+
+    deliver({
+      type: 'connected',
+      workspaceId: 'default',
+      protocolVersion: 2,
+      sessionKey: 'web:1',
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+
+    expect(readCursor('web:1')).toBe(0);
   });
 });
 

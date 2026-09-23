@@ -17,7 +17,7 @@
  * inside it survive the rest of the answer arriving.
  */
 
-import { memo, type JSX, type ReactNode } from 'react';
+import { memo, useMemo, type JSX, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Token, Tokens } from 'marked';
 
@@ -42,7 +42,7 @@ export function Markdown({
   streaming = false,
   className,
 }: MarkdownProps): JSX.Element {
-  const blocks = splitBlocks(text);
+  const blocks = useMemo(() => splitBlocks(text), [text]);
 
   return (
     <div className={cn('markdown', className)}>

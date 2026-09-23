@@ -16,9 +16,10 @@
  *    it can be seen and removed in the agent's settings, and runs this call.
  *    Not offered for a shell, because a rule for one covers every program.
  *
- * The deadline is the server's `expiresAtMs`, counted down locally. When it
- * passes, the buttons go: pressing one would send an answer the gate stopped
- * waiting for, and a button that does nothing is worse than no button.
+ * The deadline is the server's `expiresAtMs`, moved onto this clock by the
+ * offset taken at connect and counted down locally. When it passes, the
+ * buttons go: pressing one would send an answer the gate stopped waiting for,
+ * and a button that does nothing is worse than no button.
  */
 
 import { Check, ShieldAlert, X } from 'lucide-react';
@@ -43,6 +44,7 @@ import { Button } from '@/components/ui/button.js';
 import { Tooltip } from '@/components/ui/tooltip.js';
 import { TextField } from '@/components/form/controls.js';
 import type { ToolApprovalState } from '@/state/transcript.js';
+import { useTurnStore } from '@/state/turn.js';
 
 interface ApprovalPromptProps {
   readonly toolName: string;
@@ -60,7 +62,8 @@ export function ApprovalPrompt({
   onAnswer,
 }: ApprovalPromptProps): JSX.Element | null {
   const { t } = useTranslation();
-  const remainingMs = useCountdown(approval.expiresAtMs);
+  const offsetMs = useTurnStore((state) => state.clockOffsetMs);
+  const remainingMs = useCountdown(approval.expiresAtMs - offsetMs);
   const [editing, setEditing] = useState(false);
   const answered = approval.answered;
   const command = approval.command;

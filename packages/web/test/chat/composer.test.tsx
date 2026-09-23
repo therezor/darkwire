@@ -40,7 +40,10 @@ function mount(
       queueDepth={0}
       connected
       configured
-      onSend={(text, attachments) => sent.push({ text, attachments })}
+      onSend={(text, attachments) => {
+        sent.push({ text, attachments });
+        return true;
+      }}
       onStop={() => stops.push(1)}
       // The real parser behind a fake dispatcher. What is under test here is
       // what the box does with each answer, and deciding *which* answer a line
@@ -84,6 +87,15 @@ describe('sending', () => {
     ]);
     // The composer clears, because the message is gone.
     expect(box()).toHaveValue('');
+  });
+
+  it('keeps the text when the message had nothing to go out on', async () => {
+    const user = userEvent.setup();
+    mount({ onSend: () => false });
+
+    await user.type(box(), 'hello{Enter}');
+
+    expect(box()).toHaveValue('hello');
   });
 
   it('refuses to send nothing', async () => {

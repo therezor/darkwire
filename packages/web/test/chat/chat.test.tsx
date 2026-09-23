@@ -27,6 +27,7 @@ import type { ClientMessage, ServerMessage } from '@darkwire/protocol';
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
 import { resetConnection } from '@/lib/connection.js';
+import { writeCursor } from '@/lib/cursor.js';
 import { useTurnStore } from '@/state/turn.js';
 import { createQueryClient } from '@/lib/query.js';
 import { stubFetch, testQueryClient } from '@testkit/render.js';
@@ -109,7 +110,7 @@ async function connect(lastSeq = 0): Promise<void> {
     workspaceId: 'default',
     protocolVersion: 2,
     sessionKey: SESSION,
-    serverTimeMs: 0,
+    serverTimeMs: Date.now(),
     lastSeq,
   });
 }
@@ -1106,7 +1107,7 @@ describe('a mid-stream reload', () => {
         workspaceId: 'default',
         protocolVersion: 2,
         sessionKey: SESSION,
-        serverTimeMs: 0,
+        serverTimeMs: Date.now(),
         lastSeq: applied,
       },
       // The ring covered the gap, so the frames themselves follow.
@@ -1154,7 +1155,7 @@ describe('a mid-stream reload', () => {
         workspaceId: 'default',
         protocolVersion: 2,
         sessionKey: SESSION,
-        serverTimeMs: 0,
+        serverTimeMs: Date.now(),
         lastSeq: before + 50,
       },
       {
@@ -1290,6 +1291,8 @@ describe('reworking a session', () => {
 
   it('edits a message and re-runs from it', async () => {
     const user = userEvent.setup();
+    // A cursor, so the open resumes and the replay below answers it.
+    writeCursor(SESSION, 0);
     mount();
     await connect();
 
@@ -1335,6 +1338,7 @@ describe('reworking a session', () => {
     // editor has no attachment affordance -- so a corrected typo silently threw
     // away every file on the message and the next answer was about nothing.
     const user = userEvent.setup();
+    writeCursor(SESSION, 0);
     mount();
     await connect();
 

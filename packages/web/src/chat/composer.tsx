@@ -102,7 +102,11 @@ interface ComposerProps {
    * is a worse answer than a control that says why it is off and where to go.
    */
   readonly configured: boolean;
-  readonly onSend: (text: string, attachments: readonly Attachment[]) => void;
+  /** Says whether the message went. The text stays in the box when not. */
+  readonly onSend: (
+    text: string,
+    attachments: readonly Attachment[],
+  ) => boolean;
   readonly onStop: () => void;
   /**
    * Tries what was typed as a slash command, and says whether it was one.
@@ -240,8 +244,7 @@ export function Composer({
     // cannot come from the text alone, and without it `/new` typed over a
     // staged upload would discard the upload without saying so.
     const ran = files.length > 0 ? false : onCommand?.(text.trim()) === true;
-    if (!ran) onSend(text.trim(), attachments);
-    clear();
+    if (ran || onSend(text.trim(), attachments)) clear();
   }, [attachments, canSend, clear, files.length, onCommand, onSend, text]);
 
   const accept = useCallback(

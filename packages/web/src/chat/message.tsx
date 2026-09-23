@@ -16,7 +16,7 @@
 
 import { AlertCircle } from 'lucide-react';
 import type { WebKey } from '@/i18n/keys.js';
-import { useState, type JSX } from 'react';
+import { memo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ApprovalScope, Attachment, ExecRule } from '@darkwire/protocol';
@@ -76,7 +76,13 @@ interface MessageProps {
   readonly onAction: (action: MessageAction) => void;
 }
 
-export function Message({
+/**
+ * Memoised because every delta hands the transcript a new array, and only the
+ * item it grew is a new object. The rest keep their identity and skip.
+ */
+export const Message = memo(MessageItem);
+
+function MessageItem({
   item,
   streaming,
   busy,

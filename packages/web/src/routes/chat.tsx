@@ -24,7 +24,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { useEffect, type JSX } from 'react';
+import { useCallback, useEffect, type JSX } from 'react';
 
 import { api } from '@/lib/api.js';
 import { usePageTitle } from '@/app/page-title.js';
@@ -118,23 +118,28 @@ export function ChatRoute(): JSX.Element {
     },
   });
 
-  function runAction(action: MessageAction): void {
-    switch (action.kind) {
-      case 'edit':
-        // The attachments come along: an edit *replaces* the stored message, so
-        // sending only the new wording deletes every file that was on it.
-        editMessage(action.seq, action.text, action.attachments);
-        return;
-      case 'regenerate':
-        regenerateTurn(action.seq);
-        return;
-      case 'branch':
-        if (sessionKey !== undefined) {
-          branch.mutate({ key: sessionKey, seq: action.seq });
-        }
-        return;
-    }
-  }
+  // Stable, so a delta does not re-render every message through a new prop.
+  const branchSession = branch.mutate;
+  const runAction = useCallback(
+    (action: MessageAction): void => {
+      switch (action.kind) {
+        case 'edit':
+          // The attachments come along: an edit *replaces* the stored message,
+          // so sending only the new wording deletes every file that was on it.
+          editMessage(action.seq, action.text, action.attachments);
+          return;
+        case 'regenerate':
+          regenerateTurn(action.seq);
+          return;
+        case 'branch':
+          if (sessionKey !== undefined) {
+            branchSession({ key: sessionKey, seq: action.seq });
+          }
+          return;
+      }
+    },
+    [branchSession, sessionKey],
+  );
 
   // Whether a turn can run at all. The shell reads this too, so on a working
   // install it is already in the cache and costs nothing here.
@@ -283,7 +288,7 @@ export function ChatRoute(): JSX.Element {
         onStop={stopTurn}
         onCommand={runSlashCommand}
         onSend={(text, attachments) => {
-          sendUserMessage(text, attachments, agentId);
+          if (!sendUserMessage(text, attachments, agentId)) return false;
           // The URL catches up with the session the server named, so a reload
           // or a shared link lands on the same conversation. `replace`, because
           // sending a message is not a navigation the back button should undo.
@@ -294,6 +299,7 @@ export function ChatRoute(): JSX.Element {
               replace: true,
             });
           }
+          return true;
         }}
       />
     </div>

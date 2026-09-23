@@ -121,7 +121,7 @@ async function connect(): Promise<void> {
       workspaceId: 'default',
       protocolVersion: 2,
       sessionKey: SESSION,
-      serverTimeMs: 0,
+      serverTimeMs: Date.now(),
       lastSeq: 0,
     }),
   });

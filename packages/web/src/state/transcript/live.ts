@@ -308,11 +308,12 @@ export function markApprovalAnswered(
   answered: 'approved' | 'denied' | undefined,
   error?: string,
 ): Transcript {
-  return items.map((item) =>
-    item.kind === 'turn'
-      ? { ...item, parts: answerIn(item.parts, callId, answered, error) }
-      : item,
-  );
+  const next = items.map((item) => {
+    if (item.kind !== 'turn') return item;
+    const parts = answerIn(item.parts, callId, answered, error);
+    return parts === item.parts ? item : { ...item, parts };
+  });
+  return next.some((item, index) => item !== items[index]) ? next : items;
 }
 
 function answerIn(
@@ -321,7 +322,7 @@ function answerIn(
   answered: 'approved' | 'denied' | undefined,
   error: string | undefined,
 ): readonly TurnPart[] {
-  return parts.map((part) => {
+  const next = parts.map((part) => {
     if (part.kind !== 'tool') return part;
 
     if (part.id === callId && part.approval !== undefined) {
@@ -338,6 +339,7 @@ function answerIn(
       ? part
       : { ...part, subagent: { ...subagent, parts: nested } };
   });
+  return next.some((part, index) => part !== parts[index]) ? next : parts;
 }
 
 /**

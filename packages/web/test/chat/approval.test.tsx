@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandPolicy } from '@darkwire/protocol';
 
 import type { ToolApprovalState } from '@/state/transcript.js';
+import { useTurnStore } from '@/state/turn.js';
 import { renderWithProviders } from '@testkit/render.js';
 
 import { ApprovalPrompt } from '@/chat/approval.js';
@@ -195,6 +196,16 @@ describe('a prompt nobody answered in time', () => {
     expect(
       screen.getByText(/The approval window closed\. The call was refused\./),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('counts down on the server clock, not this one', () => {
+    vi.setSystemTime(new Date('2026-07-28T12:00:00Z'));
+    // The server is two minutes ahead, so a deadline one minute out on its
+    // clock passed a minute ago.
+    useTurnStore.setState({ clockOffsetMs: 120_000 });
+    promptWith({ expiresAtMs: Date.now() + 60_000 });
+
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });

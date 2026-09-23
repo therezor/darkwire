@@ -25,8 +25,8 @@ import {
   findTool,
   openTurn,
   parseArgs,
-  replaceLast,
   seedTool,
+  steerText,
   textOf,
   unloadedSubagent,
   unwrapToolOutput,
@@ -69,9 +69,26 @@ export function mergeStoredHistory(
     ),
   );
 
+  // A third key, for steers. The live item is named after its frame and the
+  // stored one after its row, so the words are all the two have in common.
+  // Counted, so a steer sent twice with the same words still shows twice.
+  const steers = new Map<string, number>();
+  for (const item of base) {
+    if (item.kind === 'steer') {
+      steers.set(item.text, (steers.get(item.text) ?? 0) + 1);
+    }
+  }
+
   const merged: TranscriptItem[] = [...base];
   for (const item of existing) {
     if (ids.has(item.id)) continue;
+    if (item.kind === 'steer') {
+      const stored = steers.get(item.text) ?? 0;
+      if (stored > 0) {
+        steers.set(item.text, stored - 1);
+        continue;
+      }
+    }
     if (
       item.kind === 'user' &&
       item.turnId !== undefined &&
@@ -260,7 +277,18 @@ export function fromStoredMessages(
       case 'system':
         continue;
 
-      case 'user':
+      case 'user': {
+        // A steer is stored as a user row under the turn it corrected. Shown
+        // as the live path shows it, so the turn stays one item and the
+        // answer after the steer keeps growing it.
+        const steer =
+          stored.turnId === undefined
+            ? undefined
+            : steerText(textOf(message.content));
+        if (steer !== undefined) {
+          items.push({ kind: 'steer', id: stored.id, text: steer });
+          continue;
+        }
         items.push({
           kind: 'user',
           id: stored.id,
@@ -284,9 +312,12 @@ export function fromStoredMessages(
           openTurn(items, stored.turnId);
         }
         continue;
+      }
 
       case 'assistant': {
-        const turn = openTurn(items, stored.turnId ?? stored.id);
+        const index = openTurn(items, stored.turnId ?? stored.id);
+        const turn = items[index];
+        if (turn?.kind !== 'turn') continue;
         const parts: TurnPart[] = [...turn.parts];
 
         if (message.reasoning !== undefined && message.reasoning !== '') {
@@ -329,7 +360,7 @@ export function fromStoredMessages(
           );
         }
 
-        replaceLast(items, { ...turn, parts, done: true });
+        items[index] = { ...turn, parts, done: true };
         continue;
       }
 

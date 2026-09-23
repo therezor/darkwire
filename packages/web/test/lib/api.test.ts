@@ -172,7 +172,41 @@ describe('request', () => {
 
     // `telegram:44` unencoded would be read as a scheme by some proxies.
     expect(fetchSpy.mock.calls[0]?.[0]).toBe(
-      '/api/sessions/telegram%3A44/messages',
+      '/api/sessions/telegram%3A44/messages?limit=200',
+    );
+  });
+
+  it('follows the cursor until the whole transcript is read', async () => {
+    const row = (seq: number) => ({
+      id: `m${String(seq)}`,
+      sessionKey: 's',
+      seq,
+      createdAtMs: seq,
+      message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    });
+    const pages = [
+      { sessionKey: 's', messages: [row(1)], nextCursor: 'c1' },
+      { sessionKey: 's', messages: [row(2)], nextCursor: 'c2' },
+      { sessionKey: 's', messages: [row(3)] },
+    ];
+    const fetchSpy = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(pages.shift()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const all = await api.messages('s');
+
+    expect(all.messages.map((message) => message.seq)).toEqual([1, 2, 3]);
+    expect(all.nextCursor).toBeUndefined();
+    expect(fetchSpy.mock.calls[2]?.[0]).toBe(
+      '/api/sessions/s/messages?limit=200&cursor=c2',
     );
   });
 

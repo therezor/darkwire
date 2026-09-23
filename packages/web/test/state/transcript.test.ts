@@ -326,7 +326,31 @@ describe('tool calls', () => {
   it('leaves a transcript alone when an answer names a call that is not in it', () => {
     const items = play(START, call);
 
-    expect(markApprovalAnswered(items, 'nope', 'denied')).toEqual(items);
+    // The same object, so a store holding it has nothing to re-render.
+    expect(markApprovalAnswered(items, 'nope', 'denied')).toBe(items);
+  });
+
+  it('leaves the other turns as they were when it answers one', () => {
+    const items = play(
+      START,
+      { type: 'turn.end', turnId: 't1', stopReason: 'complete', iterations: 1 },
+      { ...START, turnId: 't2' },
+      { ...call, turnId: 't2' },
+      {
+        type: 'tool.approvalRequest',
+        turnId: 't2',
+        callId: 'c1',
+        name: 'exec',
+        args: { command: 'ls' },
+        risk: 'exec',
+        expiresAtMs: 1_000,
+      },
+    );
+
+    const answered = markApprovalAnswered(items, 'c1', 'approved');
+
+    expect(answered[0]).toBe(items[0]);
+    expect(answered[1]).not.toBe(items[1]);
   });
 });
 
@@ -1144,6 +1168,79 @@ describe('a stored history', () => {
       status: 'error',
       truncated: true,
     });
+  });
+});
+
+describe('a steer in stored history', () => {
+  // The agent's own prefix, pinned here because the browser restates it.
+  const steerRow = (id: string, words: string): StoredMessage =>
+    stored(id, 't1', {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `[Steering: sent by the user while this task was running]\n\n${words}`,
+        },
+      ],
+    });
+
+  const rows = (): StoredMessage[] => [
+    stored('m1', 't1', {
+      role: 'user',
+      content: [{ type: 'text', text: 'list the files' }],
+    }),
+    stored('m2', 't1', {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'looking in src' }],
+      toolCalls: [],
+    }),
+    steerRow('m3', 'the other directory'),
+    stored('m4', 't1', {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'looking in lib' }],
+      toolCalls: [],
+    }),
+  ];
+
+  it('keeps one turn and shows the steer without its prefix', () => {
+    const items = fromStoredMessages(rows());
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'turn', 'steer']);
+    expect(items[2]).toMatchObject({ text: 'the other directory' });
+    expect(turnOf(items).parts.map((part) => part.kind)).toEqual([
+      'text',
+      'text',
+    ]);
+  });
+
+  it('does not show the steer twice when merged under the live one', () => {
+    const live = play(
+      START,
+      { type: 'assistant.delta', turnId: 't1', text: 'looking in src' },
+      { type: 'steer', sessionKey: 'web:1', content: 'the other directory' },
+      { type: 'assistant.delta', turnId: 't1', text: 'looking in lib' },
+    );
+
+    const history = rows();
+    const merged = mergeStoredHistory(live, history);
+
+    expect(merged.map((item) => item.kind)).toEqual(['user', 'turn', 'steer']);
+    expect(mergeStoredHistory(merged, history)).toEqual(merged);
+  });
+
+  it('keeps a live steer storage has not written yet', () => {
+    const live = play(START, {
+      type: 'steer',
+      sessionKey: 'web:1',
+      content: 'stop after this',
+    });
+
+    const merged = mergeStoredHistory(live, rows());
+
+    expect(merged.filter((item) => item.kind === 'steer')).toMatchObject([
+      { text: 'the other directory' },
+      { text: 'stop after this' },
+    ]);
   });
 });
 
