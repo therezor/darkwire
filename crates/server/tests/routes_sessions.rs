@@ -34,6 +34,7 @@ use darkwire_protocol::config::{AgentEntry, Config};
 use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
 use darkwire_protocol::tasks::{TaskItem, TaskStatus};
 use darkwire_server::cursor::{SessionListCursor, encode_session_cursor};
+use darkwire_server::hub::{ConnectOptions, Frame};
 use darkwire_server::runtime::ServerRuntime as _;
 use darkwire_server::testkit::{
     FakeRuntimeOptions, TestServer, TestServerOptions, start_test_server,
@@ -462,6 +463,53 @@ async fn clearing_a_transcript_keeps_the_session() {
     let session = store(&test).get_session("s-1").unwrap();
     assert!(session.is_some(), "the session survives its transcript");
     assert_eq!(store(&test).message_count("s-1").unwrap(), 0);
+}
+
+/// A server whose one turn is still running when the next request arrives.
+async fn server_mid_turn(key: &str) -> (TestServer, darkwire_server::hub::HubClient) {
+    let test = start_test_server(TestServerOptions {
+        answers: vec!["held".to_owned()],
+        hold_ms: Some(60_000),
+        ..TestServerOptions::default()
+    })
+    .expect("a test server");
+    seed_session(&test, key, "Planning", 1);
+    let (client, stream) = test.hub.connect(ConnectOptions {
+        session_key: Some(key.to_owned()),
+        ..ConnectOptions::default()
+    });
+    drop(stream);
+    client.receive(Frame::Value(
+        json!({ "type": "user.message", "sessionKey": key, "content": "go" }),
+    ));
+    for _ in 0..500 {
+        if test.hub.busy(key) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(test.hub.busy(key), "the turn is running");
+    (test, client)
+}
+
+#[tokio::test]
+async fn a_session_is_not_deleted_under_a_running_turn() {
+    let (test, client) = server_mid_turn("s-1").await;
+
+    let answer = delete(&test, "/api/sessions/s-1").await;
+    assert_eq!(answer.status, StatusCode::CONFLICT);
+    assert!(store(&test).get_session("s-1").unwrap().is_some());
+    client.close();
+}
+
+#[tokio::test]
+async fn a_transcript_is_not_cleared_under_a_running_turn() {
+    let (test, client) = server_mid_turn("s-1").await;
+
+    let answer = delete(&test, "/api/sessions/s-1/messages").await;
+    assert_eq!(answer.status, StatusCode::CONFLICT);
+    assert!(store(&test).message_count("s-1").unwrap() > 0);
+    client.close();
 }
 
 #[tokio::test]

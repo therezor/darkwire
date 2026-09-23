@@ -390,6 +390,13 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
 ) -> Result<StatusCode, HttpError> {
+    // A running turn would keep writing into a session that is gone, and its
+    // pending approvals would stay answerable.
+    if state.hub.busy(&params.key) {
+        return Err(HttpError::conflict(
+            "A turn is running on this session. Stop it, then delete.",
+        ));
+    }
     if state.runtime.store().delete_session(&params.key)? {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -461,6 +468,13 @@ pub async fn clear(
 ) -> Result<StatusCode, HttpError> {
     let runtime = state.runtime.as_ref();
     require_session(runtime, &params.key)?;
+    // The loop appends the turn's answer when it ends, so a clear under a
+    // running turn is undone a moment later by half a conversation.
+    if state.hub.busy(&params.key) {
+        return Err(HttpError::conflict(
+            "A turn is running on this session. Stop it, then clear.",
+        ));
+    }
     runtime.store().clear_messages(&params.key)?;
     // The same courtesy the update route pays: a tab attached to this
     // conversation is still rendering the history that has just been deleted.

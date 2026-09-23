@@ -369,15 +369,22 @@ struct QueuedTurn {
     /// Only ever creates; an existing session keeps the workspace it is bound
     /// to.
     workspace_id: Option<String>,
+    /// The connection that asked, so an unattended stop reaches only its own.
+    connection_id: String,
 }
 
 /// The turn that is running, and how to stop it.
+///
+/// Set by the drain that pops the turn, before the loop exists, so a second
+/// frame in that gap queues behind it rather than starting a turn of its own.
 struct RunningTurn {
     turn_id: String,
     token: CancellationToken,
     /// The loop this turn started on, so a steer reaches the loop that is
-    /// running it.
-    runner: Arc<dyn TurnRunner>,
+    /// running it. `None` until the loop has been resolved.
+    runner: Option<Arc<dyn TurnRunner>>,
+    /// The connection that submitted it.
+    connection_id: String,
 }
 
 struct SessionState {
@@ -858,22 +865,7 @@ impl SessionHub {
             ClientMessage::Regenerate(message) => self.regenerate(connection_id, &message),
             ClientMessage::Edit(message) => self.edit(connection_id, &message),
             ClientMessage::StopTurn(message) => {
-                let mut inner = self.inner.lock();
-                // A stop with nothing running is the user clicking as the turn
-                // ends. Answering it with an error would be reporting a race as
-                // a mistake.
-                let Some(state) = inner.sessions.get_mut(&message.session_key) else {
-                    return;
-                };
-                let Some(running) = state.running.as_ref() else {
-                    return;
-                };
-                tracing::info!(
-                    session_key = %state.key,
-                    turn_id = %running.turn_id,
-                    "turn stopped by client"
-                );
-                running.token.cancel();
+                self.stop_turn(connection_id, &message.session_key);
             }
             ClientMessage::Steer(message) => {
                 let runner = {
@@ -882,7 +874,7 @@ impl SessionHub {
                         .sessions
                         .get_mut(&message.session_key)
                         .and_then(|state| state.running.as_ref())
-                        .map(|running| Arc::clone(&running.runner))
+                        .and_then(|running| running.runner.clone())
                 };
                 let Some(runner) = runner else {
                     self.error(
@@ -1078,6 +1070,7 @@ impl SessionHub {
                     agent_id: agent_id.or(connection_agent),
                     channel,
                     workspace_id,
+                    connection_id: connection_id.to_owned(),
                 });
             }
 
@@ -1328,6 +1321,10 @@ impl SessionHub {
     // Turns
 
     /// Starts the next queued turn if the session is free.
+    ///
+    /// The session is marked busy here, under the same lock as the pop. The
+    /// loop starts on another task, and a frame arriving before it would
+    /// otherwise see an idle session and start a second turn beside it.
     fn drain(self: &Arc<Self>, session_key: &str) -> bool {
         let next = {
             let mut inner = self.inner.lock();
@@ -1337,15 +1334,65 @@ impl SessionHub {
             if state.running.is_some() {
                 return false;
             }
-            state.queue.pop_front()
+            let Some(next) = state.queue.pop_front() else {
+                return false;
+            };
+            let token = CancellationToken::new();
+            state.running = Some(RunningTurn {
+                turn_id: next.id.clone(),
+                token: token.clone(),
+                runner: None,
+                connection_id: next.connection_id.clone(),
+            });
+            (next, token)
         };
-        let Some(next) = next else {
-            return false;
-        };
+        let (next, token) = next;
         let hub = Arc::clone(self);
         let key = session_key.to_owned();
-        tokio::spawn(async move { hub.run_turn(key, next).await });
+        tokio::spawn(async move { hub.run_turn(key, next, token).await });
         true
+    }
+
+    /// Stops the running turn.
+    ///
+    /// A connection with nobody on it (a scheduled run) may stop only what it
+    /// submitted: its time limit is not a reason to cancel a turn somebody else
+    /// started on a shared session. It also withdraws what it still has
+    /// queued, since the run that asked for it has already given up.
+    fn stop_turn(&self, connection_id: &str, session_key: &str) {
+        let withdrawn = {
+            let mut inner = self.inner.lock();
+            let unattended = inner
+                .connections
+                .get(connection_id)
+                .is_some_and(|connection| connection.unattended);
+            // A stop with nothing running is the user clicking as the turn
+            // ends. Answering it with an error would be reporting a race as
+            // a mistake.
+            let Some(state) = inner.sessions.get_mut(session_key) else {
+                return;
+            };
+            let before = state.queue.len();
+            if unattended {
+                state
+                    .queue
+                    .retain(|turn| turn.connection_id != connection_id);
+            }
+            if let Some(running) = state.running.as_ref()
+                && (!unattended || running.connection_id == connection_id)
+            {
+                tracing::info!(
+                    session_key = %state.key,
+                    turn_id = %running.turn_id,
+                    "turn stopped by client"
+                );
+                running.token.cancel();
+            }
+            state.queue.len() != before
+        };
+        if withdrawn {
+            self.announce_status(session_key);
+        }
     }
 
     /// Runs one turn to completion. Never fails outward.
@@ -1354,12 +1401,24 @@ impl SessionHub {
     /// instead of emitting `turn.end`, the client is holding an open turn it
     /// will render as a spinner forever, so the failure path emits both the
     /// error and the close.
-    async fn run_turn(self: Arc<Self>, session_key: String, turn: QueuedTurn) {
-        let outcome = self.open_turn(&session_key, &turn).await;
+    async fn run_turn(
+        self: Arc<Self>,
+        session_key: String,
+        turn: QueuedTurn,
+        token: CancellationToken,
+    ) {
+        let outcome = self.open_turn(&session_key, &turn, &token).await;
 
         {
             let mut inner = self.inner.lock();
-            if let Some(state) = inner.sessions.get_mut(&session_key) {
+            // Only this turn's own marker. A close may have taken it already,
+            // and whatever holds the slot now is somebody else's.
+            if let Some(state) = inner.sessions.get_mut(&session_key)
+                && state
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.turn_id == turn.id)
+            {
                 state.running = None;
             }
         }
@@ -1383,6 +1442,7 @@ impl SessionHub {
         self: &Arc<Self>,
         session_key: &str,
         turn: &QueuedTurn,
+        token: &CancellationToken,
     ) -> std::result::Result<(), TurnFailure> {
         // An id naming no runnable agent — deleted, switched off, or never real
         // — becomes the default agent rather than a refusal. A conversation must
@@ -1434,7 +1494,6 @@ impl SessionHub {
             Ok(Some(runner)) => runner,
         };
 
-        let token = CancellationToken::new();
         let mut running_turn = runner.run(
             TurnInput {
                 session_key: session_key.to_owned(),
@@ -1458,17 +1517,21 @@ impl SessionHub {
                 // A turn a person started has no caller to inherit from.
                 inherited_environment: None,
             },
-            &token,
+            token,
         );
 
         {
             let mut inner = self.inner.lock();
-            if let Some(state) = inner.sessions.get_mut(session_key) {
-                state.running = Some(RunningTurn {
-                    turn_id: turn.id.clone(),
-                    token: running_turn.token().clone(),
-                    runner: Arc::clone(&runner),
-                });
+            if let Some(running) = inner
+                .sessions
+                .get_mut(session_key)
+                .and_then(|state| state.running.as_mut())
+                .filter(|running| running.turn_id == turn.id)
+            {
+                // The handle's own token as well as the parent: a runner is
+                // free to hand back one that is not a child of it.
+                running.token = running_turn.token().clone();
+                running.runner = Some(Arc::clone(&runner));
             }
             let status = inner
                 .sessions
@@ -1749,9 +1812,19 @@ impl SessionHub {
             self.tail(session_key)
         };
 
-        self.inner.lock().emit(
-            session_key,
-            HubEvent::SessionReplay(SessionReplay {
+        // To the resuming connection alone, like the frames that follow it.
+        // Another tab on the session is not missing anything, and one watching
+        // a live turn would read `complete: false` as an order to rebuild it.
+        // Stamped with the current seq rather than a new one: a number no
+        // other tab receives would leave a gap that makes their next resume
+        // look incomplete.
+        {
+            let mut inner = self.inner.lock();
+            let seq = inner
+                .sessions
+                .peek(session_key)
+                .map_or(0, |state| state.seq);
+            let replay = HubEvent::SessionReplay(SessionReplay {
                 tag: SessionReplayTag,
                 session_key: session_key.to_owned(),
                 messages,
@@ -1759,8 +1832,10 @@ impl SessionHub {
                 // Only ever alongside `complete: false`: a client told the
                 // replay was whole has nothing to rebuild from a second source.
                 resuming_turn_id: resuming.clone(),
-            }),
-        );
+            })
+            .sequenced(seq);
+            inner.deliver(connection_id, &replay);
+        }
 
         if !complete {
             tracing::info!(

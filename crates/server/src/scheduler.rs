@@ -95,7 +95,7 @@ pub const DEFAULT_RUN_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 /// Work stays *due* while the concurrency limit is saturated, so the delay to
 /// "the earliest due job" is zero for as long as the slots are full. Without a
 /// floor the timer would re-arm at 0 ms and fire again immediately, spinning
-/// for the entire length of a slow run — a hot loop that does nothing but
+/// for the entire length of a slow run: a hot loop that does nothing but
 /// re-read the same rows. A freed slot wakes the waiter directly, so this is
 /// the backstop rather than the mechanism.
 pub const BUSY_RETRY_MS: i64 = 1000;
@@ -317,6 +317,9 @@ pub struct TurnOutcome {
 }
 
 struct CollectorInner {
+    /// The id this run's message was sent under.
+    client_message_id: String,
+    /// The turn the hub acked that message with, once it has.
     turn_id: Option<String>,
     text: String,
     error: Option<String>,
@@ -327,18 +330,22 @@ struct CollectorInner {
 
 /// Accumulates one turn's frames into an answer.
 ///
-/// The hub is a broadcast surface, not a request/response one, so this watches
-/// for the turn end matching the turn start it saw and settles there.
+/// The hub is a broadcast surface, not a request/response one, and a session a
+/// job names may be one somebody else is using. So this learns its own turn id
+/// from the ack for the message it sent, keeps only that turn's frames, and
+/// settles on that turn's end.
 pub struct TurnCollector {
     inner: Mutex<CollectorInner>,
 }
 
 impl TurnCollector {
-    /// A collector and the receiver its outcome arrives on.
-    pub fn new() -> (Arc<TurnCollector>, oneshot::Receiver<TurnOutcome>) {
+    /// A collector for the turn that answers `client_message_id`, and the
+    /// receiver its outcome arrives on.
+    pub fn new(client_message_id: &str) -> (Arc<TurnCollector>, oneshot::Receiver<TurnOutcome>) {
         let (tx, rx) = oneshot::channel();
         let collector = Arc::new(TurnCollector {
             inner: Mutex::new(CollectorInner {
+                client_message_id: client_message_id.to_owned(),
                 turn_id: None,
                 text: String::new(),
                 error: None,
@@ -363,27 +370,50 @@ impl TurnCollector {
                 return;
             }
             match message {
-                ServerMessage::TurnStart(event) => {
-                    if inner.turn_id.is_none() {
-                        inner.turn_id = Some(event.event.turn_id.clone());
+                ServerMessage::MessageAck(event) => {
+                    if inner.turn_id.is_none()
+                        && event.event.client_message_id.as_deref()
+                            == Some(inner.client_message_id.as_str())
+                    {
+                        inner.turn_id = Some(event.event.message_id.clone());
                     }
                 }
-                ServerMessage::AssistantDelta(event) => inner.text.push_str(&event.event.text),
-                ServerMessage::Notice(event) => inner.warnings.push(event.event.message.clone()),
+                ServerMessage::AssistantDelta(event) => {
+                    if inner.is_mine(&event.event.turn_id) {
+                        inner.text.push_str(&event.event.text);
+                    }
+                }
+                ServerMessage::Notice(event) => {
+                    // No turn id is a statement about the session, such as the
+                    // agent it names having gone, which holds for this run too.
+                    if event
+                        .event
+                        .turn_id
+                        .as_deref()
+                        .is_none_or(|turn_id| inner.is_mine(turn_id))
+                    {
+                        inner.warnings.push(event.event.message.clone());
+                    }
+                }
                 ServerMessage::Error(event) => {
-                    // A hub-level refusal — no model configured, the session is
-                    // busy. It arrives unsequenced and no turn end follows it,
-                    // so this is the only place the run learns it will never
-                    // start.
+                    // No turn id is a refusal sent to this connection alone,
+                    // such as a full queue, and it may arrive in place of the
+                    // ack. A turn id is a turn's failure, broadcast to the
+                    // session, and only this run's own one is its business.
+                    // Either way no turn end follows, so this is where the run
+                    // learns it is over.
+                    if event
+                        .turn_id
+                        .as_deref()
+                        .is_some_and(|turn_id| !inner.is_mine(turn_id))
+                    {
+                        return;
+                    }
                     inner.error = Some(event.message.clone());
                     finish_now = true;
                 }
                 ServerMessage::TurnEnd(event) => {
-                    if inner
-                        .turn_id
-                        .as_ref()
-                        .is_some_and(|seen| *seen != event.event.turn_id)
-                    {
+                    if !inner.is_mine(&event.event.turn_id) {
                         return;
                     }
                     match event.event.stop_reason {
@@ -413,7 +443,7 @@ impl TurnCollector {
                 // the session either way.
                 ServerMessage::Connected(_)
                 | ServerMessage::Pong(_)
-                | ServerMessage::MessageAck(_)
+                | ServerMessage::TurnStart(_)
                 | ServerMessage::MessageQueued(_)
                 | ServerMessage::ReasoningDelta(_)
                 | ServerMessage::ToolCall(_)
@@ -454,6 +484,12 @@ impl TurnCollector {
         if let Some(settle) = inner.settle.take() {
             let _ = settle.send(outcome);
         }
+    }
+}
+
+impl CollectorInner {
+    fn is_mine(&self, turn_id: &str) -> bool {
+        self.turn_id.as_deref() == Some(turn_id)
     }
 }
 
@@ -606,6 +642,9 @@ impl Scheduler {
             token.cancel();
         }
         self.inner.wake.notify_waiters();
+        // `notify_waiters` stores no permit, so a loop between its stopping
+        // check and its next wait would otherwise park there for good.
+        self.inner.wake.notify_one();
     }
 
     /// How many runs are in flight. What a caller waits to reach zero.
@@ -637,8 +676,19 @@ impl Scheduler {
                     () = self.inner.wake.notified() => continue,
                 }
             }
-            if let Err(error) = self.tick() {
+            let dispatched = self.tick().unwrap_or_else(|error| {
                 tracing::error!(err = %error.message, "automation drain failed");
+                0
+            });
+            if dispatched == 0 {
+                // Something is due that this pass could not start: it is
+                // already running, or every slot is taken. Without the floor
+                // the delay is still zero and the loop never yields.
+                let millis = u64::try_from(BUSY_RETRY_MS).unwrap_or(0);
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(millis)) => {}
+                    () = self.inner.wake.notified() => {}
+                }
             }
         }
     }
@@ -657,25 +707,27 @@ impl Scheduler {
         )
     }
 
-    /// Dispatches everything due, up to the concurrency limit.
+    /// Dispatches everything due, up to the concurrency limit, and says how
+    /// many runs it started.
     ///
     /// The whole engine in one call, and the seam a test drives: move the
     /// clock, call this, assert on the rows.
     ///
     /// Concurrency is read live on every tick, so raising it in Settings takes
     /// effect on the next wake rather than the next restart.
-    pub fn tick(&self) -> Result<()> {
+    pub fn tick(&self) -> Result<usize> {
         if self.inner.state.lock().stopping || !self.enabled() {
-            return Ok(());
+            return Ok(0);
         }
 
         let config = self.config();
         let limit = i64::try_from(config.scheduler.concurrency).unwrap_or(i64::MAX)
             - i64::try_from(self.in_flight()).unwrap_or(0);
         if limit <= 0 {
-            return Ok(());
+            return Ok(0);
         }
 
+        let mut dispatched = 0;
         for job in self.inner.jobs.due_jobs(self.inner.clock.now_ms(), limit)? {
             // A job already running is left due rather than started twice. Its
             // own completion recomputes the next time and wakes the waiter.
@@ -683,8 +735,9 @@ impl Scheduler {
                 continue;
             }
             self.dispatch(&job, Vec::new())?;
+            dispatched += 1;
         }
-        Ok(())
+        Ok(dispatched)
     }
 
     /// Re-reads what is due. Called after any create, update, delete or save.
@@ -1096,7 +1149,7 @@ impl Scheduler {
         message: &str,
         token: &CancellationToken,
     ) -> Result<TurnOutcome> {
-        let (collector, outcome) = TurnCollector::new();
+        let (collector, outcome) = TurnCollector::new(&run.id);
         // The fallback is for a run row written before runs began recording a
         // key. The job id, so such runs share one session rather than minting a
         // fresh one each time.
@@ -1125,6 +1178,9 @@ impl Scheduler {
             client_message_id: Some(run.id.clone()),
         }));
 
+        // The frame names no turn, but the hub lets a connection like this one
+        // stop only the turn it submitted, and withdraw it if it is still
+        // queued, so a shared session's other turns are left alone.
         let stop = || {
             connection.receive(ClientMessage::StopTurn(StopTurnMessage {
                 tag: StopTurnTag,

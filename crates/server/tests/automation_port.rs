@@ -19,6 +19,7 @@ use darkwire_protocol::automation::{
     ScheduledPayload,
 };
 use darkwire_protocol::config::EnvironmentNetwork;
+use darkwire_protocol::subagent::{SUBAGENT_METADATA_KEY, SUBAGENT_ORIGIN, SubagentLineage};
 use darkwire_server::automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
 use darkwire_server::automation_store::AutomationStore;
 use darkwire_tools::automation::{AutomationRefusal, AutomationResolver};
@@ -216,6 +217,92 @@ fn a_scheduled_run_may_not_schedule() {
         Err(AutomationRefusal::Nested)
     );
     assert_eq!(h.jobs.list_jobs().unwrap().len(), 0);
+}
+
+/// A subagent session delegated from `parent`, as the loop writes one.
+fn subagent_session(h: &Harness, key: &str, parent: Option<&str>) {
+    let mut metadata = serde_json::Map::new();
+    if let Some(parent) = parent {
+        metadata.insert(
+            SUBAGENT_METADATA_KEY.to_owned(),
+            serde_json::to_value(SubagentLineage {
+                parent_session_key: parent.to_owned(),
+                parent_turn_id: "turn-1".to_owned(),
+                parent_call_id: "call-1".to_owned(),
+                agent_id: "researcher".to_owned(),
+                depth: 1,
+            })
+            .unwrap(),
+        );
+    }
+    h.sessions
+        .ensure_session(
+            key,
+            CreateSession {
+                origin: Some(SUBAGENT_ORIGIN.to_owned()),
+                metadata: Some(metadata),
+                ..CreateSession::default()
+            },
+        )
+        .unwrap();
+}
+
+fn session_with_origin(h: &Harness, key: &str, origin: &str) {
+    h.sessions
+        .ensure_session(
+            key,
+            CreateSession {
+                origin: Some(origin.to_owned()),
+                ..CreateSession::default()
+            },
+        )
+        .unwrap();
+}
+
+fn creates_from(h: &Harness, session_key: &str) -> Result<(), AutomationRefusal> {
+    let port = h
+        .resolver
+        .for_turn(&request("researcher", session_key, "default"))
+        .unwrap();
+    port.create(create(every(60_000), scheduled_payload()))
+        .map(|_| ())
+}
+
+#[test]
+fn a_scheduled_runs_subagent_may_not_schedule_either() {
+    // Two levels down, so the walk has to follow more than one hop.
+    let h = harness();
+    session_with_origin(&h, "automation-session", AUTOMATION_ORIGIN);
+    subagent_session(&h, "sub-1", Some("automation-session"));
+    subagent_session(&h, "sub-2", Some("sub-1"));
+
+    assert_eq!(creates_from(&h, "sub-2"), Err(AutomationRefusal::Nested));
+}
+
+#[test]
+fn a_subagent_of_a_conversation_someone_started_may_schedule() {
+    let h = harness();
+    session_with_origin(&h, "web-session", "web");
+    subagent_session(&h, "sub-1", Some("web-session"));
+
+    assert_eq!(creates_from(&h, "sub-1"), Ok(()));
+}
+
+#[test]
+fn a_lineage_that_cannot_be_followed_is_refused() {
+    let h = harness();
+    subagent_session(&h, "orphan", None);
+    subagent_session(&h, "lost", Some("deleted-parent"));
+    subagent_session(&h, "loop-a", Some("loop-b"));
+    subagent_session(&h, "loop-b", Some("loop-a"));
+
+    for key in ["orphan", "lost", "loop-a"] {
+        assert_eq!(
+            creates_from(&h, key),
+            Err(AutomationRefusal::Nested),
+            "{key}"
+        );
+    }
 }
 
 #[test]

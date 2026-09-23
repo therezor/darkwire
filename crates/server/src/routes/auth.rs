@@ -39,7 +39,7 @@ use crate::auth::{
 };
 use crate::auth_store::IssuedToken;
 use crate::errors::HttpError;
-use crate::login_throttle::ThrottleBlock;
+use crate::login_throttle::{Admission, ThrottleBlock};
 use crate::routes::AppState;
 use crate::schema::parse_body;
 
@@ -197,6 +197,15 @@ pub async fn login(
     }
 
     let request: LoginRequest = credential_body(body).await?;
+
+    // Counted as a failure before the hash, and in the same step as a second
+    // look at the lock. Guesses sent in parallel all passed the check above
+    // while each other's hashes ran; this is where they meet the count.
+    let created = match state.login_throttle.admit(&address)? {
+        Admission::Refused(block) => return Ok(throttled(&block)),
+        Admission::Admitted(created) => created,
+    };
+
     let auth = Arc::clone(&state.auth);
     let username = request.username.as_str().to_owned();
     let password = request.password.0.clone();
@@ -207,7 +216,7 @@ pub async fn login(
         // the next one. A 401 tells the attacker the guess was wrong and leaves
         // them free to send another immediately; the delay is only real once
         // the response says so.
-        if let Some(block) = state.login_throttle.fail(&address)? {
+        if let Some(block) = created {
             return Ok(throttled(&block));
         }
         // One message for a wrong username and a wrong password. Naming which
@@ -299,8 +308,12 @@ pub async fn setup_claim(
     }
 
     let request: SetupClaimRequest = credential_body(body).await?;
+    let created = match state.login_throttle.admit(&address)? {
+        Admission::Refused(block) => return Ok(throttled(&block)),
+        Admission::Admitted(created) => created,
+    };
     if !state.auth.consume_setup_code(&request.code)? {
-        if let Some(block) = state.login_throttle.fail(&address)? {
+        if let Some(block) = created {
             return Ok(throttled(&block));
         }
         // One message for a wrong code and a spent one, for the same reason the
@@ -342,11 +355,15 @@ pub async fn setup_password(
                 "The current password is required to change it",
             ));
         };
+        let created = match state.login_throttle.admit(&address)? {
+            Admission::Refused(block) => return Ok(throttled(&block)),
+            Admission::Admitted(created) => created,
+        };
 
         let auth = Arc::clone(&state.auth);
         let matched = blocking(move || auth.verify_password(&current.0)).await?;
         if !matched {
-            if let Some(block) = state.login_throttle.fail(&address)? {
+            if let Some(block) = created {
                 return Ok(throttled(&block));
             }
             return Err(HttpError::unauthorized("Incorrect current password"));

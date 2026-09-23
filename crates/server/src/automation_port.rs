@@ -33,6 +33,7 @@ use darkwire_core::session_store::SessionStore;
 use darkwire_protocol::automation::{
     AUTOMATION_ORIGIN, AutomationJob, AutomationJobCreator, AutomationPayload, CreateAutomationJob,
 };
+use darkwire_protocol::subagent::{SUBAGENT_METADATA_KEY, SUBAGENT_ORIGIN, SubagentLineage};
 use darkwire_tools::automation::{
     AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver,
 };
@@ -49,6 +50,12 @@ use crate::scheduler::first_run_at;
 /// misread its own instructions from turning that one grant into a thousand
 /// rows.
 pub const MAX_AGENT_JOBS: i64 = 25;
+
+/// How far up a delegation chain the nested check will follow.
+///
+/// Well past any depth the delegation cap allows, and only there so that a
+/// lineage which loops back on itself ends in a refusal rather than a hang.
+const MAX_LINEAGE_HOPS: usize = 32;
 
 /// Re-arms the timer after a write, so a job created mid-turn actually fires.
 pub type RefreshTimer = Arc<dyn Fn() + Send + Sync>;
@@ -128,12 +135,37 @@ struct TurnPort {
 }
 
 impl TurnPort {
-    /// Whether this turn is itself a scheduled run.
+    /// Whether this turn is itself a scheduled run, or works for one.
+    ///
+    /// A subagent's session has an origin of its own, so the question is asked
+    /// of the conversation at the top of its lineage. A lineage that cannot be
+    /// followed to the top is refused: it is exactly the case this guard
+    /// cannot vouch for.
     fn nested(&self) -> bool {
-        matches!(
-            self.sessions.get_session(&self.session_key),
-            Ok(Some(session)) if session.origin == AUTOMATION_ORIGIN
-        )
+        let mut key = self.session_key.clone();
+        for _ in 0..=MAX_LINEAGE_HOPS {
+            let Ok(Some(session)) = self.sessions.get_session(&key) else {
+                // No row yet is a conversation on its first turn, which only a
+                // person or a channel starts.
+                return key != self.session_key;
+            };
+            if session.origin == AUTOMATION_ORIGIN {
+                return true;
+            }
+            if session.origin != SUBAGENT_ORIGIN {
+                return false;
+            }
+            let parent = session
+                .metadata
+                .get(SUBAGENT_METADATA_KEY)
+                .cloned()
+                .and_then(|value| serde_json::from_value::<SubagentLineage>(value).ok());
+            let Some(parent) = parent else {
+                return true;
+            };
+            key = parent.parent_session_key;
+        }
+        true
     }
 
     /// This agent's own jobs.

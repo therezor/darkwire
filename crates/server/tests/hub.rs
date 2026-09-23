@@ -800,6 +800,117 @@ async fn queues_a_second_message_rather_than_running_two_turns_at_once() {
 }
 
 #[tokio::test]
+async fn queues_a_message_that_arrives_before_the_first_turn_has_started() {
+    // Back to back, with nothing awaited between them: the first turn has been
+    // popped off the queue but its loop has not started yet.
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    client.send(user(SESSION, "first"));
+    client.send(user(SESSION, "second"));
+    client.until_count("message.ack", 2).await;
+    client.until_seen("message.queued").await;
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(h.runner.count(), 1, "one turn at a time");
+
+    h.runner.turn(0).start();
+    h.runner.turn(0).end();
+    for _ in 0..500 {
+        if h.runner.count() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(h.runner.count(), 2, "the second ran once the first ended");
+    h.runner.turn(1).start();
+    h.runner.turn(1).end();
+}
+
+#[tokio::test]
+async fn an_unattended_stop_leaves_a_turn_it_did_not_submit_alone() {
+    // A scheduled run's time limit on a shared session. It must not cancel the
+    // operator's turn, and it withdraws its own message from the queue.
+    let h = harness(&HarnessOptions::default());
+    let operator = h.plain();
+    operator.until_seen("connected").await;
+    let run = h.connect(ConnectOptions {
+        unattended: true,
+        ..ConnectOptions::default()
+    });
+    run.until_seen("connected").await;
+
+    operator.send(user(SESSION, "mine"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    h.runner.turn(0).start();
+    operator.until_seen("turn.start").await;
+
+    run.send(user(SESSION, "scheduled"));
+    run.until_seen("message.queued").await;
+    operator.reset();
+    run.send(json!({ "type": "turn.stop", "sessionKey": SESSION }));
+    // The withdrawn message is announced as a status with nothing queued.
+    operator
+        .until("an empty queue", |frames| {
+            frames.iter().any(|frame| {
+                matches!(frame, ServerMessage::SessionStatus(status)
+                    if status.event.busy && status.event.queue_depth == 0)
+            })
+        })
+        .await;
+    assert!(
+        !h.runner.turn(0).token.is_cancelled(),
+        "the operator's turn is still running"
+    );
+
+    h.runner.turn(0).end();
+    operator.until_seen("turn.end").await;
+    operator
+        .until("an idle status", |frames| {
+            frames.iter().any(
+                |frame| matches!(frame, ServerMessage::SessionStatus(status) if !status.event.busy),
+            )
+        })
+        .await;
+    assert_eq!(h.runner.count(), 1, "the withdrawn message never ran");
+}
+
+#[tokio::test]
+async fn an_unattended_connection_can_stop_the_turn_it_submitted() {
+    // A scheduled run's time limit, which is the whole reason it sends a stop.
+    let h = harness(&HarnessOptions::default());
+    let run = h.connect(ConnectOptions {
+        unattended: true,
+        ..ConnectOptions::default()
+    });
+    run.until_seen("connected").await;
+
+    run.send(user(SESSION, "scheduled"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    h.runner.turn(0).start();
+    run.until_seen("turn.start").await;
+
+    run.send(json!({ "type": "turn.stop", "sessionKey": SESSION }));
+    assert!(h.runner.turn(0).token.is_cancelled());
+    h.runner.turn(0).end_with(StopReason::Aborted);
+}
+
+#[tokio::test]
 async fn refuses_a_message_past_the_queue_bound_with_session_busy() {
     let h = harness(&HarnessOptions {
         max_queue_depth: Some(2),
@@ -1271,6 +1382,63 @@ async fn replays_exactly_what_a_reconnecting_client_missed() {
         .map(seq)
         .collect();
     assert!(replayed.iter().all(|s| *s > last_seen));
+    turn.end();
+}
+
+#[tokio::test]
+async fn sends_a_replay_only_to_the_connection_that_asked_for_it() {
+    // Another tab watching the live turn would read an incomplete replay as an
+    // order to rebuild the turn it is showing.
+    let h = harness(&HarnessOptions {
+        replay_buffer_size: Some(1),
+        ..HarnessOptions::default()
+    });
+    let watching = h.plain();
+    watching.until_seen("connected").await;
+    watching.send(user(SESSION, "go"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let turn = h.runner.turn(0);
+    turn.start();
+    turn.delta("one ");
+    turn.delta("two");
+    watching.until_count("assistant.delta", 2).await;
+
+    let reconnect = h.plain();
+    reconnect.until_seen("connected").await;
+    reconnect.send(json!({
+        "type": "session.resume", "sessionKey": SESSION, "lastSeq": 1,
+    }));
+    reconnect.until_seen("session.replay").await;
+
+    turn.delta(" three");
+    watching.until_count("assistant.delta", 3).await;
+    assert!(
+        watching.of("session.replay").is_empty(),
+        "the watching tab was sent someone else's replay"
+    );
+
+    // And the counter has no gap in it, so the watching tab's own resume from
+    // where it is now is still whole.
+    let last = watching
+        .frames()
+        .iter()
+        .filter_map(ServerMessage::seq)
+        .max()
+        .unwrap();
+    watching.reset();
+    watching.send(json!({
+        "type": "session.resume", "sessionKey": SESSION, "lastSeq": last,
+    }));
+    watching.until_seen("session.replay").await;
+    let ServerMessage::SessionReplay(replay) = &watching.of("session.replay")[0] else {
+        panic!("expected a replay");
+    };
+    assert!(replay.event.complete);
     turn.end();
 }
 

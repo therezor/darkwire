@@ -864,6 +864,17 @@ fn open_store(
     Ok((loaded, database))
 }
 
+/// Reconciles, catches up, and starts the wait loop.
+///
+/// `start` alone only reconciles and catches up. The loop is what fires a job
+/// whose time arrives later, and `stop` makes it return.
+fn start_scheduler(scheduler: &Arc<Scheduler>) -> Result<()> {
+    scheduler.start()?;
+    let engine = Arc::clone(scheduler);
+    tokio::spawn(async move { engine.run().await });
+    Ok(())
+}
+
 /// Brings the whole stack up and returns it. Does not block.
 ///
 /// Separate from [`run`] so a test can start a real server, drive it, and shut
@@ -1025,7 +1036,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
 
     // After the listener, so a job that fires immediately — a missed one-shot
     // the boot sweep picks up — reaches a server that can already answer.
-    scheduler.start()?;
+    start_scheduler(&scheduler)?;
 
     Ok(Arc::new(RunningServer {
         url: format!("http://{bound}"),

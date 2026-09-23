@@ -14,7 +14,7 @@ use std::time::Duration;
 use darkwire_core::testkit::ManualClock;
 use darkwire_core::{Clock, Database};
 use darkwire_server::login_throttle::{
-    ACCOUNT_SCOPE, DECAY_MS, FREE_ATTEMPTS, LoginThrottle, MAX_ACCOUNT_DELAY_MS,
+    ACCOUNT_SCOPE, Admission, DECAY_MS, FREE_ATTEMPTS, LoginThrottle, MAX_ACCOUNT_DELAY_MS,
     MAX_ADDRESS_DELAY_MS, SCHEMA, delay_for,
 };
 use serde_json::Value;
@@ -106,6 +106,68 @@ fn the_block_is_reported_on_the_attempt_that_creates_it_not_the_next_one() {
             .retry_after_ms,
         1_000
     );
+}
+
+#[test]
+fn an_attempt_is_counted_before_its_password_is_checked() {
+    // Guesses sent together, each still inside its 50 ms of argon2. The ones
+    // past the free attempts meet the lock the earlier ones wrote, rather than
+    // all passing a check that nothing had been counted against yet.
+    let built = build();
+    for attempt in 1..=FREE_ATTEMPTS {
+        assert_eq!(
+            built.throttle.admit("10.0.0.1").unwrap(),
+            Admission::Admitted(None),
+            "{attempt}"
+        );
+    }
+    let Admission::Admitted(Some(created)) = built.throttle.admit("10.0.0.1").unwrap() else {
+        panic!("the attempt past the free ones is let through with the lock it created");
+    };
+    assert_eq!(created.retry_after_ms, 1_000);
+    let Admission::Refused(block) = built.throttle.admit("10.0.0.2").unwrap() else {
+        panic!("the next guess, from anywhere, is refused before it is hashed");
+    };
+    assert_eq!(block.scope, ACCOUNT_SCOPE);
+}
+
+#[test]
+fn a_right_password_on_the_attempt_that_created_the_lock_still_clears_it() {
+    let built = build();
+    for _ in 0..=FREE_ATTEMPTS {
+        built.throttle.admit("10.0.0.1").unwrap();
+    }
+    built.throttle.succeed("10.0.0.1").unwrap();
+    assert_eq!(built.throttle.check("10.0.0.1").unwrap(), None);
+}
+
+#[test]
+fn failures_at_the_same_moment_are_all_counted() {
+    let built = build();
+    let throttle = Arc::new(built.throttle);
+    let threads: Vec<_> = (0..8)
+        .map(|index| {
+            let throttle = Arc::clone(&throttle);
+            std::thread::spawn(move || {
+                for _ in 0..4 {
+                    throttle.fail(&format!("10.0.1.{index}")).unwrap();
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let failures: i64 = built
+        .db
+        .lock()
+        .query_row(
+            "SELECT failures FROM auth_throttle WHERE scope = ?",
+            [ACCOUNT_SCOPE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(failures, 32);
 }
 
 #[test]

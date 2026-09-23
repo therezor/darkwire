@@ -141,23 +141,15 @@ impl TurnLog {
     fn append(&mut self, message: &ServerMessage) {
         let key = mergeable_key(message);
 
-        if key.is_some() && key == self.last_key {
-            let merged = self
+        if key.is_some()
+            && key == self.last_key
+            && self
                 .entries
-                .last()
-                .and_then(|previous| concat_delta(previous, message));
-            if let Some(merged) = merged {
-                if let Some(last) = self.entries.last_mut() {
-                    *last = merged;
-                }
-                // The *later* seq, deliberately. A client's cursor is the
-                // highest seq it has applied, so an entry that reported the
-                // first seq of the run it merged would leave the cursor behind
-                // the frames it had rendered — and the next resume would re-send
-                // text already on screen.
-                self.charge(payload_size(message));
-                return;
-            }
+                .last_mut()
+                .is_some_and(|previous| append_delta(previous, message))
+        {
+            self.charge(payload_size(message));
+            return;
         }
 
         self.last_key = key;
@@ -251,33 +243,42 @@ fn mergeable_key(message: &ServerMessage) -> Option<String> {
     }
 }
 
-/// Two adjacent deltas as one frame, or `None` if they are not both.
-fn concat_delta(previous: &ServerMessage, next: &ServerMessage) -> Option<ServerMessage> {
+/// Appends a delta to the one before it, in place, if they are both deltas.
+///
+/// In place because the entry holds the whole answer so far, and this runs
+/// once per token under the hub's lock: copying the entry to extend it would
+/// make a long answer quadratic.
+///
+/// The entry takes the *later* seq, deliberately. A client's cursor is the
+/// highest seq it has applied, so an entry that reported the first seq of the
+/// run it merged would leave the cursor behind the frames it had rendered, and
+/// the next resume would re-send text already on screen.
+fn append_delta(previous: &mut ServerMessage, next: &ServerMessage) -> bool {
     match (previous, next) {
         (ServerMessage::AssistantDelta(before), ServerMessage::AssistantDelta(after)) => {
-            let mut merged = before.clone();
-            merged.seq = after.seq;
-            merged.event.text.push_str(&after.event.text);
-            Some(ServerMessage::AssistantDelta(merged))
+            before.seq = after.seq;
+            before.event.text.push_str(&after.event.text);
+            true
         }
         (ServerMessage::ReasoningDelta(before), ServerMessage::ReasoningDelta(after)) => {
-            let mut merged = before.clone();
-            merged.seq = after.seq;
-            merged.event.text.push_str(&after.event.text);
-            Some(ServerMessage::ReasoningDelta(merged))
+            before.seq = after.seq;
+            before.event.text.push_str(&after.event.text);
+            true
         }
         (ServerMessage::Subagent(before), ServerMessage::Subagent(after)) => {
-            let tail = delta_text(&after.event.event)?;
-            let mut merged = before.clone();
-            merged.seq = after.seq;
-            match &mut merged.event.event {
-                NestedAgentEvent::AssistantDelta(body) => body.text.push_str(tail),
-                NestedAgentEvent::ReasoningDelta(body) => body.text.push_str(tail),
-                _ => return None,
-            }
-            Some(ServerMessage::Subagent(merged))
+            let Some(tail) = delta_text(&after.event.event) else {
+                return false;
+            };
+            let text = match &mut before.event.event {
+                NestedAgentEvent::AssistantDelta(body) => &mut body.text,
+                NestedAgentEvent::ReasoningDelta(body) => &mut body.text,
+                _ => return false,
+            };
+            text.push_str(tail);
+            before.seq = after.seq;
+            true
         }
-        _ => None,
+        _ => false,
     }
 }
 

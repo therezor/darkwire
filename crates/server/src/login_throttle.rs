@@ -41,7 +41,7 @@
 use std::sync::Arc;
 
 use darkwire_core::{Clock, Database, Result, RowReader};
-use rusqlite::params;
+use rusqlite::{Connection, params};
 
 /// The `auth_throttle` table.
 pub const AUTH_THROTTLE_TABLE: &str = "CREATE TABLE IF NOT EXISTS auth_throttle (
@@ -125,6 +125,17 @@ pub fn delay_for(failures: i64, max_delay_ms: i64) -> i64 {
         .min(max_delay_ms)
 }
 
+/// What the throttle decided about an attempt it has not seen the outcome of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Admission {
+    /// Locked out. The password must not be checked.
+    Refused(ThrottleBlock),
+    /// Let through, and already counted as a failure until
+    /// [`LoginThrottle::succeed`] says otherwise. The block is the one this
+    /// attempt's count created, which is the answer if the password is wrong.
+    Admitted(Option<ThrottleBlock>),
+}
+
 /// The failure counters, on the shared connection.
 pub struct LoginThrottle {
     db: Database,
@@ -160,9 +171,27 @@ impl LoginThrottle {
         // address is locked for fifteen minutes, is a caller who returns on
         // time and is refused again. Answering with the real wait is the
         // difference between a throttle and a lie.
-        let account = self.block_for(ACCOUNT_SCOPE, now)?;
-        let per_address = self.block_for(&address_scope(address), now)?;
-        Ok(longest(account, per_address))
+        self.db
+            .transaction(|conn| blocked(conn, &address_scope(address), now))
+    }
+
+    /// Checks and counts an attempt in one step, before the password is.
+    ///
+    /// Counted up front because argon2 takes 50 ms. A check that only looked,
+    /// with the count written after the hash, let every guess sent in that
+    /// window through the same open door. One transaction, so a parallel
+    /// guess sees this one's count and, past the free attempts, its lock.
+    pub fn admit(&self, address: &str) -> Result<Admission> {
+        let now = self.clock.now_ms();
+        let scope = address_scope(address);
+        self.db.transaction(|conn| {
+            if let Some(block) = blocked(conn, &scope, now)? {
+                return Ok(Admission::Refused(block));
+            }
+            let created = record_both(conn, &scope, now)?;
+            prune(conn, now)?;
+            Ok(Admission::Admitted(created))
+        })
     }
 
     /// Records a failure against both scopes and returns the block it creates.
@@ -174,10 +203,12 @@ impl LoginThrottle {
     /// response says so.
     pub fn fail(&self, address: &str) -> Result<Option<ThrottleBlock>> {
         let now = self.clock.now_ms();
-        let account = self.record(ACCOUNT_SCOPE, now, MAX_ACCOUNT_DELAY_MS)?;
-        let per_address = self.record(&address_scope(address), now, MAX_ADDRESS_DELAY_MS)?;
-        self.prune(now)?;
-        Ok(longest(account, per_address))
+        let scope = address_scope(address);
+        self.db.transaction(|conn| {
+            let created = record_both(conn, &scope, now)?;
+            prune(conn, now)?;
+            Ok(created)
+        })
     }
 
     /// Clears both scopes after a login that worked.
@@ -197,98 +228,116 @@ impl LoginThrottle {
     pub fn reset(&self) -> Result<usize> {
         Ok(self.db.lock().execute("DELETE FROM auth_throttle", [])?)
     }
+}
 
-    fn block_for(&self, scope: &str, now: i64) -> Result<Option<ThrottleBlock>> {
-        let guard = self.db.lock();
-        let mut statement = guard
-            .prepare("SELECT last_failed_ms, locked_until_ms FROM auth_throttle WHERE scope = ?")?;
-        let mut rows = statement.query(params![scope])?;
-        let Some(row) = rows.next()? else {
-            return Ok(None);
-        };
-        let last_failed_ms = ROWS.int(row, "last_failed_ms")?;
-        let locked_until_ms = ROWS.int(row, "locked_until_ms")?;
-        // A decayed bucket is not consulted even though the row is still there
-        // — pruning is opportunistic, and a lock that outlived its window must
-        // not be enforced just because nothing has swept it yet.
-        if now - last_failed_ms > DECAY_MS {
-            return Ok(None);
-        }
-        Ok(if locked_until_ms > now {
-            Some(ThrottleBlock {
-                scope: scope.to_owned(),
-                retry_after_ms: locked_until_ms - now,
-            })
-        } else {
-            None
-        })
+/// The longer of the two scopes' blocks, if either is in force.
+fn blocked(conn: &Connection, address: &str, now: i64) -> Result<Option<ThrottleBlock>> {
+    let account = block_for(conn, ACCOUNT_SCOPE, now)?;
+    let per_address = block_for(conn, address, now)?;
+    Ok(longest(account, per_address))
+}
+
+/// Counts a failure against both scopes.
+fn record_both(conn: &Connection, address: &str, now: i64) -> Result<Option<ThrottleBlock>> {
+    let account = record(conn, ACCOUNT_SCOPE, now, MAX_ACCOUNT_DELAY_MS)?;
+    let per_address = record(conn, address, now, MAX_ADDRESS_DELAY_MS)?;
+    Ok(longest(account, per_address))
+}
+
+fn block_for(conn: &Connection, scope: &str, now: i64) -> Result<Option<ThrottleBlock>> {
+    let mut statement =
+        conn.prepare("SELECT last_failed_ms, locked_until_ms FROM auth_throttle WHERE scope = ?")?;
+    let mut rows = statement.query(params![scope])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let last_failed_ms = ROWS.int(row, "last_failed_ms")?;
+    let locked_until_ms = ROWS.int(row, "locked_until_ms")?;
+    // A decayed bucket is not consulted even though the row is still there:
+    // pruning is opportunistic, and a lock that outlived its window must not be
+    // enforced just because nothing has swept it yet.
+    if now - last_failed_ms > DECAY_MS {
+        return Ok(None);
     }
+    Ok(if locked_until_ms > now {
+        Some(ThrottleBlock {
+            scope: scope.to_owned(),
+            retry_after_ms: locked_until_ms - now,
+        })
+    } else {
+        None
+    })
+}
 
-    fn record(&self, scope: &str, now: i64, max_delay_ms: i64) -> Result<Option<ThrottleBlock>> {
-        let previous = {
-            let guard = self.db.lock();
-            let mut statement = guard
-                .prepare("SELECT failures, last_failed_ms FROM auth_throttle WHERE scope = ?")?;
-            let mut rows = statement.query(params![scope])?;
-            match rows.next()? {
-                None => 0,
-                Some(row) => {
-                    let last_failed_ms = ROWS.int(row, "last_failed_ms")?;
-                    if now - last_failed_ms > DECAY_MS {
-                        0
-                    } else {
-                        ROWS.int(row, "failures")?
-                    }
+/// One more failure in `scope`. Read and written inside the caller's
+/// transaction, so two failures at once cannot both read the same count.
+fn record(
+    conn: &Connection,
+    scope: &str,
+    now: i64,
+    max_delay_ms: i64,
+) -> Result<Option<ThrottleBlock>> {
+    let previous = {
+        let mut statement =
+            conn.prepare("SELECT failures, last_failed_ms FROM auth_throttle WHERE scope = ?")?;
+        let mut rows = statement.query(params![scope])?;
+        match rows.next()? {
+            None => 0,
+            Some(row) => {
+                let last_failed_ms = ROWS.int(row, "last_failed_ms")?;
+                if now - last_failed_ms > DECAY_MS {
+                    0
+                } else {
+                    ROWS.int(row, "failures")?
                 }
             }
-        };
+        }
+    };
 
-        let failures = previous + 1;
-        let delay = delay_for(failures, max_delay_ms);
-        let locked_until = now + delay;
+    let failures = previous + 1;
+    let delay = delay_for(failures, max_delay_ms);
+    let locked_until = now + delay;
 
-        self.db.lock().execute(
-            "INSERT INTO auth_throttle (scope, failures, last_failed_ms, locked_until_ms)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(scope) DO UPDATE SET
-               failures = excluded.failures,
-               last_failed_ms = excluded.last_failed_ms,
-               locked_until_ms = excluded.locked_until_ms",
-            params![scope, failures, now, locked_until],
-        )?;
+    conn.execute(
+        "INSERT INTO auth_throttle (scope, failures, last_failed_ms, locked_until_ms)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE SET
+           failures = excluded.failures,
+           last_failed_ms = excluded.last_failed_ms,
+           locked_until_ms = excluded.locked_until_ms",
+        params![scope, failures, now, locked_until],
+    )?;
 
-        Ok(if delay == 0 {
-            None
-        } else {
-            Some(ThrottleBlock {
-                scope: scope.to_owned(),
-                retry_after_ms: delay,
-            })
+    Ok(if delay == 0 {
+        None
+    } else {
+        Some(ThrottleBlock {
+            scope: scope.to_owned(),
+            retry_after_ms: delay,
         })
-    }
+    })
+}
 
-    /// Drops decayed buckets, then the oldest addresses past the cap.
-    ///
-    /// Only on failure, which is the only path that grows the table, and which
-    /// is itself throttled by everything above.
-    fn prune(&self, now: i64) -> Result<()> {
-        let guard = self.db.lock();
-        guard.execute(
-            "DELETE FROM auth_throttle WHERE scope <> ? AND last_failed_ms < ?",
-            params![ACCOUNT_SCOPE, now - DECAY_MS],
-        )?;
-        // `LIMIT -1 OFFSET n` is SQLite's spelling of "everything after the
-        // first n rows", which here is every address past the cap once they are
-        // ordered most recently active first.
-        guard.execute(
-            "DELETE FROM auth_throttle WHERE scope IN (
-               SELECT scope FROM auth_throttle WHERE scope <> ?
-               ORDER BY last_failed_ms DESC LIMIT -1 OFFSET ?
-             )",
-            params![ACCOUNT_SCOPE, MAX_TRACKED_ADDRESSES],
-        )?;
-        Ok(())
-    }
+/// Drops decayed buckets, then the oldest addresses past the cap.
+///
+/// Only on failure, which is the only path that grows the table, and which is
+/// itself throttled by everything above.
+fn prune(conn: &Connection, now: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM auth_throttle WHERE scope <> ? AND last_failed_ms < ?",
+        params![ACCOUNT_SCOPE, now - DECAY_MS],
+    )?;
+    // `LIMIT -1 OFFSET n` is SQLite's spelling of "everything after the first n
+    // rows", which here is every address past the cap once they are ordered
+    // most recently active first.
+    conn.execute(
+        "DELETE FROM auth_throttle WHERE scope IN (
+           SELECT scope FROM auth_throttle WHERE scope <> ?
+           ORDER BY last_failed_ms DESC LIMIT -1 OFFSET ?
+         )",
+        params![ACCOUNT_SCOPE, MAX_TRACKED_ADDRESSES],
+    )?;
+    Ok(())
 }
 
 /// Prefixed, so an address can never collide with [`ACCOUNT_SCOPE`].

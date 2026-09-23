@@ -122,12 +122,25 @@ async fn connect(
     query: &str,
     token: Option<&str>,
 ) -> Result<Connection, WsError> {
+    connect_from(server, query, token, None).await
+}
+
+/// Opens a socket the way a browser does, naming the page it came from.
+async fn connect_from(
+    server: &Listening,
+    query: &str,
+    token: Option<&str>,
+    origin: Option<&str>,
+) -> Result<Connection, WsError> {
     let uri = format!("ws://{}/ws{query}", server.address)
         .parse()
         .expect("a well-formed URL");
     let mut builder = ClientRequestBuilder::new(uri);
     if let Some(token) = token {
         builder = builder.with_header("Authorization", format!("Bearer {token}"));
+    }
+    if let Some(origin) = origin {
+        builder = builder.with_header("Origin", origin);
     }
     let (socket, _) = tokio_tungstenite::connect_async(builder).await?;
     Ok(Connection {
@@ -405,4 +418,44 @@ async fn two_tabs_on_one_session_both_see_it() {
 
     first.close().await;
     second.close().await;
+}
+
+// Where the page came from
+
+#[tokio::test]
+async fn a_page_this_server_did_not_serve_cannot_open_the_socket() {
+    // Authentication off, on loopback: the one configuration where nothing but
+    // this check stands between any web page and the agent.
+    let mut config = darkwire_protocol::config::Config::default();
+    config.server.auth.enabled = false;
+    let server = listening(TestServerOptions {
+        config: Some(config),
+        ..TestServerOptions::default()
+    })
+    .await;
+
+    for origin in ["http://evil.example", "null", "http://127.0.0.1:1"] {
+        let refused = connect_from(&server, "", None, Some(origin))
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{origin} was let in"));
+        assert_eq!(
+            handshake_status(&refused),
+            Some(StatusCode::FORBIDDEN),
+            "{origin}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_page_this_server_served_opens_the_socket() {
+    let server = listening(TestServerOptions::default()).await;
+    let token = server.test.token.clone();
+    let origin = format!("http://{}", server.address);
+
+    let mut socket = connect_from(&server, "", Some(&token), Some(&origin))
+        .await
+        .expect("the upgrade was accepted");
+    socket.next_of("connected").await;
+    socket.close().await;
 }

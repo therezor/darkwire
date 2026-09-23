@@ -8,8 +8,13 @@
 //! the same pair without a socket, and gets the same queueing, the same replay
 //! and the same approval gate.
 //!
-//! The three decisions worth stating:
+//! The four decisions worth stating:
 //!
+//!  - **A browser may only open it from the page this server served.** A
+//!    WebSocket is not subject to the same-origin policy, so without this any
+//!    page the operator visits could open one to a loopback install with
+//!    authentication off, send a message, and approve its own tool calls. A
+//!    request with no `Origin` is not a browser's and is let through.
 //!  - **The upgrade is authenticated, by the same layer as every other route.**
 //!    It is `Required` in the manifest, so the auth matrix covers it — an
 //!    unauthenticated socket is an anonymous, shell-capable agent, and it would
@@ -28,6 +33,7 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
+use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::Response;
 use darkwire_core::ErrorKind;
 use darkwire_protocol::ws::ErrorCode;
@@ -54,9 +60,20 @@ const NOT_AN_UPGRADE: &str =
 /// and looks to the user like it lost the one they were in.
 pub async fn connect(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
     query: Result<Query<WsQuery>, QueryRejection>,
     upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Result<Response, HttpError> {
+    if !same_origin(&headers, &uri) {
+        return Err(HttpError::new(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Unauthorized,
+            ErrorKind::PermissionDenied,
+            "This socket only accepts connections from the page this server serves.",
+        ));
+    }
+
     let Query(query) = query.map_err(|rejection| {
         // The same 422 every other route answers a failed schema with, rather
         // than axum's bare 400: a client reading one envelope should not have
@@ -70,7 +87,7 @@ pub async fn connect(
     // the missing header.
     let upgrade = upgrade.map_err(|_| {
         HttpError::new(
-            axum::http::StatusCode::UPGRADE_REQUIRED,
+            StatusCode::UPGRADE_REQUIRED,
             ErrorCode::BadRequest,
             ErrorKind::InvalidInput,
             NOT_AN_UPGRADE,
@@ -78,6 +95,46 @@ pub async fn connect(
     })?;
 
     Ok(upgrade.on_upgrade(move |socket| serve(state, socket, query)))
+}
+
+/// Whether a request's `Origin`, when it has one, names the host it was sent
+/// to.
+///
+/// Scheme-less, because the listener cannot tell whether TLS was terminated in
+/// front of it. `null` never matches: it is what a sandboxed or opaque page
+/// sends.
+fn same_origin(headers: &HeaderMap, uri: &Uri) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let Some((scheme, authority)) = origin
+        .to_str()
+        .ok()
+        .and_then(|origin| origin.split_once("://"))
+    else {
+        return false;
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| uri.authority().map(axum::http::uri::Authority::as_str));
+    host.is_some_and(|host| {
+        without_default_port(scheme, authority) == without_default_port(scheme, host)
+    })
+}
+
+/// The authority, lowercased, with the port a browser leaves out dropped.
+fn without_default_port(scheme: &str, authority: &str) -> String {
+    let authority = authority.to_ascii_lowercase();
+    let default = match scheme.to_ascii_lowercase().as_str() {
+        "http" | "ws" => ":80",
+        "https" | "wss" => ":443",
+        _ => return authority,
+    };
+    match authority.strip_suffix(default) {
+        Some(bare) => bare.to_owned(),
+        None => authority,
+    }
 }
 
 /// Pumps one socket in both directions until either end stops.

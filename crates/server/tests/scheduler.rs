@@ -12,7 +12,7 @@
 )]
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use darkwire_core::Database;
@@ -26,8 +26,9 @@ use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{AssistantMessage, AssistantRole, StopReason, ToolCall, Usage};
 use darkwire_protocol::rest::Notification;
 use darkwire_protocol::ws::{
-    AssistantDelta, AssistantDeltaTag, ClientMessage, ErrorCode, ErrorEvent, ErrorTag,
-    NotificationLevel, Sequenced, ServerMessage, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    AssistantDelta, AssistantDeltaTag, ClientMessage, ErrorCode, ErrorEvent, ErrorTag, MessageAck,
+    MessageAckTag, Notice, NoticeKind, NoticeTag, NotificationLevel, Sequenced, ServerMessage,
+    TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
 use darkwire_providers::{ChatResult, FinishReason};
 use darkwire_server::automation_store::{
@@ -161,14 +162,55 @@ fn turn_start(turn_id: &str) -> ServerMessage {
     })
 }
 
+/// The run id every collector below is waiting on.
+const RUN: &str = "run-1";
+
+/// The hub accepting a message, and naming the turn it will run under.
+fn ack(client_message_id: Option<&str>, turn_id: &str) -> ServerMessage {
+    ServerMessage::MessageAck(Sequenced {
+        seq: 0,
+        event: MessageAck {
+            tag: MessageAckTag,
+            session_key: "session-1".to_owned(),
+            message_id: turn_id.to_owned(),
+            client_message_id: client_message_id.map(str::to_owned),
+        },
+    })
+}
+
+/// A collector that has already been told its turn is `turn-1`.
+fn collecting() -> (
+    Arc<TurnCollector>,
+    tokio::sync::oneshot::Receiver<darkwire_server::scheduler::TurnOutcome>,
+) {
+    let (collector, outcome) = TurnCollector::new(RUN);
+    collector.receive(&ack(Some(RUN), "turn-1"));
+    (collector, outcome)
+}
+
 fn delta(text: &str) -> ServerMessage {
+    delta_for("turn-1", text)
+}
+
+fn delta_for(turn_id: &str, text: &str) -> ServerMessage {
     ServerMessage::AssistantDelta(Sequenced {
         seq: 2,
         event: AssistantDelta {
             tag: AssistantDeltaTag,
-            turn_id: "turn-1".to_owned(),
+            turn_id: turn_id.to_owned(),
             text: text.to_owned(),
         },
+    })
+}
+
+fn failure(turn_id: Option<&str>, message: &str) -> ServerMessage {
+    ServerMessage::Error(ErrorEvent {
+        tag: ErrorTag,
+        code: ErrorCode::NotConfigured,
+        message: message.to_owned(),
+        retryable: false,
+        turn_id: turn_id.map(str::to_owned),
+        call_id: None,
     })
 }
 
@@ -193,7 +235,7 @@ fn turn_end(turn_id: &str, stop_reason: StopReason) -> ServerMessage {
 
 #[tokio::test]
 async fn the_collector_reassembles_an_answer_from_its_deltas() {
-    let (collector, outcome) = TurnCollector::new();
+    let (collector, outcome) = collecting();
     collector.receive(&turn_start("turn-1"));
     collector.receive(&delta("  hello "));
     collector.receive(&delta("world  "));
@@ -207,7 +249,7 @@ async fn the_collector_reassembles_an_answer_from_its_deltas() {
 
 #[tokio::test]
 async fn a_turn_end_for_someone_elses_turn_is_ignored() {
-    let (collector, outcome) = TurnCollector::new();
+    let (collector, outcome) = collecting();
     collector.receive(&turn_start("turn-1"));
     collector.receive(&delta("mine"));
     collector.receive(&turn_end("turn-2", StopReason::Complete));
@@ -220,7 +262,7 @@ async fn a_turn_end_for_someone_elses_turn_is_ignored() {
 async fn the_iteration_cap_is_a_warning_rather_than_a_failure() {
     // The turn did work and produced an answer, it just ran out of tool budget
     // saying so.
-    let (collector, outcome) = TurnCollector::new();
+    let (collector, outcome) = collecting();
     collector.receive(&turn_start("turn-1"));
     collector.receive(&delta("partial"));
     collector.receive(&turn_end("turn-1", StopReason::MaxIterations));
@@ -238,7 +280,7 @@ async fn any_other_early_end_is_a_failure_that_names_itself() {
         StopReason::WallTimeout,
         StopReason::Error,
     ] {
-        let (collector, outcome) = TurnCollector::new();
+        let (collector, outcome) = collecting();
         collector.receive(&turn_start("turn-1"));
         collector.receive(&turn_end("turn-1", reason));
         let settled = outcome.await.unwrap();
@@ -255,23 +297,66 @@ async fn any_other_early_end_is_a_failure_that_names_itself() {
 
 #[tokio::test]
 async fn a_hub_refusal_settles_the_run_because_no_turn_end_will_follow() {
-    let (collector, outcome) = TurnCollector::new();
-    collector.receive(&ServerMessage::Error(ErrorEvent {
-        tag: ErrorTag,
-        code: ErrorCode::NotConfigured,
-        message: "No model is configured.".to_owned(),
-        retryable: false,
-        turn_id: None,
-        call_id: None,
-    }));
+    // Before any ack: a full queue is refused in place of one.
+    let (collector, outcome) = TurnCollector::new(RUN);
+    collector.receive(&failure(None, "No model is configured."));
 
     let settled = outcome.await.unwrap();
     assert_eq!(settled.error.as_deref(), Some("No model is configured."));
 }
 
+fn notice(turn_id: Option<&str>, message: &str) -> ServerMessage {
+    ServerMessage::Notice(Sequenced {
+        seq: 4,
+        event: Notice {
+            tag: NoticeTag,
+            kind: NoticeKind::Degraded,
+            message: message.to_owned(),
+            turn_id: turn_id.map(str::to_owned),
+            call_id: None,
+        },
+    })
+}
+
+#[tokio::test]
+async fn this_runs_own_failure_settles_it_without_a_turn_end() {
+    // An install with no model: the hub names the turn and never opens it.
+    let (collector, outcome) = collecting();
+    collector.receive(&notice(None, "about the session"));
+    collector.receive(&notice(Some("turn-1"), "about this turn"));
+    collector.receive(&failure(Some("turn-1"), "No model is configured."));
+
+    let settled = outcome.await.unwrap();
+    assert_eq!(settled.error.as_deref(), Some("No model is configured."));
+    assert_eq!(settled.warnings, ["about the session", "about this turn"]);
+}
+
+#[tokio::test]
+async fn another_turn_on_the_same_session_is_not_this_runs_output() {
+    // A job pinned to a session the operator is also typing in.
+    let (collector, outcome) = TurnCollector::new(RUN);
+    collector.receive(&ack(Some("tab-7"), "turn-0"));
+    collector.receive(&ack(None, "turn-00"));
+    collector.receive(&turn_start("turn-0"));
+    collector.receive(&delta_for("turn-0", "the operator's answer"));
+    collector.receive(&failure(Some("turn-0"), "the operator's turn failed"));
+    collector.receive(&turn_end("turn-0", StopReason::Error));
+
+    collector.receive(&ack(Some(RUN), "turn-1"));
+    collector.receive(&notice(Some("turn-0"), "not mine"));
+    collector.receive(&turn_start("turn-1"));
+    collector.receive(&delta("mine"));
+    collector.receive(&turn_end("turn-1", StopReason::Complete));
+
+    let settled = outcome.await.unwrap();
+    assert_eq!(settled.text, "mine");
+    assert_eq!(settled.error, None);
+    assert!(settled.warnings.is_empty(), "{:?}", settled.warnings);
+}
+
 #[tokio::test]
 async fn finishing_by_hand_wins_and_is_idempotent() {
-    let (collector, outcome) = TurnCollector::new();
+    let (collector, outcome) = collecting();
     collector.receive(&turn_start("turn-1"));
     collector.finish(Some("timed out".to_owned()));
     // Everything after is ignored.
@@ -302,7 +387,8 @@ impl SchedulerConnection for ScriptedConnection {
         if self.silent {
             return;
         }
-        if let ClientMessage::UserMessage(_) = frame {
+        if let ClientMessage::UserMessage(message) = frame {
+            (self.send)(ack(message.client_message_id.as_deref(), "turn-1"));
             (self.send)(ServerMessage::TurnStart(Sequenced {
                 seq: 1,
                 event: TurnStart {
@@ -332,6 +418,8 @@ struct Harness {
     broadcasts: Arc<Mutex<Vec<NotificationBroadcast>>>,
     frames: Arc<Mutex<Vec<ClientMessage>>>,
     deleted_sessions: Arc<Mutex<Vec<String>>>,
+    /// Every read of the settings tree, which every pass of the loop makes.
+    config_reads: Arc<AtomicUsize>,
 }
 
 fn harness(silent: bool) -> Harness {
@@ -353,6 +441,8 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
     let deleted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let config_for_port = Arc::clone(&config);
+    let config_reads = Arc::new(AtomicUsize::new(0));
+    let reads_for_port = Arc::clone(&config_reads);
     let broadcasts_for_port = Arc::clone(&broadcasts);
     let frames_for_port = Arc::clone(&frames);
     let deleted_for_port = Arc::clone(&deleted);
@@ -360,7 +450,10 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
 
     let scheduler = Scheduler::new(SchedulerOptions {
         jobs: Arc::clone(&jobs),
-        config: Arc::new(move || config_for_port.lock().clone()),
+        config: Arc::new(move || {
+            reads_for_port.fetch_add(1, Ordering::SeqCst);
+            config_for_port.lock().clone()
+        }),
         connect: Arc::new(move |options: SchedulerConnectOptions| {
             Arc::new(ScriptedConnection {
                 send: options.send,
@@ -392,6 +485,7 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         broadcasts,
         frames,
         deleted_sessions: deleted,
+        config_reads,
     }
 }
 
@@ -1453,4 +1547,71 @@ async fn the_wait_loop_fires_a_job_whose_time_arrives() {
     assert_eq!(h.jobs.count_runs(&created.id).unwrap(), 1);
     h.scheduler.stop();
     loop_task.abort();
+}
+
+#[tokio::test]
+async fn a_tick_says_how_many_runs_it_started() {
+    let h = harness(true);
+    h.config.lock().scheduler.concurrency = 1;
+    h.jobs
+        .create_job(&job("a", every(1_000), NOW + 1_000))
+        .unwrap();
+    h.jobs
+        .create_job(&job("b", every(1_000), NOW + 1_001))
+        .unwrap();
+    h.scheduler.start().unwrap();
+
+    h.clock.advance(Duration::from_secs(2));
+    assert_eq!(h.scheduler.tick().unwrap(), 1);
+    assert_eq!(h.scheduler.tick().unwrap(), 0, "no slot for the second");
+
+    h.scheduler.stop();
+    settle(&h).await;
+}
+
+// The loop gets a thread and a runtime of its own, so a loop that never
+// yields fails the count below instead of starving the test.
+#[test]
+fn the_wait_loop_backs_off_while_what_is_due_cannot_start() {
+    let h = harness(true);
+    h.config.lock().scheduler.concurrency = 1;
+    h.jobs
+        .create_job(&job("a", every(1_000), NOW + 1_000))
+        .unwrap();
+    h.jobs
+        .create_job(&job("b", every(1_000), NOW + 1_001))
+        .unwrap();
+    h.scheduler.start().unwrap();
+    h.clock.advance(Duration::from_secs(2));
+
+    // The silent connection holds "a" open, so "b" stays due with no slot.
+    let engine = h.scheduler.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(engine.run());
+        let _ = done_tx.send(());
+    });
+    for _ in 0..500 {
+        if h.scheduler.in_flight() == 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(h.scheduler.in_flight(), 1);
+    let before = h.config_reads.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(20));
+    let passes = h.config_reads.load(Ordering::SeqCst) - before;
+
+    h.scheduler.stop();
+    done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("stop makes the loop return");
+    assert!(
+        passes < 50,
+        "the loop spun: {passes} settings reads in 20 ms"
+    );
 }
