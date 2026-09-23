@@ -81,6 +81,11 @@ const NOTICES: Record<
     tone: 'warning',
     icon: Wrench,
   },
+  length_cut: {
+    label: 'chat.notices.length_cut',
+    tone: 'warning',
+    icon: Scissors,
+  },
 };
 
 export function Notice({

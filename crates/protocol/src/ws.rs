@@ -846,6 +846,9 @@ pub enum NoticeKind {
     /// never offered — the request carried no tools at all — so the notice is
     /// about a capability, not about a decision anyone made.
     ToolsDisabled,
+    /// The model stopped at its output token limit, so the answer or a tool
+    /// call is cut short.
+    LengthCut,
 }
 
 /// An advisory.

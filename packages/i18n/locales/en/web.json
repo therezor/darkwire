@@ -404,6 +404,7 @@
       "agent_fallback": "Ran on the default agent",
       "approval_denied": "Denied",
       "degraded": "Degraded request",
+      "length_cut": "Cut at the token limit",
       "prompt_injection": "Possible prompt injection",
       "provider_fallback": "Provider fallback",
       "tools_disabled": "Tool calling is off",

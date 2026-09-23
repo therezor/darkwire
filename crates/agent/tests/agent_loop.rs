@@ -1828,7 +1828,7 @@ async fn an_answer_cut_at_the_token_limit_says_so() {
     assert_eq!(result.stop_reason, StopReason::Complete);
     let notices = events_of(&events, "notice");
     assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0]["kind"], json!("degraded"));
+    assert_eq!(notices[0]["kind"], json!("length_cut"));
     assert!(
         notices[0]["message"]
             .as_str()

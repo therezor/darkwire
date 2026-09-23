@@ -7,6 +7,7 @@
     "provider_fallback",
     "approval_denied",
     "agent_fallback",
-    "tools_disabled"
+    "tools_disabled",
+    "length_cut"
   ]
 }

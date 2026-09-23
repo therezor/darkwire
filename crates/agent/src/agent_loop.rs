@@ -2064,7 +2064,7 @@ impl AgentLoop {
     async fn note_length_cut(&self, turn: &TurnContext, sink: &EventSink) {
         sink.emit(darkwire_protocol::Notice {
             tag: darkwire_protocol::NoticeTag,
-            kind: NoticeKind::Degraded,
+            kind: NoticeKind::LengthCut,
             message: format!(
                 "The answer reached the {}-token limit and may be cut short.",
                 self.inner.config.max_tokens

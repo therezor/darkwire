@@ -442,6 +442,11 @@ export const NoticeKindSchema = z.enum([
    * about a capability, not about a decision anyone made.
    */
   'tools_disabled',
+  /**
+   * The model stopped at its output token limit, so the answer or a tool call
+   * is cut short.
+   */
+  'length_cut',
 ]);
 export type NoticeKind = z.infer<typeof NoticeKindSchema>;
 
