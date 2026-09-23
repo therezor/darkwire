@@ -38,6 +38,13 @@ browser UI compiled into it, pointed at a model on your own hardware.
 - **Skills and memory as files.** A skill is a folder in the workspace and costs about 20
   tokens to index; memory is one plain markdown file per topic, read, saved and deleted by
   key, committed beside the project.
+- **Approvals everywhere a turn can run.** A tool set to `ask` stops and shows the
+  command it would run, in the browser, the terminal and a Telegram chat, a subagent's
+  included. Each takes once, this session, a standing command rule for `exec`, or no. A
+  run with nobody to ask refuses, and `darkwire chat --yes` runs them unasked.
+- **Command rules for `exec`.** Argv patterns with an action, the most specific winning,
+  and a separate cap for shells, so an agent can run `cargo test *` freely and never
+  `git push`.
 - **A task list per session.** The `todo` tool replaces the whole list on each call, the
   list is read back into the prompt on every iteration, and it is drawn in the terminal,
   above the composer in the browser and by `/tasks` in a Telegram chat. It is stamped with
