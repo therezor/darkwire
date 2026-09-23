@@ -434,13 +434,13 @@ async fn a_resize_lays_the_prompt_out_again() {
 }
 
 #[tokio::test]
-async fn a_paste_lands_on_the_composer_as_one_line() {
+async fn a_paste_keeps_its_newlines_rather_than_submitting_them() {
     let home = tempfile::tempdir().unwrap();
     let session = session(&home);
     let (mut surface, events) = prompt(&session);
 
     events
-        .send(TuiEvent::Paste("two\nlines".to_owned()))
+        .send(TuiEvent::Paste("two\r\nlines".to_owned()))
         .unwrap();
     events
         .send(TuiEvent::Key(Key::named(KeyName::Enter)))
@@ -449,10 +449,104 @@ async fn a_paste_lands_on_the_composer_as_one_line() {
     let line = tokio::time::timeout(Duration::from_secs(5), surface.next_line())
         .await
         .expect("the prompt answered");
+    assert_eq!(line.as_deref(), Some("two\nlines"));
+}
+
+#[tokio::test]
+async fn a_paste_into_a_question_answers_the_question() {
+    // It used to go to the composer underneath, which nobody could see.
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+
+    let menu = surface.menu();
+    let command = Box::pin(async move {
+        let answer = menu
+            .ask(darkwire::pickers::AskRequest {
+                title: "A new name".to_owned(),
+                initial: String::new(),
+            })
+            .await;
+        assert_eq!(answer.as_deref(), Some("pasted name"));
+        darkwire::chat::Flow::Again
+    });
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        events
+            .send(TuiEvent::Paste("pasted name\n".to_owned()))
+            .unwrap();
+        events
+            .send(TuiEvent::Key(Key::named(KeyName::Enter)))
+            .unwrap();
+    });
+
+    let flow = tokio::time::timeout(Duration::from_secs(5), surface.attend(command))
+        .await
+        .expect("the command finished");
+    assert!(matches!(flow, darkwire::chat::Flow::Again));
+    assert_eq!(surface.widget_mut().typing(), "", "the composer took it");
+}
+
+#[tokio::test]
+async fn a_resize_with_rows_still_queued_writes_them_once() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+
+    surface
+        .widget_mut()
+        .handle_event(&darkwire::render::TranscriptEvent::Line {
+            kind: darkwire::render::LineKind::Notice,
+            text: "a queued notice".to_owned(),
+        });
+    events
+        .send(TuiEvent::Resize(Size {
+            width: 80,
+            height: 24,
+        }))
+        .unwrap();
+    types(&events, "after");
+    let _ = tokio::time::timeout(Duration::from_secs(5), surface.next_line()).await;
+
+    let rows = screen(&surface);
+    let copies = rows
+        .iter()
+        .filter(|row| row.contains("a queued notice"))
+        .count();
+    assert_eq!(copies, 1, "{rows:?}");
+}
+
+#[tokio::test]
+async fn a_resize_under_an_overlay_is_laid_out_when_it_closes() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+
+    surface.echo("something to read").await;
+    assert!(surface.transcript().await);
+    surface.tui_mut().backend_mut().set_size(40, 12);
+    events
+        .send(TuiEvent::Resize(Size {
+            width: 40,
+            height: 12,
+        }))
+        .unwrap();
+    events
+        .send(TuiEvent::Key(Key::named(KeyName::Escape)))
+        .unwrap();
+    types(&events, "back");
+    let line = tokio::time::timeout(Duration::from_secs(5), surface.next_line())
+        .await
+        .expect("the prompt answered");
+    assert_eq!(line.as_deref(), Some("back"));
+
+    let rows = screen(&surface);
     assert_eq!(
-        line.as_deref(),
-        Some("two lines"),
-        "a pasted newline submitted something nobody asked for"
+        rows.iter()
+            .filter(|row| row.contains("something to read"))
+            .count(),
+        1,
+        "the conversation was not written again at the new size: {rows:?}"
     );
 }
 

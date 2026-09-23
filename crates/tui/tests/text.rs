@@ -1,9 +1,9 @@
 //! Display width, cutting and folding — the invariant the frame arithmetic rests on.
 
 use darkwire_tui::{
-    STYLE_RESET, carry_styles, drop_last_grapheme, fit_to_width, justify, next_boundary,
-    pad_to_width, previous_boundary, rule, strip_ansi, truncate_start_to_width, truncate_to_width,
-    visible_width, wrap_to_width,
+    STYLE_RESET, carry_styles, drop_last_grapheme, expand_controls, fit_to_width, justify,
+    next_boundary, pad_to_width, previous_boundary, rule, strip_ansi, truncate_start_to_width,
+    truncate_to_width, visible_width, wrap_to_width,
 };
 use proptest::prelude::*;
 
@@ -388,4 +388,37 @@ proptest! {
         // Spaces at a fold are what the fold replaces, so compare without them.
         prop_assert_eq!(rows.concat().replace(' ', ""), text.replace(' ', ""));
     }
+}
+
+#[test]
+fn a_tab_becomes_the_spaces_to_the_next_stop() {
+    assert_eq!(expand_controls("a\tb", 0), "a   b");
+    assert_eq!(expand_controls("\tb", 0), "    b");
+    // A chunk that starts mid-line counts from where the line had got to.
+    assert_eq!(expand_controls("\tb", 2), "  b");
+    // A newline starts the count again.
+    assert_eq!(expand_controls("abc\n\tb", 0), "abc\n    b");
+}
+
+#[test]
+fn a_tab_after_a_wide_glyph_counts_its_two_columns() {
+    assert_eq!(expand_controls("你\tb", 0), "你  b");
+}
+
+#[test]
+fn other_control_characters_are_dropped() {
+    assert_eq!(
+        expand_controls("a\u{7}b\rc\u{0}d\u{7f}e\u{85}f", 0),
+        "abcdef"
+    );
+    assert_eq!(expand_controls("line\r\nnext", 0), "line\nnext");
+}
+
+#[test]
+fn escape_sequences_survive_and_a_lone_escape_does_not() {
+    assert_eq!(
+        expand_controls(&format!("{RED}\tx{RESET}"), 0),
+        format!("{RED}    x{RESET}")
+    );
+    assert_eq!(expand_controls(&format!("a{ESC}"), 0), "a");
 }

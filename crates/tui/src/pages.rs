@@ -98,6 +98,11 @@ impl Pages {
         }
     }
 
+    /// Tells it how many rows the window now has, chrome included.
+    pub fn resize(&mut self, max_rows: usize) {
+        self.max_rows = max_rows.max(CHROME_ROWS + 1);
+    }
+
     /// Which tab is showing.
     #[must_use]
     pub fn current(&self) -> usize {

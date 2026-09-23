@@ -358,3 +358,19 @@ fn the_footer_names_every_verb() {
     assert!(footer.contains("^x delete"), "{footer:?}");
     assert!(footer.contains("^r rename"), "{footer:?}");
 }
+
+#[test]
+fn a_paste_goes_into_the_filter_as_one_line() {
+    let mut subject = menu_at(None);
+    subject.paste("rese\r\n");
+
+    assert_eq!(subject.list().filter(), "rese");
+    assert_eq!(
+        subject.handle_key(&common::key(ENTER)),
+        SelectOutcome::Chosen("research".to_owned())
+    );
+
+    let mut subject = menu_at(None);
+    subject.paste("two\nwords");
+    assert_eq!(subject.list().filter(), "two words");
+}

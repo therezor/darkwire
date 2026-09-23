@@ -475,3 +475,41 @@ fn clearing_to_the_end_stops_at_the_end_of_the_line() {
 
     assert_eq!(editor.text(), "\nkeep this");
 }
+
+#[test]
+fn a_paste_keeps_its_lines_whichever_way_the_terminal_spelled_them() {
+    let mut subject = editor();
+    subject.insert_text("one\r\ntwo\rthree\nfour");
+
+    assert_eq!(subject.text(), "one\ntwo\nthree\nfour");
+    let rows = subject.render(40);
+    assert_eq!(rows.len(), 4, "{rows:?}");
+}
+
+#[test]
+fn a_paste_lands_at_the_caret_and_leaves_the_caret_after_it() {
+    let mut subject = editor();
+    type_text(&mut subject, "ad");
+    press(&mut subject, LEFT);
+    subject.insert_text("bc");
+
+    assert_eq!(subject.text(), "abcd");
+    assert_eq!(caret(&mut subject), "› abc".len());
+}
+
+#[test]
+fn a_paste_drops_control_characters_and_escapes_but_keeps_tabs() {
+    let mut subject = editor();
+    subject.insert_text("a\u{7}b\u{1b}[31mc\u{0}\td");
+
+    assert_eq!(subject.text(), "abc\td", "a tab is part of what is sent");
+}
+
+#[test]
+fn a_tab_is_drawn_as_the_spaces_it_stands_for() {
+    let mut subject = editor();
+    subject.insert_text("a\tb");
+
+    let rows = subject.render(40);
+    assert_eq!(rows[0], format!("› a   b{CURSOR_MARKER}"));
+}

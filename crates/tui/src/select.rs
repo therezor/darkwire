@@ -26,7 +26,7 @@
 use crate::component::{CURSOR_MARKER, Component};
 use crate::keys::{Key, KeyName, is_ctrl};
 use crate::select_list::{SelectItem, SelectList};
-use crate::text::truncate_to_width;
+use crate::text::{strip_ansi, truncate_to_width};
 use crate::theme::{PLAIN_THEME, Theme};
 
 /// Everything a menu says. Already translated: this crate holds no keys.
@@ -179,6 +179,19 @@ impl<T: Clone> Select<T> {
         self.actions
             .iter()
             .position(|action| is_ctrl(key, action.chord))
+    }
+
+    /// Adds pasted text to the filter, as one line, without the newline a
+    /// copied line usually ends with.
+    pub fn paste(&mut self, text: &str) {
+        let text = text.trim_end_matches(['\r', '\n']).replace("\r\n", " ");
+        let line: String = strip_ansi(&text)
+            .chars()
+            .map(|ch| if ch.is_whitespace() { ' ' } else { ch })
+            .filter(|ch| !ch.is_control())
+            .collect();
+        let extended = format!("{}{line}", self.list.filter());
+        self.list.set_filter(&extended);
     }
 
     /// Applies a keystroke.

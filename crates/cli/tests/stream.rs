@@ -217,3 +217,37 @@ fn no_row_a_stream_settles_holds_a_newline() {
         assert!(!row.contains('\n'), "a row carries a newline: {row:?}");
     }
 }
+
+#[test]
+fn a_tab_becomes_spaces_counted_from_where_its_line_began() {
+    let mut stream = StreamController::new();
+    stream.push("ab", 0);
+    stream.push("\tc\n", 0);
+
+    assert_eq!(texts(&stream.take_all()), vec!["ab  c"]);
+}
+
+#[test]
+fn a_control_character_never_reaches_a_row() {
+    let mut stream = StreamController::new();
+    stream.push("ding\u{7}\r\n", 0);
+    stream.push_line("col\tumn\u{1b}");
+
+    assert_eq!(texts(&stream.take_all()), vec!["ding", "col umn"]);
+}
+
+#[test]
+fn the_renderers_own_styles_survive_the_cleaning() {
+    let mut stream = StreamController::new();
+    stream.push("\u{1b}[2mdim\u{1b}[0m\n", 0);
+
+    let rows = stream.take_all();
+    assert_eq!(texts(&rows), vec!["dim"]);
+    assert!(
+        rows[0].spans.iter().any(|span| span
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::DIM)),
+        "the style was cleaned away: {rows:?}"
+    );
+}

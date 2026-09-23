@@ -137,6 +137,9 @@ pub struct ChatWidget {
     committed: Vec<Box<dyn HistoryCell>>,
     /// Rows written but not yet handed to the terminal.
     pending: Vec<Line<'static>>,
+    /// The head of the run still arriving, written early because the live
+    /// area was at its cap. The run's cell is built from these and the rest.
+    flushed: Vec<Line<'static>>,
     defaults: SummaryDefaults,
     /// What a key last did to `/output stats`, waiting to be collected.
     stats_toggled: Option<bool>,
@@ -169,6 +172,7 @@ impl ChatWidget {
             active: None,
             committed: Vec::new(),
             pending: Vec::new(),
+            flushed: Vec::new(),
             defaults: SummaryDefaults::default(),
             stats_toggled: None,
             thinking: None,
@@ -216,6 +220,20 @@ impl ChatWidget {
     #[must_use]
     pub fn typing(&self) -> &str {
         self.bottom.typing()
+    }
+
+    /// Text the terminal pasted in one go.
+    ///
+    /// Whatever holds the keys takes it. A menu stacked over the composer puts
+    /// it in its filter; otherwise it lands on the composer whole, newlines
+    /// and all, and the command list is brought up to date once.
+    pub fn paste(&mut self, text: &str) {
+        if self.bottom.has_view() {
+            self.bottom.offer_paste(text);
+            return;
+        }
+        self.bottom.editor_mut().insert_text(text);
+        self.bottom.sync_popup();
     }
 
     /// Holds a line until the turn in front of it finishes.
@@ -334,16 +352,9 @@ impl ChatWidget {
                     _ => (0, None),
                 };
                 let summary = self.summary_for(since, elapsed_ms, true);
-                let body = self.stream.take_all();
                 let expanded = self.defaults.reasoning == ReasoningDisplay::Expanded;
                 self.active = None;
-                if !body.is_empty() {
-                    self.commit(Box::new(FoldedCell::new(
-                        styled_line(&summary),
-                        body,
-                        expanded,
-                    )));
-                }
+                self.commit_fold(&summary, expanded, false);
             }
             TranscriptEvent::ToolBodyStart { summary } => {
                 self.finish_active();
@@ -361,13 +372,8 @@ impl ChatWidget {
                         String::new()
                     }
                 };
-                let body = self.stream.take_all();
                 let expanded = !self.defaults.tools;
-                self.commit(Box::new(FoldedCell::new(
-                    styled_line(&summary),
-                    body,
-                    expanded,
-                )));
+                self.commit_fold(&summary, expanded, true);
             }
             TranscriptEvent::Line { kind, text } => {
                 if *kind == LineKind::Echo {
@@ -411,42 +417,50 @@ impl ChatWidget {
     /// Whatever was arriving, committed as what it managed to say.
     fn finish_active(&mut self) {
         match self.active.take() {
-            None => {
-                // A stream with no owner is an answer nobody opened a cell
-                // for, which happens on a replay.
-                let lines = self.stream.take_all();
+            // A stream with no owner is an answer nobody opened a cell for,
+            // which happens on a replay.
+            None | Some(Active::Assistant) => {
+                let (lines, written) = self.take_run();
                 if !lines.is_empty() {
-                    self.commit(Box::new(AssistantCell::new(lines)));
-                }
-            }
-            Some(Active::Assistant) => {
-                let lines = self.stream.take_all();
-                if !lines.is_empty() {
-                    self.commit(Box::new(AssistantCell::new(lines)));
+                    self.commit_rest(Box::new(AssistantCell::new(lines)), 0..written);
                 }
             }
             Some(Active::Reasoning { since, elapsed_ms }) => {
                 let summary = self.summary_for(since, elapsed_ms, true);
-                let body = self.stream.take_all();
                 let expanded = self.defaults.reasoning == ReasoningDisplay::Expanded;
-                if !body.is_empty() {
-                    self.commit(Box::new(FoldedCell::new(
-                        styled_line(&summary),
-                        body,
-                        expanded,
-                    )));
-                }
+                self.commit_fold(&summary, expanded, false);
             }
             Some(Active::Tool { summary }) => {
-                let body = self.stream.take_all();
                 let expanded = !self.defaults.tools;
-                self.commit(Box::new(FoldedCell::new(
-                    styled_line(&summary),
-                    body,
-                    expanded,
-                )));
+                self.commit_fold(&summary, expanded, true);
             }
         }
+    }
+
+    /// Everything the run said: the rows already written, then the rest.
+    /// The count is how many of them are already in the terminal.
+    fn take_run(&mut self) -> (Vec<Line<'static>>, usize) {
+        let mut lines = std::mem::take(&mut self.flushed);
+        let written = lines.len();
+        lines.extend(self.stream.take_all());
+        (lines, written)
+    }
+
+    /// Commits a run as a summary over its body.
+    ///
+    /// A run whose head already went out is expanded whatever the switch now
+    /// says: those rows are in the scrollback, and a cell that folded them
+    /// away would lose them from the transcript and from a resize. `always`
+    /// commits a fold with no body, which a tool call's summary still is.
+    fn commit_fold(&mut self, summary: &str, expanded: bool, always: bool) {
+        let (body, written) = self.take_run();
+        if body.is_empty() && !always {
+            return;
+        }
+        let cell = FoldedCell::new(styled_line(summary), body, expanded || written > 0);
+        // The summary is row 0 and was never flushed, so the rows already
+        // written are the ones after it.
+        self.commit_rest(Box::new(cell), 1..1 + written);
     }
 
     /// The spinner stood in for an answer that had not started.
@@ -466,14 +480,33 @@ impl ChatWidget {
     /// Writes a cell: its rows queue for the terminal, the cell itself stays
     /// for the transcript.
     fn commit(&mut self, cell: Box<dyn HistoryCell>) {
+        self.commit_rest(cell, 0..0);
+    }
+
+    /// The same, for a cell whose rows in `written` are already out.
+    fn commit_rest(&mut self, cell: Box<dyn HistoryCell>, written: std::ops::Range<usize>) {
         let width = self.width.max(1);
-        self.pending.extend(cell.display_lines(width));
+        let rows = cell.display_lines(width).into_iter().enumerate();
+        self.pending.extend(
+            rows.filter(|(at, _)| !written.contains(at))
+                .map(|(_, row)| row),
+        );
         self.committed.push(cell);
     }
 
     /// The rows waiting to go to the terminal, taken.
     pub fn drain_history(&mut self) -> Vec<Line<'static>> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// Throws away the rows waiting for the terminal, and says how many.
+    ///
+    /// For a screen about to be written again from [`ChatWidget::history_tail`],
+    /// which already holds every one of them.
+    pub fn discard_history(&mut self) -> usize {
+        let dropped = self.pending.len();
+        self.pending.clear();
+        dropped
     }
 
     /// Every cell, for the transcript.
@@ -489,16 +522,18 @@ impl ChatWidget {
     /// a terminal that reflows them puts them where the new width says, which
     /// is not where this program left them. Erasing the window and writing the
     /// tail again is what makes the screen say what it said before.
+    ///
+    /// The head of a run still arriving is on the screen too, so it is here.
     #[must_use]
     pub fn history_tail(&self, width: u16, rows: usize) -> Vec<Line<'static>> {
-        let mut tail: Vec<Line<'static>> = Vec::new();
+        let mut tail: Vec<Line<'static>> = self.flushed.clone();
         for cell in self.committed.iter().rev() {
-            let mut lines = cell.display_lines(width);
-            lines.extend(std::mem::take(&mut tail));
-            tail = lines;
             if tail.len() >= rows {
                 break;
             }
+            let mut lines = cell.display_lines(width);
+            lines.extend(std::mem::take(&mut tail));
+            tail = lines;
         }
         if tail.len() > rows {
             tail.drain(..tail.len() - rows);
@@ -737,7 +772,8 @@ impl ChatWidget {
         if rows.len() > cap && flushes {
             let keep = cap.saturating_sub(1).max(1);
             let taken = self.stream.take_settled(keep);
-            self.pending.extend(taken);
+            self.pending.extend(taken.iter().cloned());
+            self.flushed.extend(taken);
             rows = self.stream.rows(width);
         }
 
@@ -796,15 +832,27 @@ impl ChatWidget {
         usize::from(self.height) < MIN_ROWS || usize::from(self.width) < crate::menu::MIN_COLUMNS
     }
 
-    /// How tall the live area has to be.
-    pub fn desired_height(&mut self, width: u16) -> u16 {
+    /// The live area for one frame: how tall it is, and what it draws.
+    ///
+    /// Built once and used for the height, the rows and the caret. Building
+    /// it is the expensive part: the composer is wrapped again and the answer
+    /// arriving is folded again.
+    pub fn layout(&mut self, width: u16) -> (u16, Column<'static>) {
+        let column = self.column();
         if self.too_small() {
-            return 1;
+            return (1, column);
         }
-        let height = self.column().desired_height(width);
         // Never the whole window: what the conversation is holding above the
         // live area has to stay visible.
-        height.clamp(1, self.height.saturating_sub(1).max(1))
+        let height = column
+            .desired_height(width)
+            .clamp(1, self.height.saturating_sub(1).max(1));
+        (height, column)
+    }
+
+    /// How tall the live area has to be.
+    pub fn desired_height(&mut self, width: u16) -> u16 {
+        self.layout(width).0
     }
 
     /// Draws the live area.

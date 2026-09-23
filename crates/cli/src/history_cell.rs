@@ -14,7 +14,7 @@
 //! answer, nothing reached the scrollback until a turn ended, and the
 //! terminal's own scrolling was useless for the thing being read.
 
-use darkwire_tui::{HistoryCell, Theme, styled_line};
+use darkwire_tui::{HistoryCell, Theme, expand_controls, styled_line};
 use ratatui::text::Line;
 
 /// The words a folded cell says about itself, already translated.
@@ -64,7 +64,8 @@ impl UserCell {
     pub fn new(content: &str, theme: &Theme) -> Self {
         let caret = theme.accent.apply("›");
         let mut lines = Vec::new();
-        for line in content.split('\n') {
+        // The message keeps its tabs. The row shows the spaces they stand for.
+        for line in expand_controls(content, 0).split('\n') {
             if lines.is_empty() {
                 lines.push(row(&format!("{caret} {line}")));
             } else {
@@ -167,7 +168,9 @@ impl NoticeCell {
     /// The rows, already styled.
     #[must_use]
     pub fn new(text: &str) -> Self {
-        Self { lines: rows(text) }
+        Self {
+            lines: rows(&expand_controls(text, 0)),
+        }
     }
 }
 

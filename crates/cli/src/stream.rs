@@ -13,7 +13,7 @@
 //! *and* the finished part reaches the scrollback while the turn is still
 //! running, rather than in one lump when it ends.
 
-use darkwire_tui::{styled_line, wrap_to_width};
+use darkwire_tui::{expand_controls, styled_line, visible_width, wrap_to_width};
 use ratatui::text::Line;
 
 use crate::render::indented;
@@ -66,7 +66,10 @@ impl StreamController {
         } else {
             indented(text, &indent, self.at_line_start)
         };
-        self.at_line_start = darkwire_tui::strip_ansi(text).ends_with('\n');
+        // A tab or a bell would be measured as a column, drawn as nothing and
+        // printed raw into the scrollback. The renderer's own styles stay.
+        let body = expand_controls(&body, visible_width(&self.tail));
+        self.at_line_start = darkwire_tui::strip_ansi(&body).ends_with('\n');
 
         self.tail.push_str(&body);
         while let Some(at) = self.tail.find('\n') {
@@ -93,7 +96,8 @@ impl StreamController {
     /// wherever it likes, ignoring the width everything else was folded for.
     pub fn push_line(&mut self, text: &str) {
         self.end_line();
-        for line in text.strip_suffix('\n').unwrap_or(text).split('\n') {
+        let text = expand_controls(text, 0);
+        for line in text.strip_suffix('\n').unwrap_or(&text).split('\n') {
             self.lines.push(line.to_owned());
         }
     }

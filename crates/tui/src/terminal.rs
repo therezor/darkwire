@@ -22,7 +22,7 @@ use std::io::{self, Write};
 use crossterm::cursor::SetCursorStyle;
 use crossterm::queue;
 use ratatui::backend::{Backend, ClearType};
-use ratatui::buffer::{Buffer, Cell, CellDiffOption};
+use ratatui::buffer::{Buffer, Cell, CellDiffOption, CellWidth};
 use ratatui::layout::{Position, Rect, Size};
 use ratatui::style::Color;
 
@@ -385,7 +385,15 @@ fn trailing_blank_start(buffer: &Buffer, row: u16) -> Option<u16> {
             break;
         }
     }
-    start
+    // A wide glyph's right half is a blank cell too. An erase that starts
+    // there takes the whole glyph with it, so start after the glyph instead.
+    let from = start?;
+    let Some(glyph) = from.checked_sub(1) else {
+        return Some(from);
+    };
+    let end = glyph.saturating_add(buffer[(area.x + glyph, area.y + row)].cell_width());
+    let from = from.max(end);
+    (from < area.width).then_some(from)
 }
 
 /// Ratatui's colour as crossterm spells it.

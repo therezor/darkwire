@@ -42,6 +42,11 @@ impl SelectOverlay {
         self.select.handle_key(key)
     }
 
+    /// Text the terminal pasted, into the filter.
+    pub fn paste(&mut self, text: &str) {
+        self.select.paste(text);
+    }
+
     /// Every row, top to bottom, at `width`.
     fn rows(&mut self, width: usize) -> Vec<String> {
         let mut rows = vec![self.select.prompt(), String::new()];

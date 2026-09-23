@@ -65,9 +65,9 @@ pub use select::{
 pub use select_list::{SelectItem, SelectList};
 pub use spinner::{SPINNER_FRAMES, SPINNER_INTERVAL_MS, spinner_frame};
 pub use text::{
-    STYLE_RESET, carry_styles, drop_last_grapheme, fit_to_width, justify, next_boundary,
-    pad_to_width, previous_boundary, rule, strip_ansi, truncate_start_to_width, truncate_to_width,
-    visible_width, wrap_to_width,
+    STYLE_RESET, TAB_WIDTH, carry_styles, drop_last_grapheme, expand_controls, fit_to_width,
+    justify, next_boundary, pad_to_width, previous_boundary, rule, strip_ansi,
+    truncate_start_to_width, truncate_to_width, visible_width, wrap_to_width,
 };
 pub use theme::{PLAIN_THEME, Palette, Style, Theme, palette_for, theme_for, theme_from};
 pub use wrap::{leading_whitespace, line_width, wrap_line, wrap_lines, wrapped_height};

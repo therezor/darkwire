@@ -161,6 +161,47 @@ pub fn strip_ansi(text: &str) -> String {
     out
 }
 
+/// How many columns apart the tab stops are.
+pub const TAB_WIDTH: usize = 4;
+
+/// Text as a terminal will draw it: tabs expanded, other controls dropped.
+///
+/// A tab or a bell measures as one column here, draws as nothing in a buffer,
+/// and does whatever the terminal likes when printed into the scrollback. So
+/// neither reaches a row. Newlines and escape sequences stay, because both
+/// are structure the caller put there. `column` is where on its line the text
+/// starts, so a tab in a chunk that began mid-line still lands on a stop.
+#[must_use]
+pub fn expand_controls(text: &str, column: usize) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut column = column;
+    for segment in segments(text) {
+        if segment.ansi {
+            out.push_str(segment.text);
+            continue;
+        }
+        for cluster in segment.text.graphemes(true) {
+            match cluster {
+                "\n" | "\r\n" => {
+                    out.push('\n');
+                    column = 0;
+                }
+                "\t" => {
+                    let pad = TAB_WIDTH - column % TAB_WIDTH;
+                    out.extend(std::iter::repeat_n(' ', pad));
+                    column += pad;
+                }
+                _ => {
+                    let kept: String = cluster.chars().filter(|ch| !ch.is_control()).collect();
+                    column += cluster_width(&kept);
+                    out.push_str(&kept);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// One grapheme cluster's columns: 0, 1 or 2.
 fn cluster_width(cluster: &str) -> usize {
     cluster.width()

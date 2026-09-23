@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use darkwire_protocol::TaskStatus;
 use darkwire_tui::{
     CHROME_ROWS as SELECT_CHROME_ROWS, Editor, Key, Select, SelectItem, SelectList, SelectOutcome,
-    StyledRows, Theme, cursor_in, spinner_frame, truncate_to_width,
+    StyledRows, Theme, cursor_in, expand_controls, spinner_frame, truncate_to_width,
 };
 
 use crate::header::{HeaderView, input_rule, status_bar};
@@ -75,6 +75,11 @@ pub trait BottomPaneView {
     fn prompt(&mut self, width: usize) -> Option<String> {
         let _ = width;
         None
+    }
+
+    /// Text the terminal pasted while this held the keys.
+    fn paste(&mut self, text: &str) {
+        let _ = text;
     }
 }
 
@@ -136,6 +141,10 @@ impl BottomPaneView for SelectView {
 
     fn prompt(&mut self, width: usize) -> Option<String> {
         Some(truncate_to_width(&self.select.prompt(), width, "…"))
+    }
+
+    fn paste(&mut self, text: &str) {
+        self.select.paste(text);
     }
 }
 
@@ -326,6 +335,14 @@ impl BottomPane {
         taken
     }
 
+    /// Offers pasted text to whatever is stacked over the composer.
+    pub fn offer_paste(&mut self, text: &str) {
+        self.drop_answered();
+        if let Some(view) = self.views.last_mut() {
+            view.paste(text);
+        }
+    }
+
     /// How many rows a menu stacked here may take.
     ///
     /// The slot it will be drawn in, and no more. A menu that asked for more
@@ -497,7 +514,7 @@ impl BottomPane {
             .iter()
             .take(QUEUED_ROWS)
             .map(|line| {
-                let row = format!("  › {line}");
+                let row = format!("  › {}", expand_controls(line, 0));
                 self.theme.dim.apply(&truncate_to_width(&row, width, "…"))
             })
             .collect();

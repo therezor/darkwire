@@ -153,3 +153,17 @@ fn the_footer_counts_only_when_there_is_something_off_screen() {
     let drawn = view.render(60);
     assert!(drawn.last().unwrap().contains("of 20"), "{drawn:?}");
 }
+
+#[test]
+fn a_window_that_shrank_under_it_keeps_the_footer() {
+    let mut view = pages(20);
+    view.handle_key(&key(KeyName::End));
+    view.resize(8);
+
+    let drawn = view.render(40);
+    assert_eq!(drawn.len(), 8, "{drawn:?}");
+    assert!(
+        drawn[7].contains("esc closes"),
+        "the footer is not the last row: {drawn:?}"
+    );
+}

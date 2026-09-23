@@ -89,6 +89,26 @@ fn a_row_that_got_shorter_does_not_keep_its_tail() {
 }
 
 #[test]
+fn deleting_the_glyph_after_a_wide_one_leaves_the_wide_one() {
+    // The right half of a wide glyph is a blank cell in the buffer. An erase
+    // that started there took the whole glyph with it on a real terminal.
+    let mut terminal = open(20, 4, 1, 2);
+    draw_rows(&mut terminal, &["› 你好", "second"]);
+    assert_eq!(terminal.backend().row(1), "› 你好");
+
+    draw_rows(&mut terminal, &["› 你", "second"]);
+    assert_eq!(terminal.backend().row(1), "› 你");
+}
+
+#[test]
+fn a_row_whose_wide_glyph_fills_it_needs_no_erase() {
+    let mut terminal = open(4, 3, 1, 1);
+    draw_rows(&mut terminal, &["ab你"]);
+    draw_rows(&mut terminal, &["a 你"]);
+    assert_eq!(terminal.backend().row(1), "a 你");
+}
+
+#[test]
 fn an_unchanged_frame_writes_nothing() {
     let mut terminal = open(20, 4, 1, 2);
     draw_rows(&mut terminal, &["one", "two"]);

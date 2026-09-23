@@ -14,7 +14,9 @@
 
 use crate::component::{CURSOR_MARKER, Component};
 use crate::keys::{Key, KeyName, is_ctrl};
-use crate::text::{next_boundary, previous_boundary, visible_width, wrap_to_width};
+use crate::text::{
+    expand_controls, next_boundary, previous_boundary, strip_ansi, visible_width, wrap_to_width,
+};
 use crate::theme::Theme;
 
 /// What a keystroke asked the surrounding program to do.
@@ -248,11 +250,27 @@ impl Editor {
                     self.recall_next();
                 }
             }
-            KeyName::Char if !key.ctrl => self.insert(&key.character),
+            KeyName::Char if !key.ctrl => self.insert_text(&key.character),
             KeyName::Char => self.handle_control(key),
             _ => {}
         }
         EditorOutcome::None
+    }
+
+    /// Puts pasted or typed text at the caret, newlines and all.
+    ///
+    /// A terminal pastes a newline as a carriage return as often as not, so
+    /// both spellings become one. Tabs stay, because they are part of what is
+    /// sent and only become spaces when drawn. Every other control character
+    /// and escape sequence is dropped: pasted into a row, one would restyle or
+    /// move whatever came after it.
+    pub fn insert_text(&mut self, text: &str) {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let kept: String = strip_ansi(&text)
+            .chars()
+            .filter(|ch| matches!(ch, '\n' | '\t') || !ch.is_control())
+            .collect();
+        self.insert(&kept);
     }
 
     /// Puts text at the caret and leaves the caret after it.
@@ -355,6 +373,7 @@ impl Component for Editor {
         // ordinary and the caller needs every row it will occupy. The marker
         // rides along inside the text, so it lands on whichever row the fold
         // put it on with no second measurement to keep in step.
+        let body = expand_controls(&body, 0);
         let indent: String = " ".repeat(prompt_width);
         let mut rows = Vec::new();
         for line in body.split('\n') {

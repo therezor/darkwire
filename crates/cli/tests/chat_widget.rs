@@ -187,6 +187,95 @@ fn an_answer_too_long_for_the_live_area_reaches_the_terminal_as_it_goes() {
     assert_eq!(out[0], "line 0", "the oldest rows are the ones that go");
 }
 
+/// Thirty lines, drawn one at a time so the live area flushes as it goes,
+/// and every row written meanwhile.
+fn stream_thirty(widget: &mut ChatWidget, event: impl Fn(usize) -> TranscriptEvent) -> Vec<String> {
+    let mut out = Vec::new();
+    for at in 0..30 {
+        widget.handle_event(&event(at));
+        let _ = drawn(widget);
+        out.extend(written(widget));
+    }
+    out
+}
+
+fn tail_texts(widget: &ChatWidget) -> Vec<String> {
+    widget.history_tail(80, 100).iter().map(text_of).collect()
+}
+
+#[test]
+fn a_tall_answer_keeps_its_head_once_it_is_committed() {
+    let mut widget = widget();
+    widget.start_turn();
+    let mut out = stream_thirty(&mut widget, |at| delta(&format!("line {at}\n")));
+    assert!(out.contains(&"line 0".to_owned()), "nothing flushed early");
+    assert!(
+        tail_texts(&widget).contains(&"line 0".to_owned()),
+        "a resize mid-answer would lose the head from the screen"
+    );
+
+    widget.end_turn();
+    out.extend(written(&mut widget));
+
+    let expected: Vec<String> = (0..30).map(|at| format!("line {at}")).collect();
+    assert_eq!(out, expected, "a row was written twice or not at all");
+    assert!(transcript(&widget).contains(&"line 0".to_owned()));
+    assert_eq!(tail_texts(&widget), expected);
+}
+
+#[test]
+fn an_expanded_tool_body_that_flushed_early_is_written_once() {
+    let mut widget = widget_with(SummaryDefaults {
+        tools: false,
+        ..SummaryDefaults::default()
+    });
+    widget.start_turn();
+    widget.handle_event(&TranscriptEvent::ToolBodyStart {
+        summary: "ran a command".to_owned(),
+    });
+    let mut out = stream_thirty(&mut widget, |at| TranscriptEvent::Line {
+        kind: LineKind::Notice,
+        text: format!("output {at}"),
+    });
+    widget.handle_event(&TranscriptEvent::ToolBodyEnd);
+    out.extend(written(&mut widget));
+
+    for at in 0..30 {
+        let row = format!("output {at}");
+        assert_eq!(
+            out.iter().filter(|written| **written == row).count(),
+            1,
+            "{row} was not written exactly once: {out:?}"
+        );
+    }
+    let transcript = transcript(&widget);
+    assert_eq!(transcript[0], "ran a command");
+    assert_eq!(transcript[1], "output 0");
+}
+
+#[test]
+fn folding_a_tool_whose_head_already_went_out_keeps_the_head() {
+    let mut widget = widget_with(SummaryDefaults {
+        tools: false,
+        ..SummaryDefaults::default()
+    });
+    widget.start_turn();
+    widget.handle_event(&TranscriptEvent::ToolBodyStart {
+        summary: "ran a command".to_owned(),
+    });
+    let _ = stream_thirty(&mut widget, |at| TranscriptEvent::Line {
+        kind: LineKind::Notice,
+        text: format!("output {at}"),
+    });
+    assert_eq!(widget.handle_key(&key("\u{f}")), Typed::ToggleTools);
+    widget.handle_event(&TranscriptEvent::ToolBodyEnd);
+
+    assert!(
+        tail_texts(&widget).contains(&"output 0".to_owned()),
+        "rows already in the scrollback were folded out of the tail"
+    );
+}
+
 #[test]
 fn the_live_area_never_takes_more_than_half_the_window() {
     let mut widget = widget();
@@ -825,4 +914,59 @@ fn a_tail_longer_than_the_conversation_is_the_conversation() {
 fn a_tail_of_nothing_is_nothing() {
     let widget = widget();
     assert!(widget.history_tail(80, 10).is_empty());
+}
+
+#[test]
+fn a_tab_is_written_as_spaces_and_a_bell_not_at_all() {
+    let mut widget = widget();
+    widget.echo("a\tb");
+    widget.handle_event(&TranscriptEvent::Line {
+        kind: LineKind::Notice,
+        text: "x\ty\u{7}".to_owned(),
+    });
+
+    assert_eq!(written(&mut widget), vec!["", "› a   b", "x   y"]);
+}
+
+#[test]
+fn a_paste_lands_on_the_composer_whole_and_opens_the_list_once() {
+    let mut widget = widget();
+    widget.paste("/mo");
+    assert!(drawn(&mut widget).join("\n").contains("/model"));
+
+    widget.paste("del\r\nsecond line");
+    assert_eq!(widget.typing(), "/model\nsecond line");
+}
+
+#[test]
+fn a_paste_with_a_menu_over_the_composer_goes_to_the_menu() {
+    let mut widget = widget();
+    let (answer, mut chosen) = tokio::sync::oneshot::channel();
+    let select = darkwire_tui::Select::new(darkwire_tui::SelectOptions {
+        items: vec![
+            darkwire_tui::SelectItem::new(0, "first"),
+            darkwire_tui::SelectItem::new(1, "second"),
+        ],
+        labels: darkwire_tui::SelectLabels {
+            title: "pick one".to_owned(),
+            empty: "nothing".to_owned(),
+            footer: "enter to choose".to_owned(),
+            filter_prefix: None,
+        },
+        theme: None,
+        max_rows: Some(4),
+        index: None,
+        actions: Vec::new(),
+    });
+    widget
+        .bottom_mut()
+        .push_view(Box::new(darkwire::bottom_pane::SelectView::new(
+            select, answer,
+        )));
+
+    widget.paste("sec\n");
+    widget.handle_key(&key("\r"));
+
+    assert_eq!(widget.typing(), "", "the composer took the paste");
+    assert_eq!(chosen.try_recv().unwrap().map(|answer| answer.row), Some(1));
 }

@@ -193,6 +193,15 @@ impl Overlay {
         }
     }
 
+    /// Text the terminal pasted, for the overlays that are typed into.
+    fn paste(&mut self, text: &str) {
+        match self {
+            Overlay::Ask(ask, _) => ask.paste(text),
+            Overlay::Menu(menu, _) => menu.paste(text),
+            Overlay::Transcript(_) | Overlay::Listing(..) => {}
+        }
+    }
+
     /// Where the caret belongs, for the one overlay that is typed into.
     fn cursor_pos(&mut self, area: ratatui::layout::Rect) -> Option<(u16, u16)> {
         match self {
@@ -311,6 +320,9 @@ where
     t: Translations,
     theme: Theme,
     overlay_footer: String,
+    /// A resize arrived while an overlay had the window, so the ordinary
+    /// screen is laid out for a size it no longer is.
+    needs_rebuild: bool,
     closed: bool,
 }
 
@@ -407,6 +419,7 @@ where
             t: Translations::new(session.t.locale()),
             theme: session.theme,
             overlay_footer: session.t.t(keys::chat::TRANSCRIPT_FOOTER),
+            needs_rebuild: false,
             closed: false,
         }
     }
@@ -452,6 +465,11 @@ where
     #[must_use]
     pub fn tui(&self) -> &Tui<B> {
         &self.tui
+    }
+
+    /// The same, for a test that has to change the window under it.
+    pub fn tui_mut(&mut self) -> &mut Tui<B> {
+        &mut self.tui
     }
 
     /// One turn of the loop, with whatever it was asked to drive alongside.
@@ -540,13 +558,13 @@ where
                 self.rebuild_screen(size);
                 self.requester.schedule_frame();
             }
+            // Bracketed paste arrives whole, and goes to whatever holds the
+            // keys. It is never a keystroke, so a newline in it is a newline
+            // and not a submission nobody asked for.
             TuiEvent::Paste(text) => {
-                // Bracketed paste arrives whole; the composer is a single line
-                // so a newline in it is a space rather than a submission
-                // nobody asked for.
-                let text = text.replace(['\r', '\n'], " ");
-                for character in text.chars() {
-                    self.widget.handle_key(&darkwire_tui::Key::char(character));
+                match self.overlay.as_mut() {
+                    Some(overlay) => overlay.paste(&text),
+                    None => self.widget.paste(&text),
                 }
                 self.requester.schedule_frame();
             }
@@ -715,15 +733,23 @@ where
         // a verb and opening again: no overlay, but the alternate screen is
         // still held, and writing the conversation into it would put a copy of
         // it under the menu that is about to be drawn.
+        // Either way the screen is rebuilt once it is given back.
         if self.overlay.is_some() || self.tui.is_alt_screen() {
+            self.needs_rebuild = true;
             return;
         }
+        self.needs_rebuild = false;
         if self.tui.reset_screen().is_err() {
             return;
         }
         let live = self.widget.desired_height(size.width);
+        // After the height, which can flush rows of its own. Every row still
+        // queued is in the tail, and writing both would print them twice.
+        let dropped = self.widget.discard_history();
         let room = usize::from(size.height.saturating_sub(live));
-        let tail = self.widget.history_tail(size.width, room);
+        // The dropped rows never reached the terminal. Asking for them as
+        // well scrolls the oldest into the scrollback, where they belong.
+        let tail = self.widget.history_tail(size.width, room + dropped);
         self.tui.insert_history_lines(tail);
     }
 
@@ -737,6 +763,9 @@ where
             // A list is rebuilt by telling it how many rows it now has. It
             // folds nothing, so nothing has to be folded again.
             Some(Overlay::Menu(menu, _)) => menu.resize(size.height),
+            Some(Overlay::Listing(pages, _)) => {
+                pages.resize(usize::from(size.height).saturating_sub(1).max(1));
+            }
             Some(Overlay::Transcript(open)) if open.width() != size.width => {
                 self.overlay = Some(Overlay::Transcript(TranscriptOverlay::new(
                     self.widget.cells(),
@@ -745,10 +774,8 @@ where
                     &self.overlay_footer,
                 )));
             }
-            // A listing folds its own rows on the way in and is redrawn from
-            // them, and a question is one line and a caret. Neither needs
-            // anything here.
-            Some(Overlay::Transcript(_) | Overlay::Listing(..) | Overlay::Ask(..)) | None => {}
+            // A question is one line and a caret, and needs nothing here.
+            Some(Overlay::Transcript(_) | Overlay::Ask(..)) | None => {}
         }
     }
 
@@ -843,20 +870,24 @@ where
         if self.tui.is_alt_screen() {
             let _ = self.tui.leave_alt_screen();
         }
-        // The height first. Working it out is also what notices that the
+        if self.needs_rebuild
+            && let Ok(size) = self.tui.size()
+        {
+            self.rebuild_screen(size);
+        }
+        // The layout first. Working it out is also what notices that the
         // live area is over its cap and flushes the oldest settled rows, so
         // draining before it would leave those rows in neither place until
         // the next frame.
         let width = self.tui.size().map_or(80, |size| size.width);
-        let height = self.widget.desired_height(width);
+        let (height, live) = self.widget.layout(width);
         let pending = self.widget.drain_history();
         self.tui.insert_history_lines(pending);
 
-        let widget = &mut self.widget;
         let _ = self.tui.draw(height, |frame| {
             let area = frame.area;
-            widget.render(area, frame.buffer);
-            if let Some((x, y)) = widget.cursor_pos(area) {
+            live.render(area, frame.buffer);
+            if let Some((x, y)) = live.cursor_pos(area) {
                 frame.set_cursor_position((x, y));
             }
         });

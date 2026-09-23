@@ -73,6 +73,18 @@ impl AskOverlay {
         }
     }
 
+    /// Text the terminal pasted, as part of the one line.
+    ///
+    /// A copied line usually brings its newline with it, and that is not a
+    /// space somebody meant to type.
+    pub fn paste(&mut self, text: &str) {
+        let line = text
+            .trim_end_matches(['\r', '\n'])
+            .replace("\r\n", " ")
+            .replace(['\r', '\n'], " ");
+        self.editor.insert_text(&line);
+    }
+
     /// Every row, top to bottom, at `width`.
     fn rows(&mut self, width: usize) -> Vec<String> {
         let mut rows = vec![self.theme.title.apply(&self.title), String::new()];

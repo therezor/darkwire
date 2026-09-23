@@ -24,6 +24,7 @@
 
 use std::io::{self, Write};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::event::{
     DisableBracketedPaste, EnableBracketedPaste, Event, KeyEvent, KeyEventKind,
@@ -437,6 +438,9 @@ where
         self.reclaim = 0;
         let screen = self.terminal.size()?;
         execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
+        if self.owns_modes {
+            ALT_SCREEN_HELD.store(true, Ordering::SeqCst);
+        }
         self.saved_viewport = Some(self.terminal.viewport_area);
         self.terminal
             .set_viewport_area(Rect::new(0, 0, screen.width, screen.height));
@@ -455,6 +459,9 @@ where
             return Ok(());
         }
         execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        if self.owns_modes {
+            ALT_SCREEN_HELD.store(false, Ordering::SeqCst);
+        }
         if let Some(saved) = self.saved_viewport.take() {
             self.terminal.set_viewport_area(saved);
         }
@@ -572,10 +579,61 @@ fn detect_insert_mode() -> InsertMode {
     }
 }
 
+/// Whether the real terminal is on the alternate screen.
+///
+/// A static because the panic hook cannot reach the [`Tui`] that entered it.
+/// Only the one that owns the terminal's modes sets it.
+static ALT_SCREEN_HELD: AtomicBool = AtomicBool::new(false);
+
 /// Gives raw mode and bracketed paste back, whatever state they are in.
 fn restore_terminal() {
-    let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
-    let _ = execute!(io::stdout(), DisableBracketedPaste);
+    write_restore(&mut io::stdout(), &ALT_SCREEN_HELD);
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), crossterm::cursor::Show);
+}
+
+/// The sequences that give the screen and its modes back.
+///
+/// The alternate screen goes first. Some terminals keep a keyboard-flag stack
+/// per screen, and popping on the wrong one leaves the shell's flags pushed.
+fn write_restore(out: &mut impl Write, alt_screen: &AtomicBool) {
+    if alt_screen.swap(false, Ordering::SeqCst) {
+        let _ = execute!(out, LeaveAlternateScreen);
+    }
+    let _ = execute!(out, PopKeyboardEnhancementFlags);
+    let _ = execute!(out, DisableBracketedPaste);
+    let _ = execute!(out, crossterm::cursor::Show);
+}
+
+// Inline because `write_restore` is private: the panic hook is its only caller.
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use super::write_restore;
+
+    const LEAVE: &str = "\x1b[?1049l";
+
+    fn restored(held: bool) -> String {
+        let flag = AtomicBool::new(held);
+        let mut out = Vec::new();
+        write_restore(&mut out, &flag);
+        assert!(!flag.into_inner(), "the flag was left set");
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn a_panic_over_the_alternate_screen_gives_the_shell_its_screen_back() {
+        let written = restored(true);
+        let leave = written.find(LEAVE).unwrap_or(usize::MAX);
+        let pop = written.find("\x1b[<1u").unwrap_or(0);
+        assert!(
+            leave < pop,
+            "left after popping, or not at all: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_panic_on_the_ordinary_screen_leaves_nothing() {
+        assert!(!restored(false).contains(LEAVE));
+    }
 }
