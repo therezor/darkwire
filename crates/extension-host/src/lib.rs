@@ -34,5 +34,5 @@ pub use registration::{EXTENSION_TOOL_PREFIX, add_bridged_tool, add_provider};
 
 pub use rpc::{
     DarkwireInit, InitializeResult, JSONRPC_VERSION, METHOD_NOT_FOUND, NoHostMethods,
-    PROTOCOL_VERSION, RpcClient, RpcError, RpcFailure, RpcHandler,
+    PROTOCOL_VERSION, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure, RpcHandler,
 };

@@ -1,0 +1,6 @@
+{
+  "schema": "darkwire.extension/2",
+  "id": "tally",
+  "command": ["node", "index.mjs"],
+  "contributes": []
+}

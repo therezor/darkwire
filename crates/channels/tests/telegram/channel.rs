@@ -1137,6 +1137,34 @@ async fn the_offset_advances_before_an_update_is_handled() {
 }
 
 #[tokio::test]
+async fn stopping_confirms_the_last_batch_so_a_restart_does_not_replay_it() {
+    let bot = bot().await;
+    bot.api.push(message_update("/help", USER, None));
+    flush().await;
+
+    bot.manager.stop().await;
+
+    let last = bot.api.bodies("getUpdates").pop().expect("a poll ran");
+    assert_eq!(last["timeout"], json!(0));
+    assert!(last["offset"].as_i64().unwrap_or_default() > 0, "{last:?}");
+}
+
+#[tokio::test]
+async fn stopping_before_anything_arrived_asks_telegram_for_nothing() {
+    let bot = bot().await;
+    flush().await;
+
+    bot.manager.stop().await;
+
+    assert!(
+        bot.api
+            .bodies("getUpdates")
+            .iter()
+            .all(|body| body["timeout"] != json!(0))
+    );
+}
+
+#[tokio::test]
 async fn stopping_awaits_the_poll_rather_than_racing_it() {
     let bot = bot().await;
     flush().await;

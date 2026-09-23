@@ -373,3 +373,81 @@ async fn a_command_whose_extension_is_gone_is_a_refusal_not_a_hang() {
         .unwrap_err();
     assert!(error.message.contains("slow-forever"));
 }
+
+/// Whether `pid` names a live process.
+fn alive(pid: i32) -> bool {
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
+}
+
+/// Every pid the tally fixture was started as, oldest first.
+fn tallied(harness: &Harness) -> Vec<i32> {
+    std::fs::read_to_string(harness.root.join("extension-data/tally/pids"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect()
+}
+
+/// Stops the host and kills any child it left, so a failure leaks nothing.
+async fn survivors(harness: &Harness) -> Vec<i32> {
+    let alive_now: Vec<i32> = tallied(harness)
+        .into_iter()
+        .filter(|pid| alive(*pid))
+        .collect();
+    harness.host.stop().await;
+    for pid in tallied(harness) {
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(pid),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
+    alive_now
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_reconcile_mid_handshake_leaves_the_start_alone() {
+    let harness = Harness::with(&["tally"]);
+    harness.approve("tally");
+
+    // Back to back, so the second arrives before the first start has landed.
+    harness.host.reconcile(&ExtensionsConfig::default());
+    harness.settle_default().await;
+    assert_eq!(harness.state("tally"), ExtensionState::Ready);
+    let running = i32::try_from(harness.host.pid("tally").unwrap()).unwrap();
+
+    assert!(eventually(Duration::from_secs(10), || !tallied(&harness).is_empty()).await);
+    let started = tallied(&harness);
+    assert_eq!(survivors(&harness).await, [running]);
+    assert_eq!(started, [running]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_superseded_mid_handshake_leaves_no_child_behind() {
+    let harness = Harness::with(&["tally"]);
+    harness.approve("tally");
+
+    // New settings before the first start has landed: that start is retired,
+    // and its child with it.
+    harness.host.reconcile(&ExtensionsConfig::default());
+    let mut config = ExtensionsConfig::default();
+    config.settings.insert(
+        "tally".to_owned(),
+        serde_json::from_value(serde_json::json!({"round": 2})).unwrap(),
+    );
+    harness.settle(&config).await;
+    assert_eq!(harness.state("tally"), ExtensionState::Ready);
+    let running = i32::try_from(harness.host.pid("tally").unwrap()).unwrap();
+
+    assert!(eventually(Duration::from_secs(10), || tallied(&harness).len() == 2).await);
+    let settled = eventually(Duration::from_secs(10), || {
+        tallied(&harness)
+            .into_iter()
+            .filter(|pid| alive(*pid))
+            .count()
+            == 1
+    })
+    .await;
+    let left = survivors(&harness).await;
+    assert!(settled, "a superseded start left its child running");
+    assert_eq!(left, [running]);
+}

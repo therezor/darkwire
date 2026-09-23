@@ -42,6 +42,11 @@ use crate::session::{
 };
 use crate::spec::{McpConnectionSpec, exposure_fingerprint, transport_fingerprint};
 
+/// How long `tools/list` may take before the attempt counts as failed. A
+/// server that accepts the handshake and then never lists would otherwise hold
+/// the connection in `connecting` for good.
+pub const LIST_TOOLS_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// The jitter function: a sample in `[0, ceiling]` for a ceiling.
 pub type Jitter = Arc<dyn Fn(f64) -> f64 + Send + Sync>;
 
@@ -453,8 +458,6 @@ async fn adopt(shared: &Arc<Shared>, session: Arc<dyn McpSession>, generation: u
     {
         let mut inner = shared.inner.lock();
         inner.session = Some(Arc::clone(&session));
-        inner.attempts = 0;
-        inner.warned_this_outage = false;
         inner.last_error = None;
         inner.authorization_url = None;
         inner.last_connected_at_ms = Some(shared.clock.now_ms());
@@ -473,7 +476,6 @@ async fn adopt(shared: &Arc<Shared>, session: Arc<dyn McpSession>, generation: u
                             if stale(&shared, generation) {
                                 return;
                             }
-                            shared.inner.lock().session = None;
                             // A drop is not an authorization problem even when
                             // it follows one, and the message an operator gets
                             // should say which happened.
@@ -519,7 +521,18 @@ async fn refresh(shared: &Arc<Shared>, generation: u64) {
         cancelled.cancel();
         cancelled
     });
-    match session.list_tools(token).await {
+    let listed = tokio::time::timeout(LIST_TOOLS_TIMEOUT, session.list_tools(token))
+        .await
+        .unwrap_or_else(|_| {
+            Err(WireError::new(
+                ErrorKind::Timeout,
+                format!(
+                    "The MCP server did not list its tools within {} s",
+                    LIST_TOOLS_TIMEOUT.as_secs()
+                ),
+            ))
+        });
+    match listed {
         Ok(descriptors) => {
             if stale(shared, generation) {
                 return;
@@ -528,6 +541,11 @@ async fn refresh(shared: &Arc<Shared>, generation: u64) {
                 let mut inner = shared.inner.lock();
                 inner.descriptors = descriptors;
                 inner.state = McpServerState::Ready;
+                // Only a server that listed its tools has recovered. Resetting
+                // at the handshake would redial one that refuses tools/list
+                // every second, forever.
+                inner.attempts = 0;
+                inner.warned_this_outage = false;
             }
             republish(shared);
         }
@@ -606,15 +624,25 @@ fn republish(shared: &Arc<Shared>) {
     changed(shared);
 }
 
-/// Records why this server is down and arms the next attempt.
+/// Records why this server is down, lets go of its session, and arms the next
+/// attempt.
 fn fail(shared: &Arc<Shared>, error: &WireError) {
     let needs_auth = error.details.get("needsAuthorization") == Some(&Value::Bool(true));
-    let server_id = {
+    let (server_id, session) = {
         let mut inner = shared.inner.lock();
         inner.descriptors = Vec::new();
         inner.tools = Vec::new();
-        inner.session = None;
-        inner.attempt_token = None;
+        // The watcher belongs to the session being dropped. Left running, it
+        // would read that session's teardown as a second failure.
+        if let Some(watcher) = inner.watcher.take() {
+            watcher.abort();
+        }
+        // The session's service runs on a child of this token, so cancelling
+        // it is what ends a stdio child even if close() never gets to run.
+        if let Some(token) = inner.attempt_token.take() {
+            token.cancel();
+        }
+        let session = inner.session.take();
         inner.last_error = Some(error.message.clone());
         inner.state = if needs_auth {
             McpServerState::NeedsAuthorization
@@ -630,8 +658,11 @@ fn fail(shared: &Arc<Shared>, error: &WireError) {
             inner.warned_this_outage = true;
             tracing::warn!(server = %inner.spec.server_id, error = %error.message, "mcp server unavailable");
         }
-        inner.spec.server_id.clone()
+        (inner.spec.server_id.clone(), session)
     };
+    if let Some(session) = session {
+        tokio::spawn(async move { session.close().await });
+    }
     (shared.publish)(&server_id, Vec::new());
     changed(shared);
     if !needs_auth {

@@ -48,7 +48,8 @@ pub use callback::{
     DEFAULT_CALLBACK_PORT,
 };
 pub use connection::{
-    AuthorizationAttempt, AuthorizationBroker, BackoffOptions, McpConnection, McpConnectionOptions,
+    AuthorizationAttempt, AuthorizationBroker, BackoffOptions, LIST_TOOLS_TIMEOUT, McpConnection,
+    McpConnectionOptions,
 };
 pub use filter::{ToolSelection, select_tools};
 pub use manager::{McpManager, McpManagerOptions, McpToolSink};

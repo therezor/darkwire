@@ -265,7 +265,7 @@ impl TelegramRenderer {
                 match self
                     .send(
                         request.chat_id,
-                        text,
+                        &plain(text, chat.prefs.markdown),
                         false,
                         keyboard.as_ref(),
                         request.force_reply,
@@ -297,11 +297,7 @@ impl TelegramRenderer {
             .send_message(
                 &SendMessageInput {
                     chat_id,
-                    text: if markdown {
-                        text.to_owned()
-                    } else {
-                        strip_markdown(text)
-                    },
+                    text: text.to_owned(),
                     markdown,
                     reply_markup: keyboard.cloned(),
                     force_reply,
@@ -335,19 +331,11 @@ impl TelegramRenderer {
         }
 
         let result = self
-            .api
-            .edit_message_text(
-                &EditMessageInput {
-                    chat_id: request.chat_id,
-                    message_id,
-                    text: if chat.prefs.markdown {
-                        text.to_owned()
-                    } else {
-                        strip_markdown(text)
-                    },
-                    markdown: chat.prefs.markdown,
-                    reply_markup: None,
-                },
+            .edit_text(
+                request.chat_id,
+                message_id,
+                text,
+                chat.prefs.markdown,
                 token,
             )
             .await;
@@ -355,20 +343,93 @@ impl TelegramRenderer {
             Ok(()) => outcome.last_edit_ms = self.clock.now_ms(),
             // Identical text is normal rather than a fault: a delta that added
             // no visible characters re-renders to the same string.
-            Err(error) => {
-                if !error
+            Err(error)
+                if error
                     .api()
-                    .is_some_and(super::api::TelegramApiError::is_not_modified)
-                {
-                    self.warn("telegram edit failed", &error);
-                }
+                    .is_some_and(super::api::TelegramApiError::is_not_modified) => {}
+            Err(error) if request.kind == OutboundKind::Reply => {
+                self.land_reply(request, chat, text, &error, outcome, token)
+                    .await;
             }
+            Err(error) => self.warn("telegram edit failed", &error),
         }
 
         if request.kind == OutboundKind::Reply {
             outcome.live_message_id = None;
             outcome.live_turn_id = None;
         }
+    }
+
+    async fn edit_text(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        markdown: bool,
+        token: &CancellationToken,
+    ) -> Result<(), BotApiError> {
+        self.api
+            .edit_message_text(
+                &EditMessageInput {
+                    chat_id,
+                    message_id,
+                    text: text.to_owned(),
+                    markdown,
+                    reply_markup: None,
+                },
+                token,
+            )
+            .await
+    }
+
+    /// Makes sure a turn's answer arrives when the edit that carried it was
+    /// refused. Left alone, the chat would keep the last progress text as if it
+    /// were the answer.
+    ///
+    /// The same fallback `post` has, then one more: a message that cannot be
+    /// edited at all (deleted, too old) gets the answer as a new message.
+    async fn land_reply(
+        &self,
+        request: &RenderRequest,
+        chat: &ChatState,
+        text: &str,
+        error: &BotApiError,
+        outcome: &mut RenderOutcome,
+        token: &CancellationToken,
+    ) {
+        if !self.retryable(error, request.kind) {
+            self.warn("telegram edit failed", error);
+            return;
+        }
+        let Some(message_id) = chat.live_message_id else {
+            return;
+        };
+        let retried = self
+            .edit_text(
+                request.chat_id,
+                message_id,
+                &plain(text, chat.prefs.markdown),
+                false,
+                token,
+            )
+            .await;
+        match retried {
+            Ok(()) => {
+                outcome.last_edit_ms = self.clock.now_ms();
+                return;
+            }
+            Err(retried)
+                if retried
+                    .api()
+                    .is_some_and(super::api::TelegramApiError::is_not_modified) =>
+            {
+                return;
+            }
+            Err(retried) => self.warn("telegram edit failed; posting the answer instead", &retried),
+        }
+        outcome.posted = self
+            .post(request, chat, text, request.keyboard.clone(), token)
+            .await;
     }
 
     /// Whether to try once more, or let this one go.
@@ -396,6 +457,16 @@ impl TelegramRenderer {
     fn warn(&self, message: &str, error: &BotApiError) {
         // Structured, and never the request URL — it carries the bot token.
         tracing::warn!(channel = %self.channel_id, error = %error, "{message}");
+    }
+}
+
+/// The text to send without a parse mode. Only a body that came out of
+/// `to_markdown_v2` carries escapes to undo; plain text is sent as it stands.
+fn plain(text: &str, escaped: bool) -> String {
+    if escaped {
+        strip_markdown(text)
+    } else {
+        text.to_owned()
     }
 }
 

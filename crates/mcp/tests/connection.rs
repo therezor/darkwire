@@ -199,6 +199,59 @@ async fn retries_on_a_widening_backoff_and_comes_back_on_its_own() {
     test.connection.close().await;
 }
 
+fn no_tools_list() -> WireError {
+    WireError::new(
+        ErrorKind::Tool,
+        "The MCP server refused the call: Method not found",
+    )
+    .with_detail("code", -32_601)
+}
+
+#[tokio::test(start_paused = true)]
+async fn backs_off_and_closes_the_session_when_tools_list_is_refused() {
+    let server = FakeServer::default();
+    server.fail_list_tools(no_tools_list());
+    let test = Harness::new(None, Some(server.clone()));
+
+    test.connection.start();
+    settle().await;
+    assert_eq!(test.connection.state(), McpServerState::Failed);
+    assert_eq!(server.attempts(), 1);
+    // The session that could not list is let go of, not dropped with a live
+    // child behind it.
+    assert_eq!(server.closes(), 1);
+
+    // The handshake succeeding is not a recovery, so the wait still doubles.
+    advance(1_000).await;
+    assert_eq!(server.attempts(), 2);
+    advance(1_999).await;
+    assert_eq!(server.attempts(), 2);
+    advance(1).await;
+    assert_eq!(server.attempts(), 3);
+    assert_eq!(server.closes(), 3);
+
+    server.recover();
+    advance(4_000).await;
+    assert_eq!(test.connection.state(), McpServerState::Ready);
+    test.connection.close().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn gives_up_on_a_tools_list_that_never_answers() {
+    let server = FakeServer::default();
+    server.stall_list_tools();
+    let test = Harness::new(None, Some(server.clone()));
+
+    test.connection.start();
+    settle().await;
+    assert_eq!(test.connection.state(), McpServerState::Connecting);
+
+    advance(u64::try_from(darkwire_mcp::LIST_TOOLS_TIMEOUT.as_millis()).unwrap()).await;
+    assert_eq!(test.connection.state(), McpServerState::Failed);
+    assert_eq!(server.closes(), 1);
+    test.connection.close().await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn never_waits_longer_than_the_ceiling() {
     let server = FakeServer::default();

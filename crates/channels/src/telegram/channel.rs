@@ -72,6 +72,9 @@ use crate::telegram::settings::{TelegramSettings, parse_telegram_settings};
 const FIRST_BACKOFF_MS: u64 = 1000;
 const MAX_BACKOFF_MS: u64 = 60_000;
 
+/// How long `stop()` spends telling Telegram which updates were handled.
+const CONFIRM_OFFSET_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// How many conversations `/sessions` paging reads at once.
 const PAGE_LISTING_LIMIT: usize = 100;
 
@@ -289,6 +292,29 @@ impl Telegram {
                     }
                 }
             }
+        }
+    }
+
+    /// Tells Telegram the updates handled so far are done with.
+    ///
+    /// Telegram forgets an update only when a later `getUpdates` asks from past
+    /// it, and the last batch before a stop has no later poll. Without this a
+    /// restart replays that batch, so a command runs twice and a button is
+    /// pressed twice. Best effort: a stop must not hang on the network.
+    async fn confirm_offset(&self) {
+        let offset = self.offset.load(Ordering::Acquire);
+        if offset == 0 {
+            return;
+        }
+        // The manager's token has already fired, and this call must outlive it.
+        let token = tokio_util::sync::CancellationToken::new();
+        let confirmed = tokio::time::timeout(
+            CONFIRM_OFFSET_TIMEOUT,
+            self.api.get_updates(offset, 0, &token),
+        )
+        .await;
+        if !matches!(confirmed, Ok(Ok(_))) {
+            tracing::debug!(channel = %self.id, offset, "telegram offset not confirmed at stop");
         }
     }
 
@@ -1169,6 +1195,7 @@ impl Channel for Telegram {
                 // fired, so the loop is on its way out, and letting it finish
                 // is what stops a shutdown from racing an in-flight update.
                 let _ = handle.await;
+                self.confirm_offset().await;
             }
             Ok(())
         })

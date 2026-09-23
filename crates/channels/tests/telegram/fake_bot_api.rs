@@ -226,11 +226,17 @@ impl FakeBotApi {
     /// answers an empty list immediately and the loop spins as fast as the
     /// runtime allows, burning the test's timeout instead of waiting like a real
     /// long poll.
-    async fn drain(&self, token: &CancellationToken) -> Result<Vec<TelegramUpdate>, WireError> {
+    ///
+    /// A `timeout` of 0 is Telegram's short poll, and answers at once.
+    async fn drain(
+        &self,
+        token: &CancellationToken,
+        short: bool,
+    ) -> Result<Vec<TelegramUpdate>, WireError> {
         loop {
             {
                 let mut state = self.state.lock();
-                if !state.pending.is_empty() {
+                if !state.pending.is_empty() || short {
                     return Ok(std::mem::take(&mut state.pending));
                 }
             }
@@ -266,6 +272,7 @@ impl HttpClient for FakeBotApi {
 
             let method = url.rsplit('/').next().unwrap_or_default().to_owned();
             let parsed: Map<String, Value> = serde_json::from_str(&body).unwrap_or_default();
+            let short = parsed.get("timeout") == Some(&json!(0));
             self.state.lock().calls.push(RecordedCall {
                 method: method.clone(),
                 body: parsed,
@@ -274,7 +281,7 @@ impl HttpClient for FakeBotApi {
             let answer = match self.answer_for(&method) {
                 Some(answer) => answer,
                 None if method == "getUpdates" => {
-                    CannedAnswer::ok(&json!(self.drain(token).await?))
+                    CannedAnswer::ok(&json!(self.drain(token, short).await?))
                 }
                 None => self.default_answer(&method),
             };

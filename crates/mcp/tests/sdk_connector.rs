@@ -6,6 +6,9 @@
 //! duplex pipe is how that gets checked without opening anything: the SDK's own
 //! server on one end, and the same client the real connector builds on the
 //! other.
+//!
+//! One test does spawn, because what it checks is a process group: `sh` stands
+//! in for a launcher like `npx`, and `sleep` for the server it starts.
 
 #![allow(
     clippy::expect_used,
@@ -463,6 +466,73 @@ async fn a_stdio_command_that_does_not_exist_is_a_network_error_naming_it() {
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Network);
     assert!(error.message.contains("darkwire-mcp-test-binary"));
+}
+
+/// Whether `pid` still names a live process.
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn ending_a_stdio_attempt_stops_what_the_launcher_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("server.pid");
+    // A launcher in the shape of `npx`: it starts the real server, then stays
+    // in the foreground without speaking the protocol itself.
+    let script = format!(
+        "sleep 300 & echo $! > '{}'; exec cat > /dev/null",
+        pidfile.display()
+    );
+    let spec = resolve_spec(
+        "launcher",
+        &serde_json::from_value(json!({ "command": "sh", "args": ["-c", script] })).unwrap(),
+    )
+    .unwrap();
+    let token = CancellationToken::new();
+    let connecting = {
+        let token = token.clone();
+        tokio::spawn(async move {
+            SdkConnector::new(SdkConnectorOptions::default())
+                .connect(spec, McpConnectContext::bare(token))
+                .await
+                .map(|_| ())
+        })
+    };
+
+    let mut server = None;
+    for _ in 0..500 {
+        if let Some(pid) = std::fs::read_to_string(&pidfile)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            server = Some(pid);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let server = server.expect("the launcher never started its server");
+    assert!(alive(server));
+
+    token.cancel();
+    assert!(connecting.await.unwrap().is_err());
+
+    let mut gone = false;
+    for _ in 0..500 {
+        if !alive(server) {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    if !gone {
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(server),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
+    assert!(gone, "the server the launcher started outlived the session");
 }
 
 #[tokio::test]

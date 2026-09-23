@@ -37,6 +37,11 @@ tokio-util.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# Signalling a stdio server's process group: `npx` and `uvx` are launchers,
+# and the SDK's kill reaches the launcher alone.
+nix.workspace = true
+
 [dev-dependencies]
 darkwire-mcp = { workspace = true, features = ["testkit"] }
 darkwire-core = { workspace = true, features = ["testkit"] }
@@ -48,4 +53,6 @@ rmcp = { workspace = true, features = ["server"] }
 tokio = { workspace = true, features = ["test-util"] }
 proptest.workspace = true
 tempfile.workspace = true
+# The process-group test checks a grandchild is gone.
+nix.workspace = true
 wiremock.workspace = true

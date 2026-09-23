@@ -162,19 +162,18 @@ fn describe_exit(status: std::process::ExitStatus) -> String {
     }
 }
 
-/// Signals a whole process group, best effort.
+/// Signals a whole process group, best effort, and says whether it reached
+/// anyone.
 ///
 /// A child that has already gone is the common case and there is nothing to do
 /// about a signal that cannot be delivered.
 #[cfg(unix)]
-fn signal_group(pid: Option<u32>, signal: nix::sys::signal::Signal) {
-    if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
-        let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid), signal);
-    }
+fn signal_group(pid: Option<u32>, signal: nix::sys::signal::Signal) -> bool {
+    pid.and_then(|pid| i32::try_from(pid).ok())
+        .is_some_and(|pid| {
+            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid), signal).is_ok()
+        })
 }
-
-#[cfg(not(unix))]
-fn signal_group(_pid: Option<u32>, _signal: ()) {}
 
 /// A running extension, and the streams the wire is carried on.
 #[derive(Debug)]
@@ -319,6 +318,9 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned> {
     let id = options.id.clone();
     tokio::spawn(async move {
         let status = supervise(&mut child, pid, &supervisor_token, grace).await;
+        // Before the exit is published: `stop()` promises nothing from this
+        // extension still holds its data directory when it returns.
+        sweep_group(pid, grace).await;
         tracing::debug!(target: "extension", extension = %id, status, "the extension process ended");
         let _ = exit_tx.send(Some(status));
     });
@@ -369,6 +371,40 @@ async fn supervise(
         let _ = child.start_kill();
     }
     exited(child.wait().await)
+}
+
+/// Signals whatever is left of the group once the leader has gone, by any path.
+///
+/// A leader that exits on its own, or crashes, or leaves politely on a closed
+/// stdin, would otherwise leave the workers it forked running with nobody to
+/// stop them. An empty group is the common case and costs one failed signal.
+#[cfg(unix)]
+async fn sweep_group(pid: Option<u32>, grace: Duration) {
+    use nix::sys::signal::Signal;
+
+    if !signal_group(pid, Signal::SIGTERM) {
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + grace;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if !group_alive(pid) {
+            return;
+        }
+    }
+    signal_group(pid, Signal::SIGKILL);
+}
+
+#[cfg(not(unix))]
+async fn sweep_group(pid: Option<u32>, grace: Duration) {
+    let _ = (pid, grace);
+}
+
+/// Whether any process is still in the group.
+#[cfg(unix)]
+fn group_alive(pid: Option<u32>) -> bool {
+    pid.and_then(|pid| i32::try_from(pid).ok())
+        .is_some_and(|pid| nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid), None).is_ok())
 }
 
 /// The child's exit, or `None` when `grace` ran out first.

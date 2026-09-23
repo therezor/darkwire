@@ -13,7 +13,10 @@
 
 use std::sync::Arc;
 
-use darkwire_extension_host::{DarkwireInit, NoHostMethods, RpcClient, RpcError, RpcHandler};
+use darkwire_core::ErrorKind;
+use darkwire_extension_host::{
+    DarkwireInit, NoHostMethods, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure, RpcHandler,
+};
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -284,4 +287,67 @@ async fn a_line_that_is_not_a_frame_does_not_take_the_connection_down() {
     peer.reply(&frame["id"], json!({"tools": []})).await;
     assert_eq!(call.await.unwrap().unwrap(), json!({"tools": []}));
     assert!(!client.is_closed());
+}
+
+#[tokio::test]
+async fn a_request_with_a_string_id_is_answered_under_that_id() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (_client, mut peer, _token) = connect(Arc::new(RecordingHost {
+        seen: Arc::clone(&seen),
+    }));
+
+    peer.write(&json!({
+        "jsonrpc": "2.0", "id": "a1", "method": "darkwire/secret", "params": {}
+    }))
+    .await;
+    let answer = peer.next().await;
+    assert_eq!(answer["id"], "a1");
+    assert_eq!(answer["result"]["value"], "shhh");
+}
+
+fn in_flight(client: &RpcClient) -> String {
+    format!("{client:?}")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_request_nobody_answers_times_out_and_leaves_nothing_waiting() {
+    let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
+    let call = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.request("darkwire/channels/start", json!({})).await })
+    };
+    let frame = peer.next_request().await;
+    assert!(in_flight(&client).contains("in_flight: 1"));
+
+    tokio::time::advance(REQUEST_TIMEOUT).await;
+    let failure = call.await.unwrap().unwrap_err();
+    let RpcFailure::Transport(error) = failure else {
+        panic!("a timeout is not the peer's answer");
+    };
+    assert_eq!(error.kind, ErrorKind::Timeout);
+    assert!(in_flight(&client).contains("in_flight: 0"));
+
+    // The peer is told, so a well-behaved one stops working on it.
+    let notification = peer.next().await;
+    assert_eq!(notification["method"], "notifications/cancelled");
+    assert_eq!(notification["params"]["requestId"], frame["id"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_caller_that_stops_waiting_leaves_nothing_waiting() {
+    let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
+    let call = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                client.request("darkwire/context/runtime", json!({})),
+            )
+            .await
+        })
+    };
+    peer.next_request().await;
+    tokio::time::advance(std::time::Duration::from_secs(1)).await;
+    assert!(call.await.unwrap().is_err());
+    assert!(in_flight(&client).contains("in_flight: 0"));
 }

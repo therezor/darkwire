@@ -29,6 +29,35 @@ struct Inner {
     transaction_depth: Cell<u32>,
 }
 
+/// Ends the outermost transaction however `f` leaves it. Anything short of a
+/// successful COMMIT, including a failed COMMIT or a panic, rolls back, so a
+/// later write never joins a transaction that nobody will commit.
+struct OpenTransaction<'a> {
+    inner: &'a Inner,
+    committed: bool,
+}
+
+impl<'a> OpenTransaction<'a> {
+    fn begin(inner: &'a Inner) -> Self {
+        inner.transaction_depth.set(1);
+        OpenTransaction {
+            inner,
+            committed: false,
+        }
+    }
+}
+
+impl Drop for OpenTransaction<'_> {
+    fn drop(&mut self) {
+        self.inner.transaction_depth.set(0);
+        if !self.committed {
+            // The error that got us here is the one worth reporting; a
+            // rollback failure on top of it is noise.
+            let _ = self.inner.conn.execute_batch("ROLLBACK");
+        }
+    }
+}
+
 /// A shared handle to the process's one SQLite connection. Cheap to clone.
 #[derive(Clone)]
 pub struct Database {
@@ -105,21 +134,11 @@ impl Database {
             return f(&guard.conn);
         }
         guard.conn.execute_batch("BEGIN")?;
-        guard.transaction_depth.set(1);
-        let outcome = f(&guard.conn);
-        guard.transaction_depth.set(0);
-        match outcome {
-            Ok(value) => {
-                guard.conn.execute_batch("COMMIT")?;
-                Ok(value)
-            }
-            Err(error) => {
-                // The original error is the one worth reporting; a rollback
-                // failure on top of it is noise.
-                let _ = guard.conn.execute_batch("ROLLBACK");
-                Err(error)
-            }
-        }
+        let mut open = OpenTransaction::begin(&guard);
+        let value = f(&guard.conn)?;
+        guard.conn.execute_batch("COMMIT")?;
+        open.committed = true;
+        Ok(value)
     }
 
     /// Runs one or more statements with no result.

@@ -45,7 +45,7 @@
 //!    a moment rather than a misleading one, and an existing extension keeps the
 //!    row it had. The ten-second handshake cap is what bounds that gap.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -162,6 +162,16 @@ struct Running {
     contributor: Option<Arc<ExtensionContributor>>,
 }
 
+/// A start that has not landed yet.
+struct Starting {
+    generation: u64,
+    token: CancellationToken,
+    /// What it is starting, so a reconcile asking for the same thing leaves
+    /// it to finish rather than superseding it.
+    digest: String,
+    settings: Object,
+}
+
 /// One extension the host currently holds, running or not.
 struct Loaded {
     status: ExtensionStatus,
@@ -183,6 +193,12 @@ struct Loaded {
 struct Inner {
     options: ExtensionHostOptions,
     loaded: Mutex<BTreeMap<String, Loaded>>,
+    /// The start in flight for each id.
+    ///
+    /// Kept apart from `loaded` because a first start has no row to hang them
+    /// on, and a stop has to be able to retire a start that has not landed.
+    /// Locked only inside `loaded` or on its own, never the other way round.
+    starting: Mutex<HashMap<String, Starting>>,
     revision: AtomicU64,
     generation: AtomicU64,
     in_flight: AtomicUsize,
@@ -213,6 +229,7 @@ impl ExtensionHost {
             inner: Arc::new(Inner {
                 options,
                 loaded: Mutex::new(BTreeMap::new()),
+                starting: Mutex::new(HashMap::new()),
                 revision: AtomicU64::new(0),
                 generation: AtomicU64::new(0),
                 in_flight: AtomicUsize::new(0),
@@ -436,10 +453,17 @@ impl ExtensionHost {
     /// Stops everything. Idempotent, and safe to call on a failed boot.
     pub async fn stop(&self) {
         self.inner.closed.store(true, Ordering::SeqCst);
-        let entries: Vec<Loaded> = {
+        let (entries, starting): (Vec<Loaded>, Vec<Starting>) = {
             let mut loaded = self.inner.loaded.lock();
-            std::mem::take(&mut *loaded).into_values().collect()
+            let starting = std::mem::take(&mut *self.inner.starting.lock());
+            (
+                std::mem::take(&mut *loaded).into_values().collect(),
+                starting.into_values().collect(),
+            )
         };
+        for start in starting {
+            start.token.cancel();
+        }
         for entry in entries {
             entry.token.cancel();
             if let Some(running) = entry.running {
@@ -453,8 +477,8 @@ impl ExtensionHost {
 }
 
 impl Inner {
-    /// Whether this extension is already running at exactly these bytes and
-    /// these settings.
+    /// Whether this extension is already running, or already starting, at
+    /// exactly these bytes and these settings.
     ///
     /// A `failed` row deliberately does **not** count. In-process, retrying an
     /// activation that threw could not produce a different answer; a process
@@ -462,6 +486,12 @@ impl Inner {
     /// is prevented by [`settle`](Self::settle) instead.
     fn is_current(&self, id: &str, digest: &str, settings: &Object) -> bool {
         let loaded = self.loaded.lock();
+        let starting = self.starting.lock().get(id).is_some_and(|start| {
+            !start.token.is_cancelled() && start.digest == digest && start.settings == *settings
+        });
+        if starting {
+            return true;
+        }
         let Some(entry) = loaded.get(id) else {
             return false;
         };
@@ -524,27 +554,28 @@ impl Inner {
     /// handshake is in flight retires that generation before the next one
     /// starts — which is what stops two children holding one data directory.
     fn stop_running(&self, id: &str) {
-        let (token, running) = {
+        let (starting, token, running) = {
             let mut loaded = self.loaded.lock();
+            let starting = self.starting.lock().remove(id).map(|start| start.token);
             let Some(entry) = loaded.get_mut(id) else {
+                if let Some(starting) = starting {
+                    starting.cancel();
+                }
                 return;
             };
             // The bag goes now rather than when the teardown resolves: a turn
             // starting in the meantime must not be offered a tool whose process
             // is being killed.
             entry.registration = None;
-            (entry.token.clone(), entry.running.take())
+            (starting, entry.token.clone(), entry.running.take())
         };
-        token.cancel();
-        let Some(running) = running else {
-            return;
-        };
-        running.client.close();
-        running.host.clear_channels();
-        if let Some(contributor) = running.contributor {
-            contributor.forget();
+        if let Some(starting) = starting {
+            starting.cancel();
         }
-        tokio::spawn(async move { running.process.stop().await });
+        token.cancel();
+        if let Some(running) = running {
+            tear_down(running);
+        }
     }
 
     /// Stops one extension and forgets it entirely.
@@ -575,6 +606,18 @@ impl Inner {
     fn start(self: &Arc<Self>, resolution: ExtensionResolution, settings: Object, respawned: bool) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let token = CancellationToken::new();
+        let superseded = self.starting.lock().insert(
+            resolution.id.clone(),
+            Starting {
+                generation,
+                token: token.clone(),
+                digest: resolution.digest.clone(),
+                settings: settings.clone(),
+            },
+        );
+        if let Some(superseded) = superseded {
+            superseded.token.cancel();
+        }
         let inner = Arc::clone(self);
         self.in_flight.fetch_add(1, Ordering::SeqCst);
         let spawn_token = token.clone();
@@ -757,7 +800,9 @@ impl Inner {
     ///
     /// The generation check is the whole of the respawn race: two reconciles a
     /// second apart each start a child, and without this the slower one's row
-    /// would overwrite the faster one's while its process kept running.
+    /// would overwrite the faster one's while its process kept running. Only
+    /// the start registered in `starting` may land, and the check and the
+    /// write share one lock with [`stop_running`](Self::stop_running).
     fn land(
         &self,
         generation: u64,
@@ -768,23 +813,40 @@ impl Inner {
         settings: Object,
         respawned: bool,
     ) -> bool {
-        if token.is_cancelled() || self.closed.load(Ordering::SeqCst) {
-            return false;
+        let replaced = {
+            let mut loaded = self.loaded.lock();
+            let mut starting = self.starting.lock();
+            let current = starting
+                .get(&status.id)
+                .is_some_and(|start| start.generation == generation);
+            if !current || token.is_cancelled() || self.closed.load(Ordering::SeqCst) {
+                return false;
+            }
+            starting.remove(&status.id);
+            drop(starting);
+            let digest = status.digest.clone();
+            loaded.insert(
+                status.id.clone(),
+                Loaded {
+                    status,
+                    registration,
+                    running,
+                    digest,
+                    settings,
+                    token: token.clone(),
+                    generation,
+                    respawned,
+                },
+            )
+        };
+        // Every path here stops the old process first, so this finds nothing.
+        // If one ever does not, the child it held must not outlive its row.
+        if let Some(replaced) = replaced {
+            replaced.token.cancel();
+            if let Some(running) = replaced.running {
+                tear_down(running);
+            }
         }
-        let digest = status.digest.clone();
-        self.loaded.lock().insert(
-            status.id.clone(),
-            Loaded {
-                status,
-                registration,
-                running,
-                digest,
-                settings,
-                token: token.clone(),
-                generation,
-                respawned,
-            },
-        );
         self.announce();
         true
     }
@@ -861,6 +923,16 @@ impl Inner {
             inner.start(resolution, settings, true);
         });
     }
+}
+
+/// Closes a running extension's connection and stops its process, on a task.
+fn tear_down(running: Running) {
+    running.client.close();
+    running.host.clear_channels();
+    if let Some(contributor) = running.contributor {
+        contributor.forget();
+    }
+    tokio::spawn(async move { running.process.stop().await });
 }
 
 /// Calls every list method once, and records what came back.

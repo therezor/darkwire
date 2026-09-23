@@ -164,6 +164,63 @@ fn a_transaction_rolls_back_when_a_statement_fails() {
 }
 
 #[test]
+fn a_failed_commit_rolls_back_and_closes_the_transaction() {
+    let db = Database::in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE parent (id INTEGER PRIMARY KEY);
+         CREATE TABLE t (x INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED);",
+    )
+    .unwrap();
+
+    // A deferred foreign key is checked at COMMIT, so the closure succeeds and
+    // the COMMIT is what fails.
+    let error = db
+        .transaction(|conn| {
+            conn.execute("INSERT INTO t VALUES (7)", [])?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Storage);
+
+    // A later transaction runs its own BEGIN and COMMIT rather than joining a
+    // transaction left open.
+    db.transaction(|conn| {
+        conn.execute("INSERT INTO parent VALUES (1)", [])?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(count(&db), 0);
+    db.execute_batch("BEGIN; COMMIT;").unwrap();
+}
+
+#[test]
+fn a_panic_inside_a_transaction_rolls_back_and_resets_the_depth() {
+    let db = Database::in_memory().unwrap();
+    db.execute_batch("CREATE TABLE t (x INTEGER)").unwrap();
+
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db.transaction(|conn| {
+            conn.execute("INSERT INTO t VALUES (1)", [])?;
+            panic!("store bug");
+            #[allow(unreachable_code, reason = "gives the closure its type")]
+            Ok(())
+        })
+    }));
+    assert!(panicked.is_err());
+    assert_eq!(count(&db), 0);
+
+    // The next transaction runs its own BEGIN and COMMIT, so nothing is left
+    // open after it.
+    db.transaction(|conn| {
+        conn.execute("INSERT INTO t VALUES (2)", [])?;
+        Ok(())
+    })
+    .unwrap();
+    db.execute_batch("BEGIN; COMMIT;").unwrap();
+    assert_eq!(count(&db), 1);
+}
+
+#[test]
 fn a_nested_transaction_joins_the_outer_one() {
     let db = Database::in_memory().unwrap();
     db.execute_batch("CREATE TABLE t (x INTEGER)").unwrap();

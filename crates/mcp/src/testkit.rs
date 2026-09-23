@@ -71,6 +71,9 @@ struct Shared {
     closed: bool,
     one_shot_failure: Option<WireError>,
     standing_failure: Option<WireError>,
+    list_failure: Option<WireError>,
+    list_stalls: bool,
+    closes: usize,
     handler: CallHandler,
     events: Option<broadcast::Sender<McpSessionEvent>>,
 }
@@ -116,6 +119,9 @@ impl FakeServer {
                 closed: false,
                 one_shot_failure: None,
                 standing_failure: None,
+                list_failure: None,
+                list_stalls: false,
+                closes: 0,
                 handler: Arc::new(|call: &FakeCall| {
                     Ok(McpCallResult::text(
                         serde_json::to_string(&call.args).unwrap_or_default(),
@@ -155,6 +161,21 @@ impl FakeServer {
         self.shared.lock().closed
     }
 
+    /// How many sessions have been closed, over every attempt.
+    pub fn closes(&self) -> usize {
+        self.shared.lock().closes
+    }
+
+    /// Every `tools/list` fails with this, until [`FakeServer::recover`].
+    pub fn fail_list_tools(&self, error: WireError) {
+        self.shared.lock().list_failure = Some(error);
+    }
+
+    /// Every `tools/list` waits until its token is cancelled.
+    pub fn stall_list_tools(&self) {
+        self.shared.lock().list_stalls = true;
+    }
+
     /// Replaces the advertised list and fires `tools/list_changed`.
     pub fn set_tools(&self, tools: Vec<McpToolDescriptor>) {
         let events = {
@@ -182,6 +203,8 @@ impl FakeServer {
         let mut shared = self.shared.lock();
         shared.standing_failure = None;
         shared.one_shot_failure = None;
+        shared.list_failure = None;
+        shared.list_stalls = false;
     }
 
     /// Replaces what `call_tool` answers.
@@ -243,8 +266,22 @@ impl McpSession for FakeSession {
         "1.0.0"
     }
 
-    fn list_tools(&self, _: CancellationToken) -> BoxFuture<'_, Result<Vec<McpToolDescriptor>>> {
-        Box::pin(async move { Ok(self.shared.lock().tools.clone()) })
+    fn list_tools(
+        &self,
+        token: CancellationToken,
+    ) -> BoxFuture<'_, Result<Vec<McpToolDescriptor>>> {
+        Box::pin(async move {
+            let stalls = self.shared.lock().list_stalls;
+            if stalls {
+                token.cancelled().await;
+                return Err(WireError::aborted("MCP tools/list"));
+            }
+            let shared = self.shared.lock();
+            match &shared.list_failure {
+                Some(error) => Err(replay(error)),
+                None => Ok(shared.tools.clone()),
+            }
+        })
     }
 
     fn call_tool(
@@ -275,6 +312,7 @@ impl McpSession for FakeSession {
         Box::pin(async move {
             let mut shared = self.shared.lock();
             shared.closed = true;
+            shared.closes += 1;
             shared.events = None;
         })
     }

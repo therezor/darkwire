@@ -164,6 +164,78 @@ async fn a_child_that_ignores_every_signal_but_one_is_still_stopped() {
     assert!(spawned.process.wait().await.contains("signal"));
 }
 
+/// A leader that forks a worker into its own group, prints the worker's pid,
+/// and then does what `leave` says.
+#[cfg(unix)]
+fn forking(dir: &std::path::Path, leave: &str) {
+    script(
+        dir,
+        &format!(
+            "import {{spawn}} from 'node:child_process';\n\
+             import {{createInterface}} from 'node:readline';\n\
+             const worker = spawn('sleep', ['300'], {{stdio: 'ignore'}});\n\
+             process.stdout.write(worker.pid + '\\n');\n\
+             {leave}\n"
+        ),
+    );
+}
+
+#[cfg(unix)]
+async fn worker_pid(stdout: tokio::process::ChildStdout) -> i32 {
+    let mut lines = BufReader::new(stdout).lines();
+    lines
+        .next_line()
+        .await
+        .unwrap()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// Whether the worker is gone, killing it if not so a failure leaks nothing.
+#[cfg(unix)]
+async fn reaped(worker: i32) -> bool {
+    let pid = nix::unistd::Pid::from_raw(worker);
+    for _ in 0..200 {
+        if nix::sys::signal::kill(pid, None).is_err() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+    false
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leader_that_exits_on_its_own_takes_its_workers_with_it() {
+    let temp = TempDir::new().unwrap();
+    forking(temp.path(), "process.exit(0);");
+    let spawned = spawn(options(temp.path())).expect("node is on PATH");
+    let worker = worker_pid(spawned.stdout).await;
+
+    let status = spawned.process.wait().await;
+    assert!(status.contains("status 0"), "{status}");
+    assert!(reaped(worker).await, "the worker outlived its leader");
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leader_that_leaves_politely_on_stop_takes_its_workers_with_it() {
+    let temp = TempDir::new().unwrap();
+    forking(
+        temp.path(),
+        "createInterface({input: process.stdin}).on('close', () => process.exit(0));",
+    );
+    let spawned = spawn(options(temp.path())).expect("node is on PATH");
+    let worker = worker_pid(spawned.stdout).await;
+
+    drop(spawned.stdin);
+    spawned.process.stop().await;
+    assert!(reaped(worker).await, "the worker outlived its leader");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn stderr_is_drained_past_the_budget_so_the_child_never_blocks() {
     let temp = TempDir::new().unwrap();

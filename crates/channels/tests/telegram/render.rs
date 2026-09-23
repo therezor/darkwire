@@ -131,6 +131,43 @@ async fn plain_text_is_sent_as_it_stands() {
 }
 
 #[tokio::test]
+async fn plain_text_keeps_its_backslashes_when_posted_and_when_edited() {
+    let harness = harness();
+    let mut chat = chat();
+    chat.prefs.markdown = false;
+
+    render(&harness, &request(r"\(\d+\)", OutboundKind::Reply), &chat).await;
+    assert_eq!(
+        harness.api.bodies("sendMessage")[0]["text"],
+        json!(r"\(\d+\)")
+    );
+
+    chat.live_message_id = Some(77);
+    chat.live_turn_id = Some("turn-1".to_owned());
+    let mut reply = request(r"\(\d+\)", OutboundKind::Reply);
+    reply.turn_id = Some("turn-1".to_owned());
+    render(&harness, &reply, &chat).await;
+    assert_eq!(
+        harness.api.bodies("editMessageText")[0]["text"],
+        json!(r"\(\d+\)")
+    );
+}
+
+#[tokio::test]
+async fn plain_text_keeps_its_backslashes_on_the_retry() {
+    let harness = harness();
+    harness.api.fail("sendMessage", 400, "Bad Request");
+    let mut chat = chat();
+    chat.prefs.markdown = false;
+
+    render(&harness, &request(r"C:\\temp", OutboundKind::Reply), &chat).await;
+
+    let bodies = harness.api.bodies("sendMessage");
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[1]["text"], json!(r"C:\\temp"));
+}
+
+#[tokio::test]
 async fn an_over_long_answer_is_split_and_only_the_last_piece_carries_the_buttons() {
     // A keyboard repeated once per chunk of a long card is four keyboards.
     let harness = harness();
@@ -405,6 +442,78 @@ async fn a_failed_edit_leaves_the_last_edit_time_alone() {
     let outcome = render(&harness, &request, &chat).await;
 
     assert_eq!(outcome.last_edit_ms, NOW - 10_000);
+}
+
+fn live_reply(text: &str) -> (ChatState, RenderRequest) {
+    let mut chat = chat();
+    chat.live_message_id = Some(77);
+    chat.live_turn_id = Some("turn-1".to_owned());
+    chat.last_edit_ms = NOW - 10_000;
+    let mut request = request(text, OutboundKind::Reply);
+    request.turn_id = Some("turn-1".to_owned());
+    (chat, request)
+}
+
+#[tokio::test]
+async fn a_refused_answer_edit_is_retried_as_plain_text() {
+    // Otherwise the last progress text would stand as the answer.
+    let harness = harness();
+    harness
+        .api
+        .fail("editMessageText", 400, "Bad Request: can't parse entities");
+    harness
+        .api
+        .reply("editMessageText", CannedAnswer::ok(&json!(true)));
+    let (chat, request) = live_reply("Done.");
+
+    let outcome = render(&harness, &request, &chat).await;
+
+    let edits = harness.api.bodies("editMessageText");
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0]["parse_mode"], json!("MarkdownV2"));
+    assert!(!edits[1].contains_key("parse_mode"));
+    assert_eq!(edits[1]["text"], json!("Done."));
+    assert_eq!(harness.api.count("sendMessage"), 0);
+    assert_eq!(outcome.last_edit_ms, NOW);
+    assert_eq!(outcome.live_message_id, None);
+}
+
+#[tokio::test]
+async fn an_answer_that_cannot_be_edited_in_is_posted_instead() {
+    let harness = harness();
+    harness.api.fail(
+        "editMessageText",
+        400,
+        "Bad Request: message to edit not found",
+    );
+    harness.api.reply(
+        "sendMessage",
+        CannedAnswer::ok(&json!({ "message_id": 9, "chat": { "id": CHAT, "type": "private" } })),
+    );
+    let (chat, request) = live_reply("Done.");
+
+    let outcome = render(&harness, &request, &chat).await;
+
+    assert_eq!(harness.api.count("editMessageText"), 2);
+    let posts = harness.api.bodies("sendMessage");
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0]["text"], json!(r"Done\."));
+    assert_eq!(outcome.posted, Some(9));
+    assert_eq!(outcome.live_message_id, None);
+    assert_eq!(outcome.live_turn_id, None);
+}
+
+#[tokio::test]
+async fn a_refused_progress_edit_is_left_for_the_answer_behind_it() {
+    let harness = harness();
+    harness.api.fail("editMessageText", 400, "Bad Request");
+    let (chat, mut request) = live_reply("so far");
+    request.kind = OutboundKind::Progress;
+
+    render(&harness, &request, &chat).await;
+
+    assert_eq!(harness.api.count("editMessageText"), 1);
+    assert_eq!(harness.api.count("sendMessage"), 0);
 }
 
 #[tokio::test]

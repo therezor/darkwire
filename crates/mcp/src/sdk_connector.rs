@@ -14,7 +14,9 @@
 //!   a provider API key in `darkwire serve`'s environment does not silently
 //!   land inside third-party code; stderr is piped to the log under a budget
 //!   rather than interleaved into DarkWire's own output; and the child is
-//!   killed when the session closes.
+//!   killed when the session closes. It runs in its own process group and the
+//!   whole group is signalled, because `npx` and `uvx` are launchers: the
+//!   server they start is a grandchild the SDK's own kill never reaches.
 //! - **Streamable HTTP** is the default for a `url`.
 //! - **SSE**, the legacy HTTP transport, has no client in this SDK version.
 //!   An entry that names it by hand is dialled as Streamable HTTP with a
@@ -147,9 +149,49 @@ pub fn default_environment() -> HashMap<String, String> {
         .collect()
 }
 
+/// How long a stdio server's group gets after `SIGTERM` before `SIGKILL`.
+const CHILD_GROUP_GRACE: Duration = Duration::from_secs(2);
+
+/// A stdio child's process group, signalled when the transport is dropped.
+///
+/// The transport is dropped on every way a session ends: a close, a failed
+/// handshake, a cancelled attempt. Tying the group to it covers all of them.
+struct ChildGroup {
+    pid: Option<u32>,
+}
+
+impl Drop for ChildGroup {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{Signal, killpg};
+            use nix::unistd::Pid;
+
+            let Some(pgid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) else {
+                return;
+            };
+            let pgid = Pid::from_raw(pgid);
+            // A group that is already empty is the common case, and then
+            // there is nothing to escalate.
+            if killpg(pgid, Signal::SIGTERM).is_err() {
+                return;
+            }
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    tokio::time::sleep(CHILD_GROUP_GRACE).await;
+                    let _ = killpg(pgid, Signal::SIGKILL);
+                });
+            }
+        }
+    }
+}
+
 /// The three transports as one type, since the SDK's trait is generic.
 enum SessionTransport {
-    Child(TokioChildProcess),
+    Child(
+        TokioChildProcess,
+        #[allow(dead_code, reason = "held only for its Drop, which signals the group")] ChildGroup,
+    ),
     Http(StreamableHttpClientTransport<reqwest::Client>),
     Pipe(AsyncRwTransport<RoleClient, BoxRead, BoxWrite>),
 }
@@ -191,7 +233,7 @@ impl Transport<RoleClient> for SessionTransport {
         item: TxJsonRpcMessage<RoleClient>,
     ) -> impl Future<Output = std::result::Result<(), TransportError>> + Send + 'static {
         let sending: BoxFuture<'static, std::result::Result<(), TransportError>> = match self {
-            SessionTransport::Child(inner) => {
+            SessionTransport::Child(inner, _) => {
                 let fut = inner.send(item);
                 Box::pin(async move { fut.await.map_err(TransportError::from) })
             }
@@ -209,7 +251,7 @@ impl Transport<RoleClient> for SessionTransport {
 
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
         match self {
-            SessionTransport::Child(inner) => inner.receive().await,
+            SessionTransport::Child(inner, _) => inner.receive().await,
             SessionTransport::Http(inner) => inner.receive().await,
             SessionTransport::Pipe(inner) => inner.receive().await,
         }
@@ -217,7 +259,7 @@ impl Transport<RoleClient> for SessionTransport {
 
     async fn close(&mut self) -> std::result::Result<(), TransportError> {
         match self {
-            SessionTransport::Child(inner) => inner.close().await.map_err(TransportError::from),
+            SessionTransport::Child(inner, _) => inner.close().await.map_err(TransportError::from),
             SessionTransport::Http(inner) => inner.close().await.map_err(TransportError::from),
             SessionTransport::Pipe(inner) => inner.close().await.map_err(TransportError::from),
         }
@@ -448,6 +490,8 @@ impl SdkConnector {
                     .env_clear()
                     .envs(default_environment())
                     .envs(env.iter());
+                #[cfg(unix)]
+                process.process_group(0);
                 let (child, stderr) = TokioChildProcess::builder(process)
                     .stderr(Stdio::piped())
                     .spawn()
@@ -470,7 +514,8 @@ impl SdkConnector {
                     };
                     tokio::spawn(pump_stderr(stderr, sink));
                 }
-                Ok(SessionTransport::Child(child))
+                let group = ChildGroup { pid: child.id() };
+                Ok(SessionTransport::Child(child, group))
             }
             McpTransportSpec::Http {
                 kind, url, headers, ..

@@ -1110,6 +1110,7 @@ dependencies = [
  "futures",
  "indexmap 2.14.2",
  "jsonschema",
+ "nix 0.31.3",
  "oauth2",
  "parking_lot",
  "proptest",

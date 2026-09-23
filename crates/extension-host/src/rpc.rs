@@ -31,6 +31,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::json::Object;
@@ -52,6 +53,12 @@ pub const JSONRPC_VERSION: &str = "2.0";
 /// kind is a warning on the extension's row and for an undeclared one is the
 /// expected answer.
 pub const METHOD_NOT_FOUND: i64 = -32601;
+
+/// How long [`RpcClient::request`] waits for an answer before it gives up.
+///
+/// Generous for a local pipe on purpose. The bound is there so a hung
+/// extension cannot hang a boot or a settings save, not to hurry a slow one.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The MCP revision the host announces.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -202,6 +209,23 @@ impl RpcHandler for NoHostMethods {
 
 type Pending = Arc<Mutex<HashMap<i64, oneshot::Sender<std::result::Result<Value, RpcError>>>>>;
 
+/// One call's place in the pending map, given up however the call ends.
+///
+/// A caller's own timeout drops the call half way, and without this the entry
+/// would sit in the map for the life of the connection.
+struct PendingEntry {
+    pending: Pending,
+    id: i64,
+}
+
+impl Drop for PendingEntry {
+    fn drop(&mut self) {
+        self.pending.lock().remove(&self.id);
+    }
+}
+
+type Answer = oneshot::Receiver<std::result::Result<Value, RpcError>>;
+
 /// One live connection to an extension process.
 ///
 /// Cloneable and shared: the bridged tools, the context contributor and the
@@ -315,7 +339,9 @@ impl RpcClient {
             .get("method")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let id = frame.get("id").and_then(Value::as_i64);
+        // A request's id may be a string as well as a number, and it is echoed
+        // back exactly as sent. A null id is a notification.
+        let id = frame.get("id").filter(|id| !id.is_null()).cloned();
         let params = frame.get("params").cloned().unwrap_or(Value::Null);
 
         match (method, id) {
@@ -324,11 +350,15 @@ impl RpcClient {
                 let client = Arc::clone(self);
                 tokio::spawn(async move {
                     let answer = handler.request(method, params).await;
-                    client.respond(id, answer);
+                    client.respond(&id, answer);
                 });
             }
             (Some(method), None) => handler.notify(method, params),
             (None, Some(id)) => {
+                // Only numbers are routed: every id this side mints is one.
+                let Some(id) = id.as_i64() else {
+                    return;
+                };
                 let waiting = self.pending.lock().remove(&id);
                 if let Some(waiting) = waiting {
                     let answer = match frame.get("error") {
@@ -343,7 +373,7 @@ impl RpcClient {
         }
     }
 
-    fn respond(&self, id: i64, answer: std::result::Result<Value, RpcError>) {
+    fn respond(&self, id: &Value, answer: std::result::Result<Value, RpcError>) {
         let frame = match answer {
             Ok(result) => json!({"jsonrpc": JSONRPC_VERSION, "id": id, "result": result}),
             Err(error) => json!({"jsonrpc": JSONRPC_VERSION, "id": id, "error": error}),
@@ -379,76 +409,111 @@ impl RpcClient {
         self.send(&Value::Object(frame));
     }
 
-    /// One request, answered or failed. Waits as long as the peer takes.
-    ///
-    /// Every caller in this crate wraps it in a cap — the handshake's ten
-    /// seconds, a runtime context section's one — so a bound does not belong
-    /// here, where it would be a second one to reason about.
-    pub async fn request(
+    /// Sends one request and claims its place in the pending map.
+    fn begin(
         &self,
         method: &str,
         params: Value,
-    ) -> std::result::Result<Value, RpcFailure> {
+    ) -> std::result::Result<(i64, Answer, PendingEntry), RpcFailure> {
         if self.is_closed() {
             return Err(transport_gone());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(id, tx);
+        let entry = PendingEntry {
+            pending: Arc::clone(&self.pending),
+            id,
+        };
 
-        let frame =
-            json!({"jsonrpc": JSONRPC_VERSION, "id": id, "method": method, "params": params});
+        let mut frame = serde_json::Map::new();
+        frame.insert("jsonrpc".to_owned(), Value::from(JSONRPC_VERSION));
+        frame.insert("id".to_owned(), Value::from(id));
+        frame.insert("method".to_owned(), Value::from(method));
+        frame.insert("params".to_owned(), params);
+        let frame = Value::Object(frame);
         if !self.send(&frame) {
-            self.pending.lock().remove(&id);
             return Err(transport_gone());
         }
+        Ok((id, rx, entry))
+    }
 
-        match rx.await {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(error)) => Err(RpcFailure::Peer(error)),
-            Err(_) => Err(transport_gone()),
+    fn cancel_on_peer(&self, id: i64, reason: &str) {
+        self.notify(
+            "notifications/cancelled",
+            json!({"requestId": id, "reason": reason}),
+        );
+    }
+
+    /// One request, answered or failed within [`REQUEST_TIMEOUT`].
+    pub async fn request(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> std::result::Result<Value, RpcFailure> {
+        self.request_within(method, params, REQUEST_TIMEOUT).await
+    }
+
+    /// One request, answered or failed within `timeout`.
+    ///
+    /// A request that runs out of time is cancelled on the peer as well, so a
+    /// well-behaved extension stops working on an answer nobody will read.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> std::result::Result<Value, RpcFailure> {
+        let (id, rx, entry) = self.begin(method, params)?;
+        let answer = tokio::time::timeout(timeout, rx).await;
+        drop(entry);
+        match answer {
+            Ok(Ok(Ok(result))) => Ok(result),
+            Ok(Ok(Err(error))) => Err(RpcFailure::Peer(error)),
+            Ok(Err(_)) => Err(transport_gone()),
+            Err(_) => {
+                self.cancel_on_peer(id, "the host stopped waiting for an answer");
+                Err(RpcFailure::Transport(
+                    WireError::new(
+                        ErrorKind::Timeout,
+                        format!(
+                            "The extension did not answer \"{method}\" within {} ms.",
+                            timeout.as_millis()
+                        ),
+                    )
+                    .with_detail("method", method),
+                ))
+            }
         }
     }
 
     /// A request that ends when `token` fires, with MCP's own cancellation.
     ///
-    /// The notification is best-effort by design — MCP says a cancelled request
-    /// may still be answered, and a peer that ignores it is not misbehaving. So
-    /// the host stops waiting either way; the notification is what lets a
-    /// well-behaved extension stop *working*, which is the part that costs
-    /// money on a slow command.
+    /// No timeout of its own: a command or a tool call may take as long as it
+    /// takes, and the caller's token is what bounds it. The notification is
+    /// best effort by design. MCP says a cancelled request may still be
+    /// answered, and a peer that ignores it is not misbehaving. So the host
+    /// stops waiting either way; the notification is what lets a well-behaved
+    /// extension stop *working*, which is the part that costs money on a slow
+    /// command.
     pub async fn request_cancellable(
         &self,
         method: &str,
         params: Value,
         token: &CancellationToken,
     ) -> std::result::Result<Value, RpcFailure> {
-        if self.is_closed() {
-            return Err(transport_gone());
-        }
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().insert(id, tx);
-
-        let frame =
-            json!({"jsonrpc": JSONRPC_VERSION, "id": id, "method": method, "params": params});
-        if !self.send(&frame) {
-            self.pending.lock().remove(&id);
-            return Err(transport_gone());
-        }
-
-        tokio::select! {
-            answer = rx => match answer {
-                Ok(Ok(result)) => Ok(result),
-                Ok(Err(error)) => Err(RpcFailure::Peer(error)),
-                Err(_) => Err(transport_gone()),
-            },
-            () = token.cancelled() => {
-                self.pending.lock().remove(&id);
-                self.notify(
-                    "notifications/cancelled",
-                    json!({"requestId": id, "reason": "the host cancelled the request"}),
-                );
+        let (id, rx, entry) = self.begin(method, params)?;
+        let answer = tokio::select! {
+            answer = rx => Some(answer),
+            () = token.cancelled() => None,
+        };
+        drop(entry);
+        match answer {
+            Some(Ok(Ok(result))) => Ok(result),
+            Some(Ok(Err(error))) => Err(RpcFailure::Peer(error)),
+            Some(Err(_)) => Err(transport_gone()),
+            None => {
+                self.cancel_on_peer(id, "the host cancelled the request");
                 Err(RpcFailure::Transport(WireError::new(
                     ErrorKind::Aborted,
                     "The call was cancelled.",
