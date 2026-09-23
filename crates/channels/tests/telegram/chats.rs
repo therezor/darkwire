@@ -1,7 +1,7 @@
 //! What the channel remembers about one chat, and how a conversation moves.
 
 use darkwire_channels::telegram::chats::{
-    ChatBook, RenderPrefs, default_session_key, new_session_key, owns_session_key,
+    ChatBook, Pending, RenderPrefs, default_session_key, new_session_key, owns_session_key,
 };
 
 #[test]
@@ -119,4 +119,25 @@ fn preferences_default_to_the_pair_a_chat_app_can_render() {
             markdown: true
         }
     );
+}
+
+#[test]
+fn a_question_waits_for_one_answer_in_its_own_chat() {
+    let mut book = ChatBook::new("telegram");
+
+    book.ask(
+        4471,
+        Pending::RenameWorkspace {
+            id: "w1".to_owned(),
+        },
+    );
+
+    assert_eq!(book.take_pending(9999), None);
+    assert_eq!(
+        book.take_pending(4471),
+        Some(Pending::RenameWorkspace {
+            id: "w1".to_owned()
+        })
+    );
+    assert_eq!(book.take_pending(4471), None, "answered once");
 }

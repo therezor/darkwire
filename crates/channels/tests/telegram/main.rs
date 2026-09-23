@@ -14,6 +14,7 @@ mod fake_bot_api;
 
 mod access;
 mod api;
+mod approvals;
 mod channel;
 mod chats;
 mod commands;

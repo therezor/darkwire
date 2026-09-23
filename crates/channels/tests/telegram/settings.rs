@@ -30,6 +30,14 @@ fn fills_in_every_default() {
 }
 
 #[test]
+fn the_default_is_what_an_empty_block_reads_as() {
+    assert_eq!(
+        TelegramSettings::default(),
+        parse_telegram_settings(&Map::new()).expect("an empty block is usable")
+    );
+}
+
+#[test]
 fn reads_every_field_an_operator_may_set() {
     let parsed = parse_telegram_settings(&block(&json!({
         "enabled": false,
