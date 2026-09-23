@@ -80,6 +80,55 @@ fn reassembles_frames_and_characters_split_across_chunks() {
 }
 
 #[test]
+fn a_crlf_split_across_chunks_is_one_terminator() {
+    // Read as two, the `\n` is a blank line and fires the frame early.
+    assert_eq!(
+        events(&["data: a\r", "\ndata: b\r\n\r\n"]),
+        vec![event("a\nb")]
+    );
+    assert_eq!(
+        events(&["event: ping\r", "\ndata: 1\r\n\r\n"]),
+        vec![SseEvent {
+            event: "ping".into(),
+            data: "1".into()
+        }]
+    );
+    // A bare `\r` still ends the line once the next byte says it was bare,
+    // and at the end of the stream.
+    assert_eq!(events(&["data: c\r", "\r"]), vec![event("c")]);
+    assert_eq!(events(&["data: d\r"]), vec![event("d")]);
+}
+
+#[test]
+fn counts_data_lines_that_never_close_their_frame_against_the_cap() {
+    let flood = "data: xxxxxxxx\n".repeat(20);
+    let error = parse_sse_chunks(
+        [flood.as_bytes()],
+        SseOptions {
+            provider_id: None,
+            max_frame_chars: Some(64),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        ProviderError::reason_of(&error),
+        ProviderErrorReason::StreamParse
+    );
+    // The count starts again with every frame.
+    let frames = "data: xxxxxxxx\n\n".repeat(20);
+    assert!(
+        parse_sse_chunks(
+            [frames.as_bytes()],
+            SseOptions {
+                provider_id: None,
+                max_frame_chars: Some(64),
+            },
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn refuses_a_frame_that_never_terminates() {
     let flood = format!("data: {}", "x".repeat(MAX_SSE_FRAME_CHARS + 1));
     let error = parse_sse_chunks([flood.as_bytes()], SseOptions::default()).unwrap_err();

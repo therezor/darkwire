@@ -25,6 +25,7 @@ use darkwire_core::ErrorKind;
 use darkwire_protocol::{
     AgentSettings, ChatMessage, PromptMode, StopReason, ToolPermission, ToolRisk, Usage,
 };
+use darkwire_providers::FinishReason;
 use futures::StreamExt as _;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -33,7 +34,7 @@ fn usage(prompt: u64, completion: u64) -> Usage {
     Usage {
         prompt_tokens: prompt,
         completion_tokens: completion,
-        total_tokens: prompt + completion,
+        total_tokens: prompt.saturating_add(completion),
         cached_tokens: None,
         reasoning_tokens: None,
     }
@@ -921,6 +922,42 @@ async fn a_correction_queued_mid_answer_is_answered_rather_than_discarded() {
     assert_eq!(result.stop_reason, StopReason::Complete);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_correction_on_the_last_iteration_keeps_the_answer_and_the_correction() {
+    let harness = Harness::build(Setup {
+        turns: vec![ScriptedTurn::text("first").after(1_000)],
+        config: AgentSettings {
+            model: "test-model".to_owned(),
+            max_tool_iterations: 1,
+            ..AgentSettings::default()
+        },
+        ..Setup::default()
+    });
+
+    let turn = harness
+        .agent_loop
+        .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    harness.steering.push("web:1", "actually, do this", 0);
+    let (_, result) = turn.collect().await;
+    let result = result.expect("a turn");
+
+    // No iteration is left to answer it, so the real answer stands rather
+    // than being followed by a note that the turn ran out of iterations.
+    assert_eq!(result.stop_reason, StopReason::Complete);
+    assert_eq!(result.text, "first");
+    let stored = harness.stored("web:1");
+    assert!(
+        stored
+            .iter()
+            .all(|message| !darkwire_core::text_of(message).contains("I stopped after"))
+    );
+    // Written to history for the next turn, not cleared with the queue.
+    let steered = darkwire_core::text_of(stored.last().unwrap());
+    assert!(steered.starts_with("[Steering"));
+    assert!(steered.contains("actually, do this"));
+}
+
 #[tokio::test]
 async fn a_turn_clears_its_session_queue_when_it_ends() {
     let harness = Harness::simple();
@@ -1775,4 +1812,50 @@ mod lazy_discovery {
         let (_, result) = harness.say("web:1", "go").await;
         assert_eq!(result.unwrap().iterations, 2);
     }
+}
+
+// Stops the provider reports
+
+#[tokio::test]
+async fn an_answer_cut_at_the_token_limit_says_so() {
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn {
+        finish_reason: Some(FinishReason::Length),
+        ..ScriptedTurn::text("the first half of")
+    }]));
+    let (events, result) = harness.say("web:1", "go").await;
+    let result = result.expect("a turn");
+
+    assert_eq!(result.stop_reason, StopReason::Complete);
+    let notices = events_of(&events, "notice");
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["kind"], json!("degraded"));
+    assert!(
+        notices[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("token limit")
+    );
+}
+
+#[tokio::test]
+async fn usage_that_would_overflow_saturates() {
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn {
+                usage: Some(usage(u64::MAX, u64::MAX / 2 + 1)),
+                ..ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))])
+            },
+            ScriptedTurn {
+                usage: Some(usage(u64::MAX, u64::MAX / 2 + 1)),
+                ..ScriptedTurn::text("done")
+            },
+        ],
+        tools: vec![FakeTool::reading("read", "x")],
+        ..Setup::default()
+    });
+    let (_, result) = harness.say("web:1", "go").await;
+    let result = result.expect("a turn");
+
+    assert_eq!(result.usage.prompt_tokens, u64::MAX);
+    assert_eq!(result.usage.completion_tokens, u64::MAX);
 }

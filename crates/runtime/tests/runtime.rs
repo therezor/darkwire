@@ -360,6 +360,35 @@ mod reconfigure {
     }
 
     #[test]
+    fn a_save_never_leaves_the_live_registry_without_its_built_ins() {
+        // A turn running during a save reads the same registry. Every change
+        // a build makes is observed as it lands, and `read` is there for all
+        // of them.
+        let install = Install::with(&configured("llama3"));
+        let runtime = install.runtime().unwrap();
+        let seen: Arc<std::sync::Mutex<Vec<bool>>> = Arc::default();
+        let registry = Arc::downgrade(runtime.tools());
+        let record = Arc::clone(&seen);
+        runtime.tools().subscribe(move || {
+            if let Some(registry) = registry.upgrade() {
+                record.lock().unwrap().push(registry.has("read"));
+            }
+        });
+
+        runtime
+            .reconfigure(&patch(json!({"scheduler": {"enabled": false}})))
+            .unwrap();
+        runtime
+            .reconfigure(&patch(json!({"scheduler": {"enabled": true}})))
+            .unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert!(!seen.is_empty(), "automation left and came back");
+        assert!(seen.iter().all(|has_read| *has_read), "{seen:?}");
+        assert!(runtime.tools().has("automation"));
+    }
+
+    #[test]
     fn keeps_registrations_that_are_not_built_ins() {
         let install = Install::with(&configured("llama3"));
         let runtime = install.runtime().unwrap();
@@ -416,9 +445,9 @@ mod reconfigure {
 
     #[test]
     fn serialises_two_saves_that_land_at_once() {
-        // A build takes the built-ins out of the registry and puts them back.
-        // Two builds on two threads interleave those halves, and the second
-        // `register` fails with a conflict against the first's. The pair that
+        // A build used to take the built-ins out of the registry and put them
+        // back. Two builds on two threads interleaved those halves, and the
+        // second `register` failed with a conflict against the first's. The pair that
         // hit this in CI was a settings save and the rebuild an extension
         // announces when it finishes starting. Two saves are the same
         // collision, and far easier to spell.

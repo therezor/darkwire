@@ -67,6 +67,10 @@ pub struct SseParser {
     /// is not a rescan per chunk.
     buffer_units: usize,
     data_lines: Vec<String>,
+    /// `data_lines` joined, in UTF-16 units. Counted against the cap with
+    /// `buffer`, because a stream of `data:` lines that never closes the frame
+    /// grows this instead.
+    data_units: usize,
     event_name: String,
 }
 
@@ -80,6 +84,7 @@ impl SseParser {
             buffer: String::new(),
             buffer_units: 0,
             data_lines: Vec::new(),
+            data_units: 0,
             event_name: String::new(),
         }
     }
@@ -95,6 +100,12 @@ impl SseParser {
 
         let mut events = Vec::new();
         while let Some((line_end, terminator_len)) = find_terminator(&self.buffer) {
+            // A `\r` at the end of the chunk may be the first half of `\r\n`.
+            // Read as a whole terminator, the `\n` that follows would be a
+            // blank line and fire the frame early.
+            if line_end + terminator_len == self.buffer.len() && self.buffer.ends_with('\r') {
+                break;
+            }
             let line: String = self.buffer.drain(..line_end + terminator_len).collect();
             self.buffer_units -= line.encode_utf16().count();
             let line = &line[..line_end];
@@ -105,7 +116,7 @@ impl SseParser {
             }
         }
 
-        if self.buffer_units > self.max_frame_chars {
+        if self.buffer_units + self.data_units > self.max_frame_chars {
             let mut error = ProviderError::new(
                 ProviderErrorReason::StreamParse,
                 format!(
@@ -135,9 +146,12 @@ impl SseParser {
             self.pending_bytes.clear();
         }
         if !self.buffer.is_empty() {
-            let line = std::mem::take(&mut self.buffer);
+            let buffer = std::mem::take(&mut self.buffer);
             self.buffer_units = 0;
-            self.consume(&line);
+            let line = buffer.strip_suffix('\r').unwrap_or(&buffer);
+            if !line.is_empty() {
+                self.consume(line);
+            }
         }
         self.frame().into_iter().collect()
     }
@@ -186,7 +200,11 @@ impl SseParser {
         };
         let value = value.strip_prefix(' ').unwrap_or(value);
         match field {
-            "data" => self.data_lines.push(value.to_owned()),
+            "data" => {
+                let joiner = usize::from(!self.data_lines.is_empty());
+                self.data_units += value.encode_utf16().count() + joiner;
+                self.data_lines.push(value.to_owned());
+            }
             "event" => value.clone_into(&mut self.event_name),
             // `id` and `retry` govern reconnection, which never applies: a
             // resumed completion would duplicate tokens, so a broken stream is
@@ -197,6 +215,7 @@ impl SseParser {
 
     fn frame(&mut self) -> Option<SseEvent> {
         let event_name = std::mem::take(&mut self.event_name);
+        self.data_units = 0;
         if self.data_lines.is_empty() {
             return None;
         }

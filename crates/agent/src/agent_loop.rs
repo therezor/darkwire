@@ -68,7 +68,9 @@ use darkwire_protocol::{
     SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
     ToolPromptOverrides, Usage, apply_tool_prompts, with_subagent_run,
 };
-use darkwire_providers::{ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, empty_usage};
+use darkwire_providers::{
+    ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, empty_usage,
+};
 use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use darkwire_tools::{
     Activation, AutomationResolver, EnvironmentResolver, Placed, PlacementRequest,
@@ -147,16 +149,18 @@ fn error_code_for(kind: ErrorKind) -> ErrorCode {
 fn sum_optional(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
         (None, other) | (other, None) => other,
-        (Some(a), Some(b)) => Some(a + b),
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
     }
 }
 
 /// Adds one request's usage to the turn's running total.
 fn accumulate_usage(total: &Usage, next: &Usage) -> Usage {
     Usage {
-        prompt_tokens: total.prompt_tokens + next.prompt_tokens,
-        completion_tokens: total.completion_tokens + next.completion_tokens,
-        total_tokens: total.total_tokens + next.total_tokens,
+        prompt_tokens: total.prompt_tokens.saturating_add(next.prompt_tokens),
+        completion_tokens: total
+            .completion_tokens
+            .saturating_add(next.completion_tokens),
+        total_tokens: total.total_tokens.saturating_add(next.total_tokens),
         cached_tokens: sum_optional(total.cached_tokens, next.cached_tokens),
         reasoning_tokens: sum_optional(total.reasoning_tokens, next.reasoning_tokens),
     }
@@ -1745,7 +1749,9 @@ impl AgentLoop {
         // zero, and its tokens have to sit out with it.
         if let Some(window) = result.generation_ms.filter(|ms| *ms > 0.0) {
             state.generation_ms += window;
-            state.generation_tokens += result.usage.completion_tokens;
+            state.generation_tokens = state
+                .generation_tokens
+                .saturating_add(result.usage.completion_tokens);
         }
         // Rebased onto the turn: everything before this request — the preamble,
         // any earlier request, any tool that ran — is time the reader spent
@@ -2034,14 +2040,39 @@ impl AgentLoop {
             );
         }
 
+        if result.finish_reason == FinishReason::Length {
+            self.note_length_cut(turn, sink).await;
+        }
+
         // The correction arrived while this answer was being composed. Keep
         // going so it is answered, rather than ending a turn the user has
-        // already asked to change.
+        // already asked to change. With no iteration left, the answer stands
+        // and the correction is written to history, where the next turn reads
+        // it, rather than cleared with the queue.
         if inner.steering.has_pending(&turn.scope.session_key) {
-            return Ok(Flow::Continue);
+            if state.iteration < inner.config.max_tool_iterations {
+                return Ok(Flow::Continue);
+            }
+            self.drain_steering(turn, state)?;
         }
         state.stop_reason = Some(StopReason::Complete);
         Ok(Flow::Stop)
+    }
+
+    /// The answer is stored and the turn completes either way, so this is the
+    /// only sign a reader gets that it was cut short.
+    async fn note_length_cut(&self, turn: &TurnContext, sink: &EventSink) {
+        sink.emit(darkwire_protocol::Notice {
+            tag: darkwire_protocol::NoticeTag,
+            kind: NoticeKind::Degraded,
+            message: format!(
+                "The answer reached the {}-token limit and may be cut short.",
+                self.inner.config.max_tokens
+            ),
+            turn_id: Some(turn.turn_id.clone()),
+            call_id: None,
+        })
+        .await;
     }
 
     /// The model asked for tools. Run them, append, report.

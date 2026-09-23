@@ -968,3 +968,63 @@ async fn a_tool_call_delta_without_an_index_is_its_own_call() {
     assert!(done.message.tool_calls[1].id.starts_with("call_"));
     assert_eq!(done.message.tool_calls[1].name, "two");
 }
+
+#[tokio::test]
+async fn a_streamed_call_with_no_arguments_replays_as_an_empty_object() {
+    // A blank string is stored and replayed on every later request, and a
+    // server that parses the field as JSON then rejects the whole session.
+    let result = drain(
+        &[
+            tool_call_chunk(0, Some("c1"), Some("ls"), Some("")),
+            tool_call_chunk(1, Some("c2"), None, Some("{}")),
+            finish_chunk("tool_calls"),
+        ],
+        0,
+        0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.message.tool_calls.len(), 1, "the nameless call");
+    assert_eq!(result.message.tool_calls[0].name, "ls");
+    assert_eq!(result.message.tool_calls[0].arguments_json, "{}");
+}
+
+#[tokio::test]
+async fn a_blank_argument_string_decodes_as_an_empty_object() {
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::json(
+        200,
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{"id": "c1", "function": {"name": "ls", "arguments": ""}}],
+                },
+                "finish_reason": "tool_calls",
+            }],
+        }),
+    ));
+    let result = provider_on(&server, "ollama", None)
+        .chat(&base(), &token())
+        .await
+        .unwrap();
+    assert_eq!(result.message.tool_calls[0].arguments_json, "{}");
+}
+
+#[tokio::test]
+async fn a_huge_usage_figure_saturates_rather_than_overflowing() {
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::json(
+        200,
+        &json!({
+            "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1e30, "completion_tokens": 1e30},
+        }),
+    ));
+    let result = provider_on(&server, "ollama", None)
+        .chat(&base(), &token())
+        .await
+        .unwrap();
+    assert_eq!(result.usage.prompt_tokens, u64::MAX);
+    assert_eq!(result.usage.total_tokens, u64::MAX);
+}

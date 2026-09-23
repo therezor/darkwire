@@ -18,6 +18,7 @@ use darkwire_agent::context::{
 };
 use darkwire_agent::testkit::{ScriptedTurn, tool_call};
 use darkwire_agent::{PromptPreview, PromptPreviewInput};
+use darkwire_core::history::DEFAULT_MAX_HISTORY_MESSAGES;
 use darkwire_core::messages::{AssistantOptions, assistant_message, tool_message, user_message};
 use darkwire_core::session_store::AppendOptions;
 use darkwire_protocol::{ChatMessage, ToolCall};
@@ -159,6 +160,44 @@ async fn every_window_entry_is_matched_back_to_the_row_it_came_from() {
     let seqs: Vec<i64> = report.messages.iter().map(|record| record.seq).collect();
     assert_eq!(seqs, vec![1, 2, 3, 4]);
     assert!(report.messages.iter().all(|record| !record.id.is_empty()));
+}
+
+#[tokio::test]
+async fn a_session_past_the_message_cap_reports_the_newest_rows() {
+    let harness = Harness::simple();
+    let rows: Vec<ChatMessage> = (0..DEFAULT_MAX_HISTORY_MESSAGES + 7)
+        .map(|index| {
+            if index % 2 == 0 {
+                ChatMessage::User(user_message(format!("question {index}")))
+            } else {
+                ChatMessage::Assistant(assistant_message(
+                    format!("answer {index}"),
+                    AssistantOptions::default(),
+                ))
+            }
+        })
+        .collect();
+    let total = i64::try_from(rows.len()).unwrap();
+    harness
+        .store
+        .append_many("web:1", rows, &AppendOptions::default())
+        .expect("stored");
+
+    let report = measure_context(&MeasureContext {
+        store: &harness.store,
+        tools: &[],
+        session_key: "web:1",
+        prompt: &preview(),
+        context_window_tokens: 65_536,
+    })
+    .expect("a report");
+
+    // The cap lands on an answer, so the window opens at the next question.
+    assert_eq!(report.messages.len(), DEFAULT_MAX_HISTORY_MESSAGES - 1);
+    assert_eq!(report.messages.last().unwrap().seq, total);
+    assert!(matches!(report.messages[0].message, ChatMessage::User(_)));
+    let seqs: Vec<i64> = report.messages.iter().map(|record| record.seq).collect();
+    assert!(seqs.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[tokio::test]

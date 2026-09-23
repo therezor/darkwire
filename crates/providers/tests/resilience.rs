@@ -546,6 +546,31 @@ fn truncate_keeps_the_question_and_the_trailing_runtime_turn() {
 }
 
 #[test]
+fn truncate_keeps_the_question_on_a_later_iteration_of_its_turn() {
+    // The bulk sits after the question, so only the floor stops the cut
+    // from reaching it.
+    let question = common::user("what did the migration change?");
+    let runtime = common::user("<system-reminder>\n## Live state\n</system-reminder>");
+    let messages = vec![
+        common::system("rules"),
+        common::user("hi"),
+        common::assistant("hello"),
+        question.clone(),
+        common::assistant_with("", vec![common::call("c1", "read", "{}")], None),
+        common::tool("c1", "read", &"x".repeat(4000)),
+        runtime.clone(),
+    ];
+    let kept = truncate_oldest_turns(&messages).unwrap();
+    assert!(kept.contains(&question));
+    assert_eq!(kept.last(), Some(&runtime));
+    assert!(kept.len() < messages.len());
+
+    // The same without the trailing runtime turn.
+    let kept = truncate_oldest_turns(&messages[..messages.len() - 1]).unwrap();
+    assert!(kept.contains(&question));
+}
+
+#[test]
 fn truncate_never_leaves_a_tool_result_without_its_assistant() {
     let messages = vec![
         long("old"),

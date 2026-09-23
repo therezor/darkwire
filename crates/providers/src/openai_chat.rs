@@ -308,7 +308,8 @@ fn decode_usage(record: Option<&Value>) -> Usage {
     Usage {
         prompt_tokens: prompt,
         completion_tokens: completion,
-        total_tokens: num_field(Some(record), "total_tokens").unwrap_or(prompt + completion),
+        total_tokens: num_field(Some(record), "total_tokens")
+            .unwrap_or(prompt.saturating_add(completion)),
         cached_tokens: num_field(record.get("prompt_tokens_details"), "cached_tokens"),
         reasoning_tokens: num_field(record.get("completion_tokens_details"), "reasoning_tokens"),
     }
@@ -367,13 +368,26 @@ fn decode_tool_calls(raw: Option<&Value>, random: &dyn RandomSource) -> Vec<Tool
                 // string; re-serialising keeps the field's contract without
                 // judging its contents.
                 arguments_json: match arguments {
-                    Some(Value::String(text)) => text.clone(),
+                    Some(Value::String(text)) => arguments_or_empty_object(text.clone()),
                     Some(other) => serde_json::to_string(other).unwrap_or_else(|_| "{}".into()),
                     None => "{}".into(),
                 },
             })
         })
         .collect()
+}
+
+/// A call with no arguments, spelled as the empty object.
+///
+/// Stored and replayed on every later request, and a server that parses the
+/// field as JSON rejects `""`, so one blank call would fail the rest of the
+/// session.
+fn arguments_or_empty_object(arguments: String) -> String {
+    if arguments.trim().is_empty() {
+        "{}".into()
+    } else {
+        arguments
+    }
 }
 
 #[derive(Debug, Default)]
@@ -897,8 +911,11 @@ impl StreamState {
     fn complete(&mut self) {
         self.finished = true;
         self.events = None;
+        // A call with no name cannot be dispatched, and the non-streaming
+        // decoder drops it too.
         let tool_calls: Vec<ToolCall> = std::mem::take(&mut self.partials)
             .into_values()
+            .filter(|partial| !partial.name.is_empty())
             .map(|partial| ToolCall {
                 id: if partial.id.is_empty() {
                     tool_call_id(self.inner.random.as_ref())
@@ -906,7 +923,7 @@ impl StreamState {
                     partial.id
                 },
                 name: partial.name,
-                arguments_json: partial.arguments_json,
+                arguments_json: arguments_or_empty_object(partial.arguments_json),
             })
             .collect();
         let has_tool_calls = !tool_calls.is_empty();

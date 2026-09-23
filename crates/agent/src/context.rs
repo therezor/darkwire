@@ -154,12 +154,15 @@ pub struct MeasureContext<'a> {
 /// names the iteration it is actually on, the preview always says 1 — which is
 /// under a token and is the only divergence by construction.
 pub fn measure_context(input: &MeasureContext<'_>) -> Result<ContextReport> {
-    // The same window the loop reads: the whole stored conversation, which the
-    // history walker below then bounds exactly as a turn would.
+    // The same window the loop reads: the newest rows up to the message cap,
+    // which the history walker below then trims exactly as a turn would. The
+    // walker's first step is that cap, so reading more would change nothing.
     let records = input.store.messages(
         input.session_key,
         &ReadMessages {
             after_seq: Some(0),
+            limit: Some(DEFAULT_MAX_HISTORY_MESSAGES),
+            from_end: true,
             ..ReadMessages::default()
         },
     )?;

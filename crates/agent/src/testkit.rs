@@ -153,6 +153,8 @@ pub struct ScriptedTurn {
     pub error: Option<ScriptedError>,
     /// Ends the stream without its completion — a truncated transport.
     pub omit_done: bool,
+    /// Overrides the finish reason the calls imply.
+    pub finish_reason: Option<FinishReason>,
     /// How long the request takes before its first event, on tokio's timer.
     ///
     /// The seam a test uses to hold a turn open while something else happens to
@@ -207,11 +209,11 @@ impl ScriptedTurn {
                     reasoning_ms: None,
                 },
             ),
-            finish_reason: if self.tool_calls.is_empty() {
+            finish_reason: self.finish_reason.unwrap_or(if self.tool_calls.is_empty() {
                 FinishReason::Stop
             } else {
                 FinishReason::ToolCalls
-            },
+            }),
             usage: self.usage.unwrap_or_else(empty_usage),
             model: model.to_owned(),
             // Absent rather than zero when the script says nothing, so the

@@ -177,13 +177,7 @@ pub fn truncate_oldest_turns(messages: &[ChatMessage]) -> Option<Vec<ChatMessage
     )]
     let target = sizes.iter().sum::<usize>() as f64 * TRUNCATION_FRACTION;
 
-    // Never drop the turn this request is answering. That is the last message,
-    // except when the loop has appended the prompt's runtime half as a
-    // trailing user message, in which case the question is the one before it
-    // and keeping only the last would leave a clock with nothing to answer.
-    // One extra, not a whole run: two consecutive user turns is that shape,
-    // and more than two is ordinary history nobody promised to keep.
-    let floor = body.len() - if last_two_are_user(body) { 2 } else { 1 };
+    let floor = current_turn_start(body);
     let mut dropped = 0.0;
     let mut cut = 0;
     #[allow(
@@ -203,6 +197,39 @@ pub fn truncate_oldest_turns(messages: &[ChatMessage]) -> Option<Vec<ChatMessage
         return None;
     }
     Some(system.into_iter().chain(kept).cloned().collect())
+}
+
+/// Where the turn this request is answering begins. Nothing from here on is cut.
+///
+/// Outside a tool loop that is the last message, or the one before it when the
+/// loop has appended the prompt's runtime half as a trailing user message. Two
+/// consecutive user turns is that shape, and more than two is ordinary history
+/// nobody promised to keep.
+///
+/// Inside a tool loop (the body ends in a tool result, less that trailing
+/// message) the question sits before the calls it started, so the floor moves
+/// back to the first user message after the last plain answer. Without that,
+/// the second iteration of a turn could keep its tool results and lose the
+/// question they were for.
+fn current_turn_start(body: &[ChatMessage]) -> usize {
+    let tail = body.len() - if last_two_are_user(body) { 2 } else { 1 };
+    let settled = match body {
+        [.., ChatMessage::User(_)] => &body[..body.len() - 1],
+        _ => body,
+    };
+    if !matches!(settled, [.., ChatMessage::Tool(_)]) {
+        return tail;
+    }
+    let opened = body
+        .iter()
+        .rposition(|message| {
+            matches!(message, ChatMessage::Assistant(assistant) if assistant.tool_calls.is_empty())
+        })
+        .map_or(0, |index| index + 1);
+    body[opened..]
+        .iter()
+        .position(|message| matches!(message, ChatMessage::User(_)))
+        .map_or(tail, |index| (opened + index).min(tail))
 }
 
 /// Drops leading `tool` messages whose `assistant` was cut away.

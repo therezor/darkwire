@@ -45,7 +45,7 @@
 //!    started on, which is the only coherent answer: its provider request is in
 //!    flight and its tool registry entries are already in the model's context.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
@@ -80,7 +80,7 @@ use darkwire_security::{
 };
 use darkwire_tools::{
     AnyTool, AutomationResolver, BuiltinOptions, LiveWebResolver, Placed, TOOL_SEARCH_NAME,
-    ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings, register_builtins,
+    ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings, builtin_tools,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, ReentrantMutex, RwLock};
@@ -1085,15 +1085,12 @@ impl WireRuntime {
         // schedule; a tool that can only answer "this installation has no
         // scheduler" costs a turn to learn what its absence would have said for
         // free.
-        self.tools.unregister_by_source(ToolSource::Builtin);
-        if self.options.tools {
-            register_builtins(
-                &self.tools,
-                BuiltinOptions {
-                    scheduler: config.scheduler.enabled,
-                },
-            )?;
-        }
+        sync_builtins(
+            &self.tools,
+            self.options.tools.then_some(BuiltinOptions {
+                scheduler: config.scheduler.enabled,
+            }),
+        )?;
 
         // Here, in the region that cannot fail, because that is the whole
         // contract: reconcile is synchronous and infallible, every dial happens
@@ -1723,4 +1720,31 @@ fn optional_vault(
             }
         },
     }
+}
+
+/// Brings the registry's built-ins to exactly `wanted`, `None` meaning none.
+///
+/// By name, touching only what differs, because the registry is live: a turn
+/// running during a save reads it, and taking every built-in out to put them
+/// back would leave a window where `read` is not found. The built-ins take no
+/// configuration, so one already registered is the one that would replace it.
+fn sync_builtins(registry: &ToolRegistry, wanted: Option<BuiltinOptions>) -> Result<()> {
+    let wanted = wanted.map(builtin_tools).unwrap_or_default();
+    let names: HashSet<String> = wanted
+        .iter()
+        .map(|tool| tool.definition().name.clone())
+        .collect();
+    for name in registry.names() {
+        if !names.contains(&name) && registry.source_of(&name) == Some(ToolSource::Builtin) {
+            registry.unregister(&name);
+        }
+    }
+    let missing: Vec<AnyTool> = wanted
+        .into_iter()
+        .filter(|tool| registry.source_of(&tool.definition().name) != Some(ToolSource::Builtin))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    registry.register_all(missing, ToolSource::Builtin)
 }
