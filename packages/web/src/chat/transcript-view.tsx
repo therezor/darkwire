@@ -25,7 +25,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ApprovalScope } from '@darkwire/protocol';
+import type { ApprovalScope, ExecRule } from '@darkwire/protocol';
 
 import { Button } from '@/components/ui/button.js';
 import type { Transcript } from '@/state/transcript.js';
@@ -43,6 +43,7 @@ interface TranscriptViewProps {
     callId: string,
     approved: boolean,
     scope: ApprovalScope,
+    rule?: ExecRule,
   ) => void;
   readonly onAction: (action: MessageAction) => void;
 }

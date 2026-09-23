@@ -300,6 +300,29 @@ describe('tool calls', () => {
     expect(toolsOf(resolved)[0]?.approval).toBeUndefined();
   });
 
+  it('keeps what the rules made of a command, and reopens on a refused rule', () => {
+    const command = { argv: ['ls'], shell: false };
+    const gated = play(START, call, {
+      type: 'tool.approvalRequest',
+      turnId: 't1',
+      callId: 'c1',
+      name: 'exec',
+      args: { argv: ['ls'] },
+      risk: 'exec',
+      expiresAtMs: 1_000,
+      command,
+    });
+    expect(toolsOf(gated)[0]?.approval?.command).toEqual(command);
+
+    const answered = markApprovalAnswered(gated, 'c1', 'approved');
+    const refused = markApprovalAnswered(answered, 'c1', undefined, 'no');
+    expect(toolsOf(refused)[0]?.approval).toMatchObject({
+      answered: undefined,
+      error: 'no',
+      command,
+    });
+  });
+
   it('leaves a transcript alone when an answer names a call that is not in it', () => {
     const items = play(START, call);
 

@@ -397,6 +397,57 @@ describe('speaking', () => {
       'approved',
     );
   });
+
+  it('sends a rule with an approval, and reopens the prompt when it is refused', () => {
+    open('web:1');
+    deliver({
+      type: 'turn.start',
+      sessionKey: 'web:1',
+      turnId: 't1',
+      agentId: 'default',
+      model: 'm',
+      provider: 'p',
+    });
+    deliver({
+      type: 'tool.approvalRequest',
+      turnId: 't1',
+      callId: 'c1',
+      name: 'exec',
+      args: { argv: ['ls'] },
+      risk: 'exec',
+      expiresAtMs: 1_000,
+      command: { argv: ['ls'], shell: false },
+    });
+
+    const rule = { action: 'allow' as const, argv: ['ls', '*'] };
+    approveTool('c1', true, 'session', rule);
+    expect(socket().sent.at(-1)).toEqual({
+      type: 'tool.approve',
+      callId: 'c1',
+      approved: true,
+      scope: 'session',
+      rule,
+    });
+
+    deliver({
+      type: 'error',
+      code: 'bad_request',
+      message: 'The rule does not cover this command.',
+      retryable: false,
+      callId: 'c1',
+    });
+    const turn = useTurnStore
+      .getState()
+      .transcript.find((item) => item.kind === 'turn');
+    const tool =
+      turn?.kind === 'turn'
+        ? turn.parts.find((part) => part.kind === 'tool')
+        : undefined;
+    expect(tool?.kind === 'tool' ? tool.approval : undefined).toMatchObject({
+      answered: undefined,
+      error: 'The rule does not cover this command.',
+    });
+  });
 });
 
 describe('listening', () => {

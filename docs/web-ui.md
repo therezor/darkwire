@@ -67,7 +67,7 @@ never drops a running turn.
   minute is not a one-line strip you have to click to learn anything about.
 - **`ui.reasoning`** decides how much of the working out arrives: `collapsed` by default,
   `expanded`, or `hidden`, which stops it reaching either surface. It is install-wide and
-  the terminal honours the same key; Appearance is where it is set.
+  the terminal honours the same key; Settings → Account is where it is set.
 - **Approval prompts** show the arguments before the call runs, and take Approve once /
   this session, or Deny. A standing permission is an agent setting, not a button here.
   See [Tools & permissions](tools.md#answering).
@@ -100,7 +100,7 @@ run yet:
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="screenshots/chat-approval.light.png">
-  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session and Deny." src="screenshots/chat-approval.dark.png">
+  <img alt="An approval prompt for exec, showing the argv it would run, with Once, This session, Always allow and Deny." src="screenshots/chat-approval.dark.png">
 </picture>
 
 ### Composer
@@ -321,16 +321,15 @@ to fill in first.
 
 ## Settings
 
-| Panel        | State                                                                                                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Providers    | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it. |
-| Environments | Built. A list and an editor for the definitions on disk, plus the containers held open for them.                                                                       |
-| Account      | Built. Username and password together, requires the current password, revokes every other session.                                                                     |
-| Appearance   | Built. Language and timezone (install-wide) and theme (this browser only).                                                                                             |
-| Automation   | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                      |
-| MCP servers  | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                          |
-| Channels     | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.yaml`.                                                             |
-| Extensions   | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.      |
+| Panel        | State                                                                                                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers    | Built. Add by type, save endpoint and key in one press, test the connection before saving, per-endpoint model catalogue, enable/disable, delete takes the key with it.      |
+| Environments | Built. A list and an editor for the definitions on disk, plus the containers held open for them.                                                                            |
+| Account      | Built. Language and timezone (install-wide) and theme (this browser only), then username and password together: requires the current password, revokes every other session. |
+| Automation   | Built. The scheduler engine only: enabled, concurrency, catch-up on boot, run retention. **The jobs are a page.**                                                           |
+| MCP servers  | Built. A list and an editor, each row joining what an operator configured to what came of it.                                                                               |
+| Channels     | Built. Reach the same agent from a messaging app. The bot token goes to the vault, never to `config.yaml`.                                                                  |
+| Extensions   | Built. Approve, withdraw and disable. **No editor** — an extension is a directory an operator put on the box, and a form would imply this screen could change it.           |
 
 Every panel on that list is built, and a panel arrives on it once it has something to
 configure. There are deliberately no placeholders naming a future phase: a settings

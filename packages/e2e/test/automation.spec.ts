@@ -134,14 +134,14 @@ test('the install timezone reschedules an existing cron job', async ({
 }) => {
   // The behaviour the one-zone design turns on, end to end: a cron expression
   // is a wall-clock time, so its stored instant is only valid against the zone
-  // it was computed in. Changing the zone in Appearance is therefore a
+  // it was computed in. Changing the zone in Account is therefore a
   // reschedule, not a display tweak — and `settings.patch` does it on the save
   // rather than leaving each job on a stale instant until it next fires.
   const seeded = await seedJob(app, harness.url);
   const before = seeded.state.nextRunAtMs;
   expect(before).toBeGreaterThan(0);
 
-  await app.goto(`${harness.url}/settings?panel=appearance`);
+  await app.goto(`${harness.url}/settings?panel=account`);
   await app.getByRole('combobox', { name: 'Timezone' }).click();
   await app.getByRole('option', { name: 'Asia/Tokyo', exact: true }).click();
   await app

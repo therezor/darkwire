@@ -27,7 +27,7 @@ use serde_with::rust::double_option;
 
 use crate::ids::DEFAULT_AGENT_ID;
 use crate::json::{LooseObject, MAX_SAFE_INTEGER, Nullable, positive, prefault, yes};
-use crate::tools::{ToolPermission, ToolPermissions, ToolPromptOverrides};
+use crate::tools::{ExecRule, ToolPermission, ToolPermissions, ToolPromptOverrides};
 
 /// How hard to ask the model to think, where `off` is a value and unset is not.
 ///
@@ -475,18 +475,16 @@ pub struct ExecToolConfig {
     /// Appended to the child's `PATH`.
     #[serde(default)]
     pub path_append: String,
-    /// `argv[0]` allow-list. Empty means "anything not denied" — the deny list
-    /// and the workspace jail still apply.
-    ///
-    /// Note what is *not* here: patterns for `$(...)`, backticks or `| sh`.
-    /// The tool takes an argv and never a shell, so there is no string for a
-    /// shell metacharacter to live in. Scanning for them would reject
-    /// legitimate commands while blocking nothing.
+    /// Command rules. See [`ExecRule`] for how they match.
     #[serde(default)]
-    pub allowed_binaries: Vec<String>,
-    /// `argv[0]` deny-list.
-    #[serde(default)]
-    pub denied_binaries: Vec<String>,
+    #[garde(dive)]
+    pub rules: Vec<ExecRule>,
+    /// The ceiling for a call whose program is a shell. A wildcard rule and
+    /// the tool's own permission are capped at this, and `deny` refuses a
+    /// shell outright. Only a rule naming the exact command decides one on its
+    /// own.
+    #[serde(default = "default_shell")]
+    pub shell: ToolPermission,
     /// Environment variables passed through to the child.
     #[serde(default = "default_env_allowlist")]
     pub env_allowlist: Vec<String>,
@@ -495,6 +493,10 @@ pub struct ExecToolConfig {
     #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
     #[schemars(transform = positive)]
     pub max_output_bytes: u64,
+}
+
+fn default_shell() -> ToolPermission {
+    ToolPermission::Ask
 }
 
 fn default_env_allowlist() -> Vec<String> {
@@ -513,8 +515,8 @@ impl Default for ExecToolConfig {
         Self {
             timeout_ms: 0,
             path_append: String::new(),
-            allowed_binaries: Vec::new(),
-            denied_binaries: Vec::new(),
+            rules: Vec::new(),
+            shell: default_shell(),
             env_allowlist: default_env_allowlist(),
             max_output_bytes: default_max_output_bytes(),
         }
@@ -1403,12 +1405,13 @@ pub struct ExecToolConfigPatch {
     /// See [`ExecToolConfig::path_append`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_append: Option<String>,
-    /// See [`ExecToolConfig::allowed_binaries`].
+    /// See [`ExecToolConfig::rules`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_binaries: Option<Vec<String>>,
-    /// See [`ExecToolConfig::denied_binaries`].
+    #[garde(dive)]
+    pub rules: Option<Vec<ExecRule>>,
+    /// See [`ExecToolConfig::shell`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub denied_binaries: Option<Vec<String>>,
+    pub shell: Option<ToolPermission>,
     /// See [`ExecToolConfig::env_allowlist`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_allowlist: Option<Vec<String>>,
@@ -1424,8 +1427,8 @@ impl From<ExecToolConfig> for ExecToolConfigPatch {
         Self {
             timeout_ms: Some(exec.timeout_ms),
             path_append: Some(exec.path_append),
-            allowed_binaries: Some(exec.allowed_binaries),
-            denied_binaries: Some(exec.denied_binaries),
+            rules: Some(exec.rules),
+            shell: Some(exec.shell),
             env_allowlist: Some(exec.env_allowlist),
             max_output_bytes: Some(exec.max_output_bytes),
         }
@@ -1554,6 +1557,32 @@ impl From<AgentEntry> for AgentEntryPatch {
             }),
             subagents: Some(entry.subagents),
         }
+    }
+}
+
+/// A patch that adds one `exec` rule to an agent and changes nothing else.
+///
+/// Built from the whole stored entry, because `agents.list.*` replaces
+/// wholesale: a patch naming only the rules would reset every other field.
+/// A rule the agent already has is not added twice.
+pub fn with_exec_rule(config: &Config, agent_id: &str, rule: ExecRule) -> ConfigPatch {
+    let mut entry = config
+        .agents
+        .list
+        .get(agent_id)
+        .cloned()
+        .unwrap_or_default();
+    if !entry.settings.exec.rules.contains(&rule) {
+        entry.settings.exec.rules.push(rule);
+    }
+    ConfigPatch {
+        agents: Some(AgentsConfigPatch {
+            list: Some(IndexMap::from([(
+                agent_id.to_owned(),
+                Some(AgentEntryPatch::from(entry)),
+            )])),
+        }),
+        ..ConfigPatch::default()
     }
 }
 

@@ -3,19 +3,18 @@
  *
  * Inline and not a dialog, deliberately. A modal over the transcript hides the
  * conversation that produced the request, which is the only context that makes
- * the decision answerable — "run `rm -rf build`?" is a different question
+ * the decision answerable: "run `rm -rf build`?" is a different question
  * depending on what was asked a paragraph earlier. It also cannot stack: two
  * tabs, or one turn with two gated calls, would queue modals.
  *
- * The two scopes are the protocol's, and each is a different promise:
+ * Three answers and a refusal:
  *
  *  - **Once**: this call. The next one asks again.
- *  - **Session**: every call to this tool for the rest of the conversation.
- *
- * There is no third. A standing permission is a configuration decision, and it
- * is made where it can be seen and taken back: the tool's permission on the
- * agent, set to Allow. A button that grants one from here would be a decision
- * with no visible way back.
+ *  - **This session**: calls the tool treats as this one, for the rest of the
+ *    conversation. For `exec` that is this exact command.
+ *  - **Always allow…**: `exec` only. Saves a command rule on the agent, where
+ *    it can be seen and removed in the agent's settings, and runs this call.
+ *    Not offered for a shell, because a rule for one covers every program.
  *
  * The deadline is the server's `expiresAtMs`, counted down locally. When it
  * passes, the buttons go: pressing one would send an answer the gate stopped
@@ -26,36 +25,34 @@ import { Check, ShieldAlert, X } from 'lucide-react';
 import { useEffect, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ApprovalScope } from '@darkwire/protocol';
+import type {
+  ApprovalScope,
+  CommandPolicy,
+  ExecRule,
+} from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
+import {
+  formatPattern,
+  parsePattern,
+  patternMatches,
+  suggestPatterns,
+} from '@/lib/exec-pattern.js';
 import { formatDuration } from '@/lib/format.js';
 import { Button } from '@/components/ui/button.js';
 import { Tooltip } from '@/components/ui/tooltip.js';
+import { TextField } from '@/components/form/controls.js';
 import type { ToolApprovalState } from '@/state/transcript.js';
 
 interface ApprovalPromptProps {
   readonly toolName: string;
   readonly approval: ToolApprovalState;
-  readonly onAnswer: (approved: boolean, scope: ApprovalScope) => void;
+  readonly onAnswer: (
+    approved: boolean,
+    scope: ApprovalScope,
+    rule?: ExecRule,
+  ) => void;
 }
-
-const SCOPES: ReadonlyArray<{
-  readonly scope: ApprovalScope;
-  readonly label: string;
-  readonly hint: string;
-}> = [
-  {
-    scope: 'once',
-    label: 'Once',
-    hint: 'Run this one call. The next one asks again.',
-  },
-  {
-    scope: 'session',
-    label: 'This session',
-    hint: 'Allow this tool for the rest of this session.',
-  },
-];
 
 export function ApprovalPrompt({
   toolName,
@@ -64,7 +61,9 @@ export function ApprovalPrompt({
 }: ApprovalPromptProps): JSX.Element | null {
   const { t } = useTranslation();
   const remainingMs = useCountdown(approval.expiresAtMs);
+  const [editing, setEditing] = useState(false);
   const answered = approval.answered;
+  const command = approval.command;
 
   if (answered !== undefined) {
     return (
@@ -77,25 +76,30 @@ export function ApprovalPrompt({
         )}
       >
         {answered === 'approved' ? <Check /> : <X />}
-        {answered === 'approved' ? 'Approved' : 'Denied'}. Waiting for the
-        agent.
+        {answered === 'approved'
+          ? t('chat.approval.approved')
+          : t('chat.approval.denied')}
       </p>
     );
   }
 
   if (remainingMs <= 0) {
-    return <p className="row approval__resolved">{t('chat.approvalClosed')}</p>;
+    return (
+      <p className="row approval__resolved">{t('chat.approval.closed')}</p>
+    );
   }
+
+  const standing = command !== undefined && !command.shell;
 
   return (
     <div className="stack approval">
       <p className="row approval__line">
         <ShieldAlert />
         <span>
-          <strong>{toolName}</strong> needs approval to run.
+          <strong>{toolName}</strong> {t('chat.approval.needs')}
         </span>
-        {/* A live region, because the number changes without anyone acting —
-            but `polite` and on a coarse value, or a screen reader reads a
+        {/* A live region, because the number changes without anyone acting,
+            but off and on a coarse value, or a screen reader reads a
             countdown out loud once a second. */}
         <span className="approval__timer" role="timer" aria-live="off">
           {/* Formatted, not raw seconds: a generous `approvals.timeoutMs`
@@ -104,31 +108,161 @@ export function ApprovalPrompt({
         </span>
       </p>
 
-      <div className="cluster approval__actions">
-        {SCOPES.map(({ scope, label, hint }) => (
-          <Tooltip key={scope} label={hint}>
+      {command?.shell === true && (
+        <p className="approval__warning">{t('chat.approval.shellWarning')}</p>
+      )}
+      {approval.error !== undefined && (
+        <p className="approval__error" role="alert">
+          {approval.error}
+        </p>
+      )}
+
+      {editing && command !== undefined ? (
+        <RuleEditor
+          command={command}
+          onCancel={() => {
+            setEditing(false);
+          }}
+          onSave={(rule) => {
+            onAnswer(true, 'session', rule);
+          }}
+        />
+      ) : (
+        <div className="cluster approval__actions">
+          <Tooltip label={t('chat.approval.onceHint')}>
             <Button
               size="sm"
-              variant={scope === 'once' ? 'primary' : 'secondary'}
+              variant="primary"
               onClick={() => {
-                onAnswer(true, scope);
+                onAnswer(true, 'once');
               }}
             >
-              {label}
+              {t('chat.approval.once')}
             </Button>
           </Tooltip>
+          <Tooltip
+            label={
+              command === undefined
+                ? t('chat.approval.sessionHint')
+                : t('chat.approval.sessionHintCommand')
+            }
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                onAnswer(true, 'session');
+              }}
+            >
+              {t('chat.approval.session')}
+            </Button>
+          </Tooltip>
+          {standing && (
+            <Tooltip label={t('chat.approval.alwaysHint')}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setEditing(true);
+                }}
+              >
+                {t('chat.approval.always')}
+              </Button>
+            </Tooltip>
+          )}
+
+          <div className="spacer" />
+
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              onAnswer(false, 'once');
+            }}
+          >
+            {t('chat.approval.deny')}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Chooses the rule "Always allow…" saves.
+ *
+ * It starts on the narrowest wildcard rather than the exact command, because
+ * the exact command is what "This session" already covers. A rule that would
+ * not cover this call cannot be saved: the prompt is answering this call.
+ */
+function RuleEditor({
+  command,
+  onCancel,
+  onSave,
+}: {
+  readonly command: CommandPolicy;
+  readonly onCancel: () => void;
+  readonly onSave: (rule: ExecRule) => void;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const suggestions = suggestPatterns(command.argv).map(formatPattern);
+  const [pattern, setPattern] = useState(
+    suggestions[1] ?? suggestions[0] ?? '',
+  );
+
+  const parsed = parsePattern(pattern);
+  const error = !parsed.ok
+    ? t(`chat.approval.rule.${parsed.error}`)
+    : patternMatches(parsed.argv, command.argv)
+      ? undefined
+      : t('chat.approval.rule.noMatch');
+
+  return (
+    <div className="stack approval__rule">
+      <div
+        className="cluster approval__suggestions"
+        role="group"
+        aria-label={t('chat.approval.rule.suggestions')}
+      >
+        {suggestions.map((suggestion) => (
+          <Button
+            key={suggestion}
+            size="sm"
+            variant="ghost"
+            aria-pressed={suggestion === pattern}
+            className="approval__suggestion"
+            onClick={() => {
+              setPattern(suggestion);
+            }}
+          >
+            {suggestion}
+          </Button>
         ))}
-
+      </div>
+      <TextField
+        label={t('chat.approval.rule.pattern')}
+        hint={t('chat.approval.rule.patternHint')}
+        error={error}
+        value={pattern}
+        spellCheck={false}
+        autoComplete="off"
+        onValueChange={setPattern}
+      />
+      <div className="cluster approval__actions">
         <div className="spacer" />
-
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          {t('chat.approval.rule.cancel')}
+        </Button>
         <Button
           size="sm"
-          variant="danger"
+          variant="primary"
+          disabled={!parsed.ok || error !== undefined}
           onClick={() => {
-            onAnswer(false, 'once');
+            if (!parsed.ok) return;
+            onSave({ action: 'allow', argv: [...parsed.argv] });
           }}
         >
-          Deny
+          {t('chat.approval.rule.save')}
         </Button>
       </div>
     </div>

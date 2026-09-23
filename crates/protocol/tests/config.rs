@@ -9,8 +9,8 @@
 )]
 
 use darkwire_protocol::{
-    AgentEntry, Config, ConfigPatch, DEFAULT_AGENT_ID, DEFAULT_AGENT_TOOLS, ToolPermission,
-    default_agent_tools, parse_config,
+    AgentEntry, Config, ConfigPatch, DEFAULT_AGENT_ID, DEFAULT_AGENT_TOOLS, ExecRule,
+    ToolPermission, default_agent_tools, parse_config, with_exec_rule,
 };
 use garde::Validate;
 use serde_json::json;
@@ -174,4 +174,60 @@ fn the_one_allow_list_survives_a_round_trip() {
     .unwrap();
     let network = &config.agents.list["net"].environment.network;
     assert_eq!(network.allow, ["10.0.0.0/8", ".example.com"]);
+}
+
+fn cargo_test() -> ExecRule {
+    ExecRule {
+        action: ToolPermission::Allow,
+        argv: vec!["cargo".to_owned(), "test".to_owned(), "*".to_owned()],
+    }
+}
+
+#[test]
+fn adding_a_rule_sends_the_whole_agent_and_nothing_else() {
+    let config = parse_config(json!({"agents": {"list": {"coder": {
+        "label": "Coder",
+        "temperature": 0.3,
+        "exec": {"timeoutMs": 5000, "rules": [{"action": "deny", "argv": ["rm", "*"]}]},
+    }}}}))
+    .unwrap();
+    let patch = with_exec_rule(&config, "coder", cargo_test());
+    assert!(patch.providers.is_none() && patch.server.is_none() && patch.tools.is_none());
+    let list = patch.agents.unwrap().list.unwrap();
+    assert_eq!(list.len(), 1);
+    let entry = list["coder"].clone().unwrap();
+    assert_eq!(entry.label.as_deref(), Some("Coder"));
+    let exec = entry.settings.exec.unwrap();
+    assert_eq!(exec.timeout_ms, Some(5000));
+    let rules = exec.rules.unwrap();
+    assert_eq!(rules.len(), 2);
+    assert_eq!(rules[1], cargo_test());
+}
+
+#[test]
+fn adding_a_rule_twice_keeps_one() {
+    let mut config = parse_config(json!({"agents": {"list": {"coder": {}}}})).unwrap();
+    config
+        .agents
+        .list
+        .get_mut("coder")
+        .unwrap()
+        .settings
+        .exec
+        .rules
+        .push(cargo_test());
+    let patch = with_exec_rule(&config, "coder", cargo_test());
+    let entry = patch.agents.unwrap().list.unwrap()["coder"]
+        .clone()
+        .unwrap();
+    assert_eq!(entry.settings.exec.unwrap().rules.unwrap().len(), 1);
+}
+
+#[test]
+fn adding_a_rule_to_an_agent_with_no_entry_starts_from_the_defaults() {
+    let patch = with_exec_rule(&Config::default(), "fresh", cargo_test());
+    let entry = patch.agents.unwrap().list.unwrap()["fresh"]
+        .clone()
+        .unwrap();
+    assert_eq!(entry.settings.exec.unwrap().rules.unwrap(), [cargo_test()]);
 }

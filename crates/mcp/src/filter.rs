@@ -43,8 +43,7 @@ fn matches(pattern: &str, name: &str) -> bool {
 
 /// Applies `enabled_tools` to what a server advertised.
 ///
-/// An empty list selects nothing, which is a real answer: the convention here
-/// is the opposite of an agent's `exec.allowedBinaries`, because this is a narrowing
+/// An empty list selects nothing, which is a real answer: this is a narrowing
 /// of a server the operator already added.
 pub fn select_tools<S: AsRef<str>>(
     advertised: &[McpToolDescriptor],

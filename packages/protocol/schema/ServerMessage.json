@@ -87,6 +87,9 @@
         },
         "turnId": {
           "type": "string"
+        },
+        "callId": {
+          "type": "string"
         }
       },
       "required": [
@@ -420,6 +423,48 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        "command": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "shell": {
+              "type": "boolean"
+            },
+            "rule": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "ask",
+                    "deny"
+                  ]
+                },
+                "argv": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "action",
+                "argv"
+              ]
+            }
+          },
+          "required": [
+            "argv",
+            "shell"
+          ]
         }
       },
       "required": [
@@ -844,6 +889,48 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "command": {
+                  "type": "object",
+                  "properties": {
+                    "argv": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "shell": {
+                      "type": "boolean"
+                    },
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        },
+                        "argv": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "argv"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "argv",
+                    "shell"
+                  ]
                 }
               },
               "required": [
@@ -1018,6 +1105,9 @@
                   "type": "boolean"
                 },
                 "turnId": {
+                  "type": "string"
+                },
+                "callId": {
                   "type": "string"
                 }
               },

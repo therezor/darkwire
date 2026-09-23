@@ -14,6 +14,8 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { CommandPolicy } from '@darkwire/protocol';
+
 import type { ToolApprovalState } from '@/state/transcript.js';
 import { renderWithProviders } from '@testkit/render.js';
 
@@ -59,14 +61,108 @@ describe('an unanswered prompt', () => {
     expect(onAnswer).toHaveBeenCalledWith(false, 'once');
   });
 
-  it('offers no standing permission, which is an agent setting', () => {
+  it('offers no standing rule for a tool without command rules', () => {
     promptWith({});
 
-    // A prompt can grant this call or this conversation. Anything longer is
-    // configuration, made where it can be seen and taken back.
+    // Only `exec` has somewhere to save a rule. For any other tool a standing
+    // answer is its permission, set on the agent.
     expect(
-      screen.queryByRole('button', { name: 'Always' }),
+      screen.queryByRole('button', { name: 'Always allow…' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+const CARGO: CommandPolicy = {
+  argv: ['cargo', 'test', '-p', 'x'],
+  shell: false,
+};
+
+describe('a prompt for a command', () => {
+  it('saves a rule that covers the command, starting from the narrowest wildcard', async () => {
+    const onAnswer = promptWith({ command: CARGO });
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Always allow…' }),
+    );
+    const pattern = screen.getByLabelText('Allow commands matching');
+    expect(pattern).toHaveValue('cargo test -p *');
+    expect(
+      screen.getByRole('button', { name: 'cargo test -p *' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'cargo test *' }));
+    expect(pattern).toHaveValue('cargo test *');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save rule and run' }),
+    );
+    expect(onAnswer).toHaveBeenCalledWith(true, 'session', {
+      action: 'allow',
+      argv: ['cargo', 'test', '*'],
+    });
+  });
+
+  it('will not save a rule that does not cover the command', async () => {
+    promptWith({ command: CARGO });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Always allow…' }),
+    );
+    const pattern = screen.getByLabelText('Allow commands matching');
+
+    await userEvent.clear(pattern);
+    await userEvent.type(pattern, 'cargo build *');
+    expect(
+      screen.getByText('This rule does not cover the command being approved.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Save rule and run' }),
+    ).toBeDisabled();
+
+    await userEvent.clear(pattern);
+    await userEvent.type(pattern, 'cargo "test');
+    expect(screen.getByText('A quote is not closed.')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Once' })).toBeInTheDocument();
+  });
+
+  it('says what "this session" covers for a command', async () => {
+    promptWith({ command: CARGO });
+    await userEvent.hover(screen.getByRole('button', { name: 'This session' }));
+    expect(
+      (
+        await screen.findAllByText(
+          'Allow this exact command for the rest of this session.',
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('warns about a shell and offers no rule for one', () => {
+    promptWith({
+      command: { argv: ['bash', 'ci.sh'], shell: true },
+    });
+
+    expect(
+      screen.getByText(
+        'This runs a shell script, which can run any command it contains.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Always allow…' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows why the server refused a rule, with the buttons back', () => {
+    promptWith({
+      command: CARGO,
+      error: 'The rule "cargo *" is more specific.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The rule "cargo *" is more specific.',
+    );
+    expect(screen.getByRole('button', { name: 'Once' })).toBeInTheDocument();
   });
 });
 

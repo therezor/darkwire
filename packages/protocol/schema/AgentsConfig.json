@@ -95,19 +95,42 @@
                 "default": "",
                 "type": "string"
               },
-              "allowedBinaries": {
+              "rules": {
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "allow",
+                        "ask",
+                        "deny"
+                      ]
+                    },
+                    "argv": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "argv"
+                  ]
                 }
               },
-              "deniedBinaries": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
+              "shell": {
+                "default": "ask",
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "ask",
+                  "deny"
+                ]
               },
               "envAllowlist": {
                 "default": [

@@ -544,6 +544,7 @@ async fn renders_an_error_rather_than_swallowing_it(options: &ChannelConformance
             message: "the model is unreachable".to_owned(),
             retryable: true,
             turn_id: None,
+            call_id: None,
         }));
     flush().await;
     flush().await;

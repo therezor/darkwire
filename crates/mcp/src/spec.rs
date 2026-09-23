@@ -28,8 +28,8 @@
 //! workspace on purpose, and the single most common MCP deployment is a server
 //! on loopback — every one of which the guards refuse by design. Running them
 //! through would make the feature unusable while protecting against nothing:
-//! anyone able to edit `config.yaml` can already add a binary to an agent's
-//! `exec.allowedBinaries`. The model's reach stops at a bridged tool's
+//! anyone able to edit `config.yaml` can already add an `allow *` rule to an
+//! agent's `exec.rules`. The model's reach stops at a bridged tool's
 //! *arguments*, which are JSON over a pipe and never become argv.
 //!
 //! The OAuth endpoints are the exception, and they are guarded — see

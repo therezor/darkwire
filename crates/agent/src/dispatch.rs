@@ -714,21 +714,40 @@ impl ToolDispatcher {
         // The binding first, and only when the registry has no such name — the
         // same precedence `subagent_for` applies, asked once here so a shadowed
         // subagent is gated as the registered tool it actually is.
-        let permission = self
-            .subagent_for(&call.name)
-            .map_or_else(|| self.tools.permission_for(&call.name), |b| b.permission);
+        let binding = self.subagent_for(&call.name);
+        let fallback =
+            binding.map_or_else(|| self.tools.permission_for(&call.name), |b| b.permission);
+        // Belt and braces. A denied tool is not in the definitions the model
+        // was sent and `execute` would report it as `not_found`, so reaching
+        // here means something advertised a tool this scope does not permit.
+        if fallback == ToolPermission::Deny {
+            return self
+                .refuse(call, risk, fallback, DenialReason::Policy, turn, sink)
+                .await;
+        }
+
+        // A tool whose permission depends on its arguments says so here, and
+        // its answer replaces the agent's. Asked only once the tool is enabled
+        // at all: a rule can narrow or widen `ask`, never switch a tool on.
+        let args = parse_tool_args(&call.arguments_json);
+        let policy = if binding.is_some() {
+            None
+        } else {
+            self.tools
+                .get(&call.name)
+                .and_then(|tool| tool.policy(&args, &turn.tool_context, fallback))
+        };
+        let permission = policy.as_ref().map_or(fallback, |policy| policy.permission);
         if permission == ToolPermission::Allow {
             return None;
         }
+        if permission == ToolPermission::Deny {
+            return self
+                .refuse(call, risk, permission, DenialReason::Rule, turn, sink)
+                .await;
+        }
 
-        let denial = if permission == ToolPermission::Deny {
-            // Belt and braces. A denied tool is not in the definitions the
-            // model was sent and `execute` would report it as `not_found`, so
-            // reaching here means something advertised a tool this scope does
-            // not permit — which is exactly the case an enforcement point
-            // exists to catch.
-            DenialReason::Policy
-        } else {
+        let denial = {
             // `ask` with nobody to ask. Denying here would make the default
             // config refuse every `exec` in a terminal session, where the
             // operator asking for the command *is* the approval.
@@ -736,7 +755,10 @@ impl ToolDispatcher {
 
             let timeout_ms = self.approval_timeout_ms;
             let expires_at_ms = u64::try_from(self.clock.now_ms()).unwrap_or(0) + timeout_ms;
-            let args = parse_tool_args(&call.arguments_json);
+            let (memory_key, command) = match policy {
+                Some(policy) => (policy.memory_key, policy.command),
+                None => (call.name.clone(), None),
+            };
             let request = ApprovalRequest {
                 session_key: turn.session_key.clone(),
                 root_session_key: turn.root_session_key.clone(),
@@ -746,6 +768,8 @@ impl ToolDispatcher {
                 name: call.name.clone(),
                 args: args.clone(),
                 risk,
+                memory_key,
+                command: command.clone(),
                 expires_at_ms,
                 token: turn.token.clone(),
             };
@@ -765,6 +789,7 @@ impl ToolDispatcher {
                     args,
                     risk,
                     expires_at_ms,
+                    command,
                 })
                 .await;
                 self.decide(gate.as_ref(), &request, timeout_ms).await
@@ -776,7 +801,20 @@ impl ToolDispatcher {
                 ApprovalOutcome::Denied(reason) => reason,
             }
         };
+        self.refuse(call, risk, permission, denial, turn, sink)
+            .await
+    }
 
+    /// Records a refusal and answers the call with it.
+    async fn refuse(
+        &self,
+        call: &ToolCall,
+        risk: ToolRisk,
+        permission: ToolPermission,
+        denial: DenialReason,
+        turn: &TurnScope,
+        sink: &EventSink,
+    ) -> Option<ToolExecution> {
         tracing::warn!(
             session_key = %turn.session_key,
             turn_id = %turn.turn_id,

@@ -28,8 +28,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -122,8 +122,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -205,8 +205,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -289,8 +289,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -365,8 +365,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -458,8 +458,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -542,8 +542,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",
@@ -633,8 +633,8 @@
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
-                "allowedBinaries": [],
-                "deniedBinaries": [],
+                "rules": [],
+                "shell": "ask",
                 "envAllowlist": [
                   "PATH",
                   "HOME",

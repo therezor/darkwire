@@ -255,6 +255,14 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<tools::ApprovalScope>,
     },
     RegisteredSchema {
+        name: "ExecRule",
+        schema: schema_for::<tools::ExecRule>,
+    },
+    RegisteredSchema {
+        name: "CommandPolicy",
+        schema: schema_for::<tools::CommandPolicy>,
+    },
+    RegisteredSchema {
         name: "ToolPromptOverride",
         schema: schema_for::<tools::ToolPromptOverride>,
     },

@@ -76,6 +76,15 @@ fn the_five_frames_a_channel_may_send_are_the_five_it_may_send() {
 
     let ping: ClientMessage = serde_json::from_value(json!({"type": "ping"})).unwrap();
     assert!(control_frame_of(ping).is_err());
+
+    // Saving a rule writes the agent's settings, which is the operator's.
+    let with_rule: ClientMessage = serde_json::from_value(json!({
+        "type": "tool.approve", "callId": "c1", "approved": true,
+        "rule": {"action": "allow", "argv": ["ls"]},
+    }))
+    .unwrap();
+    let refusal = control_frame_of(with_rule).unwrap_err();
+    assert!(refusal.contains("command rule"), "{refusal}");
 }
 
 #[tokio::test]

@@ -27,6 +27,7 @@
 
 import type {
   Attachment,
+  CommandPolicy,
   NestedAgentEvent,
   NoticeKind,
   StopReason,
@@ -106,6 +107,10 @@ export interface ToolApprovalState {
    * first simply sees the result arrive.
    */
   readonly answered: 'approved' | 'denied' | undefined;
+  /** What the command rules made of the call, for a tool that has them. */
+  readonly command?: CommandPolicy | undefined;
+  /** Why the server refused a rule sent with this tab's answer. */
+  readonly error?: string | undefined;
 }
 
 export interface ToolPart {

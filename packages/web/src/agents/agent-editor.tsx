@@ -92,6 +92,7 @@ import {
 import { useAgent } from './agent-context.js';
 import { SubagentRow } from './subagent-row.js';
 import { TemplateEditor } from './template-editor.js';
+import { ExecRulesButton } from './exec-rules.js';
 import { ToolRow, parameterFields } from './tool-row.js';
 
 /**
@@ -711,6 +712,22 @@ function Editor({
                 },
               }
             : undefined
+        }
+        settings={
+          name === EXEC_TOOL ? (
+            <ExecRulesButton
+              rules={form.execRules}
+              shell={form.execShell}
+              errors={errors}
+              disabled={toolsOff || (form.tools[name] ?? 'deny') === 'deny'}
+              onRulesChange={(next) => {
+                update('execRules', next);
+              }}
+              onShellChange={(next) => {
+                update('execShell', next);
+              }}
+            />
+          ) : undefined
         }
         onChange={(next) => {
           setToolPermission(name, next);

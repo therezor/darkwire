@@ -909,6 +909,7 @@ fn approve_frame() -> ChannelControlFrame {
         call_id: "call-1".to_owned(),
         approved: true,
         scope: darkwire_protocol::ApprovalScope::Once,
+        rule: None,
     })
 }
 

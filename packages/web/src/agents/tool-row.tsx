@@ -7,7 +7,7 @@
  */
 
 import { Pin, PinOff, RotateCcw, SquarePen } from 'lucide-react';
-import { useState, type JSX } from 'react';
+import { useState, type JSX, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type {
@@ -103,6 +103,7 @@ export function ToolRow({
   override,
   disabled,
   pin,
+  settings,
   alwaysOn = false,
   onChange,
   onOverrideChange,
@@ -137,6 +138,11 @@ export function ToolRow({
         readonly onChange: (pinned: boolean) => void;
       }
     | undefined;
+  /**
+   * The tool's own settings control, for a tool that has more to decide than
+   * its permission. Sits beside the wording button.
+   */
+  readonly settings?: ReactNode;
   /** A tool that takes no permission: the select shows Allowed and is locked. */
   readonly alwaysOn?: boolean;
   readonly onChange: (next: ToolPermission) => void;
@@ -194,6 +200,7 @@ export function ToolRow({
           )}
         </Button>
       )}
+      {settings}
       <Button
         variant="ghost"
         size="sm"

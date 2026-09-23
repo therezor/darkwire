@@ -221,17 +221,86 @@ describe('toAgentEntryPatch', () => {
 
   it('keeps the settings this screen does not render', () => {
     // `agents.list.*` is replaced wholesale, so an entry rebuilt from the form
-    // alone would drop the exec allow-list every time the prompt was saved —
-    // silently, and with no way to notice from the screen.
+    // alone would drop the exec environment allow-list every time the prompt
+    // was saved, silently, and with no way to notice from the screen.
     const stored = AgentEntrySchema.parse({
       provider: 'ollama',
       model: 'llama3',
-      exec: { allowedBinaries: ['git'] },
+      exec: { envAllowlist: ['PATH'], pathAppend: '/opt/bin' },
     });
 
     const entry = parsed(toAgentEntryPatch('reviewer', form(), stored, t));
 
-    expect(entry).toMatchObject({ exec: { allowedBinaries: ['git'] } });
+    expect(entry).toMatchObject({
+      exec: { envAllowlist: ['PATH'], pathAppend: '/opt/bin' },
+    });
+  });
+
+  it('shows command rules as text and saves them as argv', () => {
+    const stored = AgentEntrySchema.parse({
+      provider: 'ollama',
+      model: 'llama3',
+      exec: {
+        shell: 'deny',
+        rules: [
+          { action: 'allow', argv: ['git', 'commit', '-m', 'a b'] },
+          { action: 'deny', argv: ['rm', '*'] },
+        ],
+      },
+    });
+    const shown = toAgentEntryForm(stored);
+    expect(shown.execShell).toBe('deny');
+    expect(shown.execRules).toEqual([
+      { action: 'allow', pattern: 'git commit -m "a b"' },
+      { action: 'deny', pattern: 'rm *' },
+    ]);
+
+    const entry = parsed(
+      toAgentEntryPatch(
+        'reviewer',
+        {
+          ...shown,
+          execShell: 'ask',
+          execRules: [
+            ...shown.execRules,
+            { action: 'ask', pattern: 'cargo *' },
+            { action: 'allow', pattern: '   ' },
+          ],
+        },
+        stored,
+        t,
+      ),
+    );
+    expect(entry).toMatchObject({
+      exec: {
+        shell: 'ask',
+        rules: [
+          { action: 'allow', argv: ['git', 'commit', '-m', 'a b'] },
+          { action: 'deny', argv: ['rm', '*'] },
+          { action: 'ask', argv: ['cargo', '*'] },
+        ],
+      },
+    });
+  });
+
+  it('names the rule whose pattern does not parse', () => {
+    const result = toAgentEntryPatch(
+      'reviewer',
+      form({
+        execRules: [
+          { action: 'allow', pattern: 'git *' },
+          { action: 'deny', pattern: 'cargo * test' },
+          { action: 'deny', pattern: 'echo "open' },
+        ],
+      }),
+      STATED,
+      t,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok ? {} : result.errors).toEqual({
+      'execRules.1': '* can only be the last word.',
+      'execRules.2': 'A quote is not closed.',
+    });
   });
 
   it('drives the container from the form, now that the screen renders it', () => {

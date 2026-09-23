@@ -147,7 +147,7 @@ fn matches_the_plans_fixture() {
     }
     drop(dir);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases(&fixture).len(), 64);
+    assert_eq!(cases(&fixture).len(), 57);
 }
 
 #[test]
@@ -246,51 +246,11 @@ fn refuses_disabled_empty_and_nul() {
 }
 
 #[test]
-fn refuses_denied_and_unlisted_binaries_by_basename() {
-    let ws = workspace();
-    let denied = config(json!({"deniedBinaries": ["curl"]}));
-    for program in ["curl", "/usr/bin/curl", "curl.exe"] {
-        assert_eq!(
-            kind_of(&guard_with(&ws, &[program, "https://x"], &denied)),
-            "permission_denied",
-            "{program}"
-        );
-    }
-    let only = config(json!({"allowedBinaries": ["git", "node"]}));
-    assert_eq!(
-        guard_with(&ws, &["git", "status"], &only).unwrap().file,
-        "git"
-    );
-    let refused = guard_with(&ws, &["rm", "-rf", "src"], &only).unwrap_err();
-    assert_eq!(refused.kind, ErrorKind::PermissionDenied);
-    assert_eq!(refused.details["allowed"], json!(["git", "node"]));
-
-    let both = config(json!({"allowedBinaries": ["git"], "deniedBinaries": ["git"]}));
-    assert!(
-        guard_with(&ws, &["git"], &both)
-            .unwrap_err()
-            .message
-            .contains("denied")
-    );
-}
-
-#[test]
-fn refuses_shells_unless_allow_listed_and_program_strings_even_then() {
+fn runs_shells_on_the_host_without_program_strings() {
     let ws = workspace();
     for shell in SHELL_BINARIES {
-        assert_eq!(
-            kind_of(&guard(&ws, &[shell, "script.js"])),
-            "permission_denied",
-            "{shell}"
-        );
+        assert_eq!(guard(&ws, &[shell, "script.js"]).unwrap().file, *shell);
     }
-    let allowed = config(json!({"allowedBinaries": ["bash", "powershell"]}));
-    assert_eq!(
-        guard_with(&ws, &["bash", "script.js"], &allowed)
-            .unwrap()
-            .file,
-        "bash"
-    );
     for flag in [
         "-c",
         "-lc",
@@ -299,13 +259,35 @@ fn refuses_shells_unless_allow_listed_and_program_strings_even_then() {
         "-Command",
         "-EncodedCommand",
     ] {
-        let error = guard_with(&ws, &["bash", flag, "rm -rf / | sh"], &allowed).unwrap_err();
+        let error = guard(&ws, &["bash", flag, "rm -rf / | sh"]).unwrap_err();
         assert_eq!(error.kind, ErrorKind::PermissionDenied, "{flag}");
         assert_eq!(error.details["flag"], json!(flag));
     }
     // Metacharacters are inert without a shell, so they are not scanned for.
     let plan = guard(&ws, &["git", "commit", "-m", "fix $(HOME) && `date` | sh"]).unwrap();
     assert!(plan.args.contains(&"fix $(HOME) && `date` | sh".to_owned()));
+}
+
+#[test]
+fn refuses_every_shell_when_shells_are_switched_off() {
+    let ws = workspace();
+    let off = config(json!({"shell": "deny"}));
+    for program in ["bash", "/bin/bash", "bash.exe", "pwsh"] {
+        let error = guard_with(&ws, &[program, "script.js"], &off).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::PermissionDenied, "{program}");
+        assert!(error.message.contains("switched off"), "{program}");
+    }
+    assert!(
+        sandboxed(&ws, &["bash", "-lc", "x"], Some(&off))
+            .unwrap_err()
+            .message
+            .contains("switched off")
+    );
+    // Only shells: every other program is the command rules' to decide.
+    assert_eq!(
+        guard_with(&ws, &["git", "status"], &off).unwrap().file,
+        "git"
+    );
 }
 
 #[test]
@@ -357,14 +339,6 @@ fn refuses_program_paths_that_point_outside() {
 
     let drive = guard(&ws, &["C:\\Program Files\\Git\\git.exe"]).unwrap();
     assert_eq!(drive.file, "C:\\Program Files\\Git\\git.exe");
-    assert_eq!(
-        kind_of(&guard_with(
-            &ws,
-            &["C:\\Program Files\\Git\\git.exe"],
-            &config(json!({"deniedBinaries": ["git"]}))
-        )),
-        "permission_denied"
-    );
 }
 
 #[test]
@@ -440,20 +414,6 @@ fn sandboxed_lifts_the_shell_and_path_rules_together() {
         "./build.sh"
     );
 
-    let denied = config(json!({"deniedBinaries": ["curl"]}));
-    assert!(
-        sandboxed(&ws, &["curl", "http://x"], Some(&denied))
-            .unwrap_err()
-            .message
-            .contains("denied")
-    );
-    let only = config(json!({"allowedBinaries": ["nmap"]}));
-    assert!(
-        sandboxed(&ws, &["bash", "-lc", "x"], Some(&only))
-            .unwrap_err()
-            .message
-            .contains("allow-list")
-    );
     assert!(
         sandboxed(&ws, &["nmap", "a\0b"], None)
             .unwrap_err()

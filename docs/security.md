@@ -77,10 +77,8 @@ pipe character.
 
 What actually constrains the child:
 
-- **`argv[0]` against a deny-list, then an allow-list**, matched on basename so
-  `/usr/bin/git`, `git` and `git.exe` get one verdict.
-- **Shell binaries refused unless explicitly listed**, and the `-c` family refused even
-  then.
+- **Shell binaries refused when the agent's `exec.shell` is `deny`**, and on the host the
+  `-c` family refused whatever it is.
 - **Every path-shaped argument classified and refused** if it points outside the
   workspace. This is the one place in DarkWire that refuses rather than clamping, for the
   reason above.
@@ -89,9 +87,13 @@ What actually constrains the child:
 - **An output budget enforced while the child writes**, not after it exits, so a runaway
   process cannot fill memory before the cap notices.
 
-Inside a confined environment the shell ban and the path ban lift together; see
+Inside a confined environment the `-c` ban and the path ban lift together; see
 [Environments](environments.md) for why that is not a
 weakening.
+
+Which commands run unattended is not the guard's to decide. That is the agent's
+[command rules](tools.md#command-rules), checked before the call runs. The guard decides
+whether a command can run at all, and no rule widens it.
 
 ---
 

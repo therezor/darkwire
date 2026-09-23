@@ -1,5 +1,5 @@
 /**
- * Settings → Appearance, through the real router.
+ * The appearance sections of Settings → Account, through the real router.
  *
  * The first test this panel has ever had, which is worth saying: the theme and
  * the language have shipped untested here since the panel was written, and the
@@ -59,7 +59,7 @@ function mount(): {
   const router = createAppRouter();
   router.update({
     history: createMemoryHistory({
-      initialEntries: ['/settings?panel=appearance'],
+      initialEntries: ['/settings?panel=account'],
     }),
   });
   render(
@@ -107,7 +107,7 @@ function timeSection(): HTMLElement {
   return screen.getByRole('region', { name: 'Date and time' });
 }
 
-describe('the Appearance panel', () => {
+describe('the appearance sections', () => {
   it('offers the three preferences an install looks and reads like', async () => {
     mount();
 

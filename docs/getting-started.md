@@ -231,8 +231,10 @@ shows you the exact command first.
   <img alt="An approval prompt for exec, showing the argv it would run." src="screenshots/chat-approval.dark.png">
 </picture>
 
-Answer **Once**, **This session**, **Always**, or **Deny**. "Always" writes the permission
-onto the agent, so it is a settings change you made from a prompt rather than a mood.
+Answer **Once**, **This session**, **Always allow…**, or **Deny**. "This session" covers
+that exact command. "Always allow…" saves a command rule on the agent, such as
+`cargo test *`, so it is a settings change you made from a prompt and can remove under
+**Agents**.
 
 Those permissions belong to an **agent** — a named set of settings (a model, a prompt, and
 a list of which tools it may use) that a conversation runs on. You start with one, called

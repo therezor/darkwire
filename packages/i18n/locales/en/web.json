@@ -43,6 +43,30 @@
     "environmentShared": "Shared environment: {{name}}. Agents in this workspace asking for the same network reuse one instance.",
     "environmentWeakened": "Environment hardening weakened: {{what}}",
     "execMaxOutputKb": "Max command output (KB)",
+    "execRules": {
+      "action": {
+        "allow": "Allow",
+        "ask": "Ask",
+        "deny": "Deny"
+      },
+      "actionFor": "What rule {{position}} does",
+      "add": "Add rule",
+      "desc": "Decide per command whether exec runs it, asks first, or refuses. A command no rule matches gets the tool’s own permission.",
+      "empty": "No rules yet. Every command gets the tool’s own permission.",
+      "error": {
+        "empty": "Name a program.",
+        "star": "* can only be the last word.",
+        "unclosed": "A quote is not closed."
+      },
+      "hint": "One argument per word, and a final * matches any remaining arguments. A rule applies wherever the agent runs. The most specific rule wins: more words, then an exact rule, then Deny over Ask over Allow. A wildcard rule on a program that runs other programs, such as env, sudo or python, allows everything.",
+      "open": "Command rules ({{rules}})",
+      "patternFor": "Command pattern for rule {{position}}",
+      "patternPlaceholder": "cargo test *",
+      "remove": "Remove rule {{position}}",
+      "shell": "Shell scripts",
+      "shellHint": "The most a call to bash, sh or another shell can get. Only a rule naming the exact command decides one on its own. On the host a shell never runs -c.",
+      "title": "Command rules"
+    },
     "execTimeout": "Command timeout (seconds)",
     "featureToolsDesc": "What this agent keeps between sessions, and the instruction sheets it may open.",
     "featureToolsGroup": "Memory and skills",
@@ -223,7 +247,7 @@
     "engineEnabled": "Run scheduled jobs",
     "engineEnabledHint": "When this is off, jobs can still be written and none of them fire.",
     "engineTitle": "Scheduler",
-    "engineTzMoved": "The timezone moved to Settings → Appearance. One zone now reads every schedule and renders every timestamp.",
+    "engineTzMoved": "The timezone moved to Settings → Account. One zone now reads every schedule and renders every timestamp.",
     "everyHint": "Counted from when the previous run finished.",
     "everyLabel": "Every (minutes)",
     "fileHint": "Read relative to the workspace.",
@@ -289,7 +313,32 @@
     "workspacePinned": "This job is pinned to a session, so it runs in that session’s workspace and this is ignored."
   },
   "chat": {
-    "approvalClosed": "The approval window closed. The call was refused.",
+    "approval": {
+      "always": "Always allow…",
+      "alwaysHint": "Save a rule on this agent that allows commands like this one, then run it.",
+      "approved": "Approved. Waiting for the agent.",
+      "closed": "The approval window closed. The call was refused.",
+      "denied": "Denied. Waiting for the agent.",
+      "deny": "Deny",
+      "needs": "needs approval to run.",
+      "once": "Once",
+      "onceHint": "Run this one call. The next one asks again.",
+      "rule": {
+        "cancel": "Cancel",
+        "empty": "Name a program to allow.",
+        "noMatch": "This rule does not cover the command being approved.",
+        "pattern": "Allow commands matching",
+        "patternHint": "One argument per word. A final * matches any remaining arguments. Quote an argument that holds a space.",
+        "save": "Save rule and run",
+        "star": "* can only be the last word.",
+        "suggestions": "Suggested rules",
+        "unclosed": "A quote is not closed."
+      },
+      "session": "This session",
+      "sessionHint": "Allow this tool for the rest of this session.",
+      "sessionHintCommand": "Allow this exact command for the rest of this session.",
+      "shellWarning": "This runs a shell script, which can run any command it contains."
+    },
     "attachFile": "Attach a file",
     "attachmentDownload": "Download {{name}}",
     "attachTooLarge": "{{name}} is larger than {{limit}} and was not attached.",
@@ -810,11 +859,7 @@
     "panels": {
       "account": {
         "label": "Account",
-        "summary": "The username and password this server is signed into with."
-      },
-      "appearance": {
-        "label": "Appearance",
-        "summary": "The language this install speaks, and whether it is light or dark."
+        "summary": "The language, timezone and theme, and the username and password this server is signed into with."
       },
       "automation": {
         "label": "Automation",

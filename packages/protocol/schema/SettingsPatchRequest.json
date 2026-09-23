@@ -84,17 +84,40 @@
                       "pathAppend": {
                         "type": "string"
                       },
-                      "allowedBinaries": {
+                      "rules": {
                         "type": "array",
                         "items": {
-                          "type": "string"
+                          "type": "object",
+                          "properties": {
+                            "action": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "ask",
+                                "deny"
+                              ]
+                            },
+                            "argv": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "action",
+                            "argv"
+                          ]
                         }
                       },
-                      "deniedBinaries": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                      "shell": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "ask",
+                          "deny"
+                        ]
                       },
                       "envAllowlist": {
                         "type": "array",

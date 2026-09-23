@@ -47,7 +47,10 @@ export default defineConfig({
       // 100% — it inflates the ratio of whichever package holds it. Keeping the
       // directory out of `src` is what keeps it out of the denominator.
       include: ['packages/*/src/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/index.ts', '**/*.d.ts'],
+      // `target` first. The untested-file search walks the repo from the root
+      // before it applies `include`, and a Cargo build directory holds millions
+      // of files: without this the run hangs in that walk.
+      exclude: ['target/**', '**/*.test.ts', '**/index.ts', '**/*.d.ts'],
       thresholds: Object.fromEntries(
         Object.entries(THRESHOLDS).map(([pkg, t]) => [
           `packages/${pkg}/src/**`,

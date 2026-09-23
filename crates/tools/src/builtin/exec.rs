@@ -7,9 +7,11 @@
 //! for a pipe) while blocking nothing at all. With no string, there is no
 //! parser, and nothing for a metacharacter to mean.
 //!
-//! Three parties, and the split between them is the point. The exec guard
-//! decides **whether** a command may run, and with what arguments and
-//! environment. A [`CommandRunner`](crate::CommandRunner) decides **where** —
+//! Four parties, and the split between them is the point. The agent's command
+//! rules decide whether a command runs **unattended**, asks, or is refused,
+//! before it runs; see [`darkwire_security::exec_rules`]. The exec guard
+//! decides **whether** a command can run at all, and with what arguments and
+//! environment. A [`CommandRunner`](crate::CommandRunner) decides **where**:
 //! a host child process or a container. What is left, and what this file owns:
 //!
 //!  - **Reconciling the two timeouts.** The model may ask for less time than
@@ -36,8 +38,10 @@
 use std::sync::Arc;
 
 use darkwire_core::Result;
-use darkwire_protocol::{ToolAnnotations, ToolRisk};
-use darkwire_security::{ExecGuardOptions, ExecPlan, guard_exec};
+use darkwire_protocol::{CommandPolicy, ToolAnnotations, ToolPermission, ToolRisk};
+use darkwire_security::{
+    ExecGuardOptions, ExecPlan, ExecRules, exec_verdict, guard_exec, invocation_digest,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
@@ -45,7 +49,7 @@ use serde_json::Value;
 use crate::builtin::built;
 use crate::runner::{RunOutcome, RunRequest};
 use crate::tool::{
-    AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
+    AnyTool, BoxFuture, CallPolicy, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
 };
 
@@ -102,6 +106,35 @@ impl ToolHandler for Exec {
                 })
                 .await?;
             Ok(render_run(&args.argv, &plan, &outcome))
+        })
+    }
+
+    fn policy(
+        &self,
+        args: &ExecArgs,
+        ctx: &ToolContext,
+        fallback: ToolPermission,
+    ) -> Option<CallPolicy> {
+        let memory_key = format!("exec:{}", invocation_digest(&args.argv));
+        let exec = &ctx.config.exec;
+        // Rules are checked when the agent is resolved, so a failure here is a
+        // settings object built some other way. Refusing is the safe reading.
+        let Ok(rules) = ExecRules::parse(&exec.rules) else {
+            return Some(CallPolicy {
+                permission: ToolPermission::Deny,
+                memory_key,
+                command: None,
+            });
+        };
+        let verdict = exec_verdict(&rules, &args.argv, fallback, exec.shell);
+        Some(CallPolicy {
+            permission: verdict.permission,
+            memory_key,
+            command: Some(CommandPolicy {
+                argv: args.argv.clone(),
+                shell: verdict.shell,
+                rule: verdict.rule.map(|rule| rule.source.clone()),
+            }),
         })
     }
 }

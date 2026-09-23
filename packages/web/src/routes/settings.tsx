@@ -30,7 +30,6 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs.js';
 import { PageTitle } from '@/app/page-title.js';
-import { AppearancePanel } from '@/settings/appearance-panel.js';
 import { EnvironmentsPanel } from '@/settings/environments-panel.js';
 import { AccountPanel } from '@/settings/account-panel.js';
 import { ExtensionsPanel } from '@/settings/extensions-panel.js';
@@ -122,17 +121,11 @@ function PanelBody({ panelId }: { readonly panelId: string }): JSX.Element {
   const settings = useSettings();
   const panel = panelById(panelId);
 
-  // Before the settings gate, and the only panel that goes before it: a
-  // credential is not in `config.yaml`, so this panel has nothing to wait for —
-  // and an install whose settings request is failing is exactly the one whose
-  // owner may be trying to fix their password.
+  // Before the settings gate. The credential and the theme need nothing from
+  // `config.yaml`, and an install whose settings request is failing is exactly
+  // the one whose owner may be trying to fix their password, or to turn the
+  // lights on while they read the error.
   if (panel.id === 'account') return <AccountPanel />;
-
-  // Beside `account`, and before the settings gate, for half a reason rather
-  // than the whole one: the theme half of this panel needs nothing from the
-  // server, and an install whose settings request is failing is one whose owner
-  // may well want to turn the lights on while they read the error.
-  if (panel.id === 'appearance') return <AppearancePanel />;
 
   // Also before the gate, and for the whole reason rather than half of one: it
   // reads `/api/environments` and `/api/sandboxes`, and nothing in `config.yaml`

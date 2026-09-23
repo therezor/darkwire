@@ -8,8 +8,9 @@
 //! The split is deliberate and it is the whole design:
 //!
 //!  - **The loop decides whether to ask.** That is a pure function of the
-//!    tool's risk and the deployment's policy, so no transport can forget to
-//!    check and no transport can decide the answer differently.
+//!    agent's permission for the tool and, for a tool with a policy such as
+//!    `exec`'s command rules, of the call's arguments. No transport can forget
+//!    to check and no transport can decide the answer differently.
 //!  - **The gate decides the answer**, and it is the gate that remembers one.
 //!    `once | session` is scope *memory*, which needs a session-shaped store
 //!    outliving the turn. So it belongs to the thing holding the connection to
@@ -23,7 +24,7 @@
 //! is refused either way, since refusing needs no one to answer.
 
 use darkwire_core::Result;
-use darkwire_protocol::{ApprovalScope, ToolRisk};
+use darkwire_protocol::{ApprovalScope, CommandPolicy, ToolRisk};
 use darkwire_providers::BoxFuture;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -61,6 +62,11 @@ pub struct ApprovalRequest {
     pub args: Value,
     /// The tool's declared risk.
     pub risk: ToolRisk,
+    /// What a "this session" answer is remembered under: the tool's name, or
+    /// the key its policy gave for this exact call.
+    pub memory_key: String,
+    /// What the command rules made of the call, for a tool that has them.
+    pub command: Option<CommandPolicy>,
     /// Wall-clock deadline, the same value the event carries.
     pub expires_at_ms: u64,
     /// The turn's cancellation.
@@ -130,7 +136,8 @@ pub trait ApprovalGate: Send + Sync {
 
 /// Why a call was refused.
 ///
-/// `Policy` never reached a human; the other two did, or should have. The
+/// `Policy` and `Rule` never reached a human; the other two did, or should
+/// have. The
 /// distinction is worth keeping because it is the difference between "this
 /// deployment does not do that" and "you were asked and said no", and a model
 /// that cannot tell them apart retries the first one.
@@ -138,6 +145,8 @@ pub trait ApprovalGate: Send + Sync {
 pub enum DenialReason {
     /// The deployment's policy is `deny`; nobody was asked.
     Policy,
+    /// A rule on the agent refused this call, and a different one may pass.
+    Rule,
     /// A person refused.
     Declined,
     /// Nobody answered before the deadline.
@@ -149,6 +158,13 @@ pub fn denied_tool_result(name: &str, reason: DenialReason) -> String {
     let cause = match reason {
         DenialReason::Policy => {
             format!("the \"{name}\" tool is blocked by this deployment's approval policy")
+        }
+        DenialReason::Rule => {
+            return format!(
+                "Denied: a rule on this agent blocks this call to \"{name}\". The tool did not \
+                 run. Do not repeat this command. A different command may be allowed; otherwise \
+                 tell the user what you need and why."
+            );
         }
         DenialReason::Declined => format!("the user refused this call to \"{name}\""),
         DenialReason::Timeout => {
@@ -166,6 +182,9 @@ pub fn denied_notice(name: &str, reason: DenialReason) -> String {
     match reason {
         DenialReason::Policy => {
             format!("Blocked \"{name}\": the approval policy for this tool is \"deny\".")
+        }
+        DenialReason::Rule => {
+            format!("Blocked \"{name}\": a command rule on this agent denies it.")
         }
         DenialReason::Declined => format!("Denied \"{name}\": the call was refused."),
         DenialReason::Timeout => {

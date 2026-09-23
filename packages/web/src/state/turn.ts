@@ -84,6 +84,8 @@ interface TurnState {
     callId: string,
     answered: 'approved' | 'denied',
   ) => void;
+  /** The server refused this tab's answer; the prompt opens again. */
+  readonly rejectApproval: (callId: string, message: string) => void;
   /** Puts a fetched history under whatever the socket has already built. */
   readonly mergeHistory: (
     messages: readonly StoredMessage[],
@@ -190,6 +192,17 @@ export const useTurnStore = create<TurnState>((set) => ({
   answerApproval: (callId, answered) => {
     set((state) => ({
       transcript: markApprovalAnswered(state.transcript, callId, answered),
+    }));
+  },
+
+  rejectApproval: (callId, message) => {
+    set((state) => ({
+      transcript: markApprovalAnswered(
+        state.transcript,
+        callId,
+        undefined,
+        message,
+      ),
     }));
   },
 

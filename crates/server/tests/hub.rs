@@ -22,7 +22,7 @@ use darkwire_core::session_store::AppendOptions;
 use darkwire_core::{Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
-use darkwire_protocol::tools::{ApprovalScope, ToolRisk};
+use darkwire_protocol::tools::{ApprovalScope, CommandPolicy, ToolRisk};
 use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ErrorCode, ErrorEvent, ErrorTag, NoticeKind, NoticeTag,
     NotificationTag, PROTOCOL_VERSION, ServerMessage, ToolApprovalRequest, ToolApprovalRequestTag,
@@ -671,6 +671,7 @@ async fn the_hub_only_stamps_and_never_transforms_a_turns_event() {
             args: json!({ "argv": ["ls"] }),
             risk: ToolRisk::Exec,
             expires_at_ms: 1_700_000_060_000,
+            command: None,
         }),
         AgentEvent::from(darkwire_protocol::ws::Notice {
             tag: NoticeTag,
@@ -886,6 +887,7 @@ async fn forwards_a_mid_turn_error_without_sequencing_it_and_still_closes_the_tu
         message: "upstream said no".to_owned(),
         retryable: true,
         turn_id: Some(turn.turn_id()),
+        call_id: None,
     });
     turn.end();
     client.until_seen("turn.end").await;
@@ -1571,6 +1573,8 @@ async fn resolves_a_pending_approval_from_an_inbound_tool_approve() {
         name: "exec".to_owned(),
         args: json!({ "argv": ["ls"] }),
         risk: ToolRisk::Exec,
+        memory_key: "exec".to_owned(),
+        command: None,
         expires_at_ms: 4_000_000_000_000,
         token: CancellationToken::new(),
     };
@@ -1607,6 +1611,183 @@ async fn says_nothing_when_an_approval_arrives_too_late_to_matter() {
     }));
     tokio::time::sleep(Duration::from_millis(5)).await;
     assert!(client.frames().is_empty());
+}
+
+// Saving a rule with an approval
+
+type Saved = Arc<Mutex<Vec<(String, Vec<String>, Vec<String>)>>>;
+
+fn recording_rules(h: &Harness, refuse: Option<&'static str>) -> Saved {
+    let saved: Saved = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&saved);
+    h.hub.fill_rules(Arc::new(move |agent_id, command, rule| {
+        if let Some(message) = refuse {
+            return Err(WireError::new(ErrorKind::InvalidInput, message));
+        }
+        sink.lock()
+            .push((agent_id.to_owned(), command.argv.clone(), rule.argv.clone()));
+        Ok(())
+    }));
+    saved
+}
+
+fn park_command(
+    h: &Harness,
+    command: Option<CommandPolicy>,
+) -> tokio::task::JoinHandle<darkwire_agent::ApprovalDecision> {
+    let request = darkwire_agent::ApprovalRequest {
+        session_key: SESSION.to_owned(),
+        root_session_key: SESSION.to_owned(),
+        agent_id: "coder".to_owned(),
+        turn_id: "turn-1".to_owned(),
+        call_id: "call-1".to_owned(),
+        name: "exec".to_owned(),
+        args: json!({ "argv": ["cargo", "test"] }),
+        risk: ToolRisk::Exec,
+        memory_key: "exec:digest".to_owned(),
+        command,
+        expires_at_ms: 4_000_000_000_000,
+        token: CancellationToken::new(),
+    };
+    let gate = Arc::clone(&h.approvals);
+    tokio::spawn(async move {
+        use darkwire_agent::ApprovalGate as _;
+        gate.ask(&request).await.unwrap()
+    })
+}
+
+async fn until_parked(h: &Harness) {
+    for _ in 0..500 {
+        if h.approvals.pending_count() == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("the request never parked");
+}
+
+fn cargo_test() -> CommandPolicy {
+    CommandPolicy {
+        argv: vec!["cargo".to_owned(), "test".to_owned()],
+        shell: false,
+        rule: None,
+    }
+}
+
+fn approve_with_rule(approved: bool) -> serde_json::Value {
+    json!({
+        "type": "tool.approve", "callId": "call-1", "approved": approved, "scope": "session",
+        "rule": {"action": "allow", "argv": ["cargo", "test", "*"]},
+    })
+}
+
+#[tokio::test]
+async fn saves_the_rule_an_approval_carries_before_releasing_the_call() {
+    let h = harness(&HarnessOptions::default());
+    let saved = recording_rules(&h, None);
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let pending = park_command(&h, Some(cargo_test()));
+    until_parked(&h).await;
+
+    client.send(approve_with_rule(true));
+    let decision = pending.await.unwrap();
+
+    assert!(decision.approved);
+    assert_eq!(
+        saved.lock().clone(),
+        [(
+            "coder".to_owned(),
+            vec!["cargo".to_owned(), "test".to_owned()],
+            vec!["cargo".to_owned(), "test".to_owned(), "*".to_owned()],
+        )]
+    );
+}
+
+async fn refused_rule(h: &Harness, client: &TestClient) -> ErrorEvent {
+    client.until_seen("error").await;
+    let ServerMessage::Error(error) = client.of("error")[0].clone() else {
+        panic!("expected an error frame");
+    };
+    // Still parked, so the prompt can be answered another way.
+    assert_eq!(h.approvals.pending_count(), 1);
+    error
+}
+
+#[tokio::test]
+async fn keeps_the_call_parked_when_the_rule_is_refused() {
+    let h = harness(&HarnessOptions::default());
+    recording_rules(&h, Some("does not cover this command"));
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let pending = park_command(&h, Some(cargo_test()));
+    until_parked(&h).await;
+    client.reset();
+
+    client.send(approve_with_rule(true));
+    let error = refused_rule(&h, &client).await;
+    assert_eq!(error.code, ErrorCode::BadRequest);
+    assert_eq!(error.call_id.as_deref(), Some("call-1"));
+    assert!(error.message.contains("does not cover"));
+    pending.abort();
+}
+
+#[tokio::test]
+async fn refuses_a_rule_for_a_call_with_no_command_or_with_a_refusal() {
+    let h = harness(&HarnessOptions::default());
+    let saved = recording_rules(&h, None);
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let pending = park_command(&h, None);
+    until_parked(&h).await;
+
+    client.reset();
+    client.send(approve_with_rule(true));
+    assert!(
+        refused_rule(&h, &client)
+            .await
+            .message
+            .contains("takes no command rules")
+    );
+
+    client.reset();
+    client.send(approve_with_rule(false));
+    assert!(
+        refused_rule(&h, &client)
+            .await
+            .message
+            .contains("with an approval")
+    );
+    assert!(saved.lock().is_empty());
+    pending.abort();
+}
+
+#[tokio::test]
+async fn refuses_a_rule_when_nothing_can_save_one() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let pending = park_command(&h, Some(cargo_test()));
+    until_parked(&h).await;
+    client.reset();
+
+    client.send(approve_with_rule(true));
+    assert_eq!(refused_rule(&h, &client).await.code, ErrorCode::Internal);
+    pending.abort();
+}
+
+#[tokio::test]
+async fn saves_nothing_for_a_rule_that_arrives_too_late() {
+    let h = harness(&HarnessOptions::default());
+    let saved = recording_rules(&h, None);
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.reset();
+
+    client.send(approve_with_rule(true));
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    assert!(client.frames().is_empty());
+    assert!(saved.lock().is_empty());
 }
 
 // Agent routing

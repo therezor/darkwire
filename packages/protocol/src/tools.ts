@@ -116,14 +116,47 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 /**
  * How long an approval decision holds.
  *
- * `session` is what makes the prompt tolerable in practice: approving `exec`
- * once per session rather than once per call. It is also the longest an answer
- * given in a prompt can hold. A standing permission is a configuration
- * decision, so it is made where it can be seen and revoked, by setting the
- * tool's permission to `allow` on the agent.
+ * `session` stops the question being asked again in this conversation. What
+ * "again" means is the tool's to say: by default any call to the same tool,
+ * and for `exec` the same command, so approving `cargo test` does not approve
+ * `rm -rf target`.
+ *
+ * A standing answer is configuration, so it lives on the agent. The prompt can
+ * write one for `exec` by sending a `rule` with its answer.
  */
 export const ApprovalScopeSchema = z.enum(['once', 'session']);
 export type ApprovalScope = z.infer<typeof ApprovalScopeSchema>;
+
+/**
+ * One command rule on an agent's `exec` tool.
+ *
+ * `argv` is a pattern, not a string, so a rule never needs quoting to say what
+ * it means. Each token matches one argument exactly, and a final `*` matches
+ * any number of remaining arguments, none included. The first token matches
+ * the program's basename, so `git` covers `/usr/bin/git`.
+ *
+ * A rule applies wherever the agent runs. When several match, the most
+ * specific wins: more literal tokens, then an exact rule over a wildcard, then
+ * `deny` over `ask` over `allow`. A call no rule matches gets the tool's own
+ * permission.
+ */
+export const ExecRuleSchema = z.object({
+  action: ToolPermissionSchema,
+  argv: z.array(z.string()).min(1),
+});
+export type ExecRule = z.infer<typeof ExecRuleSchema>;
+
+/**
+ * What the rules made of one `exec` call, for the prompt that asks about it.
+ * `shell` marks a call whose program is a shell, which no wildcard rule can
+ * approve.
+ */
+export const CommandPolicySchema = z.object({
+  argv: z.array(z.string()),
+  shell: z.boolean(),
+  rule: ExecRuleSchema.optional(),
+});
+export type CommandPolicy = z.infer<typeof CommandPolicySchema>;
 
 // Rewriting what a tool says about itself
 

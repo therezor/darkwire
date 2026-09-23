@@ -242,10 +242,16 @@ pub struct ChannelControlNotification {
 /// three session-moving ones are absent for the reason the channel contract
 /// gives: a channel changes conversation by publishing a different session key,
 /// so a frame that moved the connection would leave the two halves disagreeing.
+///
+/// An approval may not carry a command rule. Saving one writes the agent's
+/// settings, and an extension is not the operator.
 pub fn control_frame_of(
     message: ClientMessage,
 ) -> std::result::Result<ChannelControlFrame, String> {
     match message {
+        ClientMessage::ToolApprove(body) if body.rule.is_some() => {
+            Err("An extension cannot save a command rule with an approval.".to_owned())
+        }
         ClientMessage::ToolApprove(body) => Ok(ChannelControlFrame::ToolApprove(body)),
         ClientMessage::StopTurn(body) => Ok(ChannelControlFrame::StopTurn(body)),
         ClientMessage::Steer(body) => Ok(ChannelControlFrame::Steer(body)),

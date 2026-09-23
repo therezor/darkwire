@@ -10,13 +10,11 @@
 //!
 //! What actually constrains the child is here instead:
 //!
-//!  - `argv[0]` against a deny-list, then an allow-list, matched on the basename
-//!    so `/usr/bin/git`, `git` and `git.exe` receive the same verdict.
-//!  - A shell binary is refused unless the operator listed it explicitly, and the
-//!    `-c` family of flags is refused even then. Handing `bash -c "…"` to a
-//!    shell-less spawn re-creates the shell parsing the argv contract removes;
-//!    that is the one thing on this list a metacharacter scan would have been
-//!    aiming at.
+//!  - A shell binary is refused when the agent's `shell` permission is `deny`,
+//!    and on the host the `-c` family of flags is refused whatever it says.
+//!    Handing `bash -c "…"` to a shell-less spawn re-creates the shell parsing
+//!    the argv contract removes; that is the one thing on this list a
+//!    metacharacter scan would have been aiming at.
 //!  - Every path-shaped argument through the workspace jail.
 //!  - An environment allow-list, so the child inherits `PATH` and nothing that
 //!    happens to hold a token. The map is supplied by the caller rather than
@@ -50,7 +48,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use darkwire_core::{ErrorKind, Result, WireError};
-use darkwire_protocol::ExecToolConfig;
+use darkwire_protocol::{ExecToolConfig, ToolPermission};
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
@@ -58,8 +56,9 @@ use crate::jail::{JailCheck, JailRejection, PathShape, WorkspaceJail, path_shape
 
 /// Binaries whose whole purpose is to interpret a string as a program.
 ///
-/// Refused unless named in `allowed_binaries`: an operator who wants
-/// `bash script.sh` can say so, and gets it without the `-c` family.
+/// A call to one of these is a shell call: the agent's `shell` permission caps
+/// it, and no wildcard command rule can approve it. On the host it runs without
+/// the `-c` family, so `bash script.sh` works and `bash -c "…"` does not.
 pub const SHELL_BINARIES: &[&str] = &[
     "ash",
     "bash",
@@ -114,7 +113,7 @@ pub struct ExecGuardOptions<'a> {
     /// inside the script string, the path check sees `/tmp/out` and refuses, and the
     /// operator gets a shell that rejects the pipelines they enabled it for.
     ///
-    /// What does **not** change: the binary allow- and deny-lists still apply, and
+    /// What does **not** change: a `shell: deny` still refuses a shell, and
     /// every argv is still recorded. The container is the boundary; the audit log is
     /// still the record.
     pub sandboxed: bool,
@@ -161,7 +160,7 @@ fn detail(key: &str, value: impl Into<Value>) -> Map<String, Value> {
     map
 }
 
-/// The name an allow/deny entry is compared against.
+/// The name a command rule's first token is compared against.
 pub fn binary_name(argv0: &str) -> String {
     let unified = argv0.replace('\\', "/");
     let name = unified.rsplit('/').next().unwrap_or("");
@@ -282,54 +281,38 @@ fn check_binary(
     config: &ExecToolConfig,
     sandboxed: bool,
 ) -> Result<()> {
-    if config.denied_binaries.iter().any(|d| d == name) {
+    if !SHELL_BINARIES.contains(&name) {
+        return Ok(());
+    }
+    if config.shell == ToolPermission::Deny {
         return Err(denied(
-            format!("Binary is denied by configuration: {name}"),
+            format!(
+                "{name} is a shell, and shells are switched off for this agent. Pass the program and its arguments as argv instead."
+            ),
             detail("binary", name),
         ));
     }
-    let allowed = &config.allowed_binaries;
-    if !allowed.is_empty() && !allowed.iter().any(|a| a == name) {
-        let mut details = detail("binary", name);
-        details.insert(
-            "allowed".to_owned(),
-            Value::Array(allowed.iter().map(|a| Value::from(a.as_str())).collect()),
-        );
-        return Err(denied(
-            format!("Binary is not in the allow-list: {name}"),
-            details,
-        ));
-    }
-    if SHELL_BINARIES.contains(&name) && !sandboxed {
-        if !allowed.iter().any(|a| a == name) {
-            return Err(denied(
-                format!(
-                    "{name} is a shell. Pass the program and its arguments as argv instead, or add \"{name}\" to allowedBinaries."
-                ),
-                detail("binary", name),
-            ));
-        }
-        if let Some(flag) = argv
+    if !sandboxed
+        && let Some(flag) = argv
             .iter()
             .skip(1)
             .find(|argument| PROGRAM_STRING_FLAGS.contains(&argument.to_lowercase().as_str()))
-        {
-            let mut details = detail("binary", name);
-            details.insert("flag".to_owned(), Value::from(flag.as_str()));
-            return Err(denied(
-                format!(
-                    "{name} {flag} re-introduces shell parsing. Pass the program and its arguments as argv instead."
-                ),
-                details,
-            ));
-        }
+    {
+        let mut details = detail("binary", name);
+        details.insert("flag".to_owned(), Value::from(flag.as_str()));
+        return Err(denied(
+            format!(
+                "{name} {flag} re-introduces shell parsing. Pass the program and its arguments as argv instead."
+            ),
+            details,
+        ));
     }
     Ok(())
 }
 
 /// A program given as a path must be inside the workspace; a bare name is
 /// resolved from `PATH` by the OS, and an absolute path is a system binary the
-/// allow/deny lists have already ruled on.
+/// agent's command rules have already ruled on.
 fn check_program(argv0: &str, jail: &WorkspaceJail, paths: &mut Vec<PathBuf>) -> Result<String> {
     if !is_path_shaped(argv0) || argv0.starts_with('/') || has_drive_letter(argv0) {
         return Ok(argv0.to_owned());

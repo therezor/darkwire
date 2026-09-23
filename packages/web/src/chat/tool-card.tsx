@@ -51,6 +51,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import type {
   ApprovalScope,
+  ExecRule,
   StoredMessage,
   SubagentRunRef,
   ToolRisk,
@@ -95,6 +96,7 @@ interface ToolCardProps {
     callId: string,
     approved: boolean,
     scope: ApprovalScope,
+    rule?: ExecRule,
   ) => void;
 }
 
@@ -184,8 +186,8 @@ export function ToolCard({ tool, onApprove }: ToolCardProps): JSX.Element {
         <ApprovalPrompt
           toolName={tool.name}
           approval={tool.approval}
-          onAnswer={(approved, scope) => {
-            onApprove(tool.id, approved, scope);
+          onAnswer={(approved, scope, rule) => {
+            onApprove(tool.id, approved, scope, rule);
           }}
         />
       )}

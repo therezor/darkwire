@@ -186,6 +186,60 @@
     --gap: var(--space-4);
   }
 
+  /* Wider than the wording dialog: a rule is a select, a pattern and a button
+     on one line. */
+  .agent-editor__rules-dialog {
+    width: min(48rem, calc(100vw - var(--space-6)));
+  }
+
+  .agent-editor__rules-body {
+    --gap: var(--space-4);
+  }
+
+  .agent-editor__rules {
+    --gap: var(--space-2);
+  }
+
+  .agent-editor__rule {
+    --gap: var(--space-2);
+
+    align-items: start;
+  }
+
+  /* Matched to the tool row's permission select, so an action reads as the
+     same kind of choice. */
+  .agent-editor__rule-action {
+    width: 9rem;
+    flex: none;
+  }
+
+  .agent-editor__rule-pattern {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .agent-editor__rule-pattern .input {
+    font-family: var(--font-mono);
+  }
+
+  /* On a phone the pattern takes its own line, and the action shares the one
+     below it with the remove button. */
+  @media (max-width: 40rem) {
+    .agent-editor__rule {
+      flex-wrap: wrap;
+    }
+
+    .agent-editor__rule-pattern {
+      flex-basis: 100%;
+      order: -1;
+    }
+
+    .agent-editor__rule-action {
+      flex: 1;
+      width: auto;
+    }
+  }
+
   .agent-editor__wording-heading {
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
@@ -260,10 +314,10 @@
       --gap: var(--space-2);
 
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto auto;
       grid-template-areas:
-        'text badge pin wording'
-        'permission permission permission permission';
+        'text badge pin settings wording'
+        'permission permission permission permission permission';
       align-items: start;
       padding-block: var(--space-3);
       /* Square, because the row now carries a rule: a radius here rounds the
@@ -293,6 +347,10 @@
 
     .agent-editor__tool-pin {
       grid-area: pin;
+    }
+
+    .agent-editor__tool-settings {
+      grid-area: settings;
     }
 
     .agent-editor__tool-permission {

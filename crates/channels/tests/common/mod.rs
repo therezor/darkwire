@@ -103,6 +103,7 @@ pub fn approval_request(call_id: &str, name: &str, expires_at_ms: u64) -> Server
         args: json!({"command": "rm -rf /", "secret": "hunter2"}),
         risk: ToolRisk::Exec,
         expires_at_ms,
+        command: None,
     }))
 }
 
@@ -131,6 +132,7 @@ pub fn error(message: &str, turn_id: Option<&str>) -> ServerMessage {
         message: message.to_owned(),
         retryable: true,
         turn_id: turn_id.map(str::to_owned),
+        call_id: None,
     })
 }
 

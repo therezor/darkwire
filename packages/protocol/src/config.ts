@@ -22,6 +22,7 @@ import { z } from 'zod';
 
 import { DEFAULT_AGENT_ID } from './ids.js';
 import {
+  ExecRuleSchema,
   ToolPermissionSchema,
   ToolPermissionsSchema,
   ToolPromptOverridesSchema,
@@ -154,17 +155,14 @@ export const WorkspacesPathSchema = z.string().default('');
 export const ExecToolConfigSchema = z.object({
   timeoutMs: OptionalDurationMs.default(0),
   pathAppend: z.string().default(''),
+  /** Command rules. See `ExecRuleSchema` for how they match. */
+  rules: z.array(ExecRuleSchema).default([]),
   /**
-   * `argv[0]` allow-list. Empty means "anything not denied": the deny list and
-   * the workspace jail still apply.
-   *
-   * Note what is *not* here: patterns for `$(...)`, backticks or `| sh`. The
-   * exec tool takes `argv: string[]` and runs `execFile` with `shell: false`,
-   * so there is no string for a shell metacharacter to live in. Scanning for
-   * them would reject legitimate commands while blocking nothing.
+   * The ceiling for a call whose program is a shell. A wildcard rule and the
+   * tool's own permission are capped at this, and `deny` refuses a shell
+   * outright. Only a rule naming the exact command decides one on its own.
    */
-  allowedBinaries: z.array(z.string()).default([]),
-  deniedBinaries: z.array(z.string()).default([]),
+  shell: ToolPermissionSchema.default('ask'),
   /** Environment variables passed through to the child. */
   envAllowlist: z.array(z.string()).default(['PATH', 'HOME', 'LANG', 'TZ']),
   maxOutputBytes: z
@@ -540,12 +538,9 @@ export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
  *
  * One map, not a selection plus a policy. A tool the map does not mention is
  * not enabled — it never reaches the definitions the model is sent — so
- * enabling a tool and choosing its permission are one act. That is the opposite
- * of the convention next door in `ExecToolConfig.allowedBinaries`, where empty
- * means "anything not denied", and deliberately so: an allow-list of *binaries*
- * is a narrowing of one tool an operator already turned on, while this is the
- * list of tools themselves, and a newly created agent quietly holding every
- * tool the registry happens to carry is the failure this shape prevents.
+ * enabling a tool and choosing its permission are one act. A newly created
+ * agent quietly holding every tool the registry happens to carry is the
+ * failure this shape prevents.
  *
  * Which is why a new agent is not born empty either — see `DEFAULT_AGENT_TOOLS`.
  *

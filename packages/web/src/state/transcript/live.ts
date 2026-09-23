@@ -295,6 +295,8 @@ export function applyServerMessage(
 
 /**
  * Records this tab's answer, so the buttons go away before the round trip.
+ * An `answered` of `undefined` reopens a prompt whose answer the server
+ * refused, with `error` saying why.
  *
  * Reaches nested cards too: a subagent's `exec` prompt renders inside the
  * delegating call, and it is answered by the same `tool.approve` frame — the
@@ -303,11 +305,12 @@ export function applyServerMessage(
 export function markApprovalAnswered(
   items: Transcript,
   callId: string,
-  answered: 'approved' | 'denied',
+  answered: 'approved' | 'denied' | undefined,
+  error?: string,
 ): Transcript {
   return items.map((item) =>
     item.kind === 'turn'
-      ? { ...item, parts: answerIn(item.parts, callId, answered) }
+      ? { ...item, parts: answerIn(item.parts, callId, answered, error) }
       : item,
   );
 }
@@ -315,7 +318,8 @@ export function markApprovalAnswered(
 function answerIn(
   parts: readonly TurnPart[],
   callId: string,
-  answered: 'approved' | 'denied',
+  answered: 'approved' | 'denied' | undefined,
+  error: string | undefined,
 ): readonly TurnPart[] {
   return parts.map((part) => {
     if (part.kind !== 'tool') return part;
@@ -323,13 +327,13 @@ function answerIn(
     if (part.id === callId && part.approval !== undefined) {
       return {
         ...part,
-        approval: { expiresAtMs: part.approval.expiresAtMs, answered },
+        approval: { ...part.approval, answered, error },
       };
     }
 
     const subagent = part.subagent;
     if (subagent === undefined) return part;
-    const nested = answerIn(subagent.parts, callId, answered);
+    const nested = answerIn(subagent.parts, callId, answered, error);
     return nested === subagent.parts
       ? part
       : { ...part, subagent: { ...subagent, parts: nested } };
@@ -792,7 +796,11 @@ function applyPartEvent(
       return upsertTool(parts, event.callId, (tool) => ({
         ...tool,
         status: 'awaiting-approval',
-        approval: { expiresAtMs: event.expiresAtMs, answered: undefined },
+        approval: {
+          expiresAtMs: event.expiresAtMs,
+          answered: undefined,
+          command: event.command,
+        },
       }));
 
     case 'tool.result':

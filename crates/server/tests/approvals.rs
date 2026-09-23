@@ -31,6 +31,7 @@ struct RequestOptions {
     agent_id: Option<&'static str>,
     call_id: Option<&'static str>,
     name: Option<&'static str>,
+    memory_key: Option<&'static str>,
     token: Option<CancellationToken>,
     expires_at_ms: Option<u64>,
 }
@@ -46,6 +47,12 @@ fn approval_request(options: RequestOptions) -> ApprovalRequest {
         name: options.name.unwrap_or("exec").to_owned(),
         args: json!({ "argv": ["ls"] }),
         risk: ToolRisk::Exec,
+        memory_key: options
+            .memory_key
+            .or(options.name)
+            .unwrap_or("exec")
+            .to_owned(),
+        command: None,
         expires_at_ms: options
             .expires_at_ms
             .unwrap_or(u64::try_from(START_MS).unwrap() + TIMEOUT_MS),
@@ -268,12 +275,13 @@ async fn scopes_memory_by_tool_name_so_another_tool_still_asks() {
 }
 
 #[tokio::test]
-async fn remembers_by_name_and_not_by_the_arguments_of_the_call() {
+async fn remembers_a_tool_without_a_policy_by_its_name() {
     let gate = gate_at(START_MS);
     let first = ask(
         &gate,
         approval_request(RequestOptions {
             call_id: Some("a"),
+            name: Some("deploy"),
             ..RequestOptions::default()
         }),
     );
@@ -281,15 +289,65 @@ async fn remembers_by_name_and_not_by_the_arguments_of_the_call() {
     gate.resolve("a", true, ApprovalScope::Session);
     first.await.unwrap();
 
-    // Same tool, wildly different arguments. Approving `exec` for the session
-    // approves the *next* `exec` too, whatever it turns out to be — which is
-    // why the UI has to say so.
+    // Same tool, different arguments. A tool that keys on its name approves
+    // the next call too, whatever it turns out to be.
     let mut different = approval_request(RequestOptions {
         call_id: Some("b"),
+        name: Some("deploy"),
         ..RequestOptions::default()
     });
-    different.args = json!({ "argv": ["rm", "-rf", "/"] });
+    different.args = json!({ "target": "production" });
     assert!(gate.ask(&different).await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn remembers_a_command_by_its_key_and_asks_about_another() {
+    let gate = gate_at(START_MS);
+    let first = ask(
+        &gate,
+        approval_request(RequestOptions {
+            call_id: Some("a"),
+            memory_key: Some("exec:cargo-test"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    gate.resolve("a", true, ApprovalScope::Session);
+    first.await.unwrap();
+
+    let same = approval_request(RequestOptions {
+        call_id: Some("b"),
+        memory_key: Some("exec:cargo-test"),
+        ..RequestOptions::default()
+    });
+    assert!(gate.remembered(&same).unwrap().approved);
+
+    // Approving `cargo test` for the session does not approve `rm -rf`.
+    let other = approval_request(RequestOptions {
+        call_id: Some("c"),
+        memory_key: Some("exec:rm"),
+        ..RequestOptions::default()
+    });
+    assert!(gate.remembered(&other).is_none());
+    assert!(gate.pending("c").is_none());
+}
+
+#[tokio::test]
+async fn hands_back_the_request_still_parked_under_a_call() {
+    let gate = gate_at(START_MS);
+    let pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            call_id: Some("a"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    assert_eq!(gate.pending("a").unwrap().call_id, "a");
+    assert!(gate.pending("b").is_none());
+    gate.resolve("a", false, ApprovalScope::Once);
+    pending.await.unwrap();
+    assert!(gate.pending("a").is_none());
 }
 
 // Deadlines and cancellation

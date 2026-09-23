@@ -1,13 +1,14 @@
 /**
- * The Account panel: the login name and the password behind it.
+ * The Account panel: how this install looks and reads, then the login name and
+ * the password behind it.
  *
- * The odd one out on this screen, and worth saying why. Every other panel edits
- * `config.yaml` through `PATCH /api/settings` and shares `SaveBar`'s
- * dirty-tracking. This one posts to `/api/setup/password`, because a credential
- * is not configuration: it lives in `auth_secrets`, it is one-way, and saving it
- * revokes every session in the install. Wiring it into the shared save bar would
- * put "rotate the password and sign out every other tab" behind the same button
- * that changes a temperature.
+ * The appearance sections edit `config.yaml` through `PATCH /api/settings` like
+ * every other panel. The credential form does not. It posts to
+ * `/api/setup/password`, because a credential is not configuration: it lives in
+ * `auth_secrets`, it is one-way, and saving it revokes every session in the
+ * install. Wiring it into the shared save bar would put "rotate the password and
+ * sign out every other tab" behind the same button that changes a temperature.
+ * It is its own `<form>` below the rest, so no save above it can submit it.
  *
  * Three properties this form has that a settings form does not:
  *
@@ -33,8 +34,18 @@ import { queryKeys } from '@/lib/query.js';
 import { Button } from '@/components/ui/button.js';
 import { toast } from '@/components/ui/toast.js';
 import { Section, TextField } from '@/components/form/controls.js';
+import { AppearancePanel } from './appearance-panel.js';
 
 export function AccountPanel(): JSX.Element {
+  return (
+    <div className="stack">
+      <AppearancePanel />
+      <PasswordForm />
+    </div>
+  );
+}
+
+function PasswordForm(): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 

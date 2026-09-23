@@ -1909,6 +1909,7 @@ impl AgentLoop {
                         message: error.message.clone(),
                         retryable: error.retryable,
                         turn_id: Some(turn.turn_id.clone()),
+                        call_id: None,
                     })
                     .await;
                     return Streamed::Failed(error.message);
@@ -1928,6 +1929,7 @@ impl AgentLoop {
                     message: message.clone(),
                     retryable: true,
                     turn_id: Some(turn.turn_id.clone()),
+                    call_id: None,
                 })
                 .await;
                 return Streamed::Failed(message);

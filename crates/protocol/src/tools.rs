@@ -153,19 +153,58 @@ pub struct ToolDefinition {
 
 /// How long an approval decision holds.
 ///
-/// `session` is what makes the prompt tolerable in practice: approving `exec`
-/// once per session rather than once per call. It is also the longest an answer
-/// given in a prompt can hold. A standing permission is a configuration
-/// decision, so it is made where it can be seen and revoked, by setting the
-/// tool's permission to `allow` on the agent.
+/// `session` stops the question being asked again in this conversation. What
+/// "again" means is the tool's to say: by default any call to the same tool,
+/// and for `exec` the same command, so approving `cargo test` does not approve
+/// `rm -rf target`.
+///
+/// A standing answer is configuration, so it lives on the agent. The prompt can
+/// write one for `exec` by sending a rule with its answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalScope {
     /// This call only.
     #[default]
     Once,
-    /// Every call of this tool for the rest of the session.
+    /// Calls the tool treats as this one, for the rest of the session.
     Session,
+}
+
+/// One command rule on an agent's `exec` tool.
+///
+/// `argv` is a pattern, not a string, so a rule never needs quoting to say
+/// what it means. Each token matches one argument exactly, and a final `*`
+/// matches any number of remaining arguments, none included. The first token
+/// matches the program's basename, so `git` covers `/usr/bin/git`.
+///
+/// A rule applies wherever the agent runs. When several match, the most
+/// specific wins: more literal tokens, then an exact rule over a wildcard, then
+/// `deny` over `ask` over `allow`. A call no rule matches gets the tool's own
+/// permission.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecRule {
+    /// What a matching call gets.
+    #[garde(skip)]
+    pub action: ToolPermission,
+    /// The pattern.
+    #[garde(length(min = 1))]
+    pub argv: Vec<String>,
+}
+
+/// What the rules made of one `exec` call, for the prompt that asks about it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct CommandPolicy {
+    /// The command as the model wrote it.
+    pub argv: Vec<String>,
+    /// The program is a shell, which no wildcard rule can approve.
+    pub shell: bool,
+    /// The rule that decided, if one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub rule: Option<ExecRule>,
 }
 
 /// An operator's replacement for one tool's prose.

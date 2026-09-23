@@ -387,10 +387,6 @@ Enabling a tool and choosing its permission are one act. The alternative — a s
 list plus a separate policy table — is how a newly created agent quietly ends up holding
 every tool the registry happens to carry.
 
-Note this is the opposite convention to an agent's `exec.allowedBinaries`, where empty means
-"anything not denied". That is deliberate: an allow-list of _binaries_ narrows a tool the
-operator already turned on, while this is the list of tools themselves.
-
 A new agent is not born empty either — it is seeded with the file tools, `memory` and `skill` on
 `allow` and `exec` on `ask`, because an agent that can do nothing looks broken to whoever
 just made it. That seeding is the only place a risk band becomes a permission, and it happens once,
@@ -416,9 +412,45 @@ The split of responsibility is worth knowing:
 - **The gate decides the answer.** It is whatever the transport installed.
 
 **With no gate installed, `ask` runs the tool.** That is what keeps `darkwire chat` in a
-terminal unchanged — the operator typing the request _is_ the approval, and a prompt with
+terminal unchanged. The operator typing the request _is_ the approval, and a prompt with
 no UI to answer it would deadlock. Any transport that exposes the agent beyond its
 operator's keyboard must install a gate; the server does.
+
+### Command rules
+
+`exec` is the one built-in whose permission depends on its arguments. An agent's
+`exec.rules` decide per command, and the `exec` row's own permission is the answer for a
+command no rule matches. Rules are checked where every call is authorised, before it
+runs, so they can turn `ask` into `allow` or `deny` without a prompt.
+
+A rule is an argv pattern and an action, and it applies wherever the agent runs:
+
+```yaml
+- { action: allow, argv: [cargo, test, '*'] } # cargo test, with any arguments
+- { action: deny, argv: [git, push, '*'] } # never push
+```
+
+- Each token matches one argument exactly. A final `*` matches any remaining arguments,
+  none included. There is no other wildcard.
+- The first token matches the program's basename, so `git` covers `/usr/bin/git` and
+  `git.exe`. A rule may not name a path.
+
+**The most specific rule wins, whatever the order.** Of the rules that match, the one
+with more literal tokens wins, then an exact rule over a wildcard, then `deny` over `ask`
+over `allow`. So `deny *` plus a few `allow` rows
+is an allow-list, and `deny cargo test --release` stays in force beside
+`allow cargo test *`. It also means a rule saved from a prompt can never outrank a
+narrower one written by hand.
+
+**A shell is its own permission.** A call whose program is a shell (`bash`, `sh`, `zsh`,
+`pwsh` and the rest) is capped at `exec.shell`. A wildcard rule cannot lift it, because
+`bash *` covers every program there is. Only a rule naming the exact command, such as
+`allow bash ci.sh`, decides a shell call on its own, and `shell: deny` refuses every shell
+whatever the rules say. On the host the guard refuses the `-c` family regardless.
+
+**A wildcard on a program that runs programs allows everything.** `allow env *`,
+`allow sudo *`, `allow python *` and `allow xargs *` each grant any command. The rules
+match argv; they do not know what a program does with it.
 
 ### Answering
 
@@ -429,17 +461,26 @@ An approval prompt takes one of two scopes:
 | `once`    | Not at all.                                                                                                                                                          |
 | `session` | For the session, keyed on the **root** session — so answering "this session" inside a subagent means the session you are looking at, not the one-delegation session. |
 
+**What "this session" covers is the tool's to say.** For most tools it is any call to the
+same tool. For `exec` it is the exact command, keyed on a hash of its argv, so approving
+`cargo test` does not approve `rm -rf target`.
+
 **A refusal is remembered exactly like an approval.** Denying for the session is a real
 answer.
 
-**A conversation is as far as an answer reaches.** There is no "always" button, because a
-standing permission is a configuration decision: set the tool's permission to `allow` on
-the agent, where it is visible and can be taken back. A prompt is the wrong place to grant
-something with no way back.
+**A standing answer is configuration.** For `exec` the prompt offers **Always allow…**,
+which saves an `allow` [command rule](#command-rules) on the agent and runs the call. The
+server checks the rule first: it must cover the command, and no more specific rule may
+still override it. A rule that fails either check is refused, the prompt stays open, and
+nothing is written. A shell call gets no "always": a rule for one covers every program.
+For any other tool, a standing answer is its permission set to `allow` on the agent.
+
+A saved rule applies from the next turn. The turn that saved it keeps the settings it
+started with, though the approved command is remembered for the session.
 
 **A remembered answer is never announced.** The loop asks the gate what it already holds
-before it emits `tool.approvalRequest`, so the second `exec` of a session runs without a
-card appearing and vanishing again.
+before it emits `tool.approvalRequest`, so a repeated command runs without a card
+appearing and vanishing again.
 
 ### Timeouts and denial
 
@@ -447,9 +488,10 @@ card appearing and vanishing again.
 loop owns it rather than the gate — a gate that hangs must not hang the turn. A gate that
 throws denies.
 
-Three denial reasons, and they are phrased for two different readers: `policy`,
+Four denial reasons, and they are phrased for two different readers: `policy`, `rule`,
 `declined`, `timeout`. The model gets a tool result worded to stop it retrying the same
-call; the operator gets a notice worded for a human.
+call; the operator gets a notice worded for a human. `rule` tells the model that a
+different command may be allowed, where `policy` means the tool itself is off.
 
 **An abort during an approval is a cancellation, not a denial.** They have different
 consequences for the turn, and conflating them means a stopped turn looks to the model

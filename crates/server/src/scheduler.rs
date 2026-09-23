@@ -542,7 +542,7 @@ impl Scheduler {
         (self.inner.config)()
     }
 
-    /// Read live, so changing it in Appearance moves the next rearm.
+    /// Read live, so changing it in Settings → Account moves the next rearm.
     ///
     /// `ui.timezone` rather than a scheduler setting of its own: this is the
     /// same zone every timestamp is rendered in, which is what makes

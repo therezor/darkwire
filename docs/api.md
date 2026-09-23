@@ -195,24 +195,30 @@ parameters `?session=` and `?agent=`.
 
 ### Client → server
 
-| Type              | Does                                                     |
-| ----------------- | -------------------------------------------------------- |
-| `ping`            | Answered with `pong`.                                    |
-| `user.message`    | Starts a turn. Content may be text or parts, for images. |
-| `turn.steer`      | Injects guidance into a running turn.                    |
-| `turn.stop`       | Aborts.                                                  |
-| `turn.regenerate` | Drops the last answer and re-runs.                       |
-| `user.edit`       | Rewrites a user message and re-runs from it.             |
-| `session.new`     | Starts a session.                                        |
-| `session.switch`  | Rebinds this socket.                                     |
-| `session.resume`  | `{ lastSeq }` — replays what was missed.                 |
-| `tool.approve`    | Answers an approval prompt, with a scope.                |
+| Type              | Does                                                                          |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `ping`            | Answered with `pong`.                                                         |
+| `user.message`    | Starts a turn. Content may be text or parts, for images.                      |
+| `turn.steer`      | Injects guidance into a running turn.                                         |
+| `turn.stop`       | Aborts.                                                                       |
+| `turn.regenerate` | Drops the last answer and re-runs.                                            |
+| `user.edit`       | Rewrites a user message and re-runs from it.                                  |
+| `session.new`     | Starts a session.                                                             |
+| `session.switch`  | Rebinds this socket.                                                          |
+| `session.resume`  | `{ lastSeq }` — replays what was missed.                                      |
+| `tool.approve`    | Answers an approval prompt, with a scope and an optional `exec` rule to save. |
 
 ### Server → client
 
 Turn events: `turn.start` · `assistant.delta` · `reasoning.delta` · `tool.call` ·
 `tool.progress` · `tool.result` · `tool.approvalRequest` · `notice` · `turn.end` ·
 `subagent.event`
+
+`tool.approvalRequest` carries `command` for a call to `exec`: the argv, whether it is a
+shell, and the rule that decided it. A
+`tool.approve` with a `rule` saves that rule on the agent before releasing the call. A
+rule the server refuses comes back as an `error` carrying the `callId`, and the call stays
+parked for another answer. See [Tools & permissions](tools.md#answering).
 
 Session and connection: `connected` · `pong` · `error` · `message.ack` ·
 `message.queued` · `context.usage` · `session.status` · `session.reset` ·

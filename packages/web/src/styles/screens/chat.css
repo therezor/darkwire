@@ -557,6 +557,35 @@
     --gap: var(--space-2);
   }
 
+  /* Full-strength text rather than a semantic tone: both sit on
+     --warning-soft, a pairing the semantic foregrounds are not measured on. */
+  .approval__warning,
+  .approval__error {
+    font-size: var(--text-sm);
+    color: var(--fg-1);
+  }
+
+  .approval__error {
+    font-weight: 600;
+  }
+
+  .approval__rule {
+    --gap: var(--space-3);
+  }
+
+  .approval__suggestions {
+    --gap: var(--space-1);
+  }
+
+  .approval__suggestion {
+    font-family: var(--font-mono);
+  }
+
+  .approval__suggestion[aria-pressed='true'] {
+    background-color: var(--surface-3);
+    color: var(--fg-1);
+  }
+
   .approval__resolved {
     --gap: var(--space-2);
 

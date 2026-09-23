@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use darkwire_core::{ErrorKind, Result};
-use darkwire_protocol::ToolSource;
+use darkwire_protocol::{ToolPermission, ToolSource};
 use darkwire_security::ExecPlan;
 use darkwire_tools::builtin::exec::effective_timeout;
 use darkwire_tools::testkit::TestWorkspace;
@@ -121,11 +121,11 @@ async fn refuses_a_shell() {
 }
 
 #[tokio::test]
-async fn refuses_a_denied_binary() {
+async fn refuses_a_shell_script_when_shells_are_switched_off() {
     let ws = TestWorkspace::new();
     let error = run(
-        json!({"argv": ["curl", "https://example.com"]}),
-        &ws.with(|config| config.exec.denied_binaries = vec!["curl".to_owned()]),
+        json!({"argv": ["bash", "script.sh"]}),
+        &ws.with(|config| config.exec.shell = ToolPermission::Deny),
     )
     .await;
     assert_eq!(error.kind, Some(ErrorKind::PermissionDenied));
@@ -311,10 +311,10 @@ async fn still_refuses_a_denied_command_before_any_runner_is_consulted() {
     let mut ctx = with_runner(&ws, &runner);
     ctx = ctx.with_config({
         let mut config = darkwire_protocol::AgentSettings::default();
-        config.exec.denied_binaries = vec!["printf".to_owned()];
+        config.exec.shell = ToolPermission::Deny;
         config
     });
-    let error = run(json!({"argv": ["printf", "x"]}), &ctx).await;
+    let error = run(json!({"argv": ["sh", "x.sh"]}), &ctx).await;
     assert_eq!(error.kind, Some(ErrorKind::PermissionDenied));
     assert!(runner.seen.lock().is_empty());
 }
@@ -357,4 +357,86 @@ async fn names_the_transcript_when_a_truncated_run_kept_one() {
         result.details.get("transcriptDir"),
         Some(&json!("/run/darkwire-runs/c/r1"))
     );
+}
+
+mod policy {
+    use darkwire_protocol::{ExecRule, ToolPermission};
+    use darkwire_tools::testkit::TestWorkspace;
+    use darkwire_tools::{exec_tool, read_tool};
+    use serde_json::json;
+
+    fn rule(action: ToolPermission, argv: &[&str]) -> ExecRule {
+        ExecRule {
+            action,
+            argv: argv.iter().map(|&token| token.to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_tool_without_one_leaves_the_decision_to_the_agent() {
+        let ws = TestWorkspace::new();
+        let args = json!({"path": "a.txt"});
+        assert!(
+            read_tool()
+                .policy(&args, ws.context(), ToolPermission::Ask)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn arguments_that_do_not_validate_get_no_policy() {
+        let ws = TestWorkspace::new();
+        let args = json!({"argv": "git status"});
+        assert!(
+            exec_tool()
+                .policy(&args, ws.context(), ToolPermission::Ask)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_rule_decides_and_names_itself() {
+        let ws = TestWorkspace::new();
+        let ctx = ws.with(|config| {
+            config.exec.rules = vec![rule(ToolPermission::Allow, &["cargo", "test", "*"])];
+        });
+        let args = json!({"argv": ["cargo", "test", "-p", "x"]});
+        let policy = exec_tool()
+            .policy(&args, &ctx, ToolPermission::Ask)
+            .unwrap();
+        assert_eq!(policy.permission, ToolPermission::Allow);
+        assert!(policy.memory_key.starts_with("exec:"));
+        let command = policy.command.unwrap();
+        assert_eq!(command.argv, ["cargo", "test", "-p", "x"]);
+        assert!(!command.shell);
+        assert_eq!(command.rule.unwrap().argv, ["cargo", "test", "*"]);
+
+        let other = json!({"argv": ["cargo", "build"]});
+        let fallback = exec_tool()
+            .policy(&other, &ctx, ToolPermission::Ask)
+            .unwrap();
+        assert_eq!(fallback.permission, ToolPermission::Ask);
+        assert!(fallback.command.unwrap().rule.is_none());
+        assert_ne!(fallback.memory_key, policy.memory_key);
+    }
+
+    #[test]
+    fn marks_a_shell_and_refuses_on_rules_that_do_not_parse() {
+        let ws = TestWorkspace::new();
+        let args = json!({"argv": ["bash", "build.sh"]});
+        let shell = exec_tool()
+            .policy(&args, ws.context(), ToolPermission::Allow)
+            .unwrap();
+        assert_eq!(shell.permission, ToolPermission::Ask);
+        assert!(shell.command.unwrap().shell);
+
+        let broken = ws.with(|config| {
+            config.exec.rules = vec![rule(ToolPermission::Allow, &["*", "x"])];
+        });
+        let refused = exec_tool()
+            .policy(&json!({"argv": ["ls"]}), &broken, ToolPermission::Allow)
+            .unwrap();
+        assert_eq!(refused.permission, ToolPermission::Deny);
+        assert!(refused.command.is_none());
+    }
 }

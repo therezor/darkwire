@@ -71,6 +71,7 @@ fn every_frame() -> Vec<ChannelControlFrame> {
             call_id: "call-1".to_owned(),
             approved: true,
             scope: ApprovalScope::Once,
+            rule: None,
         }),
         ChannelControlFrame::StopTurn(StopTurnMessage {
             tag: StopTurnTag,

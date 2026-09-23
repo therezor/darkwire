@@ -8,7 +8,7 @@
 //!  - **A key the patch does not mention is not touched.** This is the whole
 //!    point of a patch over a partial, and it is undone by any merge that walks
 //!    the *schema* rather than the patch.
-//!  - **An array replaces.** `allowedBinaries: ["git"]` means that binary, not
+//!  - **An array replaces.** `envAllowlist: ["PATH"]` means that variable, not
 //!    it plus whatever was there; there is no way to express a removal
 //!    otherwise.
 //!  - **A record of values edited as a unit replaces too** — see

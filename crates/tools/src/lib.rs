@@ -68,8 +68,8 @@ pub use scope::{is_enabled, permission_for};
 pub use sink::ToolSink;
 pub use tasks::TaskPort;
 pub use tool::{
-    AnyTool, ArgIssue, BoxFuture, Preprocess, TOOL_NAME_PATTERN, Tool, ToolContext, ToolExecution,
-    ToolHandler, ToolOutput, ToolSpec, TypedTool, assert_not_aborted, default_tools_config,
-    is_tool_name, parameters_for,
+    AnyTool, ArgIssue, BoxFuture, CallPolicy, Preprocess, TOOL_NAME_PATTERN, Tool, ToolContext,
+    ToolExecution, ToolHandler, ToolOutput, ToolSpec, TypedTool, assert_not_aborted,
+    default_tools_config, is_tool_name, parameters_for,
 };
 pub use web::{LiveWebResolver, WebPort, WebResolver, WebSettings};

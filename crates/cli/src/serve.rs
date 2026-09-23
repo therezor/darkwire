@@ -962,6 +962,9 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     // (4) The adapter, then the UI root, then the server.
     let server_runtime = build_adapter(&runtime, &channels, &env, injected_vault);
     channels.fill_server(Arc::clone(&server_runtime) as Arc<dyn ServerRuntime>);
+    hub.fill_rules(darkwire_server::exec_rules::rule_writer(
+        Arc::clone(&server_runtime) as Arc<dyn ServerRuntime>,
+    ));
     let ui = resolve_ui_root(args.ui.as_deref())?;
 
     let built: WireServer = create_server(ServerOptions {

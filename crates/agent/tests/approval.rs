@@ -22,7 +22,7 @@ use darkwire_agent::TurnInput;
 use darkwire_agent::approval::{ApprovalDecision, DenialReason, denied_notice, denied_tool_result};
 use darkwire_agent::testkit::{ScriptedTurn, tool_call};
 use darkwire_protocol::{
-    AgentSettings, ApprovalScope, StopReason, ToolPermission, ToolPermissions,
+    AgentSettings, ApprovalScope, ExecRule, StopReason, ToolPermission, ToolPermissions,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -67,6 +67,13 @@ fn a_denial_says_which_of_the_three_it_was() {
         assert!(result.contains("The tool did not run"), "{reason:?}");
         assert!(denied_notice("exec", reason).contains(human), "{reason:?}");
     }
+    // A rule refuses one command, not the tool, so the model is told it may
+    // try another rather than to stop using `exec`.
+    let rule = denied_tool_result("exec", DenialReason::Rule);
+    assert!(rule.contains("rule on this agent"), "{rule}");
+    assert!(rule.contains("Do not repeat this command"), "{rule}");
+    assert!(rule.contains("different command may be allowed"), "{rule}");
+    assert!(denied_notice("exec", DenialReason::Rule).contains("command rule"));
 }
 
 #[test]
@@ -506,4 +513,138 @@ async fn the_request_is_debuggable_without_leaking_the_token() {
     let shown = format!("{:?}", gate.seen()[0]);
     assert!(shown.contains("exec"));
     assert!(shown.contains("web:1"));
+}
+
+// Command rules
+
+fn allowing(tool: &str) -> ToolPermissions {
+    let mut permissions = ToolPermissions::new();
+    permissions.insert(tool.to_owned(), ToolPermission::Allow);
+    permissions
+}
+
+fn with_rules(rules: Vec<ExecRule>) -> AgentSettings {
+    let mut config = Setup::default().config;
+    config.exec.rules = rules;
+    config
+}
+
+fn exec_rule(action: ToolPermission, argv: &[&str]) -> ExecRule {
+    ExecRule {
+        action,
+        argv: argv.iter().map(|&token| token.to_owned()).collect(),
+    }
+}
+
+fn one_call(argv: &[&str]) -> Vec<ScriptedTurn> {
+    vec![
+        ScriptedTurn::calls(vec![tool_call("c1", "exec", &json!({ "argv": argv }))]),
+        ScriptedTurn::text("done"),
+    ]
+}
+
+#[tokio::test]
+async fn an_allow_rule_runs_an_ask_tool_without_asking() {
+    let gate = ScriptedGate::new(vec![Answer::Refuse]);
+    let harness = Harness::build(Setup {
+        turns: one_call(&["true"]),
+        tools: vec![darkwire_tools::exec_tool()],
+        permissions: Some(asking("exec")),
+        config: with_rules(vec![exec_rule(ToolPermission::Allow, &["true"])]),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    assert!(events_of(&events, "tool.approvalRequest").is_empty());
+    assert!(gate.seen().is_empty());
+    assert_eq!(events_of(&events, "tool.result")[0]["ok"], json!(true));
+}
+
+#[tokio::test]
+async fn a_deny_rule_refuses_an_allowed_tool_without_asking_anyone() {
+    let gate = ScriptedGate::new(vec![Answer::Allow]);
+    let harness = Harness::build(Setup {
+        turns: one_call(&["ls", "-la"]),
+        tools: vec![darkwire_tools::exec_tool()],
+        permissions: Some(allowing("exec")),
+        config: with_rules(vec![exec_rule(ToolPermission::Deny, &["ls", "*"])]),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    assert!(gate.seen().is_empty());
+    let result = &events_of(&events, "tool.result")[0];
+    assert_eq!(result["ok"], json!(false));
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("rule on this agent"),
+        "{}",
+        result["content"]
+    );
+    let notices = events_of(&events, "notice");
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice["message"].as_str().unwrap().contains("command rule"))
+    );
+}
+
+#[tokio::test]
+async fn a_prompt_for_a_command_carries_what_the_rules_made_of_it() {
+    let gate = ScriptedGate::new(vec![Answer::Allow]);
+    let harness = Harness::build(Setup {
+        turns: one_call(&["true"]),
+        tools: vec![darkwire_tools::exec_tool()],
+        permissions: Some(asking("exec")),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    let asked = events_of(&events, "tool.approvalRequest");
+    assert_eq!(
+        asked[0]["command"],
+        json!({"argv": ["true"], "shell": false})
+    );
+    let seen = gate.seen();
+    // Remembered by the exact command, so "this session" covers this one.
+    assert!(
+        seen[0].memory_key.starts_with("exec:"),
+        "{}",
+        seen[0].memory_key
+    );
+    assert!(seen[0].command.is_some());
+}
+
+#[tokio::test]
+async fn a_tool_without_a_policy_is_remembered_by_its_name() {
+    let gate = ScriptedGate::new(vec![Answer::Allow]);
+    let harness = Harness::build(Setup {
+        turns: one_exec_call(),
+        tools: vec![FakeTool::new(
+            "exec",
+            darkwire_protocol::ToolRisk::Exec,
+            common::harness::Behaviour::Answer("ok".to_owned()),
+        )],
+        permissions: Some(asking("exec")),
+        approvals: Some(gate.clone()),
+        ..Setup::default()
+    });
+
+    let (events, _) = harness.say("web:1", "run it").await;
+
+    assert!(
+        events_of(&events, "tool.approvalRequest")[0]
+            .get("command")
+            .is_none()
+    );
+    assert_eq!(gate.seen()[0].memory_key, "exec");
+    assert!(gate.seen()[0].command.is_none());
 }

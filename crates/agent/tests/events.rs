@@ -247,6 +247,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             args: Value::Null,
             risk: ToolRisk::Exec,
             expires_at_ms: 1,
+            command: None,
         }
         .into(),
         darkwire_protocol::Notice {
@@ -277,6 +278,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             message: "m".to_owned(),
             retryable: false,
             turn_id: None,
+            call_id: None,
         }
         .into(),
         darkwire_protocol::SubagentEventBody {

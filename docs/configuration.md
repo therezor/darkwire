@@ -365,14 +365,38 @@ approval timeout and the result budget are all per agent, in the table above. Se
 
 ### `agents.list.<id>.exec`
 
-| Key               | Type     | Default                       | Notes                                                                                                                                                                                                     |
-| ----------------- | -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `timeoutMs`       | int ≥ 0  | `0`                           |                                                                                                                                                                                                           |
-| `pathAppend`      | string   | `''`                          | Appended to the child's `PATH`.                                                                                                                                                                           |
-| `allowedBinaries` | string[] | `[]`                          | `argv[0]` allow-list, matched on basename. **Empty means "anything not denied"**, the opposite convention to `tools` on the agent, and deliberately so: this narrows a tool the operator already enabled. |
-| `deniedBinaries`  | string[] | `[]`                          | Checked first.                                                                                                                                                                                            |
-| `envAllowlist`    | string[] | `['PATH','HOME','LANG','TZ']` | Everything else is scrubbed from the child's environment.                                                                                                                                                 |
-| `maxOutputBytes`  | int > 0  | `1048576`                     | Enforced while the child writes, not after it exits.                                                                                                                                                      |
+| Key              | Type         | Default                       | Notes                                                                                                   |
+| ---------------- | ------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `timeoutMs`      | int ≥ 0      | `0`                           |                                                                                                         |
+| `pathAppend`     | string       | `''`                          | Appended to the child's `PATH`.                                                                         |
+| `rules`          | `ExecRule[]` | `[]`                          | Command rules. See below and [Tools & permissions](tools.md#command-rules).                             |
+| `shell`          | permission   | `ask`                         | The most a shell call can get. `deny` refuses every shell. See [Command rules](tools.md#command-rules). |
+| `envAllowlist`   | string[]     | `['PATH','HOME','LANG','TZ']` | Everything else is scrubbed from the child's environment.                                               |
+| `maxOutputBytes` | int > 0      | `1048576`                     | Enforced while the child writes, not after it exits.                                                    |
+
+Each `ExecRule`:
+
+| Key      | Type       | Notes                                                                                                |
+| -------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `action` | permission | `allow`, `ask` or `deny`.                                                                            |
+| `argv`   | string[]   | The pattern. Each token matches one argument exactly. A final `"*"` matches any remaining arguments. |
+
+A rule applies wherever the agent runs, on the host or in its environment.
+
+```yaml
+agents:
+  list:
+    coder:
+      tools: { exec: ask }
+      exec:
+        shell: ask
+        rules:
+          - { action: allow, argv: [cargo, test, '*'] }
+          - { action: deny, argv: [rm, '*'] }
+```
+
+A rule that does not parse (an empty `argv`, a `*` that is not last, a program written as
+a path) refuses the agent when it is resolved, naming the agent and the rule.
 
 There is no `enable` switch: an agent that should not run commands sets `exec: deny` in
 its `tools` map, like any other tool. There are no patterns here for `$(...)`, backticks

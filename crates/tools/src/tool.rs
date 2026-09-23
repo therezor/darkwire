@@ -40,7 +40,8 @@ use std::sync::{Arc, LazyLock};
 use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::json::Object;
 use darkwire_protocol::{
-    AgentSettings, ToolAnnotations, ToolDefinition, ToolRisk, ToolSource, protocol_generator,
+    AgentSettings, CommandPolicy, ToolAnnotations, ToolDefinition, ToolPermission, ToolRisk,
+    ToolSource, protocol_generator,
 };
 use darkwire_security::{WorkspaceJail, WrappedToolOutput};
 use regex::Regex;
@@ -379,6 +380,33 @@ pub trait Tool: Send + Sync {
 
     /// Validates, then runs. Never fails; see the trait docs.
     fn execute<'a>(&'a self, args: Value, ctx: &'a ToolContext) -> BoxFuture<'a, ToolExecution>;
+
+    /// What this call gets, for a tool whose permission depends on its
+    /// arguments. `fallback` is the agent's permission for the tool.
+    ///
+    /// `None`, the default, leaves the decision to `fallback` and remembers a
+    /// "this session" answer by the tool's name.
+    fn policy(
+        &self,
+        args: &Value,
+        ctx: &ToolContext,
+        fallback: ToolPermission,
+    ) -> Option<CallPolicy> {
+        let _ = (args, ctx, fallback);
+        None
+    }
+}
+
+/// What a tool decided about one call before it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallPolicy {
+    /// Allow, ask or deny, in place of the tool's own permission.
+    pub permission: ToolPermission,
+    /// What a "this session" answer is remembered under. Never a bare tool
+    /// name, so it cannot collide with a tool that has no policy.
+    pub memory_key: String,
+    /// The command and the rule that decided, for a prompt to show.
+    pub command: Option<CommandPolicy>,
 }
 
 /// A tool with its argument type erased, for storage and iteration.
@@ -413,6 +441,17 @@ pub trait ToolHandler: Send + Sync + 'static {
         args: Self::Args,
         ctx: &'a ToolContext,
     ) -> BoxFuture<'a, Result<ToolOutput>>;
+
+    /// See [`Tool::policy`]. Only reached with arguments that validate.
+    fn policy(
+        &self,
+        args: &Self::Args,
+        ctx: &ToolContext,
+        fallback: ToolPermission,
+    ) -> Option<CallPolicy> {
+        let _ = (args, ctx, fallback);
+        None
+    }
 }
 
 /// What a tool says about itself, beside its handler.
@@ -732,5 +771,17 @@ impl<H: ToolHandler> Tool for TypedTool<H> {
             };
             self.handler.execute(parsed, ctx).await.into()
         })
+    }
+
+    // Arguments that do not validate get no policy: the call falls back to the
+    // tool's permission and then fails validation when it runs.
+    fn policy(
+        &self,
+        args: &Value,
+        ctx: &ToolContext,
+        fallback: ToolPermission,
+    ) -> Option<CallPolicy> {
+        let parsed = self.parse_args(args.clone()).ok()?;
+        self.handler.policy(&parsed, ctx, fallback)
     }
 }

@@ -2568,7 +2568,7 @@ describe('the tool settings on an agent', () => {
           default: {
             model: 'llama3',
             provider: 'ollama',
-            exec: { allowedBinaries: ['git'], timeoutMs: 5000 },
+            exec: { envAllowlist: ['PATH'], timeoutMs: 5000 },
           },
         },
       },
@@ -2591,10 +2591,11 @@ describe('the tool settings on an agent', () => {
     const agent = patchesOf(calls)[0]?.agents?.list?.default;
     expect(agent?.maxOutputChars).toBe(4096);
     expect(agent?.approvalTimeoutMs).toBe(300_000);
-    // The allow-list has no box here and must survive the save anyway.
+    // The environment allow-list has no box here and must survive the save
+    // anyway.
     expect(agent?.exec).toMatchObject({
       timeoutMs: 5000,
-      allowedBinaries: ['git'],
+      envAllowlist: ['PATH'],
     });
     expect(patchesOf(calls)[0]).not.toHaveProperty('tools');
   });

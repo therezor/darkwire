@@ -45,11 +45,6 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     summary: 'settings.panels.account.summary',
   },
   {
-    id: 'appearance',
-    label: 'settings.panels.appearance.label',
-    summary: 'settings.panels.appearance.summary',
-  },
-  {
     id: 'automation',
     label: 'settings.panels.automation.label',
     summary: 'settings.panels.automation.summary',

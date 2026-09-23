@@ -29,6 +29,9 @@
     },
     "turnId": {
       "type": "string"
+    },
+    "callId": {
+      "type": "string"
     }
   },
   "required": [

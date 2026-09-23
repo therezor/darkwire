@@ -11,7 +11,7 @@
  * **The engine's own knobs are not here.** Whether the scheduler runs at all,
  * how many runs at once, how much history to keep — those are install-wide
  * settings and live in Settings → Automation, and the zone every schedule is
- * read and rendered in lives in Settings → Appearance. This page is the jobs,
+ * read and rendered in lives in Settings → Account. This page is the jobs,
  * which are content rather than configuration; the same split Agents makes,
  * where the agents are a page and only install-wide tool settings sit in
  * Settings.

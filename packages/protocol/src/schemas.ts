@@ -49,6 +49,8 @@ export const PROTOCOL_SCHEMAS = {
   ToolAnnotations: tools.ToolAnnotationsSchema,
   ToolDefinition: tools.ToolDefinitionSchema,
   ApprovalScope: tools.ApprovalScopeSchema,
+  ExecRule: tools.ExecRuleSchema,
+  CommandPolicy: tools.CommandPolicySchema,
   ToolPromptOverride: tools.ToolPromptOverrideSchema,
   ToolPromptOverrides: tools.ToolPromptOverridesSchema,
 

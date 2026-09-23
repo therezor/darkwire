@@ -262,6 +262,7 @@ async fn a_hub_refusal_settles_the_run_because_no_turn_end_will_follow() {
         message: "No model is configured.".to_owned(),
         retryable: false,
         turn_id: None,
+        call_id: None,
     }));
 
     let settled = outcome.await.unwrap();

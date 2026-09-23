@@ -37,9 +37,9 @@ describe('the settings panels', () => {
     // subtree. Agents are a page of their own, and picking one happens in the
     // composer.
     //
-    // `appearance` joined them with the translation layer. It is the natural
-    // home for the theme too, which until then lived only in the header — a
-    // preference with no page you could point someone at.
+    // `account` holds the language, timezone and theme above the password.
+    // They were an `appearance` panel of their own until one tab for "you and
+    // how this looks" proved easier to find than two.
     //
     // `automation` holds the scheduler engine and nothing else — the jobs are a
     // page in the nav, because a list an operator keeps is not a setting. That
@@ -59,7 +59,6 @@ describe('the settings panels', () => {
       'providers',
       'environments',
       'account',
-      'appearance',
       'automation',
       'mcp',
       'channels',

@@ -25,6 +25,7 @@
 import {
   newUuid,
   type ApprovalScope,
+  type ExecRule,
   type Attachment,
   type ServerMessage,
 } from '@darkwire/protocol';
@@ -366,13 +367,22 @@ export function approveTool(
   callId: string,
   approved: boolean,
   scope: ApprovalScope,
+  rule?: ExecRule,
 ): void {
   // Recorded locally first, so the buttons go on the click rather than on the
-  // round trip. The gate is the server's; the acknowledgement is ours.
+  // round trip. The gate is the server's; the acknowledgement is ours. A rule
+  // the server refuses comes back as an error naming this call, which opens
+  // the prompt again.
   useTurnStore
     .getState()
     .answerApproval(callId, approved ? 'approved' : 'denied');
-  socket?.send({ type: 'tool.approve', callId, approved, scope });
+  socket?.send({
+    type: 'tool.approve',
+    callId,
+    approved,
+    scope,
+    ...(rule === undefined ? {} : { rule }),
+  });
 }
 
 /** Test seam: the socket is module state, and a suite needs it absent per case. */
@@ -433,7 +443,10 @@ function handleMessage(message: ServerMessage): void {
 
   // A connection-scoped error has no turn to attach to, so it has nowhere to
   // render — a toast is the only place it can be seen at all.
-  if (message.type === 'error' && message.turnId === undefined) {
+  // One naming a call answers this tab's approval, and shows on its card.
+  if (message.type === 'error' && message.callId !== undefined) {
+    useTurnStore.getState().rejectApproval(message.callId, message.message);
+  } else if (message.type === 'error' && message.turnId === undefined) {
     toast.error('Server error', message.message);
   }
 

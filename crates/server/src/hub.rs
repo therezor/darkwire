@@ -46,9 +46,10 @@ use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{FileDetails, file_part, text_part};
 use darkwire_core::session_store::{ReadMessages, StoredMessageRecord, to_stored_message};
-use darkwire_core::{Clock, Result, SessionStore, SystemClock, WireError};
+use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError};
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason};
+use darkwire_protocol::tools::ExecRule;
 use darkwire_protocol::uuid::new_uuid;
 use darkwire_protocol::ws::{
     Attachment, ClientMessage, ConnectedEvent, ConnectedTag, EditMessage, ErrorCode, ErrorEvent,
@@ -62,13 +63,14 @@ use darkwire_providers::BoxFuture;
 use darkwire_security::random::{OsRandom, RandomSource};
 use indexmap::IndexMap;
 use lru::LruCache;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_binding::agent_for_turn;
 use crate::approvals::HubApprovalGate;
 use crate::errors::{code_str, resolve_error};
+use crate::exec_rules::RuleWriter;
 use crate::replay::ReplayBuffer;
 use crate::turn_log::TurnLog;
 
@@ -491,6 +493,7 @@ pub struct SessionHub {
     resolve_agent_id: AgentResolver,
     store: Arc<SessionStore>,
     approvals: Arc<HubApprovalGate>,
+    rules: RwLock<Option<RuleWriter>>,
     clock: Arc<dyn Clock>,
     new_id: IdSource,
     max_queue_depth: usize,
@@ -573,11 +576,21 @@ impl SessionHub {
             resolve_agent_id: options.resolve_agent_id,
             store: options.store,
             approvals: options.approvals,
+            rules: RwLock::new(None),
             clock,
             new_id,
             max_queue_depth: options.max_queue_depth.unwrap_or(DEFAULT_MAX_QUEUE_DEPTH),
             max_sessions: options.max_sessions.unwrap_or(DEFAULT_MAX_SESSIONS),
         })
+    }
+
+    /// Where an approval that carries an `exec` rule saves it.
+    ///
+    /// Late, because the writer goes through the settings adapter and the
+    /// adapter is built after the hub. Until it is filled, an answer carrying a
+    /// rule is refused and the call stays parked.
+    pub fn fill_rules(&self, writer: RuleWriter) {
+        *self.rules.write() = Some(writer);
     }
 
     /// Sessions holding state in this process. Includes idle ones, for their
@@ -926,6 +939,12 @@ impl SessionHub {
                 self.resume(connection_id, &message.session_key, message.last_seq);
             }
             ClientMessage::ToolApprove(message) => {
+                if let Some(rule) = &message.rule
+                    && let Err(error) = self.save_rule(&message.call_id, message.approved, rule)
+                {
+                    self.error_for_call(connection_id, &message.call_id, &error);
+                    return;
+                }
                 let answered =
                     self.approvals
                         .resolve(&message.call_id, message.approved, message.scope);
@@ -1407,6 +1426,7 @@ impl SessionHub {
                         message: NO_MODEL_MESSAGE.to_owned(),
                         retryable: false,
                         turn_id: Some(turn.id.clone()),
+                        call_id: None,
                     }),
                 );
                 return Ok(());
@@ -1568,6 +1588,7 @@ impl SessionHub {
                 message: resolved.message.clone(),
                 retryable,
                 turn_id: Some(turn_id.to_owned()),
+                call_id: None,
             }),
         );
         self.inner.lock().emit(
@@ -1842,6 +1863,61 @@ impl SessionHub {
                 message: message.to_owned(),
                 retryable,
                 turn_id: None,
+                call_id: None,
+            }),
+        );
+    }
+
+    /// Saves the rule an approval carries, before the approval releases the
+    /// call.
+    ///
+    /// A call no longer parked is the two-tab race, and saves nothing: the
+    /// rule was chosen for a prompt that has gone.
+    fn save_rule(&self, call_id: &str, approved: bool, rule: &ExecRule) -> Result<()> {
+        if !approved {
+            return Err(WireError::new(
+                ErrorKind::InvalidInput,
+                "A rule can only be saved with an approval.",
+            ));
+        }
+        let Some(request) = self.approvals.pending(call_id) else {
+            return Ok(());
+        };
+        let Some(command) = &request.command else {
+            return Err(WireError::new(
+                ErrorKind::InvalidInput,
+                format!("\"{}\" takes no command rules.", request.name),
+            ));
+        };
+        let writer = self.rules.read().clone();
+        let Some(writer) = writer else {
+            return Err(WireError::new(
+                ErrorKind::Internal,
+                "This server cannot save rules.",
+            ));
+        };
+        writer(&request.agent_id, command, rule)
+    }
+
+    /// An error answering one `tool.approve`, so the prompt it came from can
+    /// show it.
+    fn error_for_call(&self, connection_id: &str, call_id: &str, error: &WireError) {
+        tracing::info!(call_id, err = %error.message, "approval rule refused");
+        let code = match error.kind {
+            ErrorKind::InvalidInput => ErrorCode::BadRequest,
+            ErrorKind::Config => ErrorCode::ConfigInvalid,
+            ErrorKind::NotFound => ErrorCode::NotFound,
+            _ => ErrorCode::Internal,
+        };
+        self.inner.lock().deliver(
+            connection_id,
+            &ServerMessage::Error(ErrorEvent {
+                tag: ErrorTag,
+                code,
+                message: error.message.clone(),
+                retryable: false,
+                turn_id: None,
+                call_id: Some(call_id.to_owned()),
             }),
         );
     }

@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "argv": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shell": {
+      "type": "boolean"
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "ask",
+            "deny"
+          ]
+        },
+        "argv": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "action",
+        "argv"
+      ]
+    }
+  },
+  "required": [
+    "argv",
+    "shell"
+  ]
+}

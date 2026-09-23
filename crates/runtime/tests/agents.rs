@@ -107,20 +107,26 @@ mod resolve_agent {
     }
 
     #[test]
-    fn each_agent_holds_its_own_exec_guard() {
-        // No shared block to inherit from: an agent that names an allow-list
-        // has that allow-list, and one that names nothing has the default.
+    fn each_agent_holds_its_own_exec_rules() {
+        // No shared block to inherit from: an agent that names rules has those
+        // rules, and one that names nothing has the default.
         let tree = json!({
             "agents": {"list": {
-                "tight": {"exec": {"allowedBinaries": ["git"], "timeoutMs": 5000}},
+                "tight": {"exec": {
+                    "rules": [{"action": "deny", "argv": ["curl", "*"]}],
+                    "shell": "deny",
+                    "timeoutMs": 5000,
+                }},
                 "loose": {},
             }},
         });
         let tight = resolved(&tree, Some("tight"));
-        assert_eq!(tight.settings.exec.allowed_binaries, vec!["git".to_owned()]);
+        assert_eq!(tight.settings.exec.rules.len(), 1);
+        assert_eq!(tight.settings.exec.shell, ToolPermission::Deny);
         assert_eq!(tight.settings.exec.timeout_ms, 5000);
         let loose = resolved(&tree, Some("loose"));
-        assert!(loose.settings.exec.allowed_binaries.is_empty());
+        assert!(loose.settings.exec.rules.is_empty());
+        assert_eq!(loose.settings.exec.shell, ToolPermission::Ask);
         assert_eq!(loose.settings.exec.timeout_ms, 0);
     }
 
@@ -174,6 +180,19 @@ mod resolve_agent {
         }}}});
         let agent = resolve_agent(&config(&tree), Some("boxed")).unwrap();
         assert_eq!(agent.environment.name, "dev");
+    }
+
+    #[test]
+    fn refuses_a_command_rule_that_does_not_parse() {
+        let tree = json!({"agents": {"list": {"coder": {"exec": {"rules": [
+            {"action": "allow", "argv": ["git", "*"]},
+            {"action": "deny", "argv": ["cargo", "*", "--release"]},
+        ]}}}}});
+        let error = resolve_agent(&config(&tree), Some("coder")).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Config);
+        assert!(error.message.contains("\"coder\""), "{}", error.message);
+        assert!(error.message.contains("rule 2"), "{}", error.message);
+        assert_eq!(error.details["rule"], 1);
     }
 
     #[test]

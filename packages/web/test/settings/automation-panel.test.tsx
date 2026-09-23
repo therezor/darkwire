@@ -81,14 +81,14 @@ describe('the Automation panel', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('sends the operator to Appearance for the timezone instead of dropping it', async () => {
+  it('sends the operator to Account for the timezone instead of dropping it', async () => {
     // The knob moved rather than went away. Someone who remembers it being here
     // must be told where it went — a silent gap reads as a removed feature.
     mount();
     await screen.findByLabelText('Concurrent runs');
     expect(screen.queryByLabelText('Default timezone')).not.toBeInTheDocument();
     expect(
-      screen.getByText(/timezone moved to Settings . Appearance/u),
+      screen.getByText(/timezone moved to Settings . Account/u),
     ).toBeInTheDocument();
   });
 

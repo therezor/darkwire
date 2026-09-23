@@ -455,205 +455,6 @@
       }
     },
     {
-      "name": "a denied binary",
-      "input": {
-        "argv": [
-          "curl",
-          "https://x"
-        ],
-        "config": {
-          "deniedBinaries": [
-            "curl"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is denied by configuration: curl"
-        }
-      }
-    },
-    {
-      "name": "a denied binary by absolute path",
-      "input": {
-        "argv": [
-          "/usr/bin/curl"
-        ],
-        "config": {
-          "deniedBinaries": [
-            "curl"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is denied by configuration: curl"
-        }
-      }
-    },
-    {
-      "name": "a denied binary by .exe",
-      "input": {
-        "argv": [
-          "curl.exe"
-        ],
-        "config": {
-          "deniedBinaries": [
-            "curl"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is denied by configuration: curl"
-        }
-      }
-    },
-    {
-      "name": "a binary outside the allow-list",
-      "input": {
-        "argv": [
-          "rm",
-          "-rf",
-          "src"
-        ],
-        "config": {
-          "allowedBinaries": [
-            "git",
-            "node"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is not in the allow-list: rm"
-        }
-      }
-    },
-    {
-      "name": "a binary inside the allow-list",
-      "input": {
-        "argv": [
-          "git",
-          "status"
-        ],
-        "config": {
-          "allowedBinaries": [
-            "git",
-            "node"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "plan": {
-          "file": "git",
-          "args": [
-            "status"
-          ],
-          "cwd": "<root>",
-          "env": {
-            "PATH": "/usr/bin:/bin",
-            "HOME": "/home/ghost",
-            "LANG": "en_US.UTF-8"
-          },
-          "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
-        }
-      }
-    },
-    {
-      "name": "the deny-list wins over the allow-list",
-      "input": {
-        "argv": [
-          "git"
-        ],
-        "config": {
-          "allowedBinaries": [
-            "git"
-          ],
-          "deniedBinaries": [
-            "git"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is denied by configuration: git"
-        }
-      }
-    },
-    {
-      "name": "a shell by default",
-      "input": {
-        "argv": [
-          "bash",
-          "script.js"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "bash is a shell. Pass the program and its arguments as argv instead, or add \"bash\" to allowedBinaries."
-        }
-      }
-    },
-    {
       "name": "a shell by .exe on another platform",
       "input": {
         "argv": [
@@ -673,22 +474,18 @@
       "output": {
         "error": {
           "kind": "permission_denied",
-          "message": "cmd is a shell. Pass the program and its arguments as argv instead, or add \"cmd\" to allowedBinaries."
+          "message": "cmd /k re-introduces shell parsing. Pass the program and its arguments as argv instead."
         }
       }
     },
     {
-      "name": "an allow-listed shell",
+      "name": "a shell by default",
       "input": {
         "argv": [
           "bash",
           "script.js"
         ],
-        "config": {
-          "allowedBinaries": [
-            "bash"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -716,18 +513,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with -c",
+      "name": "a shell with -c",
       "input": {
         "argv": [
           "bash",
           "-c",
           "rm -rf / | sh"
         ],
-        "config": {
-          "allowedBinaries": [
-            "bash"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -744,18 +537,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with -lc",
+      "name": "a shell with -lc",
       "input": {
         "argv": [
           "bash",
           "-lc",
           "x"
         ],
-        "config": {
-          "allowedBinaries": [
-            "bash"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -772,18 +561,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with --command",
+      "name": "a shell with --command",
       "input": {
         "argv": [
           "bash",
           "--command",
           "x"
         ],
-        "config": {
-          "allowedBinaries": [
-            "bash"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -800,18 +585,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with /C",
+      "name": "a shell with /C",
       "input": {
         "argv": [
           "bash",
           "/C",
           "x"
         ],
-        "config": {
-          "allowedBinaries": [
-            "bash"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -828,18 +609,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with -Command",
+      "name": "a shell with -Command",
       "input": {
         "argv": [
           "powershell",
           "-Command",
           "x"
         ],
-        "config": {
-          "allowedBinaries": [
-            "powershell"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -856,18 +633,14 @@
       }
     },
     {
-      "name": "an allow-listed shell with -EncodedCommand",
+      "name": "a shell with -EncodedCommand",
       "input": {
         "argv": [
           "powershell",
           "-EncodedCommand",
           "x"
         ],
-        "config": {
-          "allowedBinaries": [
-            "powershell"
-          ]
-        },
+        "config": {},
         "env": {
           "PATH": "/usr/bin:/bin",
           "HOME": "/home/ghost",
@@ -1816,61 +1589,6 @@
       }
     },
     {
-      "name": "sandboxed: the deny-list still applies",
-      "input": {
-        "argv": [
-          "curl",
-          "http://x"
-        ],
-        "config": {
-          "deniedBinaries": [
-            "curl"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": true
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is denied by configuration: curl"
-        }
-      }
-    },
-    {
-      "name": "sandboxed: the allow-list still applies",
-      "input": {
-        "argv": [
-          "bash",
-          "-lc",
-          "x"
-        ],
-        "config": {
-          "allowedBinaries": [
-            "nmap"
-          ]
-        },
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": true
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "Binary is not in the allow-list: bash"
-        }
-      }
-    },
-    {
       "name": "sandboxed: a NUL byte is still refused",
       "input": {
         "argv": [
@@ -1890,6 +1608,57 @@
         "error": {
           "kind": "permission_denied",
           "message": "Arguments must not contain NUL bytes"
+        }
+      }
+    },
+    {
+      "name": "a shell when shells are switched off",
+      "input": {
+        "argv": [
+          "bash",
+          "script.js"
+        ],
+        "config": {
+          "shell": "deny"
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": false
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash is a shell, and shells are switched off for this agent. Pass the program and its arguments as argv instead."
+        }
+      }
+    },
+    {
+      "name": "sandboxed: a shell when shells are switched off",
+      "input": {
+        "argv": [
+          "bash",
+          "-lc",
+          "nmap -sV 10.0.0.5 | tee scan.txt"
+        ],
+        "config": {
+          "shell": "deny"
+        },
+        "env": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "/home/ghost",
+          "LANG": "en_US.UTF-8",
+          "AWS_SECRET_ACCESS_KEY": "leak"
+        },
+        "sandboxed": true
+      },
+      "output": {
+        "error": {
+          "kind": "permission_denied",
+          "message": "bash is a shell, and shells are switched off for this agent. Pass the program and its arguments as argv instead."
         }
       }
     }

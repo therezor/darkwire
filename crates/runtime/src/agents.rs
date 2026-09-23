@@ -29,7 +29,7 @@ use darkwire_protocol::{
     ToolPermissions, ToolPromptOverrides, default_agent_tools, is_agent_id, names_delimiter,
     subagent_tool_name,
 };
-use darkwire_security::assert_environment_network;
+use darkwire_security::{assert_environment_network, assert_exec_rules};
 use indexmap::IndexMap;
 
 /// One agent, resolved.
@@ -367,6 +367,7 @@ fn assert_buildable(agent: &EffectiveAgent, warnings: &mut Vec<AgentConfigWarnin
         .with_detail("mode", mode_name(network.mode)));
     }
     assert_environment_network(network, &agent.id)?;
+    assert_exec_rules(&agent.settings.exec, &agent.id)?;
     Ok(())
 }
 

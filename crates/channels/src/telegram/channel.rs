@@ -519,6 +519,7 @@ impl Telegram {
                         call_id,
                         approved,
                         scope,
+                        rule: None,
                     }),
                 );
                 Ok(Some(if approved {

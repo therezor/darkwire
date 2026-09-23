@@ -18,8 +18,8 @@
  * `REPLACE_WHOLESALE` list, so a field left out of it is a field cleared. That
  * is why `toAgentEntryPatch` takes the stored entry as well as the form — the
  * settings this screen does not render (the memory scope and the exec
- * allow-list) have to be carried through by hand, or saving the prompt would
- * quietly delete them.
+ * environment allow-list) have to be carried through by hand, or saving the
+ * prompt would quietly delete them.
  *
  * One asymmetry is a property of the patch format rather than of this file.
  * `reasoningEffort` and `temperature` are optional in the config, and the two
@@ -34,6 +34,7 @@ import type { TFunction } from 'i18next';
 import {
   type AgentEntry,
   type ConfigPatch,
+  type ExecRule,
   type PromptMode,
   type ReasoningEffort,
   type SubagentRef,
@@ -49,6 +50,7 @@ import {
   secondsToMs,
   type PatchResult,
 } from '@/components/form/fields.js';
+import { formatPattern, parsePattern } from '@/lib/exec-pattern.js';
 
 export type { PatchResult };
 
@@ -157,6 +159,14 @@ export interface AgentEntryForm {
   readonly execTimeoutSeconds: string;
   readonly execMaxOutputKb: string;
   /**
+   * The `exec` command rules, in the operator's order, each pattern as one line
+   * of text. Order decides nothing on the server, where the most specific rule
+   * wins, but it is the order the operator wrote them in.
+   */
+  readonly execRules: readonly ExecRuleRow[];
+  /** The ceiling for a shell call. */
+  readonly execShell: ToolPermission;
+  /**
    * The short tool list: `tool_search` plus the pins, with the rest found by
    * name. Per agent, because the agent on a small local model wants it and the
    * agent on a large hosted one may not.
@@ -200,6 +210,12 @@ export interface AgentEntryForm {
    * a leading dot for its subdomains. Only read when the mode is `allowlist`.
    */
   readonly environmentAllow: string;
+}
+
+/** One command rule, as the editor holds it. */
+export interface ExecRuleRow {
+  readonly action: ToolPermission;
+  readonly pattern: string;
 }
 
 /**
@@ -260,6 +276,11 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     maxOutputChars: String(entry.maxOutputChars),
     execTimeoutSeconds: msToSeconds(entry.exec.timeoutMs),
     execMaxOutputKb: bytesToKb(entry.exec.maxOutputBytes),
+    execRules: entry.exec.rules.map((rule) => ({
+      action: rule.action,
+      pattern: formatPattern(rule.argv),
+    })),
+    execShell: entry.exec.shell,
     lazyDiscovery: entry.lazyDiscovery,
     pinnedTools: [...entry.pinnedTools],
     tools: { ...entry.tools },
@@ -330,7 +351,7 @@ export function pruneToolPrompts(
  * does not render, carried straight through from the stored entry. That
  * carry-through is not defensive: `agents.list.*` is replaced wholesale, so an
  * entry rebuilt from the form alone loses its sandbox, its memory scope and its
- * exec allow-list every time the prompt is saved.
+ * exec environment allow-list every time the prompt is saved.
  *
  * The model and the sampling settings are deliberately *not* here — see
  * `AgentOwnFields` below, which states the type and the reason.
@@ -464,6 +485,31 @@ function networkMode(
 }
 
 /**
+ * The rule rows as the wire's rules, with an error at `execRules.<index>` for
+ * each pattern that does not parse. A row left blank is dropped, the way an
+ * unfilled subagent row is.
+ */
+function toExecRules(
+  rows: readonly ExecRuleRow[],
+  errors: Record<string, string>,
+  t: TFunction,
+): ExecRule[] {
+  const rules: ExecRule[] = [];
+  rows.forEach((row, index) => {
+    if (row.pattern.trim() === '') return;
+    const parsed = parsePattern(row.pattern);
+    if (!parsed.ok) {
+      errors[`execRules.${String(index)}`] = t(
+        `agents.execRules.error.${parsed.error}`,
+      );
+      return;
+    }
+    rules.push({ action: row.action, argv: [...parsed.argv] });
+  });
+  return rules;
+}
+
+/**
  * One agent's form into a patch under `agents.list.<id>`.
  *
  * Every numeric field is checked and *all* failures are returned rather than
@@ -564,6 +610,7 @@ export function toAgentEntryPatch(
     min: 0,
     max: 2,
   });
+  const execRules = toExecRules(form.execRules, errors, t);
 
   if (
     maxTokens === undefined ||
@@ -596,13 +643,15 @@ export function toAgentEntryPatch(
             loopWallTimeoutMs: secondsToMs(loopWallTimeout),
             approvalTimeoutMs: secondsToMs(approvalTimeout),
             maxOutputChars,
-            // The two boxes over the stored block, so the allow-list and the
-            // environment allow-list this screen does not render survive a
+            // The screen's fields over the stored block, so the environment
+            // allow-list and `pathAppend`, which it does not render, survive a
             // save exactly as `ownFields` carries the rest.
             exec: {
               ...entry.exec,
               timeoutMs: secondsToMs(execTimeout),
               maxOutputBytes: kbToBytes(execMaxOutputKb),
+              rules: execRules,
+              shell: form.execShell,
             },
             ...(temperature === undefined ? {} : { temperature }),
             ...(isReasoningEffort(form.reasoningEffort)

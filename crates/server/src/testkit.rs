@@ -829,6 +829,10 @@ pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
         max_sessions: None,
     });
 
+    hub.fill_rules(crate::exec_rules::rule_writer(
+        Arc::clone(&runtime) as Arc<dyn ServerRuntime>
+    ));
+
     let password = options
         .password
         .unwrap_or_else(|| "correct horse battery staple".to_owned());

@@ -28,6 +28,7 @@ pub mod boot;
 pub mod context;
 pub mod cursor;
 pub mod errors;
+pub mod exec_rules;
 pub mod heartbeat;
 pub mod hub;
 pub mod login_throttle;

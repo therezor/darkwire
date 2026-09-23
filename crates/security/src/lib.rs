@@ -35,6 +35,7 @@ pub mod allow;
 pub mod egress;
 pub mod environment;
 pub mod exec_guard;
+pub mod exec_rules;
 pub mod extension;
 pub mod extension_store;
 pub mod fetch;
@@ -56,6 +57,10 @@ pub use environment::{
 };
 pub use exec_guard::{
     ExecGuardOptions, ExecPlan, OutputCap, OutputCapResult, SHELL_BINARIES, binary_name, guard_exec,
+};
+pub use exec_rules::{
+    ExecRules, ExecVerdict, ParsedRule, assert_exec_rules, assert_standing_rule, exec_verdict,
+    invocation_digest, is_shell, parse_exec_rule,
 };
 pub use extension::{
     EXTENSION_MANIFEST_FILE, MAX_EXTENSION_BYTES, MAX_EXTENSION_FILES, assert_extension_policy,

@@ -104,3 +104,97 @@ test.describe('with exec allowed', () => {
     await expect(card.getByText(/needs approval to run/)).toHaveCount(0);
   });
 });
+
+test.describe('a command rule', () => {
+  test('saved from the prompt runs the next matching command unattended', async ({
+    app,
+    harness,
+  }) => {
+    const composer = app.getByRole('textbox', { name: 'Message' });
+    await composer.fill('run the version command');
+    await app.getByRole('button', { name: 'Send' }).click();
+
+    const first = app.getByRole('region', { name: 'Tool call: exec' });
+    await first.getByRole('button', { name: 'Always allow…' }).click();
+    await first.getByRole('button', { name: 'node *', exact: true }).click();
+    await first.getByRole('button', { name: 'Save rule and run' }).click();
+    await expect(first.getByLabel('Succeeded')).toBeVisible();
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+
+    // A new session, so "this session" cannot be what lets it through: the
+    // rule is on the agent, and the memory of this answer is not.
+    await app.getByRole('button', { name: 'New session' }).click();
+    await composer.fill('run the version command');
+    await app.getByRole('button', { name: 'Send' }).click();
+    const second = app.getByRole('region', { name: 'Tool call: exec' });
+    await expect(second.getByLabel('Succeeded')).toBeVisible();
+    await expect(second.getByText(/needs approval to run/)).toHaveCount(0);
+
+    // And it is a setting now, where it can be seen and removed.
+    await app.goto(`${harness.url}/agents/default`);
+    await app.getByRole('button', { name: 'Command rules (1)' }).click();
+    await expect(
+      app.getByRole('dialog').getByLabel('Command pattern for rule 1'),
+    ).toHaveValue('node *');
+  });
+});
+
+test.describe('with an allow rule on the agent', () => {
+  test.use({
+    harnessOptions: {
+      config: {
+        agents: {
+          list: {
+            default: {
+              exec: { rules: [{ action: 'allow', argv: ['node', '*'] }] },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  test('runs the command without asking, though exec asks', async ({ app }) => {
+    await app
+      .getByRole('textbox', { name: 'Message' })
+      .fill('run the version command');
+    await app.getByRole('button', { name: 'Send' }).click();
+
+    const card = app.getByRole('region', { name: 'Tool call: exec' });
+    await expect(card.getByLabel('Succeeded')).toBeVisible();
+    await expect(card.getByText(/needs approval to run/)).toHaveCount(0);
+  });
+});
+
+test.describe('with a deny rule on the agent', () => {
+  test.use({
+    harnessOptions: {
+      config: {
+        agents: {
+          list: {
+            default: {
+              exec: { rules: [{ action: 'deny', argv: ['node', '*'] }] },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  test('refuses the command without asking, and the turn continues', async ({
+    app,
+  }) => {
+    await app
+      .getByRole('textbox', { name: 'Message' })
+      .fill('run the version command');
+    await app.getByRole('button', { name: 'Send' }).click();
+
+    const card = app.getByRole('region', { name: 'Tool call: exec' });
+    await expect(card.getByLabel('Failed')).toBeVisible();
+    await card.getByRole('button', { expanded: false }).click();
+    await expect(card.getByText(/a rule on this agent blocks/)).toBeVisible();
+    await expect(
+      app.getByTestId('transcript').getByText('That is the runtime version.'),
+    ).toBeVisible();
+  });
+});

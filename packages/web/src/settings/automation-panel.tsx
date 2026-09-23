@@ -11,7 +11,7 @@
  * whose time passed while the process was down should do, and how much history
  * to keep per job.
  *
- * **The timezone is not here.** It belongs to Appearance, because it stopped
+ * **The timezone is not here.** It belongs to Account, because it stopped
  * being a scheduler setting the moment it also became the zone every timestamp
  * in the UI is rendered in — one install-wide answer to "whose clock", read by
  * the scheduler and by every screen. `engineTzMoved` says so on this screen, so

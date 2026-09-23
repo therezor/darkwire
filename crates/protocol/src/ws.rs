@@ -37,7 +37,7 @@ use serde_json::Value;
 
 use crate::json::{MAX_SAFE_INTEGER, literal, positive, tagged_union};
 use crate::messages::{StopReason, StoredMessage, Usage};
-use crate::tools::{ApprovalScope, ToolDefinition, ToolRisk};
+use crate::tools::{ApprovalScope, CommandPolicy, ExecRule, ToolDefinition, ToolRisk};
 
 /// Version of the wire protocol. Bumped on any breaking envelope change.
 pub const PROTOCOL_VERSION: u64 = 2;
@@ -284,6 +284,12 @@ pub struct ToolApproveMessage {
     /// blanket approval.
     #[serde(default)]
     pub scope: ApprovalScope,
+    /// An `exec` rule to save on the agent with this approval. The server
+    /// refuses one that does not cover the pending call, and the call stays
+    /// parked for another answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub rule: Option<ExecRule>,
 }
 
 /// Mid-turn steering. The loop drains the steer queue and *continues* rather
@@ -595,6 +601,9 @@ pub struct ErrorEvent {
     /// Present when the error is scoped to a turn rather than the connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// Present when the error answers a `tool.approve` for this call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 /// The user message was stored.
@@ -793,6 +802,10 @@ pub struct ToolApprovalRequest {
     /// When the prompt closes as denied.
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub expires_at_ms: u64,
+    /// What the command rules made of the call, for a tool that has them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub command: Option<CommandPolicy>,
 }
 
 /// Advisory notices.

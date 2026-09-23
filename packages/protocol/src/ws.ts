@@ -33,6 +33,8 @@ import { z } from 'zod';
 
 import {
   ApprovalScopeSchema,
+  CommandPolicySchema,
+  ExecRuleSchema,
   ToolDefinitionSchema,
   ToolRiskSchema,
 } from './tools.js';
@@ -152,6 +154,12 @@ export const ToolApproveMessageSchema = z.object({
   callId: z.string().min(1),
   approved: z.boolean(),
   scope: ApprovalScopeSchema.default('once'),
+  /**
+   * An `exec` rule to save on the agent with this approval. The server
+   * refuses one that does not cover the pending call, and the call stays
+   * parked for another answer.
+   */
+  rule: ExecRuleSchema.optional(),
 });
 
 /**
@@ -280,6 +288,8 @@ export const ErrorEventSchema = z.object({
   retryable: z.boolean().default(false),
   /** Present when the error is scoped to a turn rather than the connection. */
   turnId: z.string().optional(),
+  /** Present when the error answers a `tool.approve` for this call. */
+  callId: z.string().optional(),
 });
 
 export const MessageAckEventSchema = z.object({
@@ -387,6 +397,8 @@ export const ToolApprovalRequestEventSchema = z.object({
   args: z.unknown(),
   risk: ToolRiskSchema,
   expiresAtMs: z.number().int().nonnegative(),
+  /** What the command rules made of the call, for a tool that has them. */
+  command: CommandPolicySchema.optional(),
 });
 
 /**

@@ -19,7 +19,7 @@ import type { WebKey } from '@/i18n/keys.js';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ApprovalScope, Attachment } from '@darkwire/protocol';
+import type { ApprovalScope, Attachment, ExecRule } from '@darkwire/protocol';
 
 import { cn } from '@/lib/cn.js';
 import { useFormat } from '@/lib/use-format.js';
@@ -71,6 +71,7 @@ interface MessageProps {
     callId: string,
     approved: boolean,
     scope: ApprovalScope,
+    rule?: ExecRule,
   ) => void;
   readonly onAction: (action: MessageAction) => void;
 }

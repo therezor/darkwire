@@ -374,8 +374,8 @@ describe('the providers panel', () => {
 
 describe('the tab strip', () => {
   it('puts the panel it opens in the URL', async () => {
-    // Appearance rather than a panel behind the settings request: the point
-    // here is the routing, and this one renders without waiting on the server.
+    // Account rather than a panel behind the settings request: the point here
+    // is the routing, and this one renders without waiting on the server.
     //
     // This used to be asserted on `Knowledge`, the one panel that rendered a
     // "Phase 5" placeholder instead of a form. That panel is gone, but the
@@ -384,9 +384,9 @@ describe('the tab strip', () => {
     // four clicks.
     const { user, router } = mount();
 
-    await user.click(await screen.findByRole('tab', { name: 'Appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Account' }));
 
-    expect(router.state.location.searchStr).toContain('panel=appearance');
+    expect(router.state.location.searchStr).toContain('panel=account');
   });
 });
 
