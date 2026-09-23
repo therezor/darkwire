@@ -11,7 +11,8 @@
 //! What actually constrains the child is here instead:
 //!
 //!  - A shell binary is refused when the agent's `shell` permission is `deny`,
-//!    and on the host the `-c` family of flags is refused whatever it says.
+//!    and on the host the `-c` family of flags is refused whatever it says. A
+//!    shell behind a launcher such as `env` or `timeout` counts.
 //!    Handing `bash -c "…"` to a shell-less spawn re-creates the shell parsing
 //!    the argv contract removes; that is the one thing on this list a
 //!    metacharacter scan would have been aiming at.
@@ -83,9 +84,227 @@ const PROGRAM_STRING_FLAGS: &[&str] = &[
     "--command",
     "/c",
     "/k",
+    "/r",
     "-command",
     "-encodedcommand",
 ];
+
+/// Programs that run the program named in their arguments.
+///
+/// A shell behind one of these is still a shell: `env sh -c "…"` is `sh -c`.
+/// Their own options are not parsed. Any argument naming a shell makes the
+/// call a shell call, which can only over-refuse.
+const LAUNCHERS: &[&str] = &[
+    "caffeinate",
+    "chrt",
+    "doas",
+    "env",
+    "flock",
+    "gtimeout",
+    "ionice",
+    "nice",
+    "nohup",
+    "setsid",
+    "stdbuf",
+    "sudo",
+    "taskset",
+    "time",
+    "timeout",
+    "xargs",
+];
+
+/// Whether a binary name is a shell, whatever its case.
+///
+/// Case is folded because macOS and Windows find `Bash` and `bash` as the same
+/// file.
+pub fn is_shell_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    SHELL_BINARIES.contains(&lower.as_str())
+}
+
+/// The shell an argv runs, directly or behind a launcher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellCall {
+    /// The shell's binary name, or the launcher's when `env -S` is the shell.
+    pub name: String,
+    /// Where the shell's own arguments start.
+    pub args_from: usize,
+    /// `env -S` or `--split-string`, which parses a string into a command.
+    pub split_string: Option<String>,
+}
+
+/// `env -S` and `--split-string`, the one launcher option that takes a
+/// program string itself.
+fn is_split_string(argument: &str) -> bool {
+    argument.starts_with("--split-string")
+        || argument
+            .strip_prefix('-')
+            .is_some_and(|flags| !flags.starts_with('-') && flags.contains('S'))
+}
+
+/// `env` options that take the next argument as their value.
+const ENV_VALUE_OPTIONS: &[&str] = &["-u", "-C", "--unset", "--chdir"];
+
+/// The shell `argv` runs, if any.
+pub fn shell_call(argv: &[String]) -> Option<ShellCall> {
+    let program = binary_name(argv.first()?);
+    if is_shell_name(&program) {
+        return Some(ShellCall {
+            name: program,
+            args_from: 1,
+            split_string: None,
+        });
+    }
+    if !LAUNCHERS.contains(&program.to_lowercase().as_str()) {
+        return None;
+    }
+    // Only `env`'s own options can be `-S`: past them, `-S` belongs to
+    // whatever `env` runs.
+    let mut env_options = program.eq_ignore_ascii_case("env");
+    let mut value_next = false;
+    for (index, argument) in argv.iter().enumerate().skip(1) {
+        if env_options {
+            if value_next {
+                value_next = false;
+                continue;
+            }
+            if is_split_string(argument) {
+                return Some(ShellCall {
+                    name: "env".to_owned(),
+                    args_from: index + 1,
+                    split_string: Some(argument.clone()),
+                });
+            }
+            if ENV_VALUE_OPTIONS.contains(&argument.as_str()) {
+                value_next = true;
+                continue;
+            }
+            if argument.starts_with('-') || argument.contains('=') {
+                continue;
+            }
+            env_options = false;
+        } else if argument.contains('=') {
+            // `SHELL=/bin/bash` names a shell and runs nothing.
+            continue;
+        }
+        let name = binary_name(argument);
+        if is_shell_name(&name) {
+            return Some(ShellCall {
+                name,
+                args_from: index + 1,
+                split_string: None,
+            });
+        }
+        if name.eq_ignore_ascii_case("env") {
+            env_options = true;
+        }
+    }
+    None
+}
+
+/// Options of a POSIX shell that take the next argument as their value.
+const SHELL_VALUE_OPTIONS: &[&str] = &[
+    "--rcfile",
+    "--init-file",
+    "-d",
+    "--debug",
+    "--debug-output",
+    "--profile",
+    "--profile-startup",
+    "-f",
+    "--features",
+];
+
+/// Whether a shell option consumes the argument after it: `-o pipefail`,
+/// `+O extglob`, or a cluster ending in either, such as `-eo pipefail`.
+fn takes_value(argument: &str) -> bool {
+    if SHELL_VALUE_OPTIONS.contains(&argument) {
+        return true;
+    }
+    argument
+        .strip_prefix('-')
+        .or_else(|| argument.strip_prefix('+'))
+        .is_some_and(|cluster| {
+            !cluster.starts_with('-')
+                && cluster.bytes().all(|c| c.is_ascii_alphabetic())
+                && cluster.contains(['o', 'O'])
+        })
+}
+
+/// The argument that makes the shell `name` take a program string, if any.
+///
+/// A POSIX shell reads options only before its first operand, so
+/// `bash build.sh -clean` hands `-clean` to the script. The scan stops at the
+/// first argument not starting with `-` or `+`, and at `--`. `busybox`'s first
+/// argument is the applet, so its options start after it. PowerShell and cmd
+/// are scanned whole.
+fn program_string_flag<'a>(name: &str, args: &'a [String]) -> Option<&'a String> {
+    let lower = name.to_lowercase();
+    if matches!(lower.as_str(), "cmd" | "powershell" | "pwsh") {
+        return args
+            .iter()
+            .find(|argument| is_program_string_flag(name, argument));
+    }
+    let mut args = args.iter().peekable();
+    if lower == "busybox" {
+        args.next();
+    }
+    // A first argument spelled like another shell's flag, such as `/C`, is
+    // refused as that flag rather than run as a script path.
+    if let Some(first) = args.peek()
+        && PROGRAM_STRING_FLAGS.contains(&first.to_lowercase().as_str())
+    {
+        return Some(first);
+    }
+    while let Some(argument) = args.next() {
+        if argument == "--" || !(argument.starts_with('-') || argument.starts_with('+')) {
+            return None;
+        }
+        if is_program_string_flag(name, argument) {
+            return Some(argument);
+        }
+        if takes_value(argument) {
+            args.next();
+        }
+    }
+    None
+}
+
+/// Whether one argument makes the shell `name` take a program string.
+///
+/// POSIX shells take `-c` in any cluster of short flags, so `-ec` and `-xc`
+/// count. PowerShell spells long options with one dash and accepts any
+/// unambiguous prefix, so `-e` and `-enc` are `-EncodedCommand`, and so is its
+/// alias `-ec`. A cluster rule there would refuse `-NonInteractive`.
+fn is_program_string_flag(name: &str, argument: &str) -> bool {
+    let lower = argument.to_lowercase();
+    if PROGRAM_STRING_FLAGS.contains(&lower.as_str()) {
+        return true;
+    }
+    match name.to_lowercase().as_str() {
+        "cmd" => ["/c", "/k", "/r"]
+            .iter()
+            .any(|flag| lower.starts_with(flag)),
+        "powershell" | "pwsh" => {
+            lower == "-ec"
+                || (lower.len() >= 2
+                    && lower.starts_with('-')
+                    && ["-command", "-encodedcommand"]
+                        .iter()
+                        .any(|full| full.starts_with(lower.as_str())))
+        }
+        shell => {
+            // fish's `-C` runs its init command, which is a program string too.
+            let fish = shell == "fish";
+            (fish && lower.starts_with("--init-command"))
+                || argument.strip_prefix('-').is_some_and(|cluster| {
+                    !cluster.is_empty()
+                        && cluster.bytes().all(|c| c.is_ascii_alphabetic())
+                        && (cluster.contains('c') || (fish && cluster.contains('C')))
+                })
+        }
+    }
+}
 
 /// Stripped before allow/deny matching so a verdict is the same on every platform.
 const EXECUTABLE_EXTENSIONS: &[&str] = &[".exe", ".com", ".bat", ".cmd", ".ps1"];
@@ -275,15 +494,11 @@ fn build_env(
     env
 }
 
-fn check_binary(
-    name: &str,
-    argv: &[String],
-    config: &ExecToolConfig,
-    sandboxed: bool,
-) -> Result<()> {
-    if !SHELL_BINARIES.contains(&name) {
+fn check_binary(argv: &[String], config: &ExecToolConfig, sandboxed: bool) -> Result<()> {
+    let Some(call) = shell_call(argv) else {
         return Ok(());
-    }
+    };
+    let name = call.name.as_str();
     if config.shell == ToolPermission::Deny {
         return Err(denied(
             format!(
@@ -292,12 +507,12 @@ fn check_binary(
             detail("binary", name),
         ));
     }
-    if !sandboxed
-        && let Some(flag) = argv
-            .iter()
-            .skip(1)
-            .find(|argument| PROGRAM_STRING_FLAGS.contains(&argument.to_lowercase().as_str()))
-    {
+    let shell_args = argv.get(call.args_from..).unwrap_or_default();
+    let flag = call
+        .split_string
+        .as_ref()
+        .or_else(|| program_string_flag(name, shell_args));
+    if !sandboxed && let Some(flag) = flag {
         let mut details = detail("binary", name);
         details.insert("flag".to_owned(), Value::from(flag.as_str()));
         return Err(denied(
@@ -391,8 +606,7 @@ pub fn guard_exec(argv: &[String], options: &ExecGuardOptions<'_>) -> Result<Exe
         ));
     }
 
-    let name = binary_name(argv0);
-    check_binary(&name, argv, config, options.sandboxed)?;
+    check_binary(argv, config, options.sandboxed)?;
 
     let mut paths: Vec<PathBuf> = Vec::new();
     let file = if options.sandboxed {

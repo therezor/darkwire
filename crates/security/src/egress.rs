@@ -24,7 +24,7 @@ use darkwire_core::Result;
 use darkwire_protocol::environment::EnvironmentDefinition;
 use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 
-use crate::allow::AllowList;
+use crate::allow::{AllowList, hard_blocked_filter_rules};
 use crate::environment::assert_gateway_compatible;
 use crate::environment::invalid;
 
@@ -56,12 +56,22 @@ pub fn gateway_rules(
     .map_err(|e| invalid(e.to_string()))?;
     // Rendered from the parsed entry, never from the operator's text: these
     // strings become a ruleset, and an entry carrying a semicolon would be a
-    // rule injection. `AllowList::parse` has already refused anything in a
-    // range nothing may reach, which is the only check there is, because
-    // nftables has no notion of the blocked table.
+    // rule injection. `AllowList::parse` has already refused an entry inside a
+    // range nothing may reach. A wider one such as `0.0.0.0/0` still contains
+    // those ranges, so they are dropped first. A narrower one the parser
+    // allowed inside them, such as `::1`, is accepted before the drops.
     let allow = AllowList::parse(&network.allow)?;
-    for (family, destination) in allow.filter_rules() {
-        writeln!(rules, " {family} daddr {destination} accept")
+    let (before, after) = allow.filter_rules_around_drops();
+    let accept = |(family, destination)| (family, destination, "accept");
+    let drops =
+        hard_blocked_filter_rules().map(|(family, destination)| (family, destination, "drop"));
+    for (family, destination, verdict) in before
+        .into_iter()
+        .map(accept)
+        .chain(drops)
+        .chain(after.into_iter().map(accept))
+    {
+        writeln!(rules, " {family} daddr {destination} {verdict}")
             .map_err(|e| invalid(e.to_string()))?;
     }
     rules.push_str(

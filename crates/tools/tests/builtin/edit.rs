@@ -8,13 +8,14 @@
 )]
 
 use std::fs;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
 use darkwire_core::ErrorKind;
 use darkwire_tools::edit_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, run, text};
+use crate::common::{failure, fifo, run, run_on_fifo, text};
 
 fn code(ws: &TestWorkspace, body: &str) {
     fs::write(ws.root().join("code.ts"), body).unwrap();
@@ -293,4 +294,104 @@ async fn edit_keeps_a_byte_order_mark_the_model_never_sent() {
     )
     .await;
     assert_eq!(read_code(&ws), "\u{feff}const a = 2;\n");
+}
+
+#[tokio::test]
+async fn edit_refuses_a_fifo_rather_than_blocking_on_it() {
+    let ws = TestWorkspace::new();
+    let pipe = ws.root().join("pipe");
+    fifo(&pipe);
+    let result = run_on_fifo(
+        &edit_tool(),
+        json!({"path": "pipe", "oldText": "a", "newText": "b"}),
+        ws.context(),
+        &pipe,
+    )
+    .await;
+    assert!(result.is_error);
+    assert_eq!(result.kind, Some(ErrorKind::InvalidInput));
+    assert!(
+        result.content.contains("not a regular file"),
+        "{}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn edit_counts_overlapping_occurrences_as_ambiguous() {
+    let ws = TestWorkspace::new();
+    code(&ws, "}\n}\n}");
+    let result = failure(
+        &edit_tool(),
+        json!({"path": "code.ts", "oldText": "}\n}", "newText": "}"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(result.kind, Some(ErrorKind::Conflict));
+    assert!(
+        result.content.contains("occurs 2 times"),
+        "{}",
+        result.content
+    );
+    assert_eq!(read_code(&ws), "}\n}\n}");
+}
+
+#[tokio::test]
+async fn edit_refuses_a_file_too_large_to_hold_in_memory() {
+    let ws = TestWorkspace::new();
+    // Sparse, so the test costs no real disk writes.
+    let file = fs::File::create(ws.root().join("code.ts")).unwrap();
+    file.set_len(16 * 1024 * 1024 + 1).unwrap();
+    let result = failure(
+        &edit_tool(),
+        json!({"path": "code.ts", "oldText": "a", "newText": "b"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(result.kind, Some(ErrorKind::InvalidInput));
+    assert!(result.content.contains("Use write"), "{}", result.content);
+}
+
+#[tokio::test]
+async fn edit_writes_a_new_file_and_renames_it_over_the_old_one() {
+    let ws = TestWorkspace::new();
+    code(&ws, "const a = 1;\n");
+    let path = ws.root().join("code.ts");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).unwrap();
+    let before = fs::metadata(&path).unwrap().ino();
+    text(
+        &edit_tool(),
+        json!({"path": "code.ts", "oldText": "1", "newText": "2"}),
+        ws.context(),
+    )
+    .await;
+    let after = fs::metadata(&path).unwrap();
+    assert_ne!(after.ino(), before);
+    assert_eq!(after.permissions().mode() & 0o777, 0o666);
+    assert_eq!(read_code(&ws), "const a = 2;\n");
+    let names: Vec<_> = fs::read_dir(ws.root())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["code.ts"]);
+}
+
+#[tokio::test]
+async fn edit_refuses_a_file_it_could_not_have_written_in_place() {
+    let ws = TestWorkspace::new();
+    code(&ws, "const a = 1;\n");
+    let path = ws.root().join("code.ts");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+    if fs::OpenOptions::new().write(true).open(&path).is_ok() {
+        // Root ignores the mode, so there is nothing to observe.
+        return;
+    }
+    let result = failure(
+        &edit_tool(),
+        json!({"path": "code.ts", "oldText": "1", "newText": "2"}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(result.kind, Some(ErrorKind::PermissionDenied));
+    assert_eq!(read_code(&ws), "const a = 1;\n");
 }

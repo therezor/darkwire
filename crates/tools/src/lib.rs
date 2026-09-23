@@ -53,8 +53,9 @@ pub use builtin::{
 };
 pub use container_runner::{
     ContainerCreateOptions, ContainerExecOptions, ContainerRunner, ContainerRunnerOptions,
-    KillSignal, RUNS_MOUNT_DIR, Transcript, WorkspaceMount, container_create_argv,
-    container_exec_argv, container_is_gone, container_kill_argv, container_run_dir,
+    KillSignal, RUNS_MOUNT_DIR, TRANSCRIPT_MAX_BYTES, Transcript, WorkspaceMount,
+    container_create_argv, container_exec_argv, container_exec_env, container_is_gone,
+    container_kill_argv, container_run_dir,
 };
 pub use discovery::{Activation, ToolDiscovery};
 pub use environment::{Environment, EnvironmentResolver, HostEnvironment, Placed};

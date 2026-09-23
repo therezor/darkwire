@@ -31,12 +31,15 @@
 use darkwire_core::{ErrorKind, Result, WireError};
 
 use crate::ip::{
-    AddressCategory, IpFamily, ParsedCidr, ParsedIp, cidr_contains, classify_address, parse_cidr,
-    parse_ip_literal,
+    AddressCategory, BLOCKED_RANGES, IpFamily, ParsedCidr, ParsedIp, cidr_contains,
+    classify_address, parse_cidr, parse_ip_literal,
 };
 
 /// The longest a DNS name may be, in bytes.
 const MAX_NAME_BYTES: usize = 253;
+
+/// An nftables family keyword and the destination it matches.
+pub type FilterRule = (&'static str, String);
 
 /// One entry in an allow-list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +54,28 @@ pub enum AllowEntry {
     Host(String),
 }
 
+/// The nftables family keyword for an address family.
+fn family_keyword(family: IpFamily) -> &'static str {
+    match family {
+        IpFamily::V4 => "ip",
+        IpFamily::V6 => "ip6",
+    }
+}
+
+/// A block as `address/prefix`, printed from its bytes.
+fn render_block(block: &ParsedCidr) -> String {
+    format!(
+        "{}/{}",
+        ParsedIp {
+            family: block.family,
+            canonical: String::new(),
+            bytes: block.bytes.clone(),
+        }
+        .to_ip_addr(),
+        block.prefix
+    )
+}
+
 impl AllowEntry {
     /// The nftables family keyword and destination this entry permits, or
     /// `None` for a name, which a packet filter cannot express and which the
@@ -62,30 +87,64 @@ impl AllowEntry {
     /// one reprinted from four bytes and a prefix cannot be.
     pub fn as_filter_rule(&self) -> Option<(&'static str, String)> {
         let (family, destination) = match self {
-            AllowEntry::Block(block) => (
-                block.family,
-                format!(
-                    "{}/{}",
-                    ParsedIp {
-                        family: block.family,
-                        canonical: String::new(),
-                        bytes: block.bytes.clone(),
-                    }
-                    .to_ip_addr(),
-                    block.prefix
-                ),
-            ),
+            AllowEntry::Block(block) => (block.family, render_block(block)),
             AllowEntry::Address(address) => (address.family, address.to_ip_addr().to_string()),
             AllowEntry::Suffix(_) | AllowEntry::Host(_) => return None,
         };
-        Some((
-            match family {
-                IpFamily::V4 => "ip",
-                IpFamily::V6 => "ip6",
-            },
-            destination,
-        ))
+        Some((family_keyword(family), destination))
     }
+
+    /// Whether this entry sits inside a range [`hard_blocked_filter_rules`]
+    /// drops, so its accept has to come before the drops to mean anything.
+    ///
+    /// Only an entry the parser let through can be here, which makes it a
+    /// narrower range that may be unlocked: `::1` inside `::/96`.
+    pub fn inside_dropped_range(&self) -> bool {
+        let (probe, prefix) = match self {
+            AllowEntry::Address(address) => (
+                address.clone(),
+                u32::try_from(address.bytes.len() * 8).unwrap_or(u32::MAX),
+            ),
+            AllowEntry::Block(block) => (
+                ParsedIp {
+                    family: block.family,
+                    canonical: String::new(),
+                    bytes: block.bytes.clone(),
+                },
+                block.prefix,
+            ),
+            AllowEntry::Suffix(_) | AllowEntry::Host(_) => return false,
+        };
+        BLOCKED_RANGES
+            .iter()
+            .filter(|range| is_hard_blocked(range.category))
+            .filter_map(|range| parse_cidr(range.cidr))
+            .any(|range| range.prefix <= prefix && cidr_contains(&range, &probe))
+    }
+}
+
+/// Whether nothing may unlock a category, however an entry is written.
+fn is_hard_blocked(category: AddressCategory) -> bool {
+    matches!(
+        category,
+        AddressCategory::LinkLocal
+            | AddressCategory::Multicast
+            | AddressCategory::Unspecified
+            | AddressCategory::Reserved
+    )
+}
+
+/// Every range no entry may unlock, as nftables family and destination.
+///
+/// Refusing such an entry is not enough on its own. `0.0.0.0/0` is a legal
+/// entry that contains `169.254.169.254`, so the packet filter drops these
+/// before any accept can match them.
+pub fn hard_blocked_filter_rules() -> impl Iterator<Item = (&'static str, String)> {
+    BLOCKED_RANGES
+        .iter()
+        .filter(|range| is_hard_blocked(range.category))
+        .filter_map(|range| parse_cidr(range.cidr))
+        .map(|block| (family_keyword(block.family), render_block(&block)))
 }
 
 fn refuse(message: impl Into<String>, entry: &str) -> WireError {
@@ -111,13 +170,12 @@ fn is_dns_name(name: &str) -> bool {
 
 /// A category no entry may unlock, however it is written.
 ///
-/// The packet filter has no notion of [`crate::BLOCKED_RANGES`]: an entry of
-/// `169.254.0.0/16` would become `ip daddr 169.254.0.0/16 accept` and raw TCP
-/// would reach the cloud metadata endpoint. There is no second line of defence
-/// behind this check, so it is the one that has to hold.
+/// An entry of `169.254.0.0/16` would become `ip daddr 169.254.0.0/16 accept`
+/// and raw TCP would reach the cloud metadata endpoint.
 ///
 /// A prefix that merely *overlaps* a blocked range is not refused. `0.0.0.0/0`
 /// is not inside `0.0.0.0/8`, and an operator writing "everything" means it.
+/// [`hard_blocked_filter_rules`] keeps those ranges out of it.
 fn hard_blocked(entry: &AllowEntry) -> Option<&'static str> {
     let probe = match entry {
         AllowEntry::Address(address) => address.clone(),
@@ -129,13 +187,7 @@ fn hard_blocked(entry: &AllowEntry) -> Option<&'static str> {
         _ => return None,
     };
     let range = classify_address(&probe)?;
-    if !matches!(
-        range.category,
-        AddressCategory::LinkLocal
-            | AddressCategory::Multicast
-            | AddressCategory::Unspecified
-            | AddressCategory::Reserved
-    ) {
+    if !is_hard_blocked(range.category) {
         return None;
     }
     // A block is only inside the range if the range is at least as general.
@@ -228,6 +280,22 @@ impl AllowList {
     /// Every entry a packet filter can express, rendered, in the order given.
     pub fn filter_rules(&self) -> impl Iterator<Item = (&'static str, String)> {
         self.entries.iter().filter_map(AllowEntry::as_filter_rule)
+    }
+
+    /// The entries that must be accepted before the hard-blocked drops, then
+    /// the rest. See [`AllowEntry::inside_dropped_range`].
+    pub fn filter_rules_around_drops(&self) -> (Vec<FilterRule>, Vec<FilterRule>) {
+        let (before, after): (Vec<&AllowEntry>, Vec<&AllowEntry>) = self
+            .entries
+            .iter()
+            .partition(|entry| entry.inside_dropped_range());
+        let render = |entries: Vec<&AllowEntry>| {
+            entries
+                .into_iter()
+                .filter_map(AllowEntry::as_filter_rule)
+                .collect()
+        };
+        (render(before), render(after))
     }
 
     /// The entry matching a destination host, which may itself be an address.

@@ -47,6 +47,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::builtin::built;
+use crate::builtin::shared::format_bytes;
+use crate::container_runner::TRANSCRIPT_MAX_BYTES;
 use crate::runner::{RunOutcome, RunRequest};
 use crate::tool::{
     AnyTool, BoxFuture, CallPolicy, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
@@ -186,8 +188,9 @@ pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> Too
                 plan.max_output_bytes
             ),
             Some(dir) => format!(
-                "[exec: output truncated at {} bytes per stream. The complete output is at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec: grep/tail/cat those paths rather than re-running the command. read cannot: the path is outside the workspace.]",
-                plan.max_output_bytes
+                "[exec: output truncated at {} bytes per stream. Up to {} per stream is kept at {dir}/stdout.log and {dir}/stderr.log. Reach it with exec: grep/tail/cat those paths rather than re-running the command. read cannot: the path is outside the workspace.]",
+                plan.max_output_bytes,
+                format_bytes(TRANSCRIPT_MAX_BYTES)
             ),
         });
     }

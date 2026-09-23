@@ -36,7 +36,7 @@ use serde::Deserialize;
 use tokio::io::AsyncReadExt as _;
 
 use crate::builtin::built;
-use crate::builtin::shared::{clamp_note, fs_failure};
+use crate::builtin::shared::{assert_regular, clamp_note, fs_failure, open_flags};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -247,13 +247,17 @@ impl ToolHandler for Read {
             let note = clamp_note(&args.path, &accepted);
             let budget = ctx.config.max_output_chars.saturating_mul(BYTES_PER_CHAR);
 
-            let file = tokio::fs::File::open(&accepted.path)
+            let file = tokio::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(open_flags())
+                .open(&accepted.path)
                 .await
                 .map_err(|error| fs_failure(&error, where_, &note))?;
             let stats = file
                 .metadata()
                 .await
                 .map_err(|error| fs_failure(&error, where_, &note))?;
+            assert_regular(&stats, where_, &note)?;
             if stats.is_dir() {
                 return Err(WireError::new(
                     ErrorKind::InvalidInput,

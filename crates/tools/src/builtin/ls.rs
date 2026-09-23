@@ -12,13 +12,15 @@
 //! mistake, and a walk that followed it would run until it exhausted the path
 //! length limit.
 
-use std::path::{Path, PathBuf};
+use std::cmp::Ordering;
+use std::path::Path;
 
-use darkwire_core::Result;
+use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use walkdir::WalkDir;
+use tokio_util::sync::CancellationToken;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::builtin::built;
 use crate::builtin::shared::{clamp_note, format_bytes, fs_failure};
@@ -28,6 +30,12 @@ use crate::tool::{
 };
 
 const DEFAULT_MAX_ENTRIES: u64 = 500;
+
+/// How many entries a walk visits in all before it stops counting.
+///
+/// Past the cap nothing is kept, only counted, and counting a tree of millions
+/// costs the whole walk's time for one number in a notice.
+const COUNT_SCAN_LIMIT: usize = 100_000;
 
 fn dot() -> String {
     ".".to_owned()
@@ -53,48 +61,102 @@ struct ListDirArgs {
     max_entries: u64,
 }
 
-struct Entry {
-    /// Relative to the directory that was asked for, not to the root the walk
-    /// happens to have started from.
-    name: String,
-    is_directory: bool,
-    absolute: PathBuf,
+/// What one walk produced.
+#[derive(Debug, Default)]
+struct Listing {
+    /// The shown entries, already formatted.
+    lines: Vec<String>,
+    /// Entries past the cap.
+    omitted: usize,
+    /// The count stopped at [`COUNT_SCAN_LIMIT`], so `omitted` is a floor.
+    counted_partially: bool,
+    /// Entries that could not be read, skipped rather than raised.
+    unreadable: usize,
 }
 
-/// Every entry under `root`, directories first, then name — the order someone
+/// Directories first, then name, within each directory: the order someone
 /// reading a listing expects, and stable across filesystems, which directory
-/// order is not.
-fn walk(root: &Path, recursive: bool) -> std::result::Result<Vec<Entry>, std::io::Error> {
-    let mut walker = WalkDir::new(root).follow_links(false).min_depth(1);
+/// order is not. A recursive listing is in tree order.
+fn listing_order(left: &DirEntry, right: &DirEntry) -> Ordering {
+    right
+        .file_type()
+        .is_dir()
+        .cmp(&left.file_type().is_dir())
+        .then_with(|| {
+            left.file_name()
+                .to_string_lossy()
+                .encode_utf16()
+                .cmp(right.file_name().to_string_lossy().encode_utf16())
+        })
+}
+
+/// The entries under `root`, keeping at most `cap` of them.
+///
+/// Blocking, so it runs off the async runtime. An unreadable entry below the
+/// root is counted and skipped; one at the root itself is the whole answer.
+fn walk(
+    root: &Path,
+    recursive: bool,
+    cap: usize,
+    token: &CancellationToken,
+) -> std::result::Result<Listing, std::io::Error> {
+    let mut walker = WalkDir::new(root)
+        .follow_links(false)
+        .min_depth(1)
+        .sort_by(listing_order);
     if !recursive {
         walker = walker.max_depth(1);
     }
-    let mut entries = Vec::new();
+    let mut listing = Listing::default();
+    let mut visited = 0usize;
     for item in walker {
-        let entry = item.map_err(|error| {
-            error
-                .into_io_error()
-                .unwrap_or_else(|| std::io::Error::other("directory walk failed"))
-        })?;
-        let name = entry
-            .path()
-            .strip_prefix(root)
-            .unwrap_or(entry.path())
-            .to_string_lossy()
-            .into_owned();
-        entries.push(Entry {
-            name,
-            is_directory: entry.file_type().is_dir(),
-            absolute: entry.into_path(),
-        });
+        if token.is_cancelled() {
+            break;
+        }
+        let entry = match item {
+            Ok(entry) => entry,
+            Err(error) if error.depth() == 0 => {
+                return Err(error
+                    .into_io_error()
+                    .unwrap_or_else(|| std::io::Error::other("directory walk failed")));
+            }
+            Err(_) => {
+                listing.unreadable = listing.unreadable.saturating_add(1);
+                continue;
+            }
+        };
+        visited = visited.saturating_add(1);
+        if listing.lines.len() >= cap {
+            listing.omitted = listing.omitted.saturating_add(1);
+            if visited >= COUNT_SCAN_LIMIT {
+                listing.counted_partially = true;
+                break;
+            }
+            continue;
+        }
+        listing.lines.push(line(root, &entry));
     }
-    entries.sort_by(|left, right| {
-        right
-            .is_directory
-            .cmp(&left.is_directory)
-            .then_with(|| left.name.encode_utf16().cmp(right.name.encode_utf16()))
-    });
-    Ok(entries)
+    Ok(listing)
+}
+
+/// One entry as the model reads it.
+fn line(root: &Path, entry: &DirEntry) -> String {
+    let name = entry
+        .path()
+        .strip_prefix(root)
+        .unwrap_or(entry.path())
+        .to_string_lossy();
+    if entry.file_type().is_dir() {
+        return format!("{name}/");
+    }
+    // A `stat` per file, following a link: sizes are what make a listing
+    // useful for deciding whether to read something, and the cap already
+    // bounds how many of these run.
+    let size = match std::fs::metadata(entry.path()) {
+        Ok(stats) => format_bytes(stats.len()),
+        Err(_) => "unreadable".to_owned(),
+    };
+    format!("{name} ({size})")
 }
 
 struct ListDir;
@@ -117,34 +179,37 @@ impl ToolHandler for ListDir {
             };
             let note = clamp_note(&args.path, &accepted);
 
-            let sorted = walk(&accepted.path, args.recursive)
+            let root = accepted.path.clone();
+            let recursive = args.recursive;
+            let cap = usize::try_from(args.max_entries).unwrap_or(usize::MAX);
+            let token = ctx.token.clone();
+            let listing = tokio::task::spawn_blocking(move || walk(&root, recursive, cap, &token))
+                .await
+                .map_err(|error| {
+                    WireError::new(ErrorKind::Internal, format!("listing failed: {error}"))
+                })?
                 .map_err(|error| fs_failure(&error, where_, &note))?;
-            let shown = usize::try_from(args.max_entries).unwrap_or(usize::MAX);
-            let mut lines: Vec<String> = Vec::new();
-            for entry in sorted.iter().take(shown) {
-                assert_not_aborted(&ctx.token, "ls")?;
-                if entry.is_directory {
-                    lines.push(format!("{}/", entry.name));
-                    continue;
-                }
-                // A `stat` per file: sizes are what make a listing useful for
-                // deciding whether to read something, and the cap already
-                // bounds how many of these run.
-                let size = match tokio::fs::metadata(&entry.absolute).await {
-                    Ok(stats) => format_bytes(stats.len()),
-                    Err(_) => "unreadable".to_owned(),
-                };
-                lines.push(format!("{} ({size})", entry.name));
-            }
+            assert_not_aborted(&ctx.token, "ls")?;
 
-            if lines.is_empty() {
+            let mut lines = listing.lines;
+            if lines.is_empty() && listing.unreadable == 0 {
                 return Ok(ToolOutput::text(format!("{where_} is empty.{note}")));
             }
-            let omitted = sorted.len().saturating_sub(shown);
-            if omitted > 0 {
+            if listing.omitted > 0 {
+                let more = if listing.counted_partially {
+                    format!("more than {}", listing.omitted)
+                } else {
+                    listing.omitted.to_string()
+                };
                 lines.push(format!(
-                    "… {omitted} more entries not shown (maxEntries={}).",
+                    "… {more} more entries not shown (maxEntries={}).",
                     args.max_entries
+                ));
+            }
+            if listing.unreadable > 0 {
+                lines.push(format!(
+                    "[ls: skipped {} unreadable entries.]",
+                    listing.unreadable
                 ));
             }
             if !note.is_empty() {

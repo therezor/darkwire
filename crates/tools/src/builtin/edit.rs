@@ -20,6 +20,14 @@
 //! was before any of them applied, so the model does not have to predict how
 //! its own earlier edit moved the text, and either all of them land or none
 //! does.
+//!
+//! The new contents go to a temporary file beside the original, which is then
+//! renamed over it. A failed or interrupted write leaves the old file whole.
+
+use std::io::{Read as _, Write as _};
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
@@ -27,7 +35,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::builtin::built;
-use crate::builtin::shared::{clamp_note, fs_failure};
+use crate::builtin::shared::{clamp_note, format_bytes, fs_failure, open_flags};
+use crate::builtin::walk::MAX_FILE_BYTES;
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -106,6 +115,24 @@ fn quote(text: &str) -> String {
     format!("{kept}…")
 }
 
+/// Where `needle` starts in `haystack`, overlapping matches included.
+///
+/// `match_indices` skips a match that overlaps the one before it, so `}\n}`
+/// in `}\n}\n}` would look unique when it occurs twice.
+fn occurrences(haystack: &str, needle: &str) -> Vec<usize> {
+    let mut found = Vec::new();
+    if needle.is_empty() {
+        return found;
+    }
+    let mut from = 0;
+    while let Some(at) = haystack[from..].find(needle) {
+        let start = from + at;
+        found.push(start);
+        from = start + haystack[start..].chars().next().map_or(1, char::len_utf8);
+    }
+    found
+}
+
 /// Every block's one match in the original, or the refusal saying why not.
 ///
 /// Matching happens against the original for all of them at once, which is
@@ -123,10 +150,7 @@ fn resolve(original: &str, blocks: &[EditBlock], where_: &str) -> Result<Vec<Spa
             .with_detail("path", where_)
             .with_detail("edit", number));
         }
-        let found: Vec<usize> = original
-            .match_indices(&block.old_text)
-            .map(|(at, _)| at)
-            .collect();
+        let found = occurrences(original, &block.old_text);
         match found.len() {
             0 => {
                 return Err(WireError::new(
@@ -263,9 +287,35 @@ impl ToolHandler for Edit {
             let where_ = accepted.relative.as_str();
             let note = clamp_note(&args.path, &accepted);
 
-            let raw = tokio::fs::read_to_string(&accepted.path)
+            let path = accepted.path.clone();
+            let loaded = tokio::task::spawn_blocking(move || load(&path))
                 .await
-                .map_err(|error| fs_failure(&error, where_, &note))?;
+                .map_err(|error| {
+                    WireError::new(ErrorKind::Internal, format!("edit failed: {error}"))
+                })?;
+            let (raw, mode) = match loaded {
+                Ok(Loaded::Text { text, mode }) => (text, mode),
+                Ok(Loaded::NotRegular) => {
+                    return Err(WireError::new(
+                        ErrorKind::InvalidInput,
+                        format!("{where_} is not a regular file.{note}"),
+                    )
+                    .with_detail("path", where_));
+                }
+                Ok(Loaded::TooLarge(size)) => {
+                    return Err(WireError::new(
+                        ErrorKind::InvalidInput,
+                        format!(
+                            "{where_} is {} and edit handles files up to {}. Use write to replace it.{note}",
+                            format_bytes(size),
+                            format_bytes(MAX_FILE_BYTES)
+                        ),
+                    )
+                    .with_detail("path", where_)
+                    .with_detail("size", size));
+                }
+                Err(error) => return Err(fs_failure(&error, where_, &note)),
+            };
             // A byte-order mark is invisible, so the model never includes one in
             // `oldText`. Matching without it and writing it back is the only
             // reading that both finds the text and leaves the file as it was.
@@ -296,7 +346,7 @@ impl ToolHandler for Edit {
                 let text = apply(&original, &spans);
                 let shown = diff(&original, &spans);
                 assert_not_aborted(&ctx.token, "edit")?;
-                return write_back(ctx, &accepted.path, mark, &text, where_, &note)
+                return write_back(&accepted.path, mode, mark, &text, where_, &note)
                     .await
                     .map(|()| {
                         report(
@@ -312,7 +362,7 @@ impl ToolHandler for Edit {
             };
 
             assert_not_aborted(&ctx.token, "edit")?;
-            write_back(ctx, &accepted.path, mark, &updated, where_, &note).await?;
+            write_back(&accepted.path, mode, mark, &updated, where_, &note).await?;
             Ok(report(
                 &original,
                 &updated,
@@ -366,10 +416,89 @@ fn blocks_of(args: &EditArgs) -> Result<Vec<EditBlock>> {
     }
 }
 
+/// What reading the original found.
+enum Loaded {
+    Text { text: String, mode: u32 },
+    NotRegular,
+    TooLarge(u64),
+}
+
+/// Reads the original through the same checks `read` makes.
+///
+/// Opened for writing as well, so a file this process may not write is refused
+/// here. The rename would otherwise replace it, since only the directory's
+/// permission governs that.
+fn load(path: &Path) -> std::io::Result<Loaded> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(open_flags())
+        .open(path)?;
+    let stats = file.metadata()?;
+    if !stats.is_file() {
+        return Ok(Loaded::NotRegular);
+    }
+    if stats.len() > MAX_FILE_BYTES {
+        return Ok(Loaded::TooLarge(stats.len()));
+    }
+    let mut text = String::new();
+    // Bounded again while reading, in case the file grew after the `fstat`.
+    file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text)?;
+    let read = u64::try_from(text.len()).unwrap_or(u64::MAX);
+    if read > MAX_FILE_BYTES {
+        return Ok(Loaded::TooLarge(read));
+    }
+    Ok(Loaded::Text {
+        text,
+        mode: stats.permissions().mode(),
+    })
+}
+
+/// Tells one edit's temporary file from another's in the same process.
+static TEMPORARY: AtomicU64 = AtomicU64::new(0);
+
+/// Writes `bytes` beside `target` with `mode`, then renames it over `target`.
+///
+/// `create_new` so a name planted in the directory is never written through.
+/// The set-id bits are not carried over, as a write by anyone but root would
+/// clear them anyway.
+fn replace(target: &Path, mode: u32, bytes: &[u8]) -> std::io::Result<()> {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let name = target
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (temporary, mut file) = loop {
+        let serial = TEMPORARY.fetch_add(1, Ordering::Relaxed);
+        let candidate: PathBuf =
+            parent.join(format!(".{name}.{}.{serial}.edit", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode & 0o777)
+            .open(&candidate)
+        {
+            Ok(file) => break (candidate, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    };
+    let written = file
+        .write_all(bytes)
+        .and_then(|()| file.flush())
+        // The umask narrowed `mode` at create time.
+        .and_then(|()| file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777)))
+        .and_then(|()| std::fs::rename(&temporary, target));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
+}
+
 /// Writes the file back, byte-order mark restored.
 async fn write_back(
-    _ctx: &ToolContext,
-    path: &std::path::Path,
+    path: &Path,
+    mode: u32,
     mark: &str,
     text: &str,
     where_: &str,
@@ -378,14 +507,11 @@ async fn write_back(
     let mut bytes = Vec::with_capacity(mark.len() + text.len());
     bytes.extend_from_slice(mark.as_bytes());
     bytes.extend_from_slice(text.as_bytes());
-    tokio::fs::write(path, bytes)
+    let target = path.to_path_buf();
+    tokio::task::spawn_blocking(move || replace(&target, mode, &bytes))
         .await
-        .map_err(|error| fs_failure(error_ref(&error), where_, note))
-}
-
-/// Borrow helper: `fs_failure` takes a reference and the error is owned here.
-fn error_ref(error: &std::io::Error) -> &std::io::Error {
-    error
+        .map_err(|error| WireError::new(ErrorKind::Internal, format!("edit failed: {error}")))?
+        .map_err(|error| fs_failure(&error, where_, note))
 }
 
 /// What the model reads after a successful edit.

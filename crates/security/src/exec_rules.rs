@@ -4,8 +4,8 @@
 //! A rule is a typed argv pattern with an action, and it applies wherever the
 //! agent runs. Each token matches one argument exactly, and a final `*` matches
 //! any number of remaining arguments. The first token matches the program's basename,
-//! through the same [`binary_name`] the guard uses, so `git` covers
-//! `/usr/bin/git` and `git.exe`.
+//! through the same [`binary_name`] the guard uses and ignoring case, so `git`
+//! covers `/usr/bin/git`, `git.exe` and `GIT`.
 //!
 //! Precedence is by specificity, not by list order, so a rule saved from an
 //! approval prompt can never silently outrank a narrower one the operator
@@ -28,7 +28,7 @@ use darkwire_protocol::{CommandPolicy, ExecRule, ExecToolConfig, ToolPermission}
 use serde_json::Value;
 
 use crate::environment::sha256_hex;
-use crate::exec_guard::{SHELL_BINARIES, binary_name};
+use crate::exec_guard::{binary_name, is_shell_name, shell_call};
 
 /// The token that matches any number of remaining arguments.
 pub const REST: &str = "*";
@@ -75,7 +75,10 @@ impl ParsedRule {
                 .enumerate()
                 .all(|(position, (literal, argument))| {
                     if position == 0 {
-                        *literal == binary_name(argument)
+                        // Case is folded so a verdict is the same on every
+                        // platform, as `binary_name` already makes it for
+                        // `.exe`: macOS and Windows run `RM` as `rm`.
+                        literal.to_lowercase() == binary_name(argument).to_lowercase()
                     } else {
                         literal == argument
                     }
@@ -199,7 +202,7 @@ pub struct ExecVerdict<'a> {
 
 /// Whether a program is a shell, by the guard's own list.
 pub fn is_shell(argv0: &str) -> bool {
-    SHELL_BINARIES.contains(&binary_name(argv0).as_str())
+    is_shell_name(&binary_name(argv0))
 }
 
 /// The permission one call gets.
@@ -216,7 +219,7 @@ pub fn exec_verdict<'a>(
     shell: ToolPermission,
 ) -> ExecVerdict<'a> {
     let rule = rules.decide(argv);
-    let is_shell_call = argv.first().is_some_and(|program| is_shell(program));
+    let is_shell_call = shell_call(argv).is_some();
     let base = rule.map_or(fallback, ParsedRule::action);
     let permission = if !is_shell_call {
         base

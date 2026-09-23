@@ -296,3 +296,28 @@ proptest! {
         prop_assert!(parsed.decide(&call).is_some());
     }
 }
+
+#[test]
+fn a_rule_names_its_program_whatever_the_case() {
+    let deny = [rule(Deny, &["rm", "*"])];
+    assert_eq!(verdict(&deny, &["RM", "-rf", "x"]), Deny);
+    assert_eq!(verdict(&deny, &["/bin/Rm", "x"]), Deny);
+    // Arguments still match exactly.
+    let exact = [rule(Deny, &["git", "push"])];
+    assert_eq!(verdict(&exact, &["GIT", "PUSH"]), Ask);
+}
+
+#[test]
+fn a_shell_whatever_its_case_or_launcher_is_capped_as_one() {
+    let wide = ExecRules::parse(&[rule(Allow, &["*"])]).unwrap();
+    for call in [
+        &["Bash", "x.sh"][..],
+        &["env", "sh", "x.sh"],
+        &["timeout", "5", "bash", "x.sh"],
+    ] {
+        let seen = exec_verdict(&wide, &argv(call), Allow, Ask);
+        assert!(seen.shell, "{call:?}");
+        assert_eq!(seen.permission, Ask, "{call:?}");
+    }
+    assert!(is_shell("ZSH"));
+}

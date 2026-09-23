@@ -24,3 +24,36 @@ pub async fn failure(tool: &AnyTool, args: Value, ctx: &ToolContext) -> ToolExec
     assert!(execution.kind.is_some());
     execution
 }
+
+/// Runs a tool against a FIFO, failing rather than hanging if it blocks in
+/// `open`.
+pub async fn run_on_fifo(
+    tool: &AnyTool,
+    args: Value,
+    ctx: &ToolContext,
+    fifo: &std::path::Path,
+) -> ToolExecution {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let outcome =
+        tokio::time::timeout(std::time::Duration::from_secs(5), run(tool, args, ctx)).await;
+    if let Ok(execution) = outcome {
+        return execution;
+    }
+    // Open the other end, so the stuck `open` returns and the runtime can
+    // shut down instead of hanging the test.
+    let flags = nix::fcntl::OFlag::O_NONBLOCK.bits();
+    let _ = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flags)
+        .open(fifo);
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(flags)
+        .open(fifo);
+    panic!("the tool blocked on a FIFO");
+}
+
+/// Makes a FIFO at `path`.
+pub fn fifo(path: &std::path::Path) {
+    nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).unwrap();
+}

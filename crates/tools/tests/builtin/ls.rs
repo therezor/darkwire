@@ -8,14 +8,14 @@
 )]
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 
 use darkwire_core::ErrorKind;
 use darkwire_tools::ls_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, text};
+use crate::common::{failure, run, text};
 
 #[tokio::test]
 async fn ls_lists_directories_first_then_files_with_sizes() {
@@ -105,4 +105,64 @@ async fn ls_marks_an_unreadable_entry_rather_than_failing_the_whole_listing() {
     let result = text(&ls_tool(), json!({}), ws.context()).await;
     assert!(result.contains("broken (unreadable)"));
     assert!(result.contains("fine.txt (1 B)"));
+}
+
+#[tokio::test]
+async fn ls_skips_an_unreadable_directory_and_lists_the_rest() {
+    let ws = TestWorkspace::new();
+    let locked = ws.root().join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inside.txt"), "x").unwrap();
+    fs::write(ws.root().join("fine.txt"), "x").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read_dir(&locked).is_ok();
+    let result = run(
+        &ls_tool(),
+        json!({"path": ".", "recursive": true}),
+        ws.context(),
+    )
+    .await;
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        // Root reads through the mode, so there is nothing to observe.
+        return;
+    }
+    assert!(!result.is_error, "{}", result.content);
+    assert!(
+        result.content.contains("fine.txt (1 B)"),
+        "{}",
+        result.content
+    );
+    assert!(result.content.contains("locked/"), "{}", result.content);
+    assert!(
+        result.content.contains("skipped 1 unreadable entries"),
+        "{}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn ls_counts_what_a_recursive_walk_left_past_the_cap() {
+    let ws = TestWorkspace::new();
+    for folder in ["a", "b"] {
+        fs::create_dir(ws.root().join(folder)).unwrap();
+        for index in 0..3 {
+            fs::write(ws.root().join(folder).join(format!("f{index}")), "x").unwrap();
+        }
+    }
+    let result = text(
+        &ls_tool(),
+        json!({"path": ".", "recursive": true, "maxEntries": 3}),
+        ws.context(),
+    )
+    .await;
+    assert_eq!(
+        result.split('\n').collect::<Vec<_>>(),
+        vec![
+            "a/",
+            "a/f0 (1 B)",
+            "a/f1 (1 B)",
+            "… 5 more entries not shown (maxEntries=3)."
+        ]
+    );
 }

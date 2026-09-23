@@ -15,7 +15,7 @@ use darkwire_tools::read_tool;
 use darkwire_tools::testkit::TestWorkspace;
 use serde_json::json;
 
-use crate::common::{failure, text};
+use crate::common::{failure, fifo, run_on_fifo, text};
 
 /// `count` lines, each naming its own number, so a window can be checked.
 fn numbered(count: u32) -> String {
@@ -236,4 +236,19 @@ async fn read_rejects_a_symlink_pointing_out_of_the_workspace() {
     symlink(&outside, ws.root().join("link.txt")).unwrap();
     let error = failure(&read_tool(), json!({"path": "link.txt"}), ws.context()).await;
     assert_eq!(error.kind, Some(ErrorKind::JailEscape));
+}
+
+#[tokio::test]
+async fn read_refuses_a_fifo_rather_than_blocking_on_it() {
+    let ws = TestWorkspace::new();
+    let pipe = ws.root().join("pipe");
+    fifo(&pipe);
+    let result = run_on_fifo(&read_tool(), json!({"path": "pipe"}), ws.context(), &pipe).await;
+    assert!(result.is_error);
+    assert_eq!(result.kind, Some(ErrorKind::InvalidInput));
+    assert!(
+        result.content.contains("not a regular file"),
+        "{}",
+        result.content
+    );
 }

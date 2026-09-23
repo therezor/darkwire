@@ -317,3 +317,14 @@ mod agent_network {
         assert!(assert_environment_network(&EnvironmentNetwork::default(), "a").is_ok());
     }
 }
+
+#[test]
+fn refuses_every_capability_at_once_however_spelled() {
+    for capability in ["ALL", "all", "CAP_ALL", "cap_all"] {
+        let asked = container(&json!({"caps": {"add": [capability]}}));
+        let error = assert_environment_policy(&asked).unwrap_err();
+        assert_eq!(error.details["capability"], json!(capability));
+        let error = assert_gateway_compatible(&asked).unwrap_err();
+        assert_eq!(error.details["capability"], json!(capability));
+    }
+}

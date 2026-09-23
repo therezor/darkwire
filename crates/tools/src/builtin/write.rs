@@ -15,9 +15,12 @@ use darkwire_core::Result;
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
 use serde::Deserialize;
+use tokio::io::AsyncWriteExt as _;
 
 use crate::builtin::built;
-use crate::builtin::shared::{clamp_note, format_bytes, fs_failure};
+use crate::builtin::shared::{
+    assert_regular, assert_regular_or_missing, clamp_note, format_bytes, fs_failure, open_flags,
+};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -58,9 +61,24 @@ impl ToolHandler for WriteFile {
                     .map_err(|error| fs_failure(&error, where_, &note))?;
             }
             assert_not_aborted(&ctx.token, "write")?;
-            tokio::fs::write(&accepted.path, args.content.as_bytes())
+            // Checked before the open for a clear refusal, and again on the
+            // open file, because a FIFO with a reader opens without error.
+            assert_regular_or_missing(&accepted.path, where_, &note)?;
+            let failed = |error: std::io::Error| fs_failure(&error, where_, &note);
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .custom_flags(open_flags())
+                .open(&accepted.path)
                 .await
-                .map_err(|error| fs_failure(&error, where_, &note))?;
+                .map_err(failed)?;
+            assert_regular(&file.metadata().await.map_err(failed)?, where_, &note)?;
+            file.set_len(0).await.map_err(failed)?;
+            file.write_all(args.content.as_bytes())
+                .await
+                .map_err(failed)?;
+            file.flush().await.map_err(failed)?;
 
             Ok(
                 ToolOutput::text(format!("Wrote {} to {where_}.{note}", format_bytes(bytes)))

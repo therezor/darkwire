@@ -212,3 +212,57 @@ fn a_request_describes_itself_without_dumping_its_tee() {
     assert!(text.contains("timeout_ms: 5"));
     assert!(text.contains("tee: false"));
 }
+
+#[tokio::test]
+async fn a_timeout_reaches_what_the_child_put_in_the_background() {
+    // The background `sleep` holds stdout. Signalling only the shell would
+    // leave the run waiting on that pipe for the full 30 seconds.
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        LocalRunner::with_kill_grace(Duration::from_millis(200))
+            .run(request(plan(&["sh", "-c", "sleep 30 & wait"], 1024), 100)),
+    )
+    .await
+    .expect("the timeout should bound the run")
+    .unwrap();
+    assert!(outcome.timed_out);
+}
+
+#[tokio::test]
+async fn cancelling_reaches_what_the_child_put_in_the_background() {
+    let mut req = request(plan(&["sh", "-c", "sleep 30 & wait"], 1024), 0);
+    let token = CancellationToken::new();
+    req.token = token.clone();
+    let runner = LocalRunner::with_kill_grace(Duration::from_millis(200));
+    let running = runner.run(req);
+    let cancel = async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        token.cancel();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(running, cancel)
+    })
+    .await
+    .expect("cancelling should end the run");
+    assert_eq!(result.err().unwrap().kind, ErrorKind::Aborted);
+}
+
+#[tokio::test]
+async fn a_grandchild_that_left_the_group_cannot_hold_the_run_open() {
+    // `setpgrp` puts perl in a group of its own, out of reach of the group
+    // kill, still holding stdout. The run gives up on the pipe instead.
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        LocalRunner::with_kill_grace(Duration::from_millis(100)).run(request(
+            plan(
+                &["sh", "-c", "perl -e 'setpgrp(0, 0); sleep 8' & wait"],
+                1024,
+            ),
+            100,
+        )),
+    )
+    .await
+    .expect("the drain should be bounded once SIGKILL is sent")
+    .unwrap();
+    assert!(outcome.timed_out);
+}

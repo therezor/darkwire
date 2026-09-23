@@ -1,6 +1,6 @@
 //! Rules must fail closed for both address families, and never open a resolver.
 
-#![allow(clippy::unwrap_used, reason = "test assertions")]
+#![allow(clippy::unwrap_used, clippy::panic, reason = "test assertions")]
 
 use darkwire_protocol::environment::EnvironmentDefinition;
 use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
@@ -115,4 +115,40 @@ fn policy_values_cannot_inject_firewall_rules() {
 fn a_hard_blocked_entry_never_becomes_a_rule() {
     let error = gateway_rules(&container(), &network(&["169.254.0.0/16"])).unwrap_err();
     assert!(error.message.contains("which nothing may reach"));
+}
+
+/// `0.0.0.0/0` is a legal entry and contains the metadata endpoint, so the
+/// ranges nothing may reach are dropped before any accept can match them.
+#[test]
+fn a_hard_blocked_range_is_dropped_before_the_widest_accept() {
+    let rules = gateway_rules(&container(), &network(&["0.0.0.0/0", "::/0"])).unwrap();
+    let at = |needle: &str| {
+        rules
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing from {rules}"))
+    };
+    let first_accept = at("ip daddr 0.0.0.0/0 accept").min(at("ip6 daddr ::/0 accept"));
+    for drop in [
+        "ip daddr 169.254.0.0/16 drop",
+        "ip6 daddr fe80::/10 drop",
+        "ip daddr 224.0.0.0/4 drop",
+        "ip daddr 0.0.0.0/8 drop",
+    ] {
+        assert!(at(drop) < first_accept, "{drop}");
+    }
+    // The proxy stays reachable ahead of the drops.
+    assert!(at("ip daddr 127.0.0.1 tcp dport 3128 accept") < at("169.254.0.0/16"));
+    // Ranges an entry may unlock are not dropped.
+    assert!(!rules.contains("10.0.0.0/8 drop"));
+    assert!(!rules.contains("127.0.0.0/8 drop"));
+}
+
+/// `::1` classifies as loopback, which an entry may unlock, but it sits inside
+/// the dropped `::/96`. Its accept has to come first or it would mean nothing.
+#[test]
+fn an_unlockable_entry_inside_a_dropped_range_is_accepted_before_the_drop() {
+    let rules = gateway_rules(&container(), &network(&["::1", "0.0.0.0/0"])).unwrap();
+    let at = |needle: &str| rules.find(needle).unwrap();
+    assert!(at("ip6 daddr ::1 accept") < at("ip6 daddr ::/96 drop"));
+    assert!(at("ip daddr 169.254.0.0/16 drop") < at("ip daddr 0.0.0.0/0 accept"));
 }

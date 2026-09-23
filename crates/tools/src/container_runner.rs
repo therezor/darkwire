@@ -25,7 +25,8 @@
 //!  - **`PATH` does not cross the boundary.** `plan.env` is built from a *host*
 //!    allow-list, and a host `PATH` inside a Kali container points at binaries
 //!    that are not there. Only names the profile names are passed through, and
-//!    their values come from the plan.
+//!    their values come from the plan, handed to the client in its environment
+//!    rather than on its command line.
 //!
 //! Killing the `docker exec` client on this side leaves the process running on
 //! the other, which would quietly break the "one cancellation reaches the
@@ -420,22 +421,46 @@ fn container_pid_file(run_id: &str) -> String {
     format!("/tmp/.darkwire-{run_id}.pid")
 }
 
+/// Names whose value goes on the command line rather than into the client's
+/// environment, because the client reads them for itself: its own `PATH`, and
+/// the variables that choose which daemon it talks to.
+fn passed_inline(name: &str) -> bool {
+    name == "PATH" || name.starts_with("DOCKER_") || name.starts_with("CONTAINER_")
+}
+
+/// The passed-through names the plan carries, with their values.
+fn passed_through<'a>(
+    options: &'a ContainerExecOptions<'_>,
+) -> impl Iterator<Item = (&'a String, &'a String)> {
+    options
+        .container
+        .env
+        .iter()
+        .filter_map(|name| options.plan.env.get(name).map(|value| (name, value)))
+}
+
 /// The `docker exec` argv for one command.
 ///
 /// The environment is rebuilt rather than forwarded: see the module docs on
 /// `PATH`. A name the profile lists but the plan does not carry is simply
 /// absent, which is the right outcome — an empty value would shadow the
 /// image's own.
+///
+/// A value is not written here, as a rule. `--env NAME` makes the client read
+/// it from its own environment, which [`container_exec_env`] supplies, so a
+/// token does not show up in `ps`.
 pub fn container_exec_argv(options: &ContainerExecOptions<'_>) -> Vec<String> {
     let mut argv = vec![
         "exec".to_owned(),
         "--workdir".to_owned(),
         options.container.workdir.clone(),
     ];
-    for name in &options.container.env {
-        if let Some(value) = options.plan.env.get(name) {
-            argv.push("--env".to_owned());
+    for (name, value) in passed_through(options) {
+        argv.push("--env".to_owned());
+        if passed_inline(name) {
             argv.push(format!("{name}={value}"));
+        } else {
+            argv.push(name.clone());
         }
     }
     argv.push(options.container_name.to_owned());
@@ -451,6 +476,15 @@ pub fn container_exec_argv(options: &ContainerExecOptions<'_>) -> Vec<String> {
     argv.push(options.plan.file.clone());
     argv.extend(options.plan.args.iter().cloned());
     argv
+}
+
+/// The values [`container_exec_argv`] names without writing, for the client's
+/// own environment.
+pub fn container_exec_env(options: &ContainerExecOptions<'_>) -> IndexMap<String, String> {
+    passed_through(options)
+        .filter(|(name, _)| !passed_inline(name))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 /// Which signal to send a run's recorded pid.
@@ -492,6 +526,8 @@ pub fn container_kill_argv(container_name: &str, run_id: &str, signal: KillSigna
 /// container writes into the run, and creating it here rather than in the
 /// script removes a race against the mount becoming visible.
 ///
+/// Each file keeps at most [`TRANSCRIPT_MAX_BYTES`] and says where it was cut.
+///
 /// A write failure is swallowed rather than raised. Losing a transcript is a
 /// degraded result — the model still gets the command's output inline — while
 /// a failing write mid-run would end the turn. A disk filling up must not end
@@ -499,8 +535,59 @@ pub fn container_kill_argv(container_name: &str, run_id: &str, signal: KillSigna
 pub struct Transcript {
     host_dir: PathBuf,
     container_dir: String,
-    stdout: Mutex<Option<File>>,
-    stderr: Mutex<Option<File>>,
+    stdout: Mutex<TranscriptFile>,
+    stderr: Mutex<TranscriptFile>,
+}
+
+/// Bytes kept per transcript file.
+///
+/// The model is shown far less than this, and a scan that writes gigabytes
+/// would otherwise put every one of them on the disk.
+pub const TRANSCRIPT_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// One transcript file and how much of the stream it has kept.
+struct TranscriptFile {
+    file: Option<File>,
+    written: u64,
+    dropped: u64,
+}
+
+impl TranscriptFile {
+    fn new(file: Option<File>) -> TranscriptFile {
+        TranscriptFile {
+            file,
+            written: 0,
+            dropped: 0,
+        }
+    }
+
+    fn write(&mut self, chunk: &[u8]) {
+        let Some(handle) = self.file.as_mut() else {
+            return;
+        };
+        let room = TRANSCRIPT_MAX_BYTES.saturating_sub(self.written);
+        let take = usize::try_from(room).unwrap_or(usize::MAX).min(chunk.len());
+        if take > 0 {
+            let _ = handle.write_all(&chunk[..take]);
+        }
+        let take = u64::try_from(take).unwrap_or(u64::MAX);
+        let length = u64::try_from(chunk.len()).unwrap_or(u64::MAX);
+        self.written = self.written.saturating_add(take);
+        self.dropped = self.dropped.saturating_add(length - take);
+    }
+
+    fn close(&mut self) {
+        if let Some(mut handle) = self.file.take() {
+            if self.dropped > 0 {
+                let _ = write!(
+                    handle,
+                    "\n[darkwire: transcript cut at {TRANSCRIPT_MAX_BYTES} bytes; {} more bytes were not kept.]\n",
+                    self.dropped
+                );
+            }
+            let _ = handle.flush();
+        }
+    }
 }
 
 impl std::fmt::Debug for Transcript {
@@ -529,8 +616,8 @@ impl Transcript {
         // Files that cannot be opened are simply not written; see the type docs.
         let open = |name: &str| File::create(host_dir.join(name)).ok();
         Ok(Transcript {
-            stdout: Mutex::new(open("stdout.log")),
-            stderr: Mutex::new(open("stderr.log")),
+            stdout: Mutex::new(TranscriptFile::new(open("stdout.log"))),
+            stderr: Mutex::new(TranscriptFile::new(open("stderr.log"))),
             container_dir: container_run_dir(container_name, run_id),
             host_dir,
         })
@@ -546,12 +633,11 @@ impl Transcript {
         &self.container_dir
     }
 
-    /// Flushes and closes both files. After this they are safe to read.
+    /// Flushes and closes both files, noting any cut. After this they are safe
+    /// to read.
     pub fn close(&self) {
         for file in [&self.stdout, &self.stderr] {
-            if let Some(mut handle) = file.lock().take() {
-                let _ = handle.flush();
-            }
+            file.lock().close();
         }
     }
 }
@@ -562,9 +648,7 @@ impl OutputTee for Transcript {
             OutputStream::Stdout => &self.stdout,
             OutputStream::Stderr => &self.stderr,
         };
-        if let Some(handle) = file.lock().as_mut() {
-            let _ = handle.write_all(chunk);
-        }
+        file.lock().write(chunk);
     }
 }
 
@@ -742,14 +826,16 @@ impl CommandRunner for ContainerRunner {
                 &self.container_name,
                 &run_id,
             )?);
-            let exec_argv = container_exec_argv(&ContainerExecOptions {
+            let exec = ContainerExecOptions {
                 plan: &request.plan,
                 container: &self.container,
                 container_name: &self.container_name,
                 run_id: &run_id,
-            });
+            };
+            let mut client_plan = self.client_plan(&request.plan, container_exec_argv(&exec));
+            client_plan.env.extend(container_exec_env(&exec));
             let client = RunRequest {
-                plan: self.client_plan(&request.plan, exec_argv),
+                plan: client_plan,
                 timeout_ms: request.timeout_ms,
                 token: request.token.clone(),
                 clock: Arc::clone(&request.clock),

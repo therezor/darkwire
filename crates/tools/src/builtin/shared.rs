@@ -8,11 +8,14 @@
 //! `tool`, when `not_found` and `permission_denied` are distinctions the agent
 //! loop and the audit log both care about.
 
+use std::fs::Metadata;
 use std::io;
+use std::path::Path;
 
 use darkwire_core::{ErrorKind, WireError};
 use darkwire_security::JailAccept;
 use nix::errno::Errno;
+use nix::fcntl::OFlag;
 
 /// The kind and the sentence for one class of failure.
 fn describe(kind: io::ErrorKind) -> (ErrorKind, String) {
@@ -90,6 +93,37 @@ pub fn fs_failure(error: &io::Error, path: &str, note: &str) -> WireError {
     WireError::new(kind, format!("{path} {detail}.{note}"))
         .with_detail("path", path)
         .with_detail("code", format!("{:?}", error.kind()))
+}
+
+/// Open flags for a path the jail has already accepted.
+///
+/// `O_NONBLOCK` so a FIFO cannot hang the open, and `O_NOFOLLOW` so a final
+/// component swapped for a symlink after the jail looked is refused rather
+/// than followed. The jail canonicalised the path, so a legitimate one never
+/// ends in a symlink. Earlier components are not re-checked here: that needs
+/// a per-component `openat` walk.
+pub fn open_flags() -> i32 {
+    (OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW).bits()
+}
+
+/// Refuses anything but a regular file, before a tool reads or writes it.
+pub fn assert_regular(stats: &Metadata, path: &str, note: &str) -> Result<(), WireError> {
+    if stats.is_dir() || stats.is_file() {
+        return Ok(());
+    }
+    Err(WireError::new(
+        ErrorKind::InvalidInput,
+        format!("{path} is not a regular file.{note}"),
+    )
+    .with_detail("path", path))
+}
+
+/// [`assert_regular`] for a path that may not exist yet.
+pub fn assert_regular_or_missing(target: &Path, path: &str, note: &str) -> Result<(), WireError> {
+    match std::fs::symlink_metadata(target) {
+        Ok(stats) => assert_regular(&stats, path, note),
+        Err(_) => Ok(()),
+    }
 }
 
 /// Bytes as something readable in a directory listing.

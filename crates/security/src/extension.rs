@@ -27,7 +27,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::environment::{parse_manifest, sha256_hex};
-use crate::exec_guard::{SHELL_BINARIES, binary_name};
+use crate::exec_guard::{binary_name, is_shell_name};
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{ExtensionManifest, ExtensionSchemaVersion, is_extension_id};
 
@@ -197,7 +197,7 @@ fn assert_command_policy(id: &str, command: &[String], root: &Path) -> Result<()
         ));
     };
 
-    if SHELL_BINARIES.contains(&binary_name(program).as_str()) {
+    if is_shell_name(&binary_name(program)) {
         return Err(policy_error(
             id,
             format!(

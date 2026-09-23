@@ -102,6 +102,19 @@ const FORBIDDEN_CAPABILITIES: &[&str] = &["NET_ADMIN", "SYS_ADMIN", "SYS_MODULE"
 /// unconditionally.
 const GATEWAY_INCOMPATIBLE_CAPABILITIES: &[&str] = &["NET_RAW", "SETUID", "SETGID"];
 
+/// A requested capability's bare upper-case name, `CAP_` dropped.
+fn capability_name(capability: &str) -> String {
+    let upper = capability.to_uppercase();
+    upper.strip_prefix("CAP_").unwrap_or(&upper).to_owned()
+}
+
+/// Whether a requested capability grants any of `names`. `ALL` grants every
+/// one of them.
+fn grants_any(capability: &str, names: &[&str]) -> bool {
+    let name = capability_name(capability);
+    name == "ALL" || names.contains(&name.as_str())
+}
+
 /// The sha256 of a manifest's exact bytes.
 ///
 /// Over the bytes, never over a re-serialisation of the parsed object: a
@@ -219,9 +232,7 @@ pub fn assert_environment_policy(container: &EnvironmentDefinition) -> Result<()
     }
 
     for capability in &container.caps.add {
-        let upper = capability.to_uppercase();
-        let name = upper.strip_prefix("CAP_").unwrap_or(&upper);
-        if FORBIDDEN_CAPABILITIES.contains(&name) {
+        if grants_any(capability, FORBIDDEN_CAPABILITIES) {
             return Err(policy_error(
                 container,
                 format!(
@@ -291,9 +302,7 @@ pub fn assert_gateway_compatible(container: &EnvironmentDefinition) -> Result<()
         ));
     }
     for capability in &container.caps.add {
-        let upper = capability.to_uppercase();
-        let name = upper.strip_prefix("CAP_").unwrap_or(&upper);
-        if GATEWAY_INCOMPATIBLE_CAPABILITIES.contains(&name) {
+        if grants_any(capability, GATEWAY_INCOMPATIBLE_CAPABILITIES) {
             return Err(policy_error(
                 container,
                 format!(

@@ -15,7 +15,7 @@ use darkwire_tools::testkit::TestWorkspace;
 use darkwire_tools::write_tool;
 use serde_json::json;
 
-use crate::common::{failure, run, text};
+use crate::common::{failure, fifo, run, run_on_fifo, text};
 
 #[tokio::test]
 async fn write_writes_a_file_and_reports_its_size() {
@@ -140,5 +140,26 @@ async fn write_carries_the_byte_count_for_the_audit_log() {
             .as_object()
             .cloned()
             .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn write_refuses_a_fifo_rather_than_blocking_on_it() {
+    let ws = TestWorkspace::new();
+    let pipe = ws.root().join("pipe");
+    fifo(&pipe);
+    let result = run_on_fifo(
+        &write_tool(),
+        json!({"path": "pipe", "content": "x"}),
+        ws.context(),
+        &pipe,
+    )
+    .await;
+    assert!(result.is_error);
+    assert_eq!(result.kind, Some(ErrorKind::InvalidInput));
+    assert!(
+        result.content.contains("not a regular file"),
+        "{}",
+        result.content
     );
 }

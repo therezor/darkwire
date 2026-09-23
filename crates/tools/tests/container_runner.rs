@@ -18,8 +18,9 @@ use darkwire_security::ExecPlan;
 use darkwire_tools::{
     BoxFuture, CommandRunner, ContainerCreateOptions, ContainerExecOptions, ContainerRunner,
     ContainerRunnerOptions, KillSignal, OutputStream, OutputTee, RUNS_MOUNT_DIR, RunOutcome,
-    RunRequest, Transcript, WorkspaceMount, container_create_argv, container_exec_argv,
-    container_is_gone, container_kill_argv, container_run_dir,
+    RunRequest, TRANSCRIPT_MAX_BYTES, Transcript, WorkspaceMount, container_create_argv,
+    container_exec_argv, container_exec_env, container_is_gone, container_kill_argv,
+    container_run_dir,
 };
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -457,10 +458,37 @@ fn exec_runs_in_the_container_workdir() {
 #[test]
 fn exec_passes_through_only_the_environment_names_the_definition_lists() {
     let result = exec_argv(&plan_of(), &container_of(json!({"env": ["LANG"]})));
-    assert!(has(&result, "LANG=en_GB.UTF-8"));
+    let at = result.iter().position(|item| item == "--env").unwrap();
+    assert_eq!(result[at + 1], "LANG");
     let joined = result.join(" ");
     assert!(!joined.contains("SECRET"));
     assert!(!joined.contains("PATH=/host/bin"));
+}
+
+/// A value on the client's command line is readable by anyone running `ps`.
+#[test]
+fn exec_never_writes_a_passed_through_value_on_the_command_line() {
+    let mut plan = plan_of();
+    plan.env
+        .insert("API_TOKEN".to_owned(), "hunter2".to_owned());
+    let container = container_of(json!({"env": ["API_TOKEN", "TZ"]}));
+    let result = exec_argv(&plan, &container);
+    assert!(!result.join(" ").contains("hunter2"));
+    assert!(has(&result, "API_TOKEN"));
+    let env = container_exec_env(&ContainerExecOptions {
+        plan: &plan,
+        container: &container,
+        container_name: "c",
+        run_id: "r1",
+    });
+    assert_eq!(env.get("API_TOKEN").map(String::as_str), Some("hunter2"));
+    assert!(!env.contains_key("TZ"));
+}
+
+#[test]
+fn exec_keeps_a_value_the_client_reads_for_itself_on_the_command_line() {
+    let result = exec_argv(&plan_of(), &container_of(json!({"env": ["PATH"]})));
+    assert!(has(&result, "PATH=/host/bin"));
 }
 
 #[test]
@@ -714,6 +742,49 @@ async fn runs_the_daemon_client_rather_than_the_guarded_program() {
     assert_eq!(calls[0].plan.args[0], "exec");
     assert_eq!(calls[0].plan.max_output_bytes, 1024);
     assert!(calls[0].tee.is_some());
+}
+
+#[tokio::test]
+async fn hands_passed_through_values_to_the_client_in_its_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = FakeInner::new(FakeInner::ok());
+    let mut options = runner_options(&inner, dir.path().to_path_buf(), None);
+    options.container = container_of(json!({"env": ["LANG"]}));
+    ContainerRunner::new(options)
+        .run(req(plan_of(), 0))
+        .await
+        .unwrap();
+    let calls = inner.calls.lock();
+    assert_eq!(
+        calls[0].plan.env.get("LANG").map(String::as_str),
+        Some("en_GB.UTF-8")
+    );
+    assert!(!calls[0].plan.args.join(" ").contains("en_GB.UTF-8"));
+}
+
+#[test]
+fn a_transcript_keeps_its_cap_and_says_where_it_was_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let transcript = Transcript::open(dir.path(), "c", "r1").unwrap();
+    let chunk = vec![b'x'; 1024 * 1024];
+    for _ in 0..6 {
+        transcript.write(OutputStream::Stdout, &chunk);
+    }
+    transcript.write(OutputStream::Stderr, b"short\n");
+    transcript.close();
+    let stdout = std::fs::read(transcript.host_dir().join("stdout.log")).unwrap();
+    let cap = usize::try_from(TRANSCRIPT_MAX_BYTES).unwrap();
+    assert!(stdout[..cap].iter().all(|byte| *byte == b'x'));
+    let trailer = String::from_utf8_lossy(&stdout[cap..]);
+    assert!(trailer.contains("transcript cut"), "{trailer}");
+    assert!(
+        trailer.contains(&(2 * 1024 * 1024).to_string()),
+        "{trailer}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(transcript.host_dir().join("stderr.log")).unwrap(),
+        "short\n"
+    );
 }
 
 #[tokio::test]

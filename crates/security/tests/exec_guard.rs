@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use darkwire_core::{ErrorKind, Result};
 use darkwire_protocol::ExecToolConfig;
+use darkwire_security::exec_guard::{is_shell_name, shell_call};
 use darkwire_security::{
     ExecGuardOptions, ExecPlan, JailOptions, OutputCap, SHELL_BINARIES, WorkspaceJail, binary_name,
     guard_exec,
@@ -251,15 +252,16 @@ fn runs_shells_on_the_host_without_program_strings() {
     for shell in SHELL_BINARIES {
         assert_eq!(guard(&ws, &[shell, "script.js"]).unwrap().file, *shell);
     }
-    for flag in [
-        "-c",
-        "-lc",
-        "--command",
-        "/C",
-        "-Command",
-        "-EncodedCommand",
+    // `/C` is cmd's. To bash it is a script path.
+    for (shell, flag) in [
+        ("bash", "-c"),
+        ("bash", "-lc"),
+        ("bash", "--command"),
+        ("cmd", "/C"),
+        ("bash", "-Command"),
+        ("bash", "-EncodedCommand"),
     ] {
-        let error = guard(&ws, &["bash", flag, "rm -rf / | sh"]).unwrap_err();
+        let error = guard(&ws, &[shell, flag, "rm -rf / | sh"]).unwrap_err();
         assert_eq!(error.kind, ErrorKind::PermissionDenied, "{flag}");
         assert_eq!(error.details["flag"], json!(flag));
     }
@@ -623,4 +625,98 @@ proptest! {
         let argument = format!("{prefix}{}", segments.join("/"));
         prop_assert!(guard(&ws, &["git", &argument]).is_err());
     }
+}
+
+#[test]
+fn refuses_a_program_string_hidden_in_a_cluster_of_short_flags() {
+    let ws = workspace();
+    for flags in ["-ec", "-xc", "-cx", "-eux"] {
+        let call = ["bash", flags, "rm -rf ~"];
+        let refused = guard(&ws, &call);
+        if flags == "-eux" {
+            assert!(refused.is_ok(), "{flags}");
+            continue;
+        }
+        let error = refused.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::PermissionDenied, "{flags}");
+        assert_eq!(error.details["flag"], json!(flags));
+    }
+    assert!(guard(&ws, &["bash", "-e", "script.sh"]).is_ok());
+    assert!(guard(&ws, &["fish", "-C", "echo hi"]).is_err());
+    assert!(guard(&ws, &["cmd", "/r", "dir"]).is_err());
+}
+
+#[test]
+fn reads_powershell_prefixes_without_refusing_its_ordinary_options() {
+    let ws = workspace();
+    for flag in ["-e", "-ec", "-enc", "-com", "-C"] {
+        assert!(guard(&ws, &["pwsh", flag, "x"]).is_err(), "{flag}");
+    }
+    assert!(guard(&ws, &["pwsh", "-NonInteractive", "-File", "x.ps1"]).is_ok());
+    assert!(guard(&ws, &["pwsh", "-ExecutionPolicy", "Bypass", "x.ps1"]).is_ok());
+}
+
+#[test]
+fn knows_a_shell_whatever_its_case() {
+    let ws = workspace();
+    let off = config(json!({"shell": "deny"}));
+    for program in ["Bash", "SH", "/bin/ZSH", "PWSH.EXE"] {
+        assert!(is_shell_name(&binary_name(program)), "{program}");
+        let error = guard_with(&ws, &[program, "script.sh"], &off).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::PermissionDenied, "{program}");
+    }
+    assert!(guard(&ws, &["BASH", "-c", "id"]).is_err());
+}
+
+#[test]
+fn sees_a_shell_behind_a_launcher() {
+    let ws = workspace();
+    for call in [
+        &["env", "sh", "-c", "id"][..],
+        &["env", "-i", "FOO=1", "bash", "-ec", "id"],
+        &["nice", "-n", "5", "sh", "-c", "id"],
+        &["timeout", "5", "/bin/sh", "-c", "id"],
+        &["xargs", "-0", "sh", "-c", "id"],
+        &["nohup", "env", "zsh", "-c", "id"],
+        &["env", "-S", "sh -c id"],
+        &["env", "--split-string=sh -c id"],
+    ] {
+        let error = guard(&ws, call).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::PermissionDenied, "{call:?}");
+    }
+    let off = config(json!({"shell": "deny"}));
+    assert!(guard_with(&ws, &["timeout", "5", "bash", "script.sh"], &off).is_err());
+    assert!(guard(&ws, &["timeout", "5", "bash", "script.sh"]).is_ok());
+    // Past `env`'s own options, `-S` belongs to the program it runs.
+    assert!(guard(&ws, &["env", "cc", "-DSOME"]).is_ok());
+    assert_eq!(
+        shell_call(&argv(&["env", "FOO=1", "sh", "x"])).map(|call| call.name),
+        Some("sh".to_owned())
+    );
+    assert!(shell_call(&argv(&["timeout", "5", "git", "status"])).is_none());
+    assert!(shell_call(&argv(&["env", "CONFIG_SHELL=/bin/sh", "./configure"])).is_none());
+    assert!(shell_call(&argv(&["env", "SHELL=/bin/bash", "make"])).is_none());
+    assert!(shell_call(&argv(&["nice", "make", "SHELL=/bin/sh"])).is_none());
+    assert!(shell_call(&argv(&["git", "sh"])).is_none());
+}
+
+#[test]
+fn reads_shell_options_only_before_the_first_operand() {
+    let ws = workspace();
+    // `-clean` is an argument to the script, not an option to bash.
+    assert!(guard(&ws, &["bash", "build.sh", "-clean"]).is_ok());
+    assert!(guard(&ws, &["bash", "--", "-c"]).is_ok());
+    for call in [
+        &["bash", "-o", "pipefail", "-c", "x"][..],
+        &["bash", "+O", "extglob", "-ec", "x"],
+        &["bash", "-eo", "pipefail", "-c", "x"],
+        &["bash", "--rcfile", "rc", "-c", "x"],
+        &["busybox", "sh", "-c", "x"],
+    ] {
+        let error = guard(&ws, call).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::PermissionDenied, "{call:?}");
+        assert_eq!(error.details["flag"], json!(call[call.len() - 2]));
+    }
+    // The value of `-o` is not read as an option.
+    assert!(guard(&ws, &["bash", "-o", "-c", "script.sh"]).is_ok());
 }

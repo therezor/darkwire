@@ -22,7 +22,7 @@
 //! mounted, the guard's refuse-outside-the-workspace rule becomes redundant
 //! rather than wrong, so it stays.
 
-use std::pin::pin;
+use std::pin::{Pin, pin};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,7 +31,7 @@ use darkwire_core::{Clock, ErrorKind, Result, WireError};
 use darkwire_protocol::EnvironmentNetwork;
 use darkwire_security::{ExecPlan, OutputCap};
 use futures::future::join;
-use nix::sys::signal::{Signal, kill};
+use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::sync::CancellationToken;
@@ -165,6 +165,10 @@ pub struct PlacementRequest {
 ///    away. A child that ignores `SIGTERM` — an editor, a REPL, anything holding
 ///    the terminal — gets `SIGKILL` after the grace period, or the turn would
 ///    wait forever.
+///  - **Signals go to the process group.** The child leads its own group, so a
+///    script that backgrounded something takes it down too. A grandchild that
+///    left the group can still hold a pipe open, so once `SIGKILL` is sent the
+///    pipes are read for one more grace period and then abandoned.
 #[derive(Debug, Clone)]
 pub struct LocalRunner {
     kill_grace: Duration,
@@ -210,6 +214,7 @@ async fn drain(
     stream: OutputStream,
     max_bytes: u64,
     tee: Option<&Arc<dyn OutputTee>>,
+    abandon: &CancellationToken,
 ) -> OutputCap {
     let mut cap = OutputCap::new(max_bytes);
     let Some(mut pipe) = pipe else {
@@ -217,9 +222,14 @@ async fn drain(
     };
     let mut buffer = vec![0u8; 16 * 1024];
     loop {
-        let read = match pipe.read(&mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(read) => read,
+        // Biased so bytes already in the pipe are kept before giving up on it.
+        let read = tokio::select! {
+            biased;
+            read = pipe.read(&mut buffer) => match read {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            },
+            () = abandon.cancelled() => break,
         };
         let chunk = &buffer[..read];
         if let Some(tee) = tee {
@@ -245,7 +255,46 @@ fn send(pid: Option<u32>, signal: Signal) {
     if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
         // Best effort: a child that has already exited is the common case, and
         // there is nothing to do about a signal that cannot be delivered.
-        let _ = kill(Pid::from_raw(pid), signal);
+        let _ = killpg(Pid::from_raw(pid), signal);
+    }
+}
+
+/// Kills the child's group if the run is dropped before it finishes.
+///
+/// `kill_on_drop` reaches only the direct child, so a dropped turn would
+/// otherwise leave the rest of the group running.
+struct GroupGuard {
+    pid: Option<u32>,
+    armed: bool,
+}
+
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            send(self.pid, Signal::SIGKILL);
+        }
+    }
+}
+
+impl LocalRunner {
+    /// `SIGTERM`, then `SIGKILL` after the grace, then the pipes for one more
+    /// grace before they are abandoned.
+    async fn escalate<F: Future>(
+        &self,
+        pid: Option<u32>,
+        mut work: Pin<&mut F>,
+        abandon: &CancellationToken,
+    ) -> F::Output {
+        send(pid, Signal::SIGTERM);
+        if let Ok(finished) = tokio::time::timeout(self.kill_grace, &mut work).await {
+            return finished;
+        }
+        send(pid, Signal::SIGKILL);
+        if let Ok(finished) = tokio::time::timeout(self.kill_grace, &mut work).await {
+            return finished;
+        }
+        abandon.cancel();
+        work.await
     }
 }
 
@@ -269,6 +318,7 @@ impl CommandRunner for LocalRunner {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true)
+                .process_group(0)
                 .spawn()
                 .map_err(|error| {
                     WireError::new(
@@ -280,21 +330,25 @@ impl CommandRunner for LocalRunner {
                 })?;
 
             let pid = child.id();
+            let mut guard = GroupGuard { pid, armed: true };
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
 
+            let abandon = CancellationToken::new();
             let outputs = join(
                 drain(
                     stdout,
                     OutputStream::Stdout,
                     plan.max_output_bytes,
                     tee.as_ref(),
+                    &abandon,
                 ),
                 drain(
                     stderr,
                     OutputStream::Stderr,
                     plan.max_output_bytes,
                     tee.as_ref(),
+                    &abandon,
                 ),
             );
             let mut work = pin!(join(outputs, child.wait()));
@@ -312,18 +366,9 @@ impl CommandRunner for LocalRunner {
 
             let (((out, err), status), stopped) = tokio::select! {
                 finished = &mut work => (finished, None),
-                reason = stop => {
-                    send(pid, Signal::SIGTERM);
-                    let finished = tokio::select! {
-                        finished = &mut work => finished,
-                        () = tokio::time::sleep(self.kill_grace) => {
-                            send(pid, Signal::SIGKILL);
-                            work.await
-                        }
-                    };
-                    (finished, Some(reason))
-                }
+                reason = stop => (self.escalate(pid, work, &abandon).await, Some(reason)),
             };
+            guard.armed = false;
 
             if stopped == Some(Stop::Cancelled) {
                 return Err(WireError::aborted("exec"));
