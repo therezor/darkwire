@@ -522,6 +522,7 @@ sync_command!(run_stop, |input| {
     (input.control)(ChannelControlFrame::StopTurn(StopTurnMessage {
         tag: StopTurnTag,
         session_key: input.chat.session_key.clone(),
+        turn_id: None,
     }));
     Ok(CommandResult::say("Stopping."))
 });

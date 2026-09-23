@@ -173,6 +173,7 @@ pub async fn extension_conformance(dir: &Path, expect: Expect) -> Result<Conform
             init_timeout: Duration::from_secs(10),
             kill_grace: Duration::from_millis(500),
             respawn_delay: Duration::from_secs(5),
+            write_timeout: crate::rpc::REQUEST_TIMEOUT,
         }),
     );
     host.reconcile(&ExtensionsConfig::default());

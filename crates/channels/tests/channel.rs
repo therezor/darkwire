@@ -76,6 +76,7 @@ fn every_frame() -> Vec<ChannelControlFrame> {
         ChannelControlFrame::StopTurn(StopTurnMessage {
             tag: StopTurnTag,
             session_key: "bare:1".to_owned(),
+            turn_id: None,
         }),
         ChannelControlFrame::Steer(SteerMessage {
             tag: SteerTag,

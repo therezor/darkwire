@@ -15,7 +15,8 @@ use std::sync::Arc;
 
 use darkwire_core::ErrorKind;
 use darkwire_extension_host::{
-    DarkwireInit, NoHostMethods, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure, RpcHandler,
+    DarkwireInit, NoHostMethods, OUTBOUND_QUEUE, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure,
+    RpcHandler,
 };
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
@@ -74,7 +75,7 @@ fn connect(handler: Arc<dyn RpcHandler>) -> (Arc<RpcClient>, Peer, CancellationT
     let (our_read, our_write) = tokio::io::split(ours);
     let (their_read, their_write) = tokio::io::split(theirs);
     let token = CancellationToken::new();
-    let client = RpcClient::start(our_read, our_write, handler, &token);
+    let client = RpcClient::start(our_read, our_write, handler, &token, REQUEST_TIMEOUT);
     (
         client,
         Peer {
@@ -350,4 +351,132 @@ async fn a_caller_that_stops_waiting_leaves_nothing_waiting() {
     tokio::time::advance(std::time::Duration::from_secs(1)).await;
     assert!(call.await.unwrap().is_err());
     assert!(in_flight(&client).contains("in_flight: 0"));
+}
+
+// A child that stops reading its input
+
+/// Wedges the writer on one line the pipe cannot hold, then fills the
+/// outbound queue behind it. The peer is kept alive and never read.
+async fn stop_reading(client: &RpcClient) {
+    client
+        .notify(
+            "notifications/message",
+            json!({"data": "x".repeat(128 * 1024)}),
+        )
+        .await;
+    // Lets the writer take that line and park on it.
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    for _ in 0..OUTBOUND_QUEUE {
+        client.notify("notifications/message", json!({})).await;
+    }
+}
+
+fn transport(failure: RpcFailure) -> darkwire_core::WireError {
+    match failure {
+        RpcFailure::Transport(error) => error,
+        RpcFailure::Peer(error) => panic!("the peer never answered, yet: {error:?}"),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_request_that_finds_no_room_marks_the_child_as_hung() {
+    let (client, _peer, _token) = connect(Arc::new(NoHostMethods));
+    stop_reading(&client).await;
+
+    let error = transport(client.request("tools/list", json!({})).await.unwrap_err());
+    assert_eq!(error.kind, ErrorKind::Extension);
+    assert_eq!(error.details["method"], "tools/list");
+    assert_eq!(error.details["queued"], OUTBOUND_QUEUE);
+
+    assert!(client.is_closed());
+    let reason = tokio::time::timeout(std::time::Duration::ZERO, client.stalled())
+        .await
+        .expect("the host is told");
+    assert_eq!(reason, error.message);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_notification_that_finds_no_room_marks_the_child_as_hung() {
+    let (client, _peer, _token) = connect(Arc::new(NoHostMethods));
+    stop_reading(&client).await;
+
+    client.notify("notifications/message", json!({})).await;
+    assert!(client.is_closed());
+    let reason = tokio::time::timeout(std::time::Duration::ZERO, client.stalled()).await;
+    assert!(reason.is_ok(), "the host is told");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_child_that_reads_again_in_time_is_not_hung() {
+    let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
+    stop_reading(&client).await;
+
+    let call = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.request("tools/list", json!({})).await })
+    };
+    tokio::time::sleep(REQUEST_TIMEOUT / 2).await;
+    let request = peer.next_request().await;
+    peer.reply(&request["id"], json!({"tools": []})).await;
+
+    assert_eq!(call.await.unwrap().unwrap(), json!({"tools": []}));
+    assert!(!client.is_closed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quick_request_that_finds_no_room_times_out_without_closing_anything() {
+    let (client, _peer, _token) = connect(Arc::new(NoHostMethods));
+    stop_reading(&client).await;
+
+    let failure = client
+        .request_within("tools/list", json!({}), std::time::Duration::from_secs(1))
+        .await
+        .unwrap_err();
+    assert_eq!(transport(failure).kind, ErrorKind::Timeout);
+    assert!(!client.is_closed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cancellable_request_waiting_for_room_obeys_its_token_then_the_write_timeout() {
+    let (client, _peer, _token) = connect(Arc::new(NoHostMethods));
+    stop_reading(&client).await;
+
+    let token = CancellationToken::new();
+    let call = {
+        let client = Arc::clone(&client);
+        let token = token.clone();
+        tokio::spawn(async move {
+            client
+                .request_cancellable("darkwire/commands/run", json!({}), &token)
+                .await
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    token.cancel();
+    assert_eq!(
+        transport(call.await.unwrap().unwrap_err()).kind,
+        ErrorKind::Aborted
+    );
+    assert!(!client.is_closed());
+
+    let failure = client
+        .request_cancellable(
+            "darkwire/commands/run",
+            json!({}),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    let error = transport(failure);
+    assert_eq!(error.kind, ErrorKind::Extension);
+    assert_eq!(error.details["method"], "darkwire/commands/run");
+    assert!(client.is_closed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_connection_closed_for_any_other_reason_is_not_reported_as_hung() {
+    let (client, _peer, _token) = connect(Arc::new(NoHostMethods));
+    client.close();
+    let reason = tokio::time::timeout(REQUEST_TIMEOUT, client.stalled()).await;
+    assert!(reason.is_err(), "a close is not a stall");
 }

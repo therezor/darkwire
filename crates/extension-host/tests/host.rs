@@ -338,8 +338,7 @@ async fn a_handshake_that_never_completes_is_a_failed_row_within_the_cap() {
     let host = ExtensionHost::new(
         ExtensionHostOptions::new(harness.store.clone(), &harness.root).with_timings(Timings {
             init_timeout: Duration::from_millis(1),
-            kill_grace: Duration::from_millis(200),
-            respawn_delay: Duration::from_millis(100),
+            ..common::quick()
         }),
     );
     host.reconcile(&ExtensionsConfig::default());
@@ -450,4 +449,55 @@ async fn a_start_superseded_mid_handshake_leaves_no_child_behind() {
     let left = survivors(&harness).await;
     assert!(settled, "a superseded start left its child running");
     assert_eq!(left, [running]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_that_stops_reading_is_restarted_like_a_crashed_one() {
+    let harness = Harness::with(&["deaf"]);
+    harness.approve("deaf");
+    harness.settle_default().await;
+    assert_eq!(harness.state("deaf"), ExtensionState::Ready);
+    let first = harness.host.pid("deaf").unwrap();
+
+    let never = CancellationToken::new();
+    let deafened = harness
+        .host
+        .run_command("deaf-now", "", None, &never)
+        .await
+        .unwrap();
+    assert!(deafened.ok);
+
+    // Enough to overflow the pipe and the queue together whatever order they
+    // reach the writer in, so the last of them finds no room.
+    let host = Arc::new(harness);
+    let call = |args: String| {
+        let host = Arc::clone(&host);
+        tokio::spawn(async move {
+            host.host
+                .run_command("deaf-now", &args, None, &CancellationToken::new())
+                .await
+        })
+    };
+    let mut calls = vec![call("x".repeat(4 * 1024 * 1024))];
+    for _ in 0..darkwire_extension_host::OUTBOUND_QUEUE + 128 {
+        calls.push(call("x".repeat(1024)));
+    }
+    let outcomes = tokio::time::timeout(Duration::from_secs(20), futures::future::join_all(calls))
+        .await
+        .expect("every call ends once the child is called hung");
+    for outcome in outcomes {
+        let outcome = outcome.unwrap();
+        assert!(outcome.is_err() || !outcome.unwrap().ok);
+    }
+
+    assert!(
+        eventually(Duration::from_secs(20), || {
+            host.host.pid("deaf").is_some_and(|pid| pid != first)
+                && host.state("deaf") == ExtensionState::Ready
+        })
+        .await,
+        "the hung child was not replaced"
+    );
+    assert!(!alive(i32::try_from(first).unwrap()));
+    host.host.stop().await;
 }

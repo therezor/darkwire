@@ -88,6 +88,9 @@ pub struct Timings {
     pub kill_grace: Duration,
     /// How long after a crash the one automatic restart happens.
     pub respawn_delay: Duration,
+    /// How long a message may wait for an extension to read its input before
+    /// the extension counts as hung, which is handled as a crash.
+    pub write_timeout: Duration,
 }
 
 impl Default for Timings {
@@ -96,6 +99,7 @@ impl Default for Timings {
             init_timeout: Duration::from_secs(10),
             kill_grace: Duration::from_millis(process::KILL_GRACE_MS),
             respawn_delay: Duration::from_secs(5),
+            write_timeout: crate::rpc::REQUEST_TIMEOUT,
         }
     }
 }
@@ -115,7 +119,7 @@ pub struct ExtensionHostOptions {
     pub host_version: String,
     /// Called whenever what is loaded changes. The transport's seam.
     pub on_changed: Option<Arc<dyn Fn() + Send + Sync>>,
-    /// The three deadlines.
+    /// The four deadlines.
     pub timings: Timings,
 }
 
@@ -677,6 +681,7 @@ impl Inner {
             stdin,
             Arc::clone(&host) as Arc<dyn crate::rpc::RpcHandler>,
             &CancellationToken::new(),
+            self.options.timings.write_timeout,
         );
 
         let init = DarkwireInit {
@@ -793,7 +798,7 @@ impl Inner {
             return;
         }
 
-        self.watch(id, generation, resolution, child, token);
+        self.watch(id, generation, resolution, child, client, token);
     }
 
     /// Writes a row, unless this generation has been retired underneath it.
@@ -857,12 +862,17 @@ impl Inner {
     /// moves or an operator reconciles. A process that dies on startup would
     /// otherwise be restarted forever, which is a busy loop with a log line
     /// attached.
+    ///
+    /// A child that stopped reading its input is a crash too. It is alive and
+    /// will never answer again, so it is stopped here and reported the same
+    /// way.
     fn watch(
         self: &Arc<Self>,
         id: String,
         generation: u64,
         resolution: ExtensionResolution,
         child: Arc<process::ExtensionProcess>,
+        client: Arc<RpcClient>,
         token: CancellationToken,
     ) {
         let inner = Arc::clone(self);
@@ -870,6 +880,10 @@ impl Inner {
             let status = tokio::select! {
                 () = token.cancelled() => return,
                 status = child.wait() => status,
+                reason = client.stalled() => {
+                    child.stop().await;
+                    reason
+                }
             };
             if token.is_cancelled() {
                 return;

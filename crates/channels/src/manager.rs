@@ -30,7 +30,9 @@
 //!  - **Ordering is per channel, not global.** Each channel gets its own
 //!    delivery queue and its own task draining it, so a Telegram edit waiting on
 //!    a `retry_after` cannot hold up a reply on Discord, and a `reply` still
-//!    cannot overtake the `progress` that preceded it on the same channel.
+//!    cannot overtake the `progress` that preceded it on the same channel. That
+//!    queue is bounded too, because the bus's bound stops applying the moment
+//!    a message leaves it. See `delivery.rs` for what is shed and when.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,14 +51,16 @@ use darkwire_protocol::{
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::channel::{
     Channel, ChannelContext, ChannelControl, ChannelFactory, ChannelInbound, DEFAULT_ACCEPTED_KINDS,
 };
+use crate::delivery::{DeliveryQueue, TURN_ID_METADATA_KEY};
 use crate::projection::{OutboundDraft, TurnProjection, TurnProjectionOptions};
+
+pub use crate::delivery::{DELIVERY_QUEUE_BOUND, DELIVERY_QUEUE_HARD_CAP};
 
 /// One connection to the hub, as this crate needs it.
 ///
@@ -240,7 +244,10 @@ fn to_frame_content(content: &[ContentPart]) -> (String, Vec<Attachment>) {
 fn metadata_of(draft: &OutboundDraft) -> Map<String, Value> {
     let mut metadata = draft.metadata.clone();
     if let Some(turn_id) = &draft.turn_id {
-        metadata.insert("turnId".to_owned(), Value::String(turn_id.clone()));
+        metadata.insert(
+            TURN_ID_METADATA_KEY.to_owned(),
+            Value::String(turn_id.clone()),
+        );
     }
     metadata
 }
@@ -493,8 +500,8 @@ struct ManagerInner {
     channels_config: Map<String, Value>,
     factories: Mutex<IndexMap<String, ChannelFactory>>,
     channels: Mutex<IndexMap<String, Arc<dyn Channel>>>,
-    /// Delivery queues, one per channel — see the module header.
-    tails: Mutex<HashMap<String, mpsc::UnboundedSender<OutboundMessage>>>,
+    /// Delivery queues, one per channel. See the module header.
+    tails: Mutex<HashMap<String, Arc<DeliveryQueue>>>,
     /// The two bus pumps.
     pumps: Mutex<Vec<JoinHandle<()>>>,
     /// One delivery task per channel, each draining that channel's queue.
@@ -694,12 +701,13 @@ impl ChannelManager {
             // can do about it that failing to shut down would improve.
             let _ = pump.await;
         }
-        // Dropping the senders is what ends each forwarding task — and it has
-        // to happen *before* they are awaited, because a task holding a live
-        // sender waits for a message that will never come. Anything already
-        // queued behind it still goes out: a closed receiver drains before it
-        // reports the end.
-        self.inner.tails.lock().clear();
+        // Closing the queues is what ends each forwarding task, so it has to
+        // happen before they are awaited. Anything already queued still goes
+        // out: a closed queue drains before it reports the end.
+        let tails = std::mem::take(&mut *self.inner.tails.lock());
+        for queue in tails.values() {
+            queue.close();
+        }
         let forwarders = std::mem::take(&mut *self.inner.forwarders.lock());
         for forwarder in forwarders {
             let _ = forwarder.await;
@@ -796,18 +804,18 @@ impl ManagerInner {
             return;
         }
 
-        let mut tails = self.tails.lock();
-        let sender = tails.entry(message.channel_id.clone()).or_insert_with(|| {
-            let (sender, receiver) = mpsc::unbounded_channel::<OutboundMessage>();
-            self.forwarders
-                .lock()
-                .push(tokio::spawn(forward(channel, receiver)));
-            sender
-        });
-        // The receiving task lives as long as the sender, so the only way this
-        // fails is a send racing `stop()`, where the message has nowhere to go
-        // anyway.
-        let _ = sender.send(message);
+        let queue = {
+            let mut tails = self.tails.lock();
+            let queue = tails.entry(message.channel_id.clone()).or_insert_with(|| {
+                let queue = Arc::new(DeliveryQueue::new(&message.channel_id));
+                self.forwarders
+                    .lock()
+                    .push(tokio::spawn(forward(channel, Arc::clone(&queue))));
+                queue
+            });
+            Arc::clone(queue)
+        };
+        queue.push(message);
     }
 }
 
@@ -823,11 +831,8 @@ fn accepts(channel: &dyn Channel, kind: OutboundKind) -> bool {
 
 /// One channel's delivery chain: strictly in order, and never another
 /// channel's problem.
-async fn forward(
-    channel: Arc<dyn Channel>,
-    mut receiver: mpsc::UnboundedReceiver<OutboundMessage>,
-) {
-    while let Some(message) = receiver.recv().await {
+async fn forward(channel: Arc<dyn Channel>, queue: Arc<DeliveryQueue>) {
+    while let Some(message) = queue.next().await {
         let kind = message.kind;
         if let Err(error) = channel.send(message).await {
             // One failed send, not a dead pump: whether repeating it is safe is

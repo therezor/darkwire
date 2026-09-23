@@ -20,7 +20,10 @@ use darkwire_channels::channel::{
 };
 use darkwire_channels::manager::{ChannelHub, ChannelManager, ChannelManagerOptions};
 use darkwire_channels::testkit::{ReceivedFrame, ScriptedHub, counter_ids, flush};
-use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
+use darkwire_channels::{DELIVERY_QUEUE_BOUND, DELIVERY_QUEUE_HARD_CAP};
+use darkwire_core::message_bus::{
+    OutboundKind, OutboundMessage, OutboundMessageInput, PublishResult,
+};
 use darkwire_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{
@@ -28,6 +31,7 @@ use darkwire_protocol::{
 };
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
+use tokio::sync::Semaphore;
 
 // A channel that records what it was asked to do
 
@@ -45,6 +49,8 @@ struct Recorder {
     context: Mutex<Option<ChannelContext>>,
     faults: Faults,
     send_delay: Option<Duration>,
+    /// Each send waits for a permit, so a test can hold the channel stuck.
+    gate: Option<Arc<Semaphore>>,
     started: AtomicBool,
     stopped: AtomicUsize,
 }
@@ -132,9 +138,13 @@ impl Channel for Recorder {
     fn send(&self, message: OutboundMessage) -> BoxFuture<'_, Result<()>> {
         let delay = self.send_delay;
         let fails = self.faults.send;
+        let gate = self.gate.clone();
         Box::pin(async move {
             if let Some(delay) = delay {
                 tokio::time::sleep(delay).await;
+            }
+            if let Some(gate) = gate {
+                gate.acquire().await.expect("the gate stays open").forget();
             }
             if fails {
                 return Err(WireError::new(ErrorKind::Network, "the send failed"));
@@ -158,6 +168,7 @@ struct Spec {
     accepts: Vec<OutboundKind>,
     faults: Faults,
     send_delay: Option<Duration>,
+    gate: Option<Arc<Semaphore>>,
 }
 
 impl Default for Spec {
@@ -168,6 +179,7 @@ impl Default for Spec {
             accepts: DEFAULT_ACCEPTED_KINDS.to_vec(),
             faults: Faults::default(),
             send_delay: None,
+            gate: None,
         }
     }
 }
@@ -180,6 +192,7 @@ fn build(spec: Spec) -> Built {
         context: Mutex::new(None),
         faults: spec.faults,
         send_delay: spec.send_delay,
+        gate: spec.gate,
         started: AtomicBool::new(false),
         stopped: AtomicUsize::new(0),
     });
@@ -900,6 +913,7 @@ fn stop_frame(session_key: &str) -> ChannelControlFrame {
     ChannelControlFrame::StopTurn(StopTurnMessage {
         tag: StopTurnTag,
         session_key: session_key.to_owned(),
+        turn_id: None,
     })
 }
 
@@ -1068,4 +1082,203 @@ async fn the_session_fixture_names_the_conversation_the_projection_uses() {
     // A guard against the shared fixture drifting away from the manager's own
     // namespacing rule.
     assert!(SESSION.starts_with("loopback:"));
+}
+
+// Delivery to a channel that has stopped taking messages
+
+/// A started manager over a channel whose sends wait until the gate opens.
+async fn stuck(hub: Arc<ScriptedHub>) -> (ChannelManager, Arc<Recorder>, Arc<Semaphore>) {
+    let gate = Arc::new(Semaphore::new(0));
+    let (manager, channel) = started(
+        hub,
+        Spec {
+            accepts: vec![
+                OutboundKind::Reply,
+                OutboundKind::Progress,
+                OutboundKind::Notice,
+                OutboundKind::Error,
+                OutboundKind::Update,
+            ],
+            gate: Some(Arc::clone(&gate)),
+            ..Spec::default()
+        },
+    )
+    .await;
+    (manager, channel, gate)
+}
+
+fn turn(turn_id: &str) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert("turnId".to_owned(), json!(turn_id));
+    metadata
+}
+
+fn card(call_id: &str) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert("approval".to_owned(), json!({"callId": call_id}));
+    metadata
+}
+
+fn settle(call_id: &str) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert("approvalSettled".to_owned(), json!({"callId": call_id}));
+    metadata
+}
+
+fn send_out(
+    manager: &ChannelManager,
+    kind: OutboundKind,
+    text: &str,
+    metadata: Map<String, Value>,
+) {
+    let result = manager.bus().publish_outbound(OutboundMessageInput {
+        channel_id: "loopback".to_owned(),
+        session_key: SESSION.to_owned(),
+        target: "chat-1".to_owned(),
+        kind,
+        content: vec![text_part(text)],
+        metadata,
+        id: None,
+    });
+    assert!(
+        matches!(result, PublishResult::Accepted { .. }),
+        "{result:?}"
+    );
+}
+
+/// Puts one message on the wire and leaves it there, so everything after it
+/// waits in the queue.
+async fn park(manager: &ChannelManager) {
+    send_out(manager, OutboundKind::Reply, "parked", Map::new());
+    flush().await;
+}
+
+/// Opens the gate and lets everything queued go out.
+async fn release(manager: &ChannelManager, gate: &Semaphore) {
+    gate.add_permits(Semaphore::MAX_PERMITS);
+    manager.stop().await;
+}
+
+fn numbered(prefix: &str, count: usize) -> Vec<String> {
+    (0..count).map(|index| format!("{prefix}{index}")).collect()
+}
+
+#[tokio::test]
+async fn a_stuck_channel_keeps_only_the_latest_progress_for_a_turn() {
+    let (manager, channel, gate) = stuck(ScriptedHub::silent()).await;
+    park(&manager).await;
+
+    for text in numbered("notice-", DELIVERY_QUEUE_BOUND) {
+        send_out(&manager, OutboundKind::Notice, &text, Map::new());
+    }
+    for text in numbered("so far ", 5) {
+        send_out(&manager, OutboundKind::Progress, &text, turn("t1"));
+    }
+    flush().await;
+    release(&manager, &gate).await;
+
+    let mut expected = vec!["parked".to_owned()];
+    expected.extend(numbered("notice-", DELIVERY_QUEUE_BOUND));
+    expected.push("so far 4".to_owned());
+    assert_eq!(channel.sent_texts(), expected);
+}
+
+#[tokio::test]
+async fn a_reply_supersedes_its_turns_progress_once_the_queue_is_full() {
+    let (manager, channel, gate) = stuck(ScriptedHub::silent()).await;
+    park(&manager).await;
+
+    send_out(&manager, OutboundKind::Progress, "t1 so far", turn("t1"));
+    send_out(&manager, OutboundKind::Progress, "t2 so far", turn("t2"));
+    for text in numbered("notice-", DELIVERY_QUEUE_BOUND - 2) {
+        send_out(&manager, OutboundKind::Notice, &text, Map::new());
+    }
+    send_out(&manager, OutboundKind::Reply, "t1 answer", turn("t1"));
+    flush().await;
+    release(&manager, &gate).await;
+
+    let mut expected = vec!["parked".to_owned(), "t2 so far".to_owned()];
+    expected.extend(numbered("notice-", DELIVERY_QUEUE_BOUND - 2));
+    expected.push("t1 answer".to_owned());
+    assert_eq!(channel.sent_texts(), expected);
+}
+
+#[tokio::test]
+async fn a_stuck_channel_keeps_every_reply_past_the_bound() {
+    let (manager, channel, gate) = stuck(ScriptedHub::silent()).await;
+    park(&manager).await;
+
+    let replies = numbered("reply-", DELIVERY_QUEUE_BOUND + 50);
+    for (index, text) in replies.iter().enumerate() {
+        send_out(
+            &manager,
+            OutboundKind::Reply,
+            text,
+            turn(&format!("t{index}")),
+        );
+    }
+    flush().await;
+    release(&manager, &gate).await;
+
+    let mut expected = vec!["parked".to_owned()];
+    expected.extend(replies);
+    assert_eq!(channel.sent_texts(), expected);
+}
+
+#[tokio::test]
+async fn an_update_whose_card_already_went_out_is_shed_and_one_whose_card_waits_is_kept() {
+    let (manager, channel, gate) = stuck(ScriptedHub::silent()).await;
+    send_out(&manager, OutboundKind::Notice, "card c1", card("c1"));
+    flush().await;
+
+    send_out(&manager, OutboundKind::Update, "settle c1", settle("c1"));
+    for text in numbered("notice-", DELIVERY_QUEUE_BOUND - 1) {
+        send_out(&manager, OutboundKind::Notice, &text, Map::new());
+    }
+    // At the bound: room for this card is made by shedding the c1 update.
+    send_out(&manager, OutboundKind::Notice, "card c2", card("c2"));
+    // Its own card is still queued, so this one stays past the bound.
+    send_out(&manager, OutboundKind::Update, "settle c2", settle("c2"));
+    // A second update for a card that is gone, arriving at the bound.
+    send_out(
+        &manager,
+        OutboundKind::Update,
+        "settle c1 again",
+        settle("c1"),
+    );
+    flush().await;
+    release(&manager, &gate).await;
+
+    let mut expected = vec!["card c1".to_owned()];
+    expected.extend(numbered("notice-", DELIVERY_QUEUE_BOUND - 1));
+    expected.push("card c2".to_owned());
+    expected.push("settle c2".to_owned());
+    assert_eq!(channel.sent_texts(), expected);
+}
+
+#[tokio::test]
+async fn the_hard_cap_drops_the_oldest_progress_then_notice_then_anything() {
+    let (manager, channel, gate) = stuck(ScriptedHub::silent()).await;
+    park(&manager).await;
+
+    send_out(&manager, OutboundKind::Progress, "so far", turn("p"));
+    send_out(&manager, OutboundKind::Notice, "a notice", Map::new());
+    send_out(&manager, OutboundKind::Notice, "card c1", card("c1"));
+    send_out(&manager, OutboundKind::Update, "settle c1", settle("c1"));
+    // Four over the cap: the progress goes, then the notice, then the card
+    // and its update together, and then the oldest reply.
+    let replies = numbered("reply-", DELIVERY_QUEUE_HARD_CAP + 1);
+    for (batch, texts) in replies.chunks(500).enumerate() {
+        for (index, text) in texts.iter().enumerate() {
+            let turn_id = format!("t{batch}-{index}");
+            send_out(&manager, OutboundKind::Reply, text, turn(&turn_id));
+        }
+        // The bus holds a thousand; the pump empties it between batches.
+        flush().await;
+    }
+    release(&manager, &gate).await;
+
+    let mut expected = vec!["parked".to_owned()];
+    expected.extend(replies.into_iter().skip(1));
+    assert_eq!(channel.sent_texts(), expected);
 }

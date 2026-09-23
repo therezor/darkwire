@@ -33,6 +33,7 @@
 #![forbid(unsafe_code)]
 
 pub mod channel;
+mod delivery;
 pub mod manager;
 pub mod projection;
 pub mod telegram;
@@ -47,7 +48,8 @@ pub use channel::{
 };
 pub use manager::{
     ChannelHub, ChannelHubConnectOptions, ChannelHubConnection, ChannelManager,
-    ChannelManagerOptions, DEFAULT_MAX_CHANNEL_SESSIONS, SendEvent,
+    ChannelManagerOptions, DEFAULT_MAX_CHANNEL_SESSIONS, DELIVERY_QUEUE_BOUND,
+    DELIVERY_QUEUE_HARD_CAP, SendEvent,
 };
 pub use projection::{
     APPROVAL_METADATA_KEY, ApprovalDraftDetail, OutboundDraft, TurnProjection,

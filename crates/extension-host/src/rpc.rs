@@ -25,8 +25,12 @@
 //!    the difference: a `-32601` on a declared kind is a warning on a row, and a
 //!    dead transport is a `failed` row and a respawn.
 //!
-//! Writing is serialised through one task fed by a channel, so several
-//! in-flight calls cannot interleave halves of a line on the pipe.
+//! Writing is serialised through one task fed by a bounded channel, so several
+//! in-flight calls cannot interleave halves of a line on the pipe, and a child
+//! that stops reading its stdin cannot make the host buffer without limit. A
+//! line that finds no room within the write timeout ([`REQUEST_TIMEOUT`] in
+//! production) marks the extension as hung: the connection closes and
+//! [`RpcClient::stalled`] tells the host.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,7 +44,9 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 /// The only JSON-RPC version this speaks.
@@ -59,6 +65,13 @@ pub const METHOD_NOT_FOUND: i64 = -32601;
 /// Generous for a local pipe on purpose. The bound is there so a hung
 /// extension cannot hang a boot or a settings save, not to hurry a slow one.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How many lines may wait for the extension to read them.
+///
+/// Enough for every call a busy turn has in flight at once. Past it, a caller
+/// waits for room, and one that waits out the write timeout has found a child
+/// that stopped reading.
+pub const OUTBOUND_QUEUE: usize = 256;
 
 /// The MCP revision the host announces.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -231,10 +244,26 @@ type Answer = oneshot::Receiver<std::result::Result<Value, RpcError>>;
 /// Cloneable and shared: the bridged tools, the context contributor and the
 /// command runner all hold one, and every call multiplexes over the same pipe.
 pub struct RpcClient {
-    outbound: mpsc::UnboundedSender<String>,
+    outbound: mpsc::Sender<String>,
     pending: Pending,
     next_id: AtomicI64,
     token: CancellationToken,
+    /// How long a line may wait for room before the child counts as hung.
+    write_timeout: Duration,
+    /// Why the connection closed, when it closed because the child stopped
+    /// reading. Written before the token fires, so a watcher woken by it
+    /// always finds the reason.
+    stall: Mutex<Option<String>>,
+}
+
+/// How one line fared on its way into the outbound queue.
+enum Queued {
+    Sent,
+    /// No room within the wait.
+    Expired,
+    /// The caller's own token fired first.
+    Cancelled,
+    Gone,
 }
 
 impl std::fmt::Debug for RpcClient {
@@ -244,6 +273,26 @@ impl std::fmt::Debug for RpcClient {
             .field("closed", &self.token.is_cancelled())
             .finish_non_exhaustive()
     }
+}
+
+fn timed_out(method: &str, timeout: Duration) -> RpcFailure {
+    RpcFailure::Transport(
+        WireError::new(
+            ErrorKind::Timeout,
+            format!(
+                "The extension did not answer \"{method}\" within {} ms.",
+                timeout.as_millis()
+            ),
+        )
+        .with_detail("method", method),
+    )
+}
+
+fn aborted() -> RpcFailure {
+    RpcFailure::Transport(WireError::new(
+        ErrorKind::Aborted,
+        "The call was cancelled.",
+    ))
 }
 
 fn transport_gone() -> RpcFailure {
@@ -260,22 +309,29 @@ impl RpcClient {
     /// framing is testable over `tokio::io::duplex` with nothing spawned. Both
     /// tasks end when `token` fires or either stream closes, and cancelling the
     /// token is what [`close`](Self::close) does.
+    ///
+    /// `write_timeout` is how long a line may wait for room in the outbound
+    /// queue before the child counts as hung. [`REQUEST_TIMEOUT`] in
+    /// production.
     pub fn start<R, W>(
         reader: R,
         writer: W,
         handler: Arc<dyn RpcHandler>,
         token: &CancellationToken,
+        write_timeout: Duration,
     ) -> Arc<RpcClient>
     where
         R: AsyncRead + Send + Unpin + 'static,
         W: AsyncWrite + Send + Unpin + 'static,
     {
-        let (outbound, mut outbox) = mpsc::unbounded_channel::<String>();
+        let (outbound, mut outbox) = mpsc::channel::<String>(OUTBOUND_QUEUE);
         let client = Arc::new(RpcClient {
             outbound,
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicI64::new(1),
             token: token.clone(),
+            write_timeout,
+            stall: Mutex::new(None),
         });
 
         let writing = token.clone();
@@ -289,8 +345,16 @@ impl RpcClient {
                         None => break,
                     },
                 };
-                if writer.write_all(line.as_bytes()).await.is_err() || writer.flush().await.is_err()
-                {
+                // Inside the select: a child that stopped reading parks the
+                // write for good, and only the token can take it back.
+                let written = tokio::select! {
+                    () = writing.cancelled() => break,
+                    written = async {
+                        writer.write_all(line.as_bytes()).await?;
+                        writer.flush().await
+                    } => written,
+                };
+                if written.is_err() {
                     break;
                 }
             }
@@ -350,7 +414,7 @@ impl RpcClient {
                 let client = Arc::clone(self);
                 tokio::spawn(async move {
                     let answer = handler.request(method, params).await;
-                    client.respond(&id, answer);
+                    client.respond(&id, answer).await;
                 });
             }
             (Some(method), None) => handler.notify(method, params),
@@ -373,12 +437,12 @@ impl RpcClient {
         }
     }
 
-    fn respond(&self, id: &Value, answer: std::result::Result<Value, RpcError>) {
+    async fn respond(&self, id: &Value, answer: std::result::Result<Value, RpcError>) {
         let frame = match answer {
             Ok(result) => json!({"jsonrpc": JSONRPC_VERSION, "id": id, "result": result}),
             Err(error) => json!({"jsonrpc": JSONRPC_VERSION, "id": id, "error": error}),
         };
-        self.send(&frame);
+        self.send(&frame).await;
     }
 
     fn fail_everything(&self) {
@@ -391,30 +455,99 @@ impl RpcClient {
         }
     }
 
-    fn send(&self, frame: &Value) -> bool {
-        match serde_json::to_string(frame) {
-            Ok(text) => self.outbound.send(format!("{text}\n")).is_ok(),
-            Err(_) => false,
+    fn line(frame: &Value) -> Option<String> {
+        serde_json::to_string(frame)
+            .ok()
+            .map(|text| format!("{text}\n"))
+    }
+
+    /// Waits up to `within` for room in the outbound queue.
+    async fn enqueue(&self, line: String, within: Duration, cancel: &CancellationToken) -> Queued {
+        let line = match self.outbound.try_send(line) {
+            Ok(()) => return Queued::Sent,
+            Err(TrySendError::Closed(_)) => return Queued::Gone,
+            Err(TrySendError::Full(line)) => line,
+        };
+        tokio::select! {
+            sent = self.outbound.send(line) => {
+                if sent.is_ok() { Queued::Sent } else { Queued::Gone }
+            }
+            () = tokio::time::sleep(within) => Queued::Expired,
+            () = cancel.cancelled() => Queued::Cancelled,
+            () = self.token.cancelled() => Queued::Gone,
+        }
+    }
+
+    /// Closes a connection whose child stopped reading, and says so.
+    ///
+    /// `method` is the request that found no room, when it was a request.
+    fn stalled_on(&self, method: Option<&str>) -> RpcFailure {
+        let what = method.map_or_else(|| "a message".to_owned(), |method| format!("\"{method}\""));
+        let waited = u64::try_from(self.write_timeout.as_millis()).unwrap_or(u64::MAX);
+        let mut error = WireError::new(
+            ErrorKind::Extension,
+            format!(
+                "The extension stopped reading its input: {what} found no room in {waited} ms, \
+                 with {OUTBOUND_QUEUE} messages already waiting."
+            ),
+        )
+        .with_detail("queued", OUTBOUND_QUEUE)
+        .with_detail("waitedMs", waited);
+        if let Some(method) = method {
+            error = error.with_detail("method", method);
+        }
+        *self.stall.lock() = Some(error.message.clone());
+        tracing::warn!(target: "extension", what, "an extension stopped reading its input");
+        self.close();
+        RpcFailure::Transport(error)
+    }
+
+    /// Sends a frame nobody waits on the answer to.
+    async fn send(&self, frame: &Value) {
+        let Some(line) = RpcClient::line(frame) else {
+            return;
+        };
+        let never = CancellationToken::new();
+        if let Queued::Expired = self.enqueue(line, self.write_timeout, &never).await {
+            self.stalled_on(None);
         }
     }
 
     /// Sends a notification. Nothing comes back, including a failure.
-    pub fn notify(&self, method: &str, params: Value) {
+    ///
+    /// Waits for room like a request does, and a child that never makes any
+    /// is hung the same way.
+    pub async fn notify(&self, method: &str, params: Value) {
         // Built by hand rather than through `json!` so that `params` is moved
         // into the frame rather than serialised again on the way past.
         let mut frame = serde_json::Map::new();
         frame.insert("jsonrpc".to_owned(), Value::from(JSONRPC_VERSION));
         frame.insert("method".to_owned(), Value::from(method));
         frame.insert("params".to_owned(), params);
-        self.send(&Value::Object(frame));
+        self.send(&Value::Object(frame)).await;
     }
 
-    /// Sends one request and claims its place in the pending map.
+    /// The peer's answer, or the end of the connection.
+    ///
+    /// A call that joined the pending map just after `fail_everything` drained
+    /// it would otherwise wait on an answer nobody is left to send.
+    async fn answer(
+        &self,
+        rx: Answer,
+    ) -> std::result::Result<std::result::Result<Value, RpcError>, ()> {
+        tokio::select! {
+            biased;
+            answer = rx => answer.map_err(|_| ()),
+            () = self.token.cancelled() => Err(()),
+        }
+    }
+
+    /// Claims a request's place in the pending map, and builds its line.
     fn begin(
         &self,
         method: &str,
         params: Value,
-    ) -> std::result::Result<(i64, Answer, PendingEntry), RpcFailure> {
+    ) -> std::result::Result<(i64, String, Answer, PendingEntry), RpcFailure> {
         if self.is_closed() {
             return Err(transport_gone());
         }
@@ -431,18 +564,23 @@ impl RpcClient {
         frame.insert("id".to_owned(), Value::from(id));
         frame.insert("method".to_owned(), Value::from(method));
         frame.insert("params".to_owned(), params);
-        let frame = Value::Object(frame);
-        if !self.send(&frame) {
+        let Some(line) = RpcClient::line(&Value::Object(frame)) else {
             return Err(transport_gone());
-        }
-        Ok((id, rx, entry))
+        };
+        Ok((id, line, rx, entry))
     }
 
+    /// Best effort, and never a wait: it follows a call that already gave up,
+    /// and a peer with no room for it is not reading it anyway.
     fn cancel_on_peer(&self, id: i64, reason: &str) {
-        self.notify(
-            "notifications/cancelled",
-            json!({"requestId": id, "reason": reason}),
-        );
+        let frame = json!({
+            "jsonrpc": JSONRPC_VERSION,
+            "method": "notifications/cancelled",
+            "params": {"requestId": id, "reason": reason},
+        });
+        if let Some(line) = RpcClient::line(&frame) {
+            let _ = self.outbound.try_send(line);
+        }
     }
 
     /// One request, answered or failed within [`REQUEST_TIMEOUT`].
@@ -458,31 +596,40 @@ impl RpcClient {
     ///
     /// A request that runs out of time is cancelled on the peer as well, so a
     /// well-behaved extension stops working on an answer nobody will read.
+    ///
+    /// The wait for room in the outbound queue comes out of the same budget.
+    /// Running out of it there is a hung child only when the budget was at
+    /// least the write timeout: a caller that asked for a quick answer has
+    /// learned nothing about the child by not getting one.
     pub async fn request_within(
         &self,
         method: &str,
         params: Value,
         timeout: Duration,
     ) -> std::result::Result<Value, RpcFailure> {
-        let (id, rx, entry) = self.begin(method, params)?;
-        let answer = tokio::time::timeout(timeout, rx).await;
+        let deadline = Instant::now() + timeout;
+        let (id, line, rx, entry) = self.begin(method, params)?;
+        let never = CancellationToken::new();
+        match self
+            .enqueue(line, timeout.min(self.write_timeout), &never)
+            .await
+        {
+            Queued::Sent => {}
+            Queued::Expired if timeout >= self.write_timeout => {
+                return Err(self.stalled_on(Some(method)));
+            }
+            Queued::Expired => return Err(timed_out(method, timeout)),
+            Queued::Cancelled | Queued::Gone => return Err(transport_gone()),
+        }
+        let answer = tokio::time::timeout_at(deadline, self.answer(rx)).await;
         drop(entry);
         match answer {
             Ok(Ok(Ok(result))) => Ok(result),
             Ok(Ok(Err(error))) => Err(RpcFailure::Peer(error)),
-            Ok(Err(_)) => Err(transport_gone()),
+            Ok(Err(())) => Err(transport_gone()),
             Err(_) => {
                 self.cancel_on_peer(id, "the host stopped waiting for an answer");
-                Err(RpcFailure::Transport(
-                    WireError::new(
-                        ErrorKind::Timeout,
-                        format!(
-                            "The extension did not answer \"{method}\" within {} ms.",
-                            timeout.as_millis()
-                        ),
-                    )
-                    .with_detail("method", method),
-                ))
+                Err(timed_out(method, timeout))
             }
         }
     }
@@ -502,22 +649,25 @@ impl RpcClient {
         params: Value,
         token: &CancellationToken,
     ) -> std::result::Result<Value, RpcFailure> {
-        let (id, rx, entry) = self.begin(method, params)?;
+        let (id, line, rx, entry) = self.begin(method, params)?;
+        match self.enqueue(line, self.write_timeout, token).await {
+            Queued::Sent => {}
+            Queued::Expired => return Err(self.stalled_on(Some(method))),
+            Queued::Cancelled => return Err(aborted()),
+            Queued::Gone => return Err(transport_gone()),
+        }
         let answer = tokio::select! {
-            answer = rx => Some(answer),
+            answer = self.answer(rx) => Some(answer),
             () = token.cancelled() => None,
         };
         drop(entry);
         match answer {
             Some(Ok(Ok(result))) => Ok(result),
             Some(Ok(Err(error))) => Err(RpcFailure::Peer(error)),
-            Some(Err(_)) => Err(transport_gone()),
+            Some(Err(())) => Err(transport_gone()),
             None => {
                 self.cancel_on_peer(id, "the host cancelled the request");
-                Err(RpcFailure::Transport(WireError::new(
-                    ErrorKind::Aborted,
-                    "The call was cancelled.",
-                )))
+                Err(aborted())
             }
         }
     }
@@ -541,7 +691,7 @@ impl RpcClient {
                 WireError::from(failure).with_detail("extension", init.extension_id.as_str())
             })?;
         let parsed: InitializeResult = serde_json::from_value(result).unwrap_or_default();
-        self.notify("notifications/initialized", json!({}));
+        self.notify("notifications/initialized", json!({})).await;
         Ok(parsed)
     }
 
@@ -554,5 +704,17 @@ impl RpcClient {
     /// Whether the connection has been closed from either end.
     pub fn is_closed(&self) -> bool {
         self.token.is_cancelled() || self.outbound.is_closed()
+    }
+
+    /// Resolves once the connection has closed because the child stopped
+    /// reading its input, with the sentence saying so. Never resolves for any
+    /// other close: a crash is the process watcher's to report.
+    pub async fn stalled(&self) -> String {
+        self.token.cancelled().await;
+        let reason = self.stall.lock().clone();
+        match reason {
+            Some(reason) => reason,
+            None => std::future::pending().await,
+        }
     }
 }

@@ -35,6 +35,7 @@ pub fn quick() -> Timings {
         init_timeout: Duration::from_secs(10),
         kill_grace: Duration::from_millis(200),
         respawn_delay: Duration::from_millis(100),
+        write_timeout: Duration::from_millis(500),
     }
 }
 

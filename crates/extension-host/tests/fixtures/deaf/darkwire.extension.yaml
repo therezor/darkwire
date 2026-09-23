@@ -1,0 +1,6 @@
+{
+  "schema": "darkwire.extension/2",
+  "id": "deaf",
+  "command": ["node", "index.mjs"],
+  "contributes": ["commands"]
+}
