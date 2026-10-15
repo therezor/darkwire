@@ -49,7 +49,10 @@ futures = "=0.3.34"
 # serialisation: the wire contract
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-serde_yaml_ng = "=0.10.0"
+# Pure safe Rust, panic-free, with limits on alias expansion. An extension
+# manifest is a third party's YAML, and the libyaml translation the serde_yaml
+# forks run on is archived (RUSTSEC-2024-0449).
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["serialize", "deserialize"] }
 schemars = { version = "=1.2.2", features = ["indexmap2"] }
 serde_with = "=3.23.0"
 garde = { version = "=0.23.0", features = ["derive", "regex"] }

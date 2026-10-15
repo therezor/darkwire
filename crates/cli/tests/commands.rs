@@ -103,7 +103,7 @@ impl Install {
     /// The config as it was written to disk, which is not the same question.
     fn saved(&self) -> Config {
         let text = std::fs::read_to_string(self.root().join("config.yaml")).unwrap();
-        serde_yaml_ng::from_str(&text).unwrap()
+        serde_saphyr::from_str(&text).unwrap()
     }
 }
 

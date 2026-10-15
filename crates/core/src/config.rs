@@ -67,7 +67,7 @@ pub struct LoadedConfig {
 /// settings panel's preview) is validated by exactly the same code that
 /// validates the file, rather than by a second implementation that drifts.
 pub fn parse_config(text: &str, file: &Path) -> Result<Config> {
-    let raw: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).map_err(|error| {
+    let raw: Value = serde_saphyr::from_str(text).map_err(|error| {
         WireError::new(
             ErrorKind::Config,
             format!("{} is not valid YAML: {error}", file.display()),
@@ -79,7 +79,7 @@ pub fn parse_config(text: &str, file: &Path) -> Result<Config> {
     // A struct also deserialises from a sequence, positionally, and every
     // field here has a default, so `[]` would read as a complete config. The
     // file is an object or it is malformed.
-    if !matches!(raw, serde_yaml_ng::Value::Mapping(_)) {
+    if !matches!(raw, Value::Object(_)) {
         let issue = "(root): expected an object".to_owned();
         return Err(invalid_settings(file, vec![issue]));
     }
@@ -182,7 +182,7 @@ fn invalid_settings(file: &Path, issues: Vec<String>) -> WireError {
 
 /// The exact bytes [`save_config`] writes: YAML with a trailing newline.
 pub fn render_config(config: &Config) -> Result<String> {
-    serde_yaml_ng::to_string(config).map_err(|error| {
+    serde_saphyr::to_string(config).map_err(|error| {
         WireError::new(ErrorKind::Internal, "config is not serialisable").with_source(error)
     })
 }

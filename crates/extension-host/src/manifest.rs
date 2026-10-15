@@ -45,7 +45,7 @@ pub const V1_UNSUPPORTED: &str = concat!(
 /// parse.
 pub fn schema_on_disk(dir: &Path) -> Option<ExtensionSchemaVersion> {
     let bytes = std::fs::read(dir.join(EXTENSION_MANIFEST_FILE)).ok()?;
-    let value: serde_yaml_ng::Value = serde_yaml_ng::from_slice(&bytes).ok()?;
+    let value: serde_json::Value = serde_saphyr::from_slice(&bytes).ok()?;
     match value.get("schema")?.as_str()? {
         "darkwire.extension/1" => Some(ExtensionSchemaVersion::V1),
         "darkwire.extension/2" => Some(ExtensionSchemaVersion::V2),

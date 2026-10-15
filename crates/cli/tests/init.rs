@@ -128,7 +128,7 @@ async fn run_with(home: &Path, answers: &[&str], offered: &[&str], interactive: 
 /// The config the wizard wrote, as JSON.
 fn config_in(home: &Path) -> serde_json::Value {
     let text = std::fs::read_to_string(home.join("config.yaml")).expect("a config was written");
-    serde_yaml_ng::from_str(&text).expect("the config is YAML")
+    serde_saphyr::from_str(&text).expect("the config is YAML")
 }
 
 /// The two models every case is offered unless it says otherwise.

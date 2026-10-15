@@ -153,7 +153,7 @@ impl PolicyStore {
     /// different definition.
     pub fn save_environment(&self, definition: &EnvironmentDefinition) -> Result<String> {
         let path = self.path_for(&definition.name)?;
-        let bytes = serde_yaml_ng::to_string(definition)
+        let bytes = serde_saphyr::to_string(definition)
             .map_err(|error| {
                 WireError::new(
                     ErrorKind::Internal,

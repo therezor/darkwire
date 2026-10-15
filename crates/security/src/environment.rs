@@ -136,7 +136,7 @@ pub(crate) fn parse_manifest<T: DeserializeOwned + Validate<Context = ()>>(
     bytes: &[u8],
     what: &str,
 ) -> Result<T> {
-    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_slice(bytes).map_err(|error| {
+    let yaml: serde_json::Value = serde_saphyr::from_slice(bytes).map_err(|error| {
         WireError::new(ErrorKind::Config, format!("{what} is not valid YAML")).with_source(error)
     })?;
     let parsed: T = serde_path_to_error::deserialize(yaml).map_err(|error| {
