@@ -53,7 +53,7 @@ pub struct TurnLog {
     /// state of a turn that has emitted only its start — and a *dropped* log is
     /// empty too. Only this tells the two apart.
     retaining: bool,
-    last_key: Option<String>,
+    last_key: Option<MergeKey>,
 }
 
 impl TurnLog {
@@ -99,7 +99,7 @@ impl TurnLog {
         if let ServerMessage::TurnStart(start) = message {
             self.begin(start.event.turn_id.clone());
         }
-        let Some(open) = self.turn.clone() else {
+        let Some(open) = self.turn.as_deref() else {
             return;
         };
 
@@ -113,10 +113,7 @@ impl TurnLog {
             return;
         }
 
-        if !self.retaining || !is_retained(message) {
-            return;
-        }
-        if turn_id_of(message) != Some(open.as_str()) {
+        if !self.retaining || !is_retained(message) || turn_id_of(message) != Some(open) {
             return;
         }
 
@@ -139,10 +136,10 @@ impl TurnLog {
     }
 
     fn append(&mut self, message: &ServerMessage) {
-        let key = mergeable_key(message);
-
-        if key.is_some()
-            && key == self.last_key
+        if self
+            .last_key
+            .as_ref()
+            .is_some_and(|key| key.matches(message))
             && self
                 .entries
                 .last_mut()
@@ -152,7 +149,7 @@ impl TurnLog {
             return;
         }
 
-        self.last_key = key;
+        self.last_key = MergeKey::of(message);
         self.entries.push(message.clone());
         self.charge(payload_size(message) + ENTRY_OVERHEAD);
     }
@@ -223,22 +220,60 @@ fn turn_id_of(message: &ServerMessage) -> Option<&str> {
 /// the other. `parent_session_key` + `parent_call_id` names a delegation at any
 /// depth, which is the same address the client uses to place the frames.
 ///
-/// `None` for anything that is not a delta, which never merges.
-fn mergeable_key(message: &ServerMessage) -> Option<String> {
-    match message {
-        ServerMessage::AssistantDelta(_) => Some("turn:assistant.delta".to_owned()),
-        ServerMessage::ReasoningDelta(_) => Some("turn:reasoning.delta".to_owned()),
-        ServerMessage::Subagent(outer) => {
-            let inner = match &outer.event.event {
-                NestedAgentEvent::AssistantDelta(_) => "assistant.delta",
-                NestedAgentEvent::ReasoningDelta(_) => "reasoning.delta",
-                _ => return None,
-            };
-            Some(format!(
-                "sub:{}:{}:{inner}",
-                outer.event.parent_session_key, outer.event.parent_call_id
-            ))
+/// Built only when a new entry starts. Every later delta is compared against it
+/// in place, so the per-token path allocates nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MergeKey {
+    Assistant,
+    Reasoning,
+    Nested {
+        parent_session_key: String,
+        parent_call_id: String,
+        reasoning: bool,
+    },
+}
+
+impl MergeKey {
+    /// `None` for anything that is not a delta, which never merges.
+    fn of(message: &ServerMessage) -> Option<MergeKey> {
+        match message {
+            ServerMessage::AssistantDelta(_) => Some(MergeKey::Assistant),
+            ServerMessage::ReasoningDelta(_) => Some(MergeKey::Reasoning),
+            ServerMessage::Subagent(outer) => Some(MergeKey::Nested {
+                parent_session_key: outer.event.parent_session_key.clone(),
+                parent_call_id: outer.event.parent_call_id.clone(),
+                reasoning: nested_reasoning(&outer.event.event)?,
+            }),
+            _ => None,
         }
+    }
+
+    fn matches(&self, message: &ServerMessage) -> bool {
+        match (self, message) {
+            (MergeKey::Assistant, ServerMessage::AssistantDelta(_))
+            | (MergeKey::Reasoning, ServerMessage::ReasoningDelta(_)) => true,
+            (
+                MergeKey::Nested {
+                    parent_session_key,
+                    parent_call_id,
+                    reasoning,
+                },
+                ServerMessage::Subagent(outer),
+            ) => {
+                nested_reasoning(&outer.event.event) == Some(*reasoning)
+                    && outer.event.parent_session_key == *parent_session_key
+                    && outer.event.parent_call_id == *parent_call_id
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Which kind of nested delta this is, or `None` when it is not one.
+fn nested_reasoning(event: &NestedAgentEvent) -> Option<bool> {
+    match event {
+        NestedAgentEvent::AssistantDelta(_) => Some(false),
+        NestedAgentEvent::ReasoningDelta(_) => Some(true),
         _ => None,
     }
 }

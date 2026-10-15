@@ -97,7 +97,7 @@ impl Install {
     }
 
     fn config(&self) -> Config {
-        self.runtime.config()
+        Config::clone(&self.runtime.config())
     }
 
     /// The config as it was written to disk, which is not the same question.
@@ -744,6 +744,27 @@ async fn help_is_printed_rather_than_returned() {
     let mut h = Harness::bare("cli:1");
     assert_eq!(h.run("/help").await, SlashOutcome::Continue);
     assert!(h.text().contains("/session [key]"));
+}
+
+#[tokio::test]
+async fn every_command_the_table_offers_is_one_the_dispatcher_runs() {
+    // The help table feeds the palette, Tab completion and `/help`; the
+    // dispatcher is a match beside it. A row with no arm would be offered
+    // everywhere and answer "unknown command" when chosen.
+    for row in command_rows() {
+        for name in row
+            .syntax
+            .split(", ")
+            .filter_map(|spelling| spelling.split_whitespace().next())
+        {
+            let mut h = Harness::bare("cli:1");
+            h.run(name).await;
+            assert!(
+                !h.text().contains("unknown command"),
+                "{name} is in the table and not in the dispatcher"
+            );
+        }
+    }
 }
 
 #[tokio::test]

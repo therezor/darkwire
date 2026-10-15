@@ -38,6 +38,11 @@ import {
 import { toast } from '@/components/ui/toast.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 
+/** `messages` and `context` keys, which a turn's frames keep current. */
+function deliveredLive(key: readonly unknown[]): boolean {
+  return key[2] === 'messages' || key[2] === 'context';
+}
+
 export function useConnection(sessionKey: string | undefined): void {
   const queryClient = useQueryClient();
   const { adopt } = useWorkspace();
@@ -93,8 +98,24 @@ export function useConnection(sessionKey: string | undefined): void {
           case 'turn.end':
             // Unscoped: `['sessions']` is the prefix every workspace-scoped key
             // starts with, so one invalidation refreshes whichever is showing.
+            //
+            // Except a transcript or a context already in the cache, which go
+            // stale without a refetch. The socket kept both current, and
+            // refetching them downloaded every page of the conversation once
+            // per turn. One with nothing cached is still fetched: before a
+            // conversation's first turn there was no row to answer it, and
+            // `context.usage` patches a cached context rather than seed one.
             void queryClient.invalidateQueries({
               queryKey: queryKeys.sessions(),
+              predicate: (query) =>
+                !deliveredLive(query.queryKey) ||
+                query.state.data === undefined,
+            });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.sessions(),
+              predicate: (query) =>
+                deliveredLive(query.queryKey) && query.state.data !== undefined,
+              refetchType: 'none',
             });
             return;
 

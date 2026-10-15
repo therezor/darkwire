@@ -27,14 +27,14 @@ use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use darkwire_security::WorkspaceJail;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
-use ignore::overrides::OverrideBuilder;
+use ignore::overrides::{Override, OverrideBuilder};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::builtin::built;
 use crate::builtin::shared::{clamp_note, fs_failure, open_options};
-use crate::builtin::walk::{WalkTally, beneath, files};
+use crate::builtin::walk::{Files, beneath};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -284,7 +284,24 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
         .open_root()
         .map_err(|error| fs_failure(&error, ".", ""))?;
     let single = is_file(request, &workspace);
-    let (candidates, tally) = search_set(request, single, token)?;
+    // The root itself, or the walk under it, filtered by the glob as it goes.
+    // Lazy, so a search that reaches its limit stops walking as well as
+    // searching. The glob filters files only, after the ignore rules, which is
+    // why it is not given to the walker as an override.
+    let glob = if single { None } else { glob_matcher(request)? };
+    let mut walk = (!single).then(|| Files::new(&request.root, token, NAME));
+    let mut root = single.then(|| request.root.clone());
+    let mut next_candidate = || -> Option<Result<PathBuf>> {
+        if let Some(file) = root.take() {
+            return Some(Ok(file));
+        }
+        walk.as_mut()?.find(|found| {
+            found.as_ref().map_or(true, |path| {
+                glob.as_ref()
+                    .is_none_or(|glob| glob.matched(path, false).is_whitelist())
+            })
+        })
+    };
     // A search of a single file strips to nothing against itself, so the paths
     // are shown relative to its directory and the file keeps its name.
     let base = if single {
@@ -292,18 +309,13 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
     } else {
         request.root.as_path()
     };
-    let mut report = GrepReport {
-        unreadable: tally.unreadable,
-        ..GrepReport::default()
-    };
+    let mut report = GrepReport::default();
     let limit = usize::try_from(request.limit).unwrap_or(usize::MAX);
     let mut options = open_options();
     options.read(true);
 
-    for file in candidates {
-        if token.is_cancelled() {
-            return Err(WireError::aborted(NAME));
-        }
+    while let Some(file) = next_candidate() {
+        let file = file?;
         let relative = display_path(base, &file);
         let mut collector = Collector {
             path: &relative,
@@ -335,6 +347,9 @@ pub fn grep_blocking(request: &GrepRequest, token: &CancellationToken) -> Result
             break;
         }
     }
+    if let Some(walk) = &walk {
+        report.unreadable = report.unreadable.saturating_add(walk.tally.unreadable);
+    }
     Ok(report)
 }
 
@@ -345,35 +360,21 @@ fn is_file(request: &GrepRequest, workspace: &cap_std::fs::Dir) -> bool {
         .is_some_and(|stats| stats.is_file())
 }
 
-/// The files one request searches: the root itself, or the walk under it.
-fn search_set(
-    request: &GrepRequest,
-    single: bool,
-    token: &CancellationToken,
-) -> Result<(Vec<PathBuf>, WalkTally)> {
-    if single {
-        return Ok((vec![request.root.clone()], WalkTally::default()));
-    }
-    let (mut found, tally) = files(&request.root, token, NAME)?;
-    if let Some(glob) = request.glob.as_deref() {
-        let mut overrides = OverrideBuilder::new(&request.root);
-        overrides.add(glob).map_err(|error| {
-            WireError::new(
-                ErrorKind::InvalidInput,
-                format!("glob is not a valid pattern: {error}"),
-            )
-            .with_detail("glob", glob)
-        })?;
-        let matcher = overrides.build().map_err(|error| {
-            WireError::new(
-                ErrorKind::InvalidInput,
-                format!("glob is not a valid pattern: {error}"),
-            )
-            .with_detail("glob", glob)
-        })?;
-        found.retain(|path| matcher.matched(path, false).is_whitelist());
-    }
-    Ok((found, tally))
+/// The request's `glob`, compiled against its root.
+fn glob_matcher(request: &GrepRequest) -> Result<Option<Override>> {
+    let Some(glob) = request.glob.as_deref() else {
+        return Ok(None);
+    };
+    let invalid = |error: ignore::Error| {
+        WireError::new(
+            ErrorKind::InvalidInput,
+            format!("glob is not a valid pattern: {error}"),
+        )
+        .with_detail("glob", glob)
+    };
+    let mut overrides = OverrideBuilder::new(&request.root);
+    overrides.add(glob).map_err(invalid)?;
+    overrides.build().map(Some).map_err(invalid)
 }
 
 /// A found path as the model should see it: relative to what it asked about.

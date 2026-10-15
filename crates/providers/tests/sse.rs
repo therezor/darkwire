@@ -99,6 +99,33 @@ fn a_crlf_split_across_chunks_is_one_terminator() {
     assert_eq!(events(&["data: d\r"]), vec![event("d")]);
 }
 
+proptest! {
+    #[test]
+    fn any_split_of_a_stream_parses_like_the_whole(
+        cuts in proptest::collection::vec(0_usize..=64, 0..8)
+    ) {
+        let stream = "event: a\r\ndata: one\r\n\r\n: keep-alive\ndata: two\rdata: three\n\n\
+                      data: a long line that arrives in pieces\r\n\r\ndata: [DONE]";
+        let mut points: Vec<usize> = cuts
+            .into_iter()
+            .map(|cut| cut * stream.len() / 64)
+            .collect();
+        points.sort_unstable();
+        points.dedup();
+        let mut chunks: Vec<&[u8]> = Vec::new();
+        let mut previous = 0;
+        for point in points {
+            chunks.push(&stream.as_bytes()[previous..point]);
+            previous = point;
+        }
+        chunks.push(&stream.as_bytes()[previous..]);
+
+        let whole = parse_sse_chunks([stream.as_bytes()], SseOptions::default()).unwrap();
+        let split = parse_sse_chunks(chunks, SseOptions::default()).unwrap();
+        prop_assert_eq!(split, whole);
+    }
+}
+
 #[test]
 fn counts_data_lines_that_never_close_their_frame_against_the_cap() {
     let flood = "data: xxxxxxxx\n".repeat(20);

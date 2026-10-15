@@ -24,7 +24,6 @@ pub mod auth;
 pub mod auth_store;
 pub mod automation_port;
 pub mod automation_store;
-pub mod blocking;
 pub mod boot;
 pub mod context;
 pub mod cursor;

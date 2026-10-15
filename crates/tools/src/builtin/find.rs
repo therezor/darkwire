@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::builtin::built;
 use crate::builtin::shared::{clamp_note, fs_failure};
-use crate::builtin::walk::{beneath, files};
+use crate::builtin::walk::{Files, beneath};
 use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
@@ -136,13 +136,12 @@ pub fn find_blocking(request: &FindRequest, token: &CancellationToken) -> Result
         .jail
         .open_root()
         .map_err(|error| fs_failure(&error, ".", ""))?;
-    let (candidates, mut tally) = files(&request.root, token, NAME)?;
+    let mut candidates = Files::new(&request.root, token, NAME);
+    let mut unreadable = 0_usize;
 
     let mut hits: Vec<(Option<SystemTime>, String)> = Vec::new();
-    for file in candidates {
-        if token.is_cancelled() {
-            return Err(WireError::aborted(NAME));
-        }
+    for file in candidates.by_ref() {
+        let file = file?;
         let relative = file.strip_prefix(&request.root).unwrap_or(&file);
         if !matcher.is_match(relative) {
             continue;
@@ -153,7 +152,7 @@ pub fn find_blocking(request: &FindRequest, token: &CancellationToken) -> Result
         // A name the walk saw through a directory that has since led out of
         // the workspace is not a hit inside it.
         if stats.as_ref().is_err_and(led_outside) {
-            tally.unreadable = tally.unreadable.saturating_add(1);
+            unreadable = unreadable.saturating_add(1);
             continue;
         }
         let modified = stats
@@ -177,7 +176,7 @@ pub fn find_blocking(request: &FindRequest, token: &CancellationToken) -> Result
     Ok(FindReport {
         paths: hits.into_iter().take(shown).map(|(_, path)| path).collect(),
         total,
-        unreadable: tally.unreadable,
+        unreadable: unreadable.saturating_add(candidates.tally.unreadable),
     })
 }
 

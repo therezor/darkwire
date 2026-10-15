@@ -732,6 +732,7 @@ impl ChannelHub for HubBridge {
             unattended: false,
             workspace_id: options.workspace_id,
             max_buffered_bytes: None,
+            max_replayed_bytes: None,
             // A channel is not a browser login, so no sign-out closes it.
             auth_session: None,
         });
@@ -981,7 +982,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     let ui = resolve_ui_root(args.ui.as_deref())?;
 
     let built: WireServer = create_server(ServerOptions {
-        config: config.clone(),
+        config: darkwire_protocol::Config::clone(&config),
         runtime: Arc::clone(&server_runtime) as Arc<dyn darkwire_server::ServerRuntime>,
         hub: Arc::clone(&hub),
         ui: ui.clone(),
@@ -1246,6 +1247,7 @@ fn build_scheduler(
                 unattended: options.unattended,
                 workspace_id: options.workspace_id,
                 max_buffered_bytes: None,
+                max_replayed_bytes: None,
                 auth_session: None,
             });
             pump(stream, move |message| send(message));

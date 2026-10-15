@@ -57,20 +57,20 @@ const ICONS = {
  * same number of tasks still moves it.
  */
 export function lastTodoCallId(transcript: Transcript): string {
-  let id = '';
-  for (const item of transcript) {
-    if (item.kind !== 'turn') continue;
-    for (const part of item.parts) {
-      if (
-        part.kind === 'tool' &&
-        part.name === 'todo' &&
-        part.status === 'ok'
-      ) {
-        id = part.id;
-      }
-    }
+  // From the end, because this runs on every store update and the answer is
+  // almost always in the last turn.
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (item?.kind !== 'turn') continue;
+    const part = item.parts.findLast(
+      (candidate) =>
+        candidate.kind === 'tool' &&
+        candidate.name === 'todo' &&
+        candidate.status === 'ok',
+    );
+    if (part !== undefined) return part.id;
   }
-  return id;
+  return '';
 }
 
 export function TaskPanel({

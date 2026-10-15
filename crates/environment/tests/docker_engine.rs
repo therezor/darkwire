@@ -21,9 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use darkwire_core::ErrorKind;
-use darkwire_environment::container_pool::{
-    CONTROL_TIMEOUT, ContainerEngine, DockerEngineOptions, OWNER_LABEL, START_TIMEOUT,
-    docker_engine, owner_tag,
+use darkwire_environment::container_pool::{ContainerEngine, OWNER_LABEL, owner_tag};
+use darkwire_environment::docker_engine::{
+    CONTROL_TIMEOUT, DockerEngineOptions, START_TIMEOUT, docker_engine,
 };
 use tempfile::TempDir;
 

@@ -995,7 +995,7 @@ fn narrows_a_record_to_the_wire_shape() {
         )
         .unwrap();
 
-    let wire = to_stored_message(&record);
+    let wire = to_stored_message(record);
     assert_eq!(wire.id, "m1");
     assert_eq!(wire.session_key, "s");
     assert_eq!(wire.seq, 1);
@@ -1007,7 +1007,7 @@ fn narrows_a_record_to_the_wire_shape() {
 #[test]
 fn omits_turn_id_from_the_wire_shape_when_absent() {
     let (store, _) = make_store();
-    let wire = to_stored_message(&store.append("s", user_message("hi"), &NO_OPTIONS).unwrap());
+    let wire = to_stored_message(store.append("s", user_message("hi"), &NO_OPTIONS).unwrap());
     let encoded = serde_json::to_value(&wire).unwrap();
     assert!(encoded.get("turnId").is_none());
 }
@@ -2364,4 +2364,32 @@ mod tasks {
         assert!(store.delete_session("a").unwrap());
         assert_eq!(store.tasks("a").unwrap(), Vec::new());
     }
+}
+
+#[test]
+fn the_last_turns_question_is_its_first_user_row_however_long_the_turn() {
+    let (store, _) = make_store();
+    let turn = |id: &str| AppendOptions {
+        turn_id: Some(id.to_owned()),
+    };
+    store
+        .append("s", user_message("first question"), &turn("t1"))
+        .unwrap();
+    store
+        .append("s", user_message("second question"), &turn("t2"))
+        .unwrap();
+    // Longer than any fixed tail, with a steering row partway through.
+    for n in 0..250 {
+        let text = if n == 100 { "a steer" } else { "working" };
+        let message = if n == 100 {
+            user_message(text)
+        } else {
+            assistant_message(text, Vec::new())
+        };
+        store.append("s", message, &turn("t2")).unwrap();
+    }
+
+    let question = store.last_turn_question("s").unwrap().unwrap();
+    assert_eq!(text_of(&question.message), "second question");
+    assert_eq!(store.last_turn_question("empty").unwrap(), None);
 }

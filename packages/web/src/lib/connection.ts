@@ -56,6 +56,11 @@ let requested: string | undefined;
  */
 let durableSeq = 0;
 /**
+ * The cursor last written, as `sessionKey seq`. The boundary is frozen for a
+ * whole turn, so without this every token rewrote the same value.
+ */
+let writtenCursor: string | undefined;
+/**
  * What a *page load* resumes from, as opposed to a reconnect.
  *
  * `undefined` means this tab has no record of the session it just attached to,
@@ -240,6 +245,7 @@ function attachWithCursor(sessionKey: string): number {
   // boundary — and for a session with no stored cursor, zero is the honest
   // answer: nothing here is recoverable from storage yet.
   durableSeq = cursor ?? 0;
+  writtenCursor = undefined;
   resumeFloor = cursor;
   return useTurnStore.getState().lastSeq;
 }
@@ -451,6 +457,7 @@ export function resetConnection(): void {
   socket = undefined;
   requested = undefined;
   durableSeq = 0;
+  writtenCursor = undefined;
   resumeFloor = undefined;
   reconnecting = false;
   switchingTo = undefined;
@@ -573,7 +580,13 @@ function handleMessage(message: ServerMessage): void {
   // produces one is a turn that started before any other frame arrived — which
   // is a session's first turn, and the one a reload would otherwise lose
   // outright. `cursor.ts` is where the absence and the zero are told apart.
-  if (sessionKey !== undefined) writeCursor(sessionKey, durableSeq);
+  if (sessionKey !== undefined) {
+    const cursor = `${sessionKey} ${String(durableSeq)}`;
+    if (cursor !== writtenCursor) {
+      writeCursor(sessionKey, durableSeq);
+      writtenCursor = cursor;
+    }
+  }
 
   // A connection-scoped error has no turn to attach to, so it has nowhere to
   // render — a toast is the only place it can be seen at all.

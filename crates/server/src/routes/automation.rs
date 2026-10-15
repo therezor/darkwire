@@ -170,7 +170,7 @@ pub async fn create(
 
     // Live rather than the boot config, so a zone changed in the appearance
     // panel applies to the next job saved rather than to the next restart.
-    let timezone = state.runtime.config().ui.timezone;
+    let timezone = state.runtime.config().ui.timezone.clone();
     let next_run_at_ms = next_run_or_refuse(
         &request.schedule,
         state.clock.now_ms(),
@@ -220,7 +220,7 @@ pub async fn update(
     let next_run_at_ms = if rescheduled {
         let schedule = request.schedule.clone().unwrap_or(existing.schedule);
         let enabled = request.enabled.unwrap_or(existing.enabled);
-        let timezone = state.runtime.config().ui.timezone;
+        let timezone = state.runtime.config().ui.timezone.clone();
         Some(next_run_or_refuse(
             &schedule,
             state.clock.now_ms(),

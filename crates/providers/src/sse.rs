@@ -66,6 +66,9 @@ pub struct SseParser {
     /// `buffer`'s length in UTF-16 units, kept incrementally so the cap check
     /// is not a rescan per chunk.
     buffer_units: usize,
+    /// How much of `buffer` is known to hold no line break, so a long line
+    /// arriving over many chunks is searched once rather than once per chunk.
+    scanned: usize,
     data_lines: Vec<String>,
     /// `data_lines` joined, in UTF-16 units. Counted against the cap with
     /// `buffer`, because a stream of `data:` lines that never closes the frame
@@ -83,6 +86,7 @@ impl SseParser {
             pending_bytes: Vec::new(),
             buffer: String::new(),
             buffer_units: 0,
+            scanned: 0,
             data_lines: Vec::new(),
             data_units: 0,
             event_name: String::new(),
@@ -98,23 +102,39 @@ impl SseParser {
         self.buffer_units += text.encode_utf16().count();
         self.buffer.push_str(&text);
 
+        // Lines are read as slices of the buffer, which is drained once at the
+        // end rather than shifted once per line.
+        let mut buffer = std::mem::take(&mut self.buffer);
         let mut events = Vec::new();
-        while let Some((line_end, terminator_len)) = find_terminator(&self.buffer) {
+        let mut start = 0;
+        let mut from = self.scanned;
+        loop {
+            let Some((offset, terminator_len)) = find_terminator(&buffer[from..]) else {
+                from = buffer.len();
+                break;
+            };
+            let line_end = from + offset;
             // A `\r` at the end of the chunk may be the first half of `\r\n`.
             // Read as a whole terminator, the `\n` that follows would be a
             // blank line and fire the frame early.
-            if line_end + terminator_len == self.buffer.len() && self.buffer.ends_with('\r') {
+            if line_end + terminator_len == buffer.len() && buffer.ends_with('\r') {
+                from = line_end;
                 break;
             }
-            let line: String = self.buffer.drain(..line_end + terminator_len).collect();
-            self.buffer_units -= line.encode_utf16().count();
-            let line = &line[..line_end];
+            let next = line_end + terminator_len;
+            self.buffer_units -= buffer[start..next].encode_utf16().count();
+            let line = &buffer[start..line_end];
             if line.is_empty() {
                 events.extend(self.frame());
             } else {
                 self.consume(line);
             }
+            start = next;
+            from = next;
         }
+        buffer.drain(..start);
+        self.scanned = from - start;
+        self.buffer = buffer;
 
         if self.buffer_units + self.data_units > self.max_frame_chars {
             let mut error = ProviderError::new(
@@ -148,6 +168,7 @@ impl SseParser {
         if !self.buffer.is_empty() {
             let buffer = std::mem::take(&mut self.buffer);
             self.buffer_units = 0;
+            self.scanned = 0;
             let line = buffer.strip_suffix('\r').unwrap_or(&buffer);
             if !line.is_empty() {
                 self.consume(line);

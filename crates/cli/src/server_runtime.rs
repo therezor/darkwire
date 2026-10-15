@@ -437,7 +437,7 @@ impl CliServerRuntime {
 }
 
 impl ServerRuntime for CliServerRuntime {
-    fn config(&self) -> Config {
+    fn config(&self) -> Arc<Config> {
         self.runtime.config()
     }
 

@@ -9,7 +9,7 @@
 
 use std::thread;
 
-use darkwire_core::{Database, ErrorKind, WireError};
+use darkwire_core::{Database, ErrorKind, WireError, db};
 
 fn pragma(db: &Database, name: &str) -> String {
     db.lock()
@@ -334,4 +334,32 @@ fn execute_batch_reports_a_bad_statement_as_storage() {
     let db = Database::in_memory().unwrap();
     let error = db.execute_batch("THIS IS NOT SQL").unwrap_err();
     assert_eq!(error.kind, ErrorKind::Storage);
+}
+
+// blocking
+
+#[tokio::test]
+async fn hands_back_what_the_work_returned() {
+    assert_eq!(db::blocking(|| Ok(7)).await.unwrap(), 7);
+    let error = db::blocking::<(), _>(|| Err(WireError::new(ErrorKind::NotFound, "gone")))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn runs_off_the_runtime_thread() {
+    let runtime_thread = std::thread::current().id();
+    let worker = db::blocking(|| Ok(std::thread::current().id()))
+        .await
+        .unwrap();
+    assert_ne!(worker, runtime_thread);
+}
+
+#[tokio::test]
+async fn a_panic_in_the_work_is_an_internal_error_not_a_crash() {
+    let error = db::blocking::<(), _>(|| panic!("the store fell over"))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Internal);
 }

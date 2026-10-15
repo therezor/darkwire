@@ -66,7 +66,6 @@ export function useCommands(): RunCommand {
 
   const sessionKey = useTurnStore((state) => state.sessionKey);
   const busy = useTurnStore((state) => state.busy);
-  const transcript = useTurnStore((state) => state.transcript);
 
   // The *preference*, not this conversation's binding — the two differ once a
   // session has been moved, and `/new` means the same thing the sidebar's New
@@ -120,7 +119,10 @@ export function useCommands(): RunCommand {
         agentId,
         busy,
         stored,
-        lastUserSeq: lastUserSeq(transcript),
+        // Read when a command runs rather than subscribed to: the transcript
+        // moves on every token, and a subscription re-rendered the composer
+        // with it.
+        lastUserSeq: lastUserSeq(useTurnStore.getState().transcript),
         agents,
         models: async (): Promise<readonly ModelInfo[]> =>
           (
@@ -211,7 +213,6 @@ export function useCommands(): RunCommand {
       sessionKey,
       stored,
       t,
-      transcript,
       workspaceId,
     ],
   );

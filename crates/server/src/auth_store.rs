@@ -26,6 +26,7 @@
 //! argon2id costs tens of milliseconds, so the caller wraps a login in
 //! `spawn_blocking` rather than holding the async executor for the duration.
 
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordVerifier as _, Version};
@@ -295,6 +296,9 @@ pub struct AuthStore {
     /// Computed at most once, on the first login against an install that has no
     /// password.
     decoy_digest: OnceLock<String>,
+    /// What [`AuthStore::ensure_secret`] has answered. Nothing rewrites a named
+    /// secret once it exists, and the media key is read on every signed request.
+    ensured: RwLock<HashMap<String, String>>,
     /// Late, because the hub it reaches is built after the store.
     listener: RwLock<Option<RevocationListener>>,
 }
@@ -320,6 +324,7 @@ impl AuthStore {
             hasher: options.hasher,
             ttl_ms: options.session_ttl_ms,
             decoy_digest: OnceLock::new(),
+            ensured: RwLock::new(HashMap::new()),
             listener: RwLock::new(None),
         })
     }
@@ -423,7 +428,7 @@ impl AuthStore {
         let digest = self.hasher.hash(password)?;
         let minted = successor.map(|(caller, label)| (caller, label, self.mint(now)));
         self.db.transaction(|conn| {
-            let mut write = conn.prepare(
+            let mut write = conn.prepare_cached(
                 "INSERT INTO auth_secrets (name, value, updated_at_ms) VALUES (?, ?, ?)
                  ON CONFLICT(name) DO UPDATE SET value = excluded.value,
                    updated_at_ms = excluded.updated_at_ms",
@@ -596,7 +601,11 @@ impl AuthStore {
     ///
     /// `label` distinguishes a browser login from a token minted for CI, which
     /// is the only thing that makes a session list worth showing.
+    ///
+    /// Expired rows are purged first. A token nobody presents again is never
+    /// removed by `verify`, so a login is the one place that runs often enough.
     pub fn issue(&self, label: &str) -> Result<IssuedToken> {
+        self.purge_expired()?;
         let now = self.clock.now_ms();
         let (issued, digest) = self.mint(now);
         insert_session(&self.db.lock(), &issued, &digest, label, now)?;
@@ -643,6 +652,15 @@ impl AuthStore {
                 format!("{name} is not a readable secret"),
             ));
         }
+        if let Some(known) = self.ensured.read().get(name) {
+            return Ok(known.clone());
+        }
+        let secret = self.read_or_create_secret(name)?;
+        self.ensured.write().insert(name.to_owned(), secret.clone());
+        Ok(secret)
+    }
+
+    fn read_or_create_secret(&self, name: &str) -> Result<String> {
         if let Some(existing) = self.read_secret(name)? {
             return Ok(existing);
         }
@@ -674,7 +692,7 @@ impl AuthStore {
 
         let found = {
             let guard = self.db.lock();
-            let mut statement = guard.prepare(
+            let mut statement = guard.prepare_cached(
                 "SELECT id, token_sha256, label, created_at_ms, expires_at_ms, last_seen_at_ms
                  FROM auth_sessions WHERE id = ?",
             )?;
@@ -745,12 +763,14 @@ impl AuthStore {
         Ok(changed)
     }
 
-    /// Called at boot so a long-down instance does not accumulate dead rows.
+    /// Called at boot and on every [`AuthStore::issue`], so dead rows do not
+    /// accumulate.
     pub fn purge_expired(&self) -> Result<usize> {
         let ids = {
             let guard = self.db.lock();
-            let mut statement =
-                guard.prepare("DELETE FROM auth_sessions WHERE expires_at_ms <= ? RETURNING id")?;
+            let mut statement = guard.prepare_cached(
+                "DELETE FROM auth_sessions WHERE expires_at_ms <= ? RETURNING id",
+            )?;
             let mut rows = statement.query(params![self.clock.now_ms()])?;
             let mut ids = Vec::new();
             while let Some(row) = rows.next()? {
@@ -771,14 +791,15 @@ impl AuthStore {
     /// later: a revocation in that gap found nothing to close.
     pub fn is_live(&self, id: &str) -> Result<bool> {
         let guard = self.db.lock();
-        let mut statement =
-            guard.prepare("SELECT 1 FROM auth_sessions WHERE id = ? AND expires_at_ms > ?")?;
+        let mut statement = guard
+            .prepare_cached("SELECT 1 FROM auth_sessions WHERE id = ? AND expires_at_ms > ?")?;
         Ok(statement.exists(params![id, self.clock.now_ms()])?)
     }
 
     fn read_secret(&self, name: &str) -> Result<Option<String>> {
         let guard = self.db.lock();
-        let mut statement = guard.prepare("SELECT value FROM auth_secrets WHERE name = ?")?;
+        let mut statement =
+            guard.prepare_cached("SELECT value FROM auth_secrets WHERE name = ?")?;
         let mut rows = statement.query(params![name])?;
         match rows.next()? {
             None => Ok(None),

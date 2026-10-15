@@ -117,7 +117,18 @@ impl Default for MaterialiseOptions {
 /// context window, with nothing to say which is current. The stat that produces
 /// the key runs every iteration; it is the read and the base64 encode that this
 /// saves, and those are the expensive half by orders of magnitude.
-pub type AttachmentCache = HashMap<String, Vec<ContentPart>>;
+///
+/// Only an inlined read is kept, and a hit is charged to the request's budget
+/// like a fresh read. Otherwise one path repeated through history would cost
+/// the budget once and inline every time after.
+pub type AttachmentCache = HashMap<String, Inlined>;
+
+/// An attachment that was read into a request, and what it cost the budget.
+#[derive(Debug, Clone)]
+pub struct Inlined {
+    parts: Vec<ContentPart>,
+    bytes: u64,
+}
 
 /// How much of the request's inline budget is left.
 #[derive(Debug, Clone, Copy)]
@@ -250,16 +261,36 @@ fn materialise_one(
     if let Some(cache) = cache.as_ref()
         && let Some(hit) = cache.get(&key)
     {
-        return hit.clone();
+        if hit.bytes > budget.remaining {
+            return not_inline(&line);
+        }
+        budget.remaining -= hit.bytes;
+        return hit.parts.clone();
     }
 
-    let parts = read_parts(&found, mime_type, &line, size_bytes, options, budget);
-    if let Some(cache) = cache {
-        cache.insert(key, parts.clone());
+    let (parts, bytes) = read_parts(&found, mime_type, &line, size_bytes, options, budget);
+    if bytes > 0
+        && let Some(cache) = cache
+    {
+        cache.insert(
+            key,
+            Inlined {
+                parts: parts.clone(),
+                bytes,
+            },
+        );
     }
     parts
 }
 
+fn not_inline(line: &str) -> Vec<ContentPart> {
+    vec![text_part(format!(
+        "{line}. Not shown inline; use the file tools to read it"
+    ))]
+}
+
+/// The parts, and how many budget bytes they spent. Zero means nothing was
+/// inlined.
 fn read_parts(
     found: &Located,
     mime_type: &str,
@@ -267,7 +298,7 @@ fn read_parts(
     size_bytes: u64,
     options: MaterialiseOptions,
     budget: &mut Budget,
-) -> Vec<ContentPart> {
+) -> (Vec<ContentPart>, u64) {
     // An image is inlined as an image or named as a path, and never falls
     // through to the text branch below. Nothing rules out a small uncompressed
     // image holding no NUL byte, and `read_text` would then happily fence a
@@ -277,35 +308,44 @@ fn read_parts(
         // cap: the model cannot read an image of any size, so spending budget
         // on one would take room away from the text attachments it *can* read.
         if !options.images {
-            return vec![text_part(format!(
-                "{line}. This model cannot read images; use the file tools"
-            ))];
+            return (
+                vec![text_part(format!(
+                    "{line}. This model cannot read images; use the file tools"
+                ))],
+                0,
+            );
         }
         if size_bytes > options.max_image_bytes {
-            return vec![text_part(format!(
-                "{line}. Too large to show; use the file tools to read it"
-            ))];
+            return (
+                vec![text_part(format!(
+                    "{line}. Too large to show; use the file tools to read it"
+                ))],
+                0,
+            );
         }
         if size_bytes > budget.remaining {
-            return vec![text_part(format!(
-                "{line}. Not shown inline; use the file tools to read it"
-            ))];
+            return (not_inline(line), 0);
         }
-        budget.remaining -= size_bytes;
         // `data`, never `url`: it works offline, works on every provider, needs
         // no second round trip out of our own network, and cannot expire.
         return match fs::read(&found.absolute) {
-            Ok(bytes) => vec![
-                text_part(line),
-                image_part(mime_type, ImageSource::Data(BASE64.encode(bytes))),
-            ],
-            Err(_) => vec![text_part(format!("{line}. Could not be read"))],
+            Ok(bytes) => {
+                budget.remaining -= size_bytes;
+                (
+                    vec![
+                        text_part(line),
+                        image_part(mime_type, ImageSource::Data(BASE64.encode(bytes))),
+                    ],
+                    size_bytes,
+                )
+            }
+            Err(_) => (vec![text_part(format!("{line}. Could not be read"))], 0),
         };
     }
 
     if size_bytes <= options.max_text_bytes && size_bytes <= budget.remaining {
         match read_text(Path::new(&found.absolute), size_bytes) {
-            Err(_) => return vec![text_part(format!("{line}. Could not be read"))],
+            Err(_) => return (vec![text_part(format!("{line}. Could not be read"))], 0),
             Ok(Some(text)) => {
                 budget.remaining -= size_bytes;
                 let note = if text.truncated {
@@ -313,18 +353,19 @@ fn read_parts(
                 } else {
                     ""
                 };
-                return vec![text_part(format!(
-                    "{line}\n\n```\n{}\n```{note}",
-                    text.content
-                ))];
+                return (
+                    vec![text_part(format!(
+                        "{line}\n\n```\n{}\n```{note}",
+                        text.content
+                    ))],
+                    size_bytes,
+                );
             }
             Ok(None) => {}
         }
     }
 
-    vec![text_part(format!(
-        "{line}. Not shown inline; use the file tools to read it"
-    ))]
+    (not_inline(line), 0)
 }
 
 /// Modification time in epoch milliseconds, or `0` where the platform has none.

@@ -8,12 +8,17 @@
  *
  * The root route is the shell, so navigation never remounts the sidebar, the
  * header or the WebSocket that hangs off them.
+ *
+ * Only the chat and the sessions list are in the first bundle. Every other
+ * screen is a chunk fetched on first visit, so opening a conversation does not
+ * parse the editors and settings panels it never shows.
  */
 
 import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
   type Router,
@@ -23,29 +28,7 @@ import { z } from 'zod';
 
 import { Shell } from './shell.js';
 import { ChatRoute } from '@/routes/chat.js';
-import { AgentCreateRoute, AgentEditorRoute } from '@/agents/agent-editor.js';
-import { AgentsRoute } from '@/agents/agents-page.js';
-import {
-  ProviderCreateRoute,
-  ProviderEditorRoute,
-} from '@/settings/provider-editor.js';
-import {
-  EnvironmentCreateRoute,
-  EnvironmentEditorRoute,
-} from '@/settings/environment-editor.js';
-import { McpCreateRoute, McpEditorRoute } from '@/settings/mcp-editor.js';
-import { AutomationRoute } from '@/automation/automation-page.js';
-import { JobCreateRoute, JobEditorRoute } from '@/automation/job-editor.js';
-import { FilesRoute } from '@/routes/files.js';
 import { SessionsRoute } from '@/sessions/sessions-page.js';
-import { WorkspacesRoute } from '@/routes/workspaces.js';
-import {
-  WorkspaceCreateRoute,
-  WorkspaceEditorRoute,
-} from '@/workspaces/workspace-editor.js';
-import { NotificationsRoute } from '@/routes/notifications.js';
-import { SettingsRoute } from '@/routes/settings.js';
-import { TokensRoute } from '@/routes/tokens.js';
 import { NotFoundRoute } from '@/routes/not-found.js';
 
 const rootRoute = createRootRoute({
@@ -129,26 +112,38 @@ const filesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/files',
   validateSearch: filesSearchSchema,
-  component: FilesRoute,
+  component: lazyRouteComponent(
+    () => import('@/routes/files.js'),
+    'FilesRoute',
+  ),
 });
 
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
-  component: NotificationsRoute,
+  component: lazyRouteComponent(
+    () => import('@/routes/notifications.js'),
+    'NotificationsRoute',
+  ),
 });
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
   validateSearch: settingsSearchSchema,
-  component: SettingsRoute,
+  component: lazyRouteComponent(
+    () => import('@/routes/settings.js'),
+    'SettingsRoute',
+  ),
 });
 
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/agents',
-  component: AgentsRoute,
+  component: lazyRouteComponent(
+    () => import('@/agents/agents-page.js'),
+    'AgentsRoute',
+  ),
 });
 
 /**
@@ -159,7 +154,10 @@ const agentsRoute = createRoute({
 const workspacesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workspaces',
-  component: WorkspacesRoute,
+  component: lazyRouteComponent(
+    () => import('@/routes/workspaces.js'),
+    'WorkspacesRoute',
+  ),
 });
 
 /**
@@ -177,13 +175,19 @@ const sessionsRoute = createRoute({
 const agentCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/agents/new',
-  component: AgentCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/agents/agent-editor.js'),
+    'AgentCreateRoute',
+  ),
 });
 
 const agentEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/agents/$agentId',
-  component: AgentEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/agents/agent-editor.js'),
+    'AgentEditorRoute',
+  ),
 });
 
 /** A sibling of `/workspaces`, exactly as the agent editor is of `/agents`. */
@@ -191,13 +195,19 @@ const agentEditorRoute = createRoute({
 const workspaceCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workspaces/new',
-  component: WorkspaceCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/workspaces/workspace-editor.js'),
+    'WorkspaceCreateRoute',
+  ),
 });
 
 const workspaceEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workspaces/$workspaceId',
-  component: WorkspaceEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/workspaces/workspace-editor.js'),
+    'WorkspaceEditorRoute',
+  ),
 });
 
 /**
@@ -211,45 +221,66 @@ const workspaceEditorRoute = createRoute({
 const providerCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/providers/new',
-  component: ProviderCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/provider-editor.js'),
+    'ProviderCreateRoute',
+  ),
 });
 
 const providerEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/providers/$instanceId',
-  component: ProviderEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/provider-editor.js'),
+    'ProviderEditorRoute',
+  ),
 });
 
 /** Adding an MCP server, on the same form that edits one. */
 const mcpCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/mcp/new',
-  component: McpCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/mcp-editor.js'),
+    'McpCreateRoute',
+  ),
 });
 
 const mcpEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/mcp/$serverId',
-  component: McpEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/mcp-editor.js'),
+    'McpEditorRoute',
+  ),
 });
 
 /** Authoring an environment, on the same form that edits one. */
 const environmentCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/environments/new',
-  component: EnvironmentCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/environment-editor.js'),
+    'EnvironmentCreateRoute',
+  ),
 });
 
 const environmentEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/environments/$name',
-  component: EnvironmentEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/settings/environment-editor.js'),
+    'EnvironmentEditorRoute',
+  ),
 });
 
 const automationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/automation',
-  component: AutomationRoute,
+  component: lazyRouteComponent(
+    () => import('@/automation/automation-page.js'),
+    'AutomationRoute',
+  ),
 });
 
 /**
@@ -263,20 +294,29 @@ const automationRoute = createRoute({
 const jobCreateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/automation/new',
-  component: JobCreateRoute,
+  component: lazyRouteComponent(
+    () => import('@/automation/job-editor.js'),
+    'JobCreateRoute',
+  ),
 });
 
 /** The job editor, a sibling of `/automation` exactly as the agent editor is. */
 const jobEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/automation/$jobId',
-  component: JobEditorRoute,
+  component: lazyRouteComponent(
+    () => import('@/automation/job-editor.js'),
+    'JobEditorRoute',
+  ),
 });
 
 const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/tokens',
-  component: TokensRoute,
+  component: lazyRouteComponent(
+    () => import('@/routes/tokens.js'),
+    'TokensRoute',
+  ),
 });
 
 const routeTree = rootRoute.addChildren([

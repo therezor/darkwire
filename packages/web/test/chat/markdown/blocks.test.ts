@@ -15,6 +15,7 @@ import {
   fenceLanguage,
   inlineTokens,
   splitBlocks,
+  type LexedMarkdown,
 } from '@/chat/markdown/blocks.js';
 
 describe('splitBlocks', () => {
@@ -43,6 +44,36 @@ describe('splitBlocks', () => {
     // This is the memo comparator's entire contract.
     expect(after[0]?.raw).toBe(before[0]?.raw);
     expect(after[1]?.raw).not.toBe(before[1]?.raw);
+  });
+
+  it('resumes from the trailing block with the result a full lex gives', () => {
+    const documents = [
+      'First paragraph.\n\nSecond\n===\n\n- one\n- two\n\n  still two\n\nAfter.',
+      '```ts\nconst a = 1;\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nDone.',
+      '> quoted\nlazy line\n\n1. first\n   - nested\n2. second\n\n    indented code\n',
+      // The lexer normalises line endings, so offsets into this text are not
+      // offsets into what it lexed, and resuming has to give way to a full lex.
+      'First.\r\n\r\n- one\r\n- two\r\n\r\nLast.',
+    ];
+    const shape = (blocks: ReturnType<typeof splitBlocks>) =>
+      blocks.map((block) => [block.key, block.token.type, block.raw]);
+
+    for (const document of documents) {
+      let previous: LexedMarkdown | undefined;
+      for (let end = 1; end <= document.length; end += 3) {
+        const text = document.slice(0, end);
+        const blocks = splitBlocks(text, previous);
+        expect(shape(blocks), JSON.stringify(text)).toEqual(
+          shape(splitBlocks(text)),
+        );
+        previous = { text, blocks };
+      }
+    }
+  });
+
+  it('lexes the whole text when it is not an extension of the last', () => {
+    const previous = { text: 'one', blocks: splitBlocks('one') };
+    expect(splitBlocks('two', previous)[0]?.raw).toBe('two');
   });
 
   it('lexes a fence that has not been closed yet', () => {

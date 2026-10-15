@@ -46,6 +46,7 @@
 //! between ticks uses a real timer, in [`Scheduler::run`], which is the one
 //! part a test has no reason to exercise.
 
+use chrono::TimeZone as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -162,7 +163,7 @@ pub struct NotificationBroadcast {
 
 /// The live settings tree. A function, never a snapshot: a settings save must
 /// move the next drain.
-pub type ConfigSource = Arc<dyn Fn() -> Config + Send + Sync>;
+pub type ConfigSource = Arc<dyn Fn() -> Arc<Config> + Send + Sync>;
 
 /// Opens one hub connection for a run.
 pub type ConnectFn =
@@ -579,7 +580,7 @@ impl Scheduler {
     }
 
     /// The settings tree, read live.
-    fn config(&self) -> Config {
+    fn config(&self) -> Arc<Config> {
         (self.inner.config)()
     }
 
@@ -591,7 +592,7 @@ impl Scheduler {
     /// save calls [`Scheduler::refresh`], so an existing cron job is
     /// rescheduled on the save rather than on the next fire.
     fn timezone(&self) -> String {
-        self.config().ui.timezone
+        self.config().ui.timezone.clone()
     }
 
     /// Reconciles what a dead process left and applies boot catch-up.
@@ -1422,38 +1423,11 @@ fn first_chars(text: &str, limit: usize) -> String {
 }
 
 /// An epoch-millisecond instant as the model is shown it.
-///
-/// Formatted here rather than through a date library because the only consumer
-/// is a sentence in a prompt, and the one property it needs is that "tomorrow"
-/// in a task file has something to be relative to.
 fn iso_8601(now_ms: i64) -> String {
-    let seconds = now_ms.div_euclid(1000);
-    let millis = now_ms.rem_euclid(1000);
-    let days = seconds.div_euclid(86_400);
-    let secs_of_day = seconds.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    let (hour, minute, second) = (
-        secs_of_day / 3600,
-        (secs_of_day % 3600) / 60,
-        secs_of_day % 60,
-    );
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
-}
-
-/// Days since the epoch to a civil date, by Howard Hinnant's algorithm.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (
-        if m <= 2 { y + 1 } else { y },
-        u32::try_from(m).unwrap_or(1),
-        u32::try_from(d).unwrap_or(1),
-    )
+    chrono::Utc
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .unwrap_or_default()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
 }

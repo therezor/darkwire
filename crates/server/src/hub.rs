@@ -73,11 +73,11 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_binding::agent_for_turn;
 use crate::approvals::HubApprovalGate;
 use crate::auth_store::Revocation;
-use crate::blocking::blocking;
 use crate::errors::{code_str, resolve_error};
 use crate::exec_rules::RuleWriter;
-use crate::replay::ReplayBuffer;
+use crate::replay::{MAX_REPLAY_BYTES, ReplayBuffer};
 use crate::turn_log::TurnLog;
+use darkwire_core::db::blocking;
 
 /// How many messages one session may hold while a turn runs.
 ///
@@ -237,8 +237,10 @@ pub enum Outbound {
     ///
     /// The hub serialises rather than handing over a value, because the byte
     /// budget below has to count something and the transport would encode the
-    /// same bytes a moment later anyway.
-    Text(String),
+    /// same bytes a moment later anyway. Shared, because every tab on a session
+    /// is sent the same bytes and encoding them once per tab is wasted work
+    /// under the hub's lock.
+    Text(Arc<str>),
     /// Close the socket with this code and stop reading it.
     Close(u16),
 }
@@ -251,18 +253,26 @@ pub enum Outbound {
 /// draining, and the only one the hub can measure on its own.
 #[derive(Debug)]
 pub struct OutboundStream {
-    rx: mpsc::UnboundedReceiver<(Outbound, usize)>,
+    rx: mpsc::UnboundedReceiver<Queued>,
     buffered: Arc<AtomicUsize>,
+    replayed: Arc<AtomicUsize>,
 }
 
 impl OutboundStream {
     /// The next instruction, or `None` once the hub has detached.
     pub async fn next(&mut self) -> Option<Outbound> {
-        let (outbound, bytes) = self.rx.recv().await?;
-        self.buffered.fetch_sub(bytes, Ordering::Relaxed);
+        let (outbound, bytes, budget) = self.rx.recv().await?;
+        let counter = match budget {
+            Budget::Live => &self.buffered,
+            Budget::Replay => &self.replayed,
+        };
+        counter.fetch_sub(bytes, Ordering::Relaxed);
         Some(outbound)
     }
 }
+
+/// One instruction, and what it was charged to.
+type Queued = (Outbound, usize, Budget);
 
 /// One inbound frame, in whichever shape the transport has it.
 #[derive(Debug, Clone)]
@@ -345,9 +355,14 @@ impl HubEvent {
 
 /// A connection, as the hub tracks it.
 struct Connection {
-    tx: mpsc::UnboundedSender<(Outbound, usize)>,
+    tx: mpsc::UnboundedSender<Queued>,
     buffered: Arc<AtomicUsize>,
     max_buffered_bytes: usize,
+    /// Replay is counted apart from live frames: one replay may be larger than
+    /// the live budget, and a client resuming over and over without reading
+    /// must still be hung up on.
+    replayed: Arc<AtomicUsize>,
+    max_replayed_bytes: usize,
     channel: String,
     /// Mutable: a `session.new` naming an agent re-points the connection.
     agent_id: Option<String>,
@@ -465,6 +480,9 @@ pub struct ConnectOptions {
     pub workspace_id: Option<String>,
     /// How much may sit queued for this connection before it is hung up on.
     pub max_buffered_bytes: Option<usize>,
+    /// How much of a resume's replay may sit queued, apart from the live
+    /// budget. Defaults to room for one whole replay.
+    pub max_replayed_bytes: Option<usize>,
     /// The login session that authenticated the upgrade.
     ///
     /// Revoking it, or its expiry, closes the connection with
@@ -762,6 +780,7 @@ impl SessionHub {
         let (tx, rx) = mpsc::unbounded_channel();
         let (inbound, frames) = mpsc::unbounded_channel();
         let buffered = Arc::new(AtomicUsize::new(0));
+        let replayed = Arc::new(AtomicUsize::new(0));
         let id = (self.new_id)();
         // A fresh tab with no `?session=` gets its key here.
         let session_key = Arc::new(Mutex::new(
@@ -769,12 +788,23 @@ impl SessionHub {
         ));
         let signed_in = options.auth_session.is_some();
 
+        let max_buffered_bytes = options
+            .max_buffered_bytes
+            .unwrap_or(DEFAULT_MAX_BUFFERED_BYTES);
         let connection = Connection {
             tx,
             buffered: Arc::clone(&buffered),
-            max_buffered_bytes: options
-                .max_buffered_bytes
-                .unwrap_or(DEFAULT_MAX_BUFFERED_BYTES),
+            max_buffered_bytes,
+            replayed: Arc::clone(&replayed),
+            // One whole replay: the ring, or the turn log encoded (escaping can
+            // double its payload), and the stored tail in the envelope, which
+            // the live budget stands in for.
+            max_replayed_bytes: options.max_replayed_bytes.unwrap_or_else(|| {
+                self.turn_log_max_bytes
+                    .saturating_mul(2)
+                    .max(MAX_REPLAY_BYTES)
+                    .saturating_add(max_buffered_bytes)
+            }),
             channel: options.channel.unwrap_or_else(|| "web".to_owned()),
             agent_id: options.agent_id,
             workspace_id: options.workspace_id,
@@ -801,7 +831,11 @@ impl SessionHub {
                 session_key,
                 inbound,
             },
-            OutboundStream { rx, buffered },
+            OutboundStream {
+                rx,
+                buffered,
+                replayed,
+            },
         )
     }
 
@@ -1920,7 +1954,7 @@ impl SessionHub {
             SessionState {
                 key: key.to_owned(),
                 seq: 0,
-                ring: ReplayBuffer::new(self.replay_buffer_size),
+                ring: ReplayBuffer::new(self.replay_buffer_size, MAX_REPLAY_BYTES),
                 turn_log: TurnLog::new(self.turn_log_max_bytes),
                 clients: Vec::new(),
                 queue: VecDeque::new(),
@@ -2022,7 +2056,7 @@ impl SessionHub {
             let Some(state) = inner.sessions.peek(session_key) else {
                 return;
             };
-            let complete = state.ring.after(last_seq).complete;
+            let complete = state.ring.covers(last_seq);
             // Only consulted when the ring falls short: while the ring covers the
             // gap it is already sending these frames, and sending them twice
             // from two places would be the duplicate this whole path exists to
@@ -2058,8 +2092,9 @@ impl SessionHub {
         // other tab receives would leave a gap that makes their next resume
         // look incomplete.
         {
-            let mut inner = self.inner.lock();
-            let seq = inner
+            let seq = self
+                .inner
+                .lock()
                 .sessions
                 .peek(session_key)
                 .map_or(0, |state| state.seq);
@@ -2073,7 +2108,11 @@ impl SessionHub {
                 resuming_turn_id: resuming.clone(),
             })
             .sequenced(seq);
-            inner.deliver(connection_id, &replay);
+            if let Some(text) = encode(&replay) {
+                self.inner
+                    .lock()
+                    .send_text(connection_id, text, Budget::Replay);
+            }
         }
 
         if !complete {
@@ -2092,6 +2131,11 @@ impl SessionHub {
         // one connection that missed them. They therefore arrive *after* an
         // envelope carrying a higher number, which is why a client tracks the
         // maximum `seq` it has seen rather than the last one it was handed.
+        //
+        // Not counted against the live budget. A replay is bounded already, by
+        // the ring and the turn log, and it can legitimately be larger than the
+        // socket's budget: counting it closed the socket, and the client's
+        // resume asked for the same replay again.
         let frames: Vec<ServerMessage> = {
             let inner = self.inner.lock();
             let Some(state) = inner.sessions.peek(session_key) else {
@@ -2103,9 +2147,10 @@ impl SessionHub {
                 state.turn_log.frames().to_vec()
             }
         };
+        let texts: Vec<Arc<str>> = frames.iter().filter_map(encode).collect();
         let mut inner = self.inner.lock();
-        for message in &frames {
-            inner.deliver(connection_id, message);
+        for text in texts {
+            inner.send_text(connection_id, text, Budget::Replay);
         }
     }
 
@@ -2241,24 +2286,39 @@ impl HubInner {
         };
         state.seq += 1;
         let message = event.sequenced(state.seq);
-        state.ring.push(message.clone());
         state.turn_log.push(&message);
-        self.broadcast_to_session(session_key, &message);
+        let Some(text) = encode(&message) else {
+            return;
+        };
+        state.ring.push(message, text.len());
+        self.send_to_session(session_key, &text);
+    }
+
+    fn broadcast_to_session(&mut self, session_key: &str, message: &ServerMessage) {
+        if let Some(text) = encode(message) {
+            self.send_to_session(session_key, &text);
+        }
     }
 
     /// A copy of the list, because a failing send detaches the connection
     /// mid-loop.
-    fn broadcast_to_session(&mut self, session_key: &str, message: &ServerMessage) {
+    fn send_to_session(&mut self, session_key: &str, text: &Arc<str>) {
         let Some(state) = self.sessions.peek(session_key) else {
             return;
         };
         let clients = state.clients.clone();
         for connection_id in clients {
-            self.deliver(&connection_id, message);
+            self.send_text(&connection_id, Arc::clone(text), Budget::Live);
         }
     }
 
     fn deliver(&mut self, connection_id: &str, message: &ServerMessage) {
+        if let Some(text) = encode(message) {
+            self.send_text(connection_id, text, Budget::Live);
+        }
+    }
+
+    fn send_text(&mut self, connection_id: &str, text: Arc<str>, budget: Budget) {
         let Some(connection) = self
             .connections
             .get(connection_id)
@@ -2266,16 +2326,13 @@ impl HubInner {
         else {
             return;
         };
-        let Ok(text) = serde_json::to_string(message) else {
-            // A frame this crate built that will not serialise is an invariant
-            // failure, not a client problem; dropping it beats taking down the
-            // socket that was about to receive it.
-            tracing::error!(connection_id, "could not serialise a server frame");
-            return;
+        let (counter, cap) = match budget {
+            Budget::Live => (&connection.buffered, connection.max_buffered_bytes),
+            Budget::Replay => (&connection.replayed, connection.max_replayed_bytes),
         };
         let bytes = text.len();
-        let buffered = connection.buffered.fetch_add(bytes, Ordering::Relaxed) + bytes;
-        if buffered > connection.max_buffered_bytes {
+        let buffered = counter.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        if buffered > cap {
             tracing::warn!(
                 connection_id,
                 buffered,
@@ -2283,11 +2340,15 @@ impl HubInner {
             );
             let _ = connection
                 .tx
-                .send((Outbound::Close(CLOSE_TRY_AGAIN_LATER), 0));
+                .send((Outbound::Close(CLOSE_TRY_AGAIN_LATER), 0, Budget::Live));
             self.detach(connection_id);
             return;
         }
-        if connection.tx.send((Outbound::Text(text), bytes)).is_err() {
+        if connection
+            .tx
+            .send((Outbound::Text(text), bytes, budget))
+            .is_err()
+        {
             self.detach(connection_id);
         }
     }
@@ -2295,7 +2356,9 @@ impl HubInner {
     /// Closes a connection with [`CLOSE_SIGNED_OUT`] and drops it.
     fn sign_out(&mut self, connection_id: &str) {
         if let Some(connection) = self.connections.get(connection_id) {
-            let _ = connection.tx.send((Outbound::Close(CLOSE_SIGNED_OUT), 0));
+            let _ = connection
+                .tx
+                .send((Outbound::Close(CLOSE_SIGNED_OUT), 0, Budget::Live));
         }
         self.detach(connection_id);
     }
@@ -2334,6 +2397,29 @@ async fn expire_logins(hub: Weak<SessionHub>, rearm: Arc<Notify>) {
                 }
             }
             None => rearm.notified().await,
+        }
+    }
+}
+
+/// Whether a frame counts against the connection's live budget.
+#[derive(Debug, Clone, Copy)]
+enum Budget {
+    Live,
+    /// A resume. Bounded by the ring and the turn log rather than by the
+    /// socket's budget.
+    Replay,
+}
+
+/// A frame as the transport writes it.
+fn encode(message: &ServerMessage) -> Option<Arc<str>> {
+    match serde_json::to_string(message) {
+        Ok(text) => Some(Arc::from(text)),
+        Err(error) => {
+            // A frame this crate built that will not serialise is an invariant
+            // failure, not a client problem; dropping it beats taking down the
+            // socket that was about to receive it.
+            tracing::error!(%error, "could not serialise a server frame");
+            None
         }
     }
 }
@@ -2389,21 +2475,7 @@ fn user_message_at(
 /// user rows mid-turn under the same turn id, and the last of those is a
 /// correction to the answer rather than the question that asked for it.
 fn last_question(store: &SessionStore, session_key: &str) -> Option<StoredMessageRecord> {
-    let tail = store
-        .messages(
-            session_key,
-            &ReadMessages {
-                limit: Some(RESUME_MESSAGE_LIMIT),
-                from_end: true,
-                ..ReadMessages::default()
-            },
-        )
-        .ok()?;
-    let turn_id = tail.last()?.turn_id.clone()?;
-    tail.into_iter().find(|record| {
-        record.turn_id.as_deref() == Some(turn_id.as_str())
-            && matches!(record.message, ChatMessage::User(_))
-    })
+    store.last_turn_question(session_key).ok()?
 }
 
 /// Drops the question at `seq` and everything after it, and reads the tail
@@ -2435,7 +2507,7 @@ fn tail(store: &SessionStore, session_key: &str) -> Vec<StoredMessage> {
             },
         )
         .unwrap_or_default()
-        .iter()
+        .into_iter()
         .map(to_stored_message)
         .collect()
 }

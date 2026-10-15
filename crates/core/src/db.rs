@@ -24,6 +24,32 @@ use rusqlite::Connection;
 use crate::errors::{ErrorKind, Result, WireError};
 use crate::paths::ensure_dir;
 
+/// How many prepared statements the shared connection keeps.
+const STATEMENT_CACHE_CAPACITY: usize = 128;
+
+/// Runs synchronous store work on the blocking pool and waits for it.
+///
+/// Every store is SQLite behind one shared lock. A call made on a runtime
+/// worker holds that worker for as long as the lock is contended, and the same
+/// worker is driving other sessions' token streams.
+///
+/// A task that panicked or was cancelled is the one generic internal error:
+/// neither is something a caller can act on.
+pub async fn blocking<T, F>(work: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|error| {
+            Err(WireError::new(
+                ErrorKind::Internal,
+                format!("A store call did not finish: {error}"),
+            ))
+        })
+}
+
 struct Inner {
     conn: Connection,
     transaction_depth: Cell<u32>,
@@ -110,6 +136,10 @@ impl Database {
         // Without this, deleting a session silently orphans its messages;
         // SQLite defaults foreign keys off for backwards compatibility.
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        // Every store shares this one connection, and the session store alone
+        // caches more statements than rusqlite's default of 16 holds, so the
+        // stores would evict each other's.
+        conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         Ok(Database {
             inner: Arc::new(ReentrantMutex::new(Inner {
                 conn,

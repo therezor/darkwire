@@ -1,8 +1,7 @@
 //! Versioned, bounded Unix-socket protocol for running a command in a
 //! container.
-use crate::container_pool::{
-    ContainerPool, ContainerPoolOptions, DockerEngineOptions, docker_engine,
-};
+use crate::container_pool::{ContainerPool, ContainerPoolOptions};
+use crate::docker_engine::{DockerEngineOptions, docker_engine};
 use darkwire_core::{ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::rest::ResolveImageResponse;
 use darkwire_protocol::{EnvironmentNetwork, SandboxRequest};
@@ -266,7 +265,7 @@ impl SandboxClient {
                 }
             } => {
                 let value = result?;
-                if let Some(error) = value.get("error").and_then(Value::as_str) { return Err(WireError::new(ErrorKind::Tool, error)); }
+                if let Some(message) = value.get("error").and_then(Value::as_str) { return Err(rebuilt_error(&value, message)); }
                 Ok(value)
             },
             () = token.cancelled() => { let _ = socket.shutdown().await; Err(WireError::aborted("sandbox operation")) }
@@ -796,7 +795,14 @@ async fn serve_connection(service: &Service, mut socket: UnixStream) {
     .await;
     let response = match result {
         Ok(value) => value,
-        Err(error) => json!({"error":error.message}),
+        // Whole, so the client gets back the kind, the retry hint and the
+        // details rather than a bare tool failure with the message alone.
+        Err(error) => json!({
+            "error": error.message,
+            "kind": error.kind,
+            "retryable": error.retryable,
+            "details": error.details,
+        }),
     };
     let _ = write_frame(&mut socket, &response).await;
 }
@@ -809,6 +815,24 @@ const FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How often idle instances are swept and re-checked against the ledger.
 const MAINTENANCE_EVERY: Duration = Duration::from_secs(5);
+
+/// The service's error as it was raised. A frame from a service that sent the
+/// message alone reads as a tool failure.
+fn rebuilt_error(frame: &Value, message: &str) -> WireError {
+    let kind = frame
+        .get("kind")
+        .cloned()
+        .and_then(|kind| serde_json::from_value(kind).ok())
+        .unwrap_or(ErrorKind::Tool);
+    let mut error = WireError::new(kind, message);
+    if let Some(retryable) = frame.get("retryable").and_then(Value::as_bool) {
+        error = error.with_retryable(retryable);
+    }
+    if let Some(Value::Object(details)) = frame.get("details") {
+        error = error.with_details(details.clone());
+    }
+    error
+}
 
 #[cfg(test)]
 mod tests {

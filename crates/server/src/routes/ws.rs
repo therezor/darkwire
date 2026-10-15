@@ -47,13 +47,13 @@ use darkwire_protocol::ws::{CLOSE_SIGNED_OUT, ErrorCode};
 use futures::{SinkExt as _, StreamExt as _};
 
 use crate::auth_store::AuthSession;
-use crate::blocking::blocking;
 use crate::errors::HttpError;
 use crate::hosts::{Authority, HostPolicy};
 use crate::hub::{CLOSE_TRY_AGAIN_LATER, ConnectOptions, Frame, Login, Outbound};
 use crate::queries::WsQuery;
 use crate::routes::AppState;
 use crate::schema::validated;
+use darkwire_core::db::blocking;
 
 /// The origin a browser tab's sessions are recorded under.
 const WEB_CHANNEL: &str = "web";
@@ -210,7 +210,7 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
         tokio::select! {
             instruction = outbound.next() => match instruction {
                 Some(Outbound::Text(text)) => {
-                    if sink.send(Message::Text(text.into())).await.is_err() {
+                    if sink.send(Message::Text((&*text).into())).await.is_err() {
                         break;
                     }
                 }

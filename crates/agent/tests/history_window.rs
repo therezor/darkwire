@@ -1,6 +1,6 @@
 //! Fitting the history to the context window by estimated tokens.
 
-use darkwire_agent::history_window::{FixedCost, history_budget, token_window_start};
+use darkwire_agent::history_window::{FixedCost, RowPrices, history_budget, token_window_start};
 use darkwire_core::history::has_orphaned_tool_result;
 use darkwire_core::messages::{
     AssistantOptions, ToolOptions, assistant_message, tool_message, user_message,
@@ -97,7 +97,10 @@ fn a_history_that_fits_is_kept_whole() {
         record(2, Some("t1"), assistant("hello")),
         record(3, Some("t2"), user("now")),
     ];
-    assert_eq!(token_window_start(&records, Some(3), usize::MAX), 0);
+    assert_eq!(
+        token_window_start(&records, Some(3), usize::MAX, &mut RowPrices::default()),
+        0
+    );
 }
 
 #[test]
@@ -109,7 +112,10 @@ fn the_turn_being_answered_is_kept_whatever_it_costs() {
         record(4, Some("t2"), calling("c1")),
         record(5, Some("t2"), result("c1", &long("output"))),
     ];
-    assert_eq!(token_window_start(&records, Some(3), 0), 2);
+    assert_eq!(
+        token_window_start(&records, Some(3), 0, &mut RowPrices::default()),
+        2
+    );
 }
 
 #[test]
@@ -124,10 +130,16 @@ fn the_cut_lands_on_a_turn_boundary_and_never_on_a_steer() {
     ];
     // Room for the steer and its answer, not for the question before them.
     let budget = cost(&records[3..]);
-    assert_eq!(token_window_start(&records, Some(6), budget), 5);
+    assert_eq!(
+        token_window_start(&records, Some(6), budget, &mut RowPrices::default()),
+        5
+    );
     // Room for the whole of `t2`.
     let budget = cost(&records[2..]);
-    assert_eq!(token_window_start(&records, Some(6), budget), 2);
+    assert_eq!(
+        token_window_start(&records, Some(6), budget, &mut RowPrices::default()),
+        2
+    );
 }
 
 #[test]
@@ -136,7 +148,10 @@ fn an_opening_row_outside_the_window_cuts_nothing() {
         record(10, Some("t1"), user(&long("a"))),
         record(11, Some("t1"), assistant(&long("b"))),
     ];
-    assert_eq!(token_window_start(&records, Some(3), 0), 0);
+    assert_eq!(
+        token_window_start(&records, Some(3), 0, &mut RowPrices::default()),
+        0
+    );
 }
 
 #[test]
@@ -152,7 +167,7 @@ fn a_tool_result_never_outlives_its_call() {
         record(6, None, user("now")),
     ];
     let budget = cost(&records[2..]);
-    let start = token_window_start(&records, Some(6), budget);
+    let start = token_window_start(&records, Some(6), budget, &mut RowPrices::default());
     assert!(start > 2, "{start}");
     let kept: Vec<ChatMessage> = records[start..]
         .iter()
@@ -170,7 +185,21 @@ fn between_turns_every_row_is_an_older_turn() {
         record(3, Some("t2"), user("newer")),
         record(4, Some("t2"), assistant("answered")),
     ];
-    assert_eq!(token_window_start(&records, None, usize::MAX), 0);
-    assert_eq!(token_window_start(&records, None, cost(&records[2..])), 2);
-    assert_eq!(token_window_start(&records, None, 0), 4);
+    assert_eq!(
+        token_window_start(&records, None, usize::MAX, &mut RowPrices::default()),
+        0
+    );
+    assert_eq!(
+        token_window_start(
+            &records,
+            None,
+            cost(&records[2..]),
+            &mut RowPrices::default()
+        ),
+        2
+    );
+    assert_eq!(
+        token_window_start(&records, None, 0, &mut RowPrices::default()),
+        4
+    );
 }

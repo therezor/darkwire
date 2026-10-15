@@ -188,6 +188,42 @@ fn a_file_past_the_request_budget_still_appears_as_a_path() {
 }
 
 #[test]
+fn a_cached_attachment_still_spends_the_request_budget() {
+    // One path repeated through history is the case the budget exists for. A
+    // cache hit that inlined for free would let it through after the first.
+    let fixture = Fixture::new();
+    fixture.write("a.txt", &[b'a'; 200]);
+    let message = || {
+        ChatMessage::User(user_message(vec![ContentPart::File(Fixture::part(
+            "a.txt",
+            "text/plain",
+        ))]))
+    };
+    let mut cache = AttachmentCache::new();
+
+    let out = materialise_attachments(
+        vec![message(), message(), message()],
+        &fixture.jail,
+        MaterialiseOptions {
+            max_total_bytes: 450,
+            ..MaterialiseOptions::default()
+        },
+        Some(&mut cache),
+    );
+
+    let inlined: Vec<bool> = out
+        .iter()
+        .map(|message| {
+            let ChatMessage::User(user) = message else {
+                panic!("a user message")
+            };
+            text_of(&user.content).contains("aaaa")
+        })
+        .collect();
+    assert_eq!(inlined, [true, true, false]);
+}
+
+#[test]
 fn a_text_file_past_its_own_cap_becomes_a_path() {
     let fixture = Fixture::new();
     fixture.write("huge.txt", &[b'x'; 200]);

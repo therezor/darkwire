@@ -245,8 +245,9 @@ fn record_both(conn: &Connection, address: &str, now: i64) -> Result<Option<Thro
 }
 
 fn block_for(conn: &Connection, scope: &str, now: i64) -> Result<Option<ThrottleBlock>> {
-    let mut statement =
-        conn.prepare("SELECT last_failed_ms, locked_until_ms FROM auth_throttle WHERE scope = ?")?;
+    let mut statement = conn.prepare_cached(
+        "SELECT last_failed_ms, locked_until_ms FROM auth_throttle WHERE scope = ?",
+    )?;
     let mut rows = statement.query(params![scope])?;
     let Some(row) = rows.next()? else {
         return Ok(None);
@@ -278,8 +279,8 @@ fn record(
     max_delay_ms: i64,
 ) -> Result<Option<ThrottleBlock>> {
     let previous = {
-        let mut statement =
-            conn.prepare("SELECT failures, last_failed_ms FROM auth_throttle WHERE scope = ?")?;
+        let mut statement = conn
+            .prepare_cached("SELECT failures, last_failed_ms FROM auth_throttle WHERE scope = ?")?;
         let mut rows = statement.query(params![scope])?;
         match rows.next()? {
             None => 0,

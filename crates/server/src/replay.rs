@@ -20,7 +20,16 @@
 //!    told it had missed nothing. Its history is gone; that is precisely the case
 //!    `complete: false` exists for.
 
+use std::collections::VecDeque;
+
 use darkwire_protocol::ws::ServerMessage;
+
+/// The most encoded bytes one session's ring holds, whatever its frame count.
+///
+/// The frame cap alone does not bound memory: a frame can be a tool result or a
+/// replay carrying two hundred stored messages. Past this the oldest frames go,
+/// and a resume that needed them is reported incomplete like any other gap.
+pub const MAX_REPLAY_BYTES: usize = 4 * 1024 * 1024;
 
 /// What a client resuming at some `seq` still needs.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,7 +49,10 @@ pub struct ReplaySlice {
 #[derive(Debug)]
 pub struct ReplayBuffer {
     max_entries: usize,
-    entries: Vec<ServerMessage>,
+    max_bytes: usize,
+    /// Each frame with its encoded size.
+    entries: VecDeque<(ServerMessage, usize)>,
+    bytes: usize,
     /// The highest `seq` ever pushed, tracked separately from the entries.
     ///
     /// A buffer sized zero retains nothing but still has to be able to say
@@ -50,11 +62,13 @@ pub struct ReplayBuffer {
 }
 
 impl ReplayBuffer {
-    /// A ring retaining at most `capacity` frames.
-    pub fn new(capacity: usize) -> ReplayBuffer {
+    /// A ring retaining at most `capacity` frames and `max_bytes` of them.
+    pub fn new(capacity: usize, max_bytes: usize) -> ReplayBuffer {
         ReplayBuffer {
             max_entries: capacity,
-            entries: Vec::new(),
+            max_bytes,
+            entries: VecDeque::new(),
+            bytes: 0,
             last_appended_seq: 0,
         }
     }
@@ -74,11 +88,16 @@ impl ReplayBuffer {
         self.last_appended_seq
     }
 
-    /// Retains one emitted frame.
+    /// How many encoded bytes it is holding.
+    pub fn retained_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// Retains one emitted frame, `bytes` long once encoded.
     ///
     /// A message with no `seq` is not part of any session's replayable history
     /// and is ignored, which is the same rule the turn log and the client apply.
-    pub fn push(&mut self, message: ServerMessage) {
+    pub fn push(&mut self, message: ServerMessage, bytes: usize) {
         let Some(seq) = message.seq() else {
             return;
         };
@@ -86,11 +105,26 @@ impl ReplayBuffer {
         if self.max_entries == 0 {
             return;
         }
-        self.entries.push(message);
-        if self.entries.len() > self.max_entries {
-            let excess = self.entries.len() - self.max_entries;
-            self.entries.drain(..excess);
+        self.entries.push_back((message, bytes));
+        self.bytes += bytes;
+        while self.entries.len() > self.max_entries || self.bytes > self.max_bytes {
+            let Some((_, dropped)) = self.entries.pop_front() else {
+                break;
+            };
+            self.bytes -= dropped;
         }
+    }
+
+    /// Whether [`ReplayBuffer::after`] would answer `complete` for `last_seq`,
+    /// without copying the frames.
+    pub fn covers(&self, last_seq: u64) -> bool {
+        if last_seq >= self.last_appended_seq {
+            return last_seq == self.last_appended_seq;
+        }
+        self.entries
+            .iter()
+            .find_map(|(entry, _)| entry.seq().filter(|seq| *seq > last_seq))
+            .is_some_and(|seq| seq == last_seq + 1)
     }
 
     /// What a client resuming at `last_seq` still needs.
@@ -112,8 +146,8 @@ impl ReplayBuffer {
         let messages: Vec<ServerMessage> = self
             .entries
             .iter()
-            .filter(|entry| entry.seq().is_some_and(|seq| seq > last_seq))
-            .cloned()
+            .filter(|(entry, _)| entry.seq().is_some_and(|seq| seq > last_seq))
+            .map(|(entry, _)| entry.clone())
             .collect();
         let complete = messages
             .first()
@@ -125,5 +159,6 @@ impl ReplayBuffer {
     /// Drops every retained frame, keeping the sequence position.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.bytes = 0;
     }
 }

@@ -2020,6 +2020,105 @@ async fn replays_the_open_turn_in_full_when_the_resume_falls_outside_the_ring() 
 }
 
 #[tokio::test]
+async fn a_replay_larger_than_the_socket_budget_is_still_delivered() {
+    // Counting the replay against the live budget closed the socket with 1013,
+    // and the client's resume then asked for the same replay again.
+    let h = harness(&HarnessOptions {
+        replay_buffer_size: Some(1),
+        ..HarnessOptions::default()
+    });
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "go"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let turn = h.runner.turn(0);
+    turn.start();
+    for _ in 0..4 {
+        turn.delta(&"x".repeat(512));
+    }
+    client.until_count("assistant.delta", 4).await;
+
+    let reconnect = h.connect(ConnectOptions {
+        max_buffered_bytes: Some(1_024),
+        ..ConnectOptions::default()
+    });
+    reconnect.until_seen("connected").await;
+    reconnect.reset();
+    reconnect.send(json!({
+        "type": "session.resume", "sessionKey": SESSION, "lastSeq": 1,
+    }));
+    reconnect.until_seen("assistant.delta").await;
+
+    assert_eq!(reconnect.closed(), None);
+    let ServerMessage::AssistantDelta(delta) = &reconnect.of("assistant.delta")[0] else {
+        panic!("expected a delta");
+    };
+    assert_eq!(delta.event.text.len(), 2_048);
+    turn.end();
+}
+
+#[tokio::test]
+async fn a_connection_that_resumes_without_reading_is_still_hung_up_on() {
+    // Replay has its own budget rather than none: a client asking for the same
+    // replay over and over, and reading none of it, is the stalled tab the
+    // live budget exists for.
+    let h = harness(&HarnessOptions {
+        replay_buffer_size: Some(1),
+        ..HarnessOptions::default()
+    });
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "go"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let turn = h.runner.turn(0);
+    turn.start();
+    turn.delta(&"x".repeat(2_048));
+    client.until_count("assistant.delta", 1).await;
+
+    // Held, never read.
+    let (stalled, mut stream) = h.hub.connect(ConnectOptions {
+        session_key: Some(SESSION.to_owned()),
+        max_replayed_bytes: Some(8_192),
+        ..ConnectOptions::default()
+    });
+    for _ in 0..500 {
+        if h.hub.watchers(SESSION) == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    for _ in 0..10 {
+        stalled.receive(Frame::Value(json!({
+            "type": "session.resume", "sessionKey": SESSION, "lastSeq": 1,
+        })));
+    }
+    for _ in 0..500 {
+        if h.hub.watchers(SESSION) == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(h.hub.watchers(SESSION), 1, "the stalled connection stayed");
+
+    let mut last = None;
+    while let Some(outbound) = stream.next().await {
+        last = Some(outbound);
+    }
+    assert_eq!(last, Some(Outbound::Close(1013)));
+    turn.end();
+}
+
+#[tokio::test]
 async fn names_no_turn_once_the_log_has_overrun_its_budget() {
     // A log that overran holds a *middle*, and replaying a middle over a stored
     // tail would render a turn that began halfway through.

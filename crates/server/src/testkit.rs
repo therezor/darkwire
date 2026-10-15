@@ -472,8 +472,8 @@ impl FakeRuntime {
 }
 
 impl ServerRuntime for FakeRuntime {
-    fn config(&self) -> Config {
-        self.config.lock().clone()
+    fn config(&self) -> Arc<Config> {
+        Arc::new(self.config.lock().clone())
     }
 
     fn apply_settings(&self, patch: ConfigPatch) -> Result<Config> {

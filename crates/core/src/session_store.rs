@@ -33,13 +33,12 @@ use darkwire_protocol::tasks::{TASKS_METADATA_KEY, TaskItem, TaskList, task_list
 use garde::Validate as _;
 use indexmap::IndexMap;
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{Row, params, params_from_iter};
+use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 use serde_json::{Map, Value, json};
 
 use crate::clock::Clock;
 use crate::db::Database;
 use crate::errors::{ErrorKind, Result, WireError};
-use crate::history::{HistoryOptions, MessageWindow, SessionHistorySource, session_history};
 use crate::ids::DEFAULT_WORKSPACE_ID;
 use crate::messages::text_of;
 use crate::session_title::derive_session_title;
@@ -144,7 +143,7 @@ pub const TURN_STATS_TABLE: &str = "CREATE TABLE IF NOT EXISTS turn_stats (
 /// `seq` is unique per session; the index is also what keyset reads walk.
 pub const MESSAGES_SESSION_SEQ_INDEX: &str =
     "CREATE UNIQUE INDEX IF NOT EXISTS messages_session_seq ON messages(session_key, seq);";
-/// Finds every message of one turn.
+/// Finds every message of one turn, and the question that opened it.
 pub const MESSAGES_TURN_INDEX: &str =
     "CREATE INDEX IF NOT EXISTS messages_turn ON messages(session_key, turn_id);";
 /// The recency order the default listing uses.
@@ -283,14 +282,14 @@ fn json_error(error: serde_json::Error) -> WireError {
 }
 
 /// Narrows a storage record to the wire shape the REST and WS layers publish.
-pub fn to_stored_message(record: &StoredMessageRecord) -> StoredMessage {
+pub fn to_stored_message(record: StoredMessageRecord) -> StoredMessage {
     StoredMessage {
-        id: record.id.clone(),
-        session_key: record.session_key.clone(),
+        id: record.id,
+        session_key: record.session_key,
         seq: to_u64(record.seq),
         created_at_ms: to_u64(record.created_at_ms),
-        turn_id: record.turn_id.clone(),
-        message: record.message.clone(),
+        turn_id: record.turn_id,
+        message: record.message,
     }
 }
 
@@ -621,10 +620,22 @@ fn like_pattern(query: &str) -> String {
     pattern
 }
 
-/// The `WHERE` fragment a session listing runs under, and its bindings.
+/// The predicates a session listing runs under, and their bindings.
 struct SessionFilter {
-    sql: &'static str,
+    clauses: Vec<&'static str>,
     bindings: Vec<SqlValue>,
+}
+
+impl SessionFilter {
+    /// The `WHERE` clause, or nothing at all. Even `WHERE 1` costs an
+    /// unfiltered count SQLite's whole-table count.
+    fn where_sql(&self) -> String {
+        if self.clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", self.clauses.join(" AND "))
+        }
+    }
 }
 
 fn text_or_null(value: Option<&str>) -> SqlValue {
@@ -670,30 +681,24 @@ fn session_filter(options: &ListSessions) -> SessionFilter {
         .map(str::trim)
         .filter(|query| !query.is_empty())
         .map(like_pattern);
-    let origin = text_or_null(options.origin.as_deref());
-    let exclude = text_or_null(options.exclude_origin.as_deref());
-    let workspace = text_or_null(options.workspace_id.as_deref());
-    let pattern = text_or_null(pattern.as_deref());
 
-    SessionFilter {
-        // Each clause is `? IS NULL OR …` so one prepared statement serves
-        // every combination; the same value is bound twice because the
-        // bindings are positional.
-        sql: "(? IS NULL OR s.origin = ?)
-          AND (? IS NULL OR s.origin <> ?)
-          AND (? IS NULL OR s.workspace_id = ?)
-          AND (? IS NULL OR lower(s.title) LIKE ? ESCAPE '\\')",
-        bindings: vec![
-            origin.clone(),
-            origin,
-            exclude.clone(),
-            exclude,
-            workspace.clone(),
-            workspace,
-            pattern.clone(),
-            pattern,
-        ],
-    }
+    // Only the clauses a caller asked for. A `? IS NULL OR …` form would serve
+    // every combination from one statement, but the planner cannot use an
+    // index for a predicate it only learns at run time.
+    let mut clauses: Vec<&str> = Vec::new();
+    let mut bindings = Vec::new();
+    let mut clause = |sql: &'static str, value: Option<&str>| {
+        if let Some(value) = value {
+            clauses.push(sql);
+            bindings.push(SqlValue::Text(value.to_owned()));
+        }
+    };
+    clause("s.origin = ?", options.origin.as_deref());
+    clause("s.origin <> ?", options.exclude_origin.as_deref());
+    clause("s.workspace_id = ?", options.workspace_id.as_deref());
+    clause("lower(s.title) LIKE ? ESCAPE '\\'", pattern.as_deref());
+
+    SessionFilter { clauses, bindings }
 }
 
 /// The recency order this list has always had, and the only one a cursor
@@ -778,6 +783,19 @@ impl SessionStore {
     /// open the same session key both get the existing row rather than one of
     /// them failing on the primary key.
     pub fn ensure_session(&self, key: &str, options: CreateSession) -> Result<SessionRecord> {
+        self.create_if_absent(key, options)?;
+        self.get_session(key)?.ok_or_else(|| {
+            WireError::new(
+                ErrorKind::Storage,
+                "Session vanished immediately after insert",
+            )
+            .with_detail("key", key)
+        })
+    }
+
+    /// The insert half of [`SessionStore::ensure_session`], for a caller that
+    /// does not want the row back.
+    fn create_if_absent(&self, key: &str, options: CreateSession) -> Result<()> {
         if key.is_empty() {
             return Err(WireError::new(
                 ErrorKind::InvalidInput,
@@ -787,11 +805,14 @@ impl SessionStore {
 
         let now = self.clock.now_ms();
         let metadata = Value::Object(options.metadata.unwrap_or_default()).to_string();
-        self.db.lock().execute(
-            "INSERT OR IGNORE INTO sessions
+        self.db
+            .lock()
+            .prepare_cached(
+                "INSERT OR IGNORE INTO sessions
          (key, title, origin, workspace_id, agent_id, created_at_ms, updated_at_ms, metadata_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            params![
+            )?
+            .execute(params![
                 key,
                 options.title.unwrap_or_default(),
                 options.origin.unwrap_or_else(|| "web".to_owned()),
@@ -806,16 +827,8 @@ impl SessionStore {
                 now,
                 now,
                 metadata,
-            ],
-        )?;
-
-        self.get_session(key)?.ok_or_else(|| {
-            WireError::new(
-                ErrorKind::Storage,
-                "Session vanished immediately after insert",
-            )
-            .with_detail("key", key)
-        })
+            ])?;
+        Ok(())
     }
 
     /// A page of sessions with their message counts.
@@ -847,28 +860,27 @@ impl SessionStore {
         let limit = len_to_i64(options.limit.unwrap_or(50));
         let offset = len_to_i64(options.offset.unwrap_or(0));
 
-        let mut bindings = filter.bindings;
-        bindings.extend([
-            cursor_ms.clone(),
-            cursor_ms.clone(),
-            cursor_ms,
-            cursor_key,
-            SqlValue::Integer(limit),
-            SqlValue::Integer(offset),
-        ]);
-
+        let mut filter = filter;
         // The keyset predicate is that order written as a comparison: strictly
         // older, or the same instant and a key that sorts later.
+        if options.after.is_some() {
+            filter
+                .clauses
+                .push("(s.updated_at_ms < ? OR (s.updated_at_ms = ? AND s.key > ?))");
+            filter
+                .bindings
+                .extend([cursor_ms.clone(), cursor_ms, cursor_key]);
+        }
+        let where_sql = filter.where_sql();
+        let mut bindings = filter.bindings;
+        bindings.extend([SqlValue::Integer(limit), SqlValue::Integer(offset)]);
+
         let sql = format!(
             "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_key = s.key) AS message_count
          FROM sessions s
-        WHERE {}
-          AND (? IS NULL
-               OR s.updated_at_ms < ?
-               OR (s.updated_at_ms = ? AND s.key > ?))
+        {where_sql}
         ORDER BY {order}
-        LIMIT ? OFFSET ?",
-            filter.sql
+        LIMIT ? OFFSET ?"
         );
 
         let guard = self.db.lock();
@@ -892,7 +904,10 @@ impl SessionStore {
     /// bug that is invisible in every test that does not filter.
     pub fn count_sessions(&self, options: &ListSessions) -> Result<usize> {
         let filter = session_filter(options);
-        let sql = format!("SELECT COUNT(*) AS n FROM sessions s WHERE {}", filter.sql);
+        let sql = format!(
+            "SELECT COUNT(*) AS n FROM sessions s {}",
+            filter.where_sql()
+        );
         let guard = self.db.lock();
         let mut statement = guard.prepare_cached(&sql)?;
         let n: i64 =
@@ -992,20 +1007,34 @@ impl SessionStore {
         }
 
         self.db.transaction(|conn| {
-            self.ensure_session(session_key, CreateSession::default())?;
             let now = self.clock.now_ms();
             let block = len_to_i64(messages.len());
 
-            let next_seq: i64 = conn
-                .prepare_cached(
-                    "UPDATE sessions SET next_seq = next_seq + ? WHERE key = ? RETURNING next_seq",
+            // The reservation and the recency bump in one statement. The row is
+            // created only when the update found none, so an append to a
+            // session that exists is one write to `sessions`, not three.
+            let reserve = || -> Result<Option<i64>> {
+                conn.prepare_cached(
+                    "UPDATE sessions SET next_seq = next_seq + ?, updated_at_ms = ?
+                      WHERE key = ? RETURNING next_seq",
                 )?
-                .query_row(params![block, session_key], |row| row.get("next_seq"))
+                .query_row(params![block, now, session_key], |row| row.get("next_seq"))
+                .optional()
                 .map_err(|error| {
                     WireError::new(ErrorKind::Storage, "Failed to reserve message sequence")
                         .with_detail("sessionKey", session_key)
                         .with_source(error)
-                })?;
+                })
+            };
+            let next_seq = if let Some(next_seq) = reserve()? {
+                next_seq
+            } else {
+                self.create_if_absent(session_key, CreateSession::default())?;
+                reserve()?.ok_or_else(|| {
+                    WireError::new(ErrorKind::Storage, "Failed to reserve message sequence")
+                        .with_detail("sessionKey", session_key)
+                })?
+            };
             // `next_seq` now points past the block just reserved.
             let first_seq = next_seq - block;
 
@@ -1038,8 +1067,6 @@ impl SessionStore {
                 });
             }
 
-            conn.prepare_cached("UPDATE sessions SET updated_at_ms = ? WHERE key = ?")?
-                .execute(params![now, session_key])?;
             Ok(records)
         })
     }
@@ -1084,15 +1111,6 @@ impl SessionStore {
             records.reverse();
         }
         Ok(records)
-    }
-
-    /// The message list to send to a provider.
-    ///
-    /// A convenience over [`session_history`], which owns the decision — what
-    /// a *model* is sent is not a persistence question. Kept as a method
-    /// because every caller already has the store in hand.
-    pub fn history(&self, session_key: &str, options: &HistoryOptions) -> Result<Vec<ChatMessage>> {
-        session_history(self, session_key, options)
     }
 
     /// Patches a session, creating it first if needed, and returns the result.
@@ -1602,6 +1620,45 @@ impl SessionStore {
         rows.collect()
     }
 
+    /// The question that started the session's latest turn: that turn's
+    /// earliest user row.
+    ///
+    /// The earliest, not the latest, because steering appends user rows
+    /// mid-turn under the same turn id. Found through `messages_turn`, so a turn
+    /// longer than any fixed tail still has its question.
+    pub fn last_turn_question(&self, session_key: &str) -> Result<Option<StoredMessageRecord>> {
+        let guard = self.db.lock();
+        let mut statement = guard.prepare_cached(
+            "SELECT * FROM messages
+              WHERE session_key = ?1 AND role = 'user'
+                AND turn_id = (SELECT turn_id FROM messages
+                                WHERE session_key = ?1
+                                ORDER BY seq DESC LIMIT 1)
+              ORDER BY seq ASC
+              LIMIT 1",
+        )?;
+        let mut rows = statement
+            .query_and_then(params![session_key], |row| row_to_message(session_key, row))?;
+        rows.next().transpose()
+    }
+
+    /// Why each failed turn of a session failed, as `(turn_id, error)`.
+    ///
+    /// The one question the transcript asks of `turn_stats`, so it reads only
+    /// the failed rows rather than every turn the session ever ran.
+    pub fn turn_failures(&self, session_key: &str) -> Result<Vec<(String, String)>> {
+        let guard = self.db.lock();
+        let mut statement = guard.prepare_cached(
+            "SELECT turn_id, error FROM turn_stats
+              WHERE session_key = ? AND error IS NOT NULL
+              ORDER BY ended_at_ms DESC, turn_id ASC",
+        )?;
+        let rows = statement.query_and_then(params![session_key], |row| {
+            Ok((READ.string(row, "turn_id")?, READ.string(row, "error")?))
+        })?;
+        rows.collect()
+    }
+
     /// Total usage per session, for a page of keys.
     ///
     /// One statement for the whole page rather than one per row — the session
@@ -1676,21 +1733,5 @@ impl SessionStore {
                 .execute([session_key])?;
             Ok(deleted > 0)
         })
-    }
-}
-
-impl SessionHistorySource for SessionStore {
-    fn messages(&self, session_key: &str, window: &MessageWindow) -> Result<Vec<ChatMessage>> {
-        let records = SessionStore::messages(
-            self,
-            session_key,
-            &ReadMessages {
-                after_seq: Some(to_i64(window.after_seq)),
-                before_seq: None,
-                limit: window.limit,
-                from_end: window.from_end,
-            },
-        )?;
-        Ok(records.into_iter().map(|record| record.message).collect())
     }
 }

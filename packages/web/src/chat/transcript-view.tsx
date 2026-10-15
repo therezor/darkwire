@@ -34,7 +34,7 @@ import { Message, type MessageAction } from './message.js';
 /** How close to the bottom still counts as "at the bottom", in CSS pixels. */
 const PIN_THRESHOLD = 48;
 
-interface TranscriptViewProps {
+export interface TranscriptViewProps {
   readonly transcript: Transcript;
   readonly busy: boolean;
   /** Which conversation this is, for the turn-details lookup. */

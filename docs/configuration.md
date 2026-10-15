@@ -336,7 +336,8 @@ reload comes back to the whole answer.** `replayBufferSize` counts events, and 5
 fewer than it sounds: every delta is one, and every delta a _subagent_ produces is one
 too, so a delegation of any length pushes the call that started it out of the buffer.
 Raising it is not the fix — it only widens how far back a reconnect can pick up _across_
-turns, and it costs that many whole events per live session.
+turns, and it costs that many whole events per live session. The ring also stops at 4 MiB
+of encoded frames, whatever the count.
 
 The turn that is running is kept separately and in full, from its `turn.start`, which is
 what a reload actually needs. Adjacent deltas of the same part are merged as they are

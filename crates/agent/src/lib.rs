@@ -54,8 +54,8 @@ pub use dispatch::{
 };
 pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
 pub use history_window::{
-    FixedCost, HISTORY_BUDGET_FACTOR, WindowedHistory, history_budget, token_window_start,
-    windowed_history,
+    FixedCost, HISTORY_BUDGET_FACTOR, RowPrices, WindowedHistory, history_budget, read_history,
+    token_window_start, window_records, windowed_history,
 };
 pub use length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 pub use memory_contributor::{MemoryContributor, render_memory_section};

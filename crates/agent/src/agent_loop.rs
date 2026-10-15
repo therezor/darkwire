@@ -51,13 +51,14 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use darkwire_core::db::blocking;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{AssistantOptions, assistant_message, system_message, user_message};
 use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
 use darkwire_core::session_title::derive_session_title;
 use darkwire_core::{
-    Clock, ErrorKind, Result, SessionRecord, SessionStore, SystemClock, TurnStatsRecord, WireError,
-    text_of,
+    Clock, ErrorKind, Result, SessionRecord, SessionStore, StoredMessageRecord, SystemClock,
+    TurnStatsRecord, WireError, text_of,
 };
 use darkwire_protocol::json::Object;
 use darkwire_protocol::tasks::TaskItem;
@@ -83,13 +84,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approval::ApprovalGate;
 use crate::attachments::{AttachmentCache, MaterialiseOptions, materialise_attachments};
-use crate::context::{MeasureContext, MeasureWindow, measure_context_with, prompt_costs};
+use crate::context::{MeasureWindow, measure_records, prompt_costs};
 use crate::dispatch::{
     SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions, TurnScope,
     parse_tool_args,
 };
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
-use crate::history_window::{FixedCost, history_budget, windowed_history};
+use crate::history_window::{FixedCost, RowPrices, history_budget, read_history, window_records};
 use crate::length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 use crate::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, PromptAgent,
@@ -617,6 +618,8 @@ struct TurnState {
     /// The truncated-history notice goes out once a turn, however many
     /// iterations trim.
     trim_noted: bool,
+    /// Every row this turn has priced. See [`RowPrices`].
+    prices: RowPrices,
     first_seq: i64,
     last_seq: i64,
 }
@@ -717,7 +720,14 @@ struct LoopInner {
     /// the instance unkeyed. In memory only; a rebuilt loop starts empty, and
     /// the model gets a tool back by calling it, which re-activates it.
     activated: Mutex<HashMap<String, Activated>>,
+    /// [`AgentLoop::permitted_definitions`], memoised on the scope's list it
+    /// was derived from. The scope hands back the same `Arc` until the registry
+    /// moves, and the permitted list is read several times an iteration.
+    permitted: Mutex<Option<PermittedMemo>>,
 }
+
+/// The scope's list, and the permitted list derived from it.
+type PermittedMemo = (Arc<[ToolDefinition]>, Arc<[ToolDefinition]>);
 
 /// One session's activations under lazy discovery.
 #[derive(Debug, Default)]
@@ -859,6 +869,7 @@ impl AgentLoop {
                 host: options.host,
                 dispatcher,
                 activated: Mutex::new(HashMap::new()),
+                permitted: Mutex::new(None),
             }),
         })
     }
@@ -913,17 +924,32 @@ impl AgentLoop {
     /// This is everything the agent *may* call. What a session is *sent* is
     /// [`AgentLoop::tool_definitions`], which narrows this under lazy discovery.
     pub fn permitted_definitions(&self) -> Vec<ToolDefinition> {
+        self.permitted().to_vec()
+    }
+
+    fn permitted(&self) -> Arc<[ToolDefinition]> {
         let inner = &self.inner;
         if !inner.config.tools_enabled {
-            return Vec::new();
+            return Arc::from(Vec::new());
         }
+        let source = inner.tools.definitions();
+        let mut memo = inner.permitted.lock();
+        if let Some((from, permitted)) = &*memo
+            && Arc::ptr_eq(from, &source)
+        {
+            return Arc::clone(permitted);
+        }
+        let permitted: Arc<[ToolDefinition]> = Arc::from(self.compose_permitted(&source));
+        *memo = Some((source, Arc::clone(&permitted)));
+        permitted
+    }
 
+    fn compose_permitted(&self, source: &[ToolDefinition]) -> Vec<ToolDefinition> {
+        let inner = &self.inner;
         // The door is only a door while something is behind it. With lazy
         // discovery off the agent is sent everything, and a `tool_search` in
         // that list would spend a turn learning there is nothing to find.
-        let mut tools: Vec<ToolDefinition> = inner
-            .tools
-            .definitions()
+        let mut tools: Vec<ToolDefinition> = source
             .iter()
             .filter(|tool| inner.config.lazy_discovery || tool.name != TOOL_SEARCH_NAME)
             .cloned()
@@ -968,9 +994,9 @@ impl AgentLoop {
     ///    built without built-ins, and then there is no way to reach a hidden
     ///    tool and nothing is hidden.
     pub fn tool_definitions(&self, session_key: &str) -> Vec<ToolDefinition> {
-        let full = self.permitted_definitions();
+        let full = self.permitted();
         let Some(shown) = self.short_list(&full) else {
-            return full;
+            return full.to_vec();
         };
         let mut sent: Vec<ToolDefinition> = shown.into_iter().cloned().collect();
         let activated = self.inner.activated.lock();
@@ -1009,8 +1035,7 @@ impl AgentLoop {
     /// agent, not the session: what a session activates lengthens its list
     /// without changing whether anything is hidden.
     fn hides_tools(&self) -> bool {
-        let full = self.permitted_definitions();
-        self.short_list(&full).is_some()
+        self.short_list(&self.permitted()).is_some()
     }
 
     /// Adds `names` to `session_key`'s list, answering what happened to each.
@@ -1020,7 +1045,7 @@ impl AgentLoop {
     /// remembered. Names already visible are reported as such and change
     /// nothing, including the revision.
     fn activate(&self, session_key: &str, names: &[String]) -> Activation {
-        let full = self.permitted_definitions();
+        let full = self.permitted();
         let visible: Vec<String> = self
             .tool_definitions(session_key)
             .into_iter()
@@ -1731,7 +1756,15 @@ impl AgentLoop {
             correction.as_deref(),
             &turn.placed,
         );
-        let (request, trimmed) = self.build_request(turn, &prompt, state.first_seq, attachments)?;
+        let (request, trimmed) = self
+            .build_request(
+                turn,
+                &prompt,
+                state.first_seq,
+                &mut state.prices,
+                attachments,
+            )
+            .await?;
         if trimmed && !state.trim_noted {
             state.trim_noted = true;
             sink.emit(darkwire_protocol::Notice {
@@ -1859,11 +1892,12 @@ impl AgentLoop {
 
     /// The request one iteration sends, and whether older turns were left out
     /// to fit the context window.
-    fn build_request(
+    async fn build_request(
         &self,
         turn: &TurnContext,
         prompt: &PromptPreview,
         opening_seq: i64,
+        prices: &mut RowPrices,
         attachments: &mut AttachmentCache,
     ) -> Result<(ChatRequest, bool)> {
         let inner = &self.inner;
@@ -1881,13 +1915,10 @@ impl AgentLoop {
         // what keeps history and the request identical rather than merely
         // similar. Windowed before attachments are read, because an inlined
         // image priced as text would crowd out every older turn.
-        let windowed = windowed_history(
-            &inner.store,
-            &turn.scope.session_key,
-            Some(opening_seq),
-            budget,
-        )?;
-        let history = windowed.messages();
+        let rows = history_rows(&inner.store, &turn.scope.session_key).await?;
+        let windowed = window_records(rows, Some(opening_seq), budget, prices);
+        let trimmed = windowed.trimmed;
+        let history = windowed.into_messages();
         // Attachments become readable here and nowhere else. Storage holds a
         // path; a provider needs bytes or characters, and only this scope has
         // the jail that resolves one to the other. Doing it before the provider
@@ -1935,7 +1966,7 @@ impl AgentLoop {
             // ladder.
             cache_key: Some(turn.scope.session_key.clone()),
         };
-        Ok((request, windowed.trimmed))
+        Ok((request, trimmed))
     }
 
     /// Streams one request, emitting deltas as they arrive.
@@ -2085,7 +2116,7 @@ impl AgentLoop {
         // model may write out a call to a tool it has not activated, and that
         // is still a call it meant to make.
         let names: Vec<String> = self
-            .permitted_definitions()
+            .permitted()
             .iter()
             .map(|tool| tool.name.clone())
             .collect();
@@ -2218,25 +2249,24 @@ impl AgentLoop {
         // outside `NestedAgentEvent`, so this is enforced by the compiler when
         // a subagent's events are wrapped rather than by this condition alone.
         if turn.scope.root_session_key == turn.scope.session_key {
-            let report = measure_context_with(
-                &MeasureContext {
-                    store: &inner.store,
-                    tools: &turn.tool_definitions,
-                    session_key: &turn.scope.session_key,
-                    prompt,
-                    context_window_tokens: inner.config.context_window_tokens,
-                },
+            let rows = history_rows(&inner.store, &turn.scope.session_key).await?;
+            let (_, breakdown) = measure_records(
+                rows,
+                prompt,
+                &turn.tool_definitions,
+                inner.config.context_window_tokens,
                 &MeasureWindow {
                     max_output_tokens: inner.config.max_tokens,
                     opening_seq: Some(state.first_seq),
                 },
-            )?;
+                &mut state.prices,
+            );
             sink.emit(darkwire_protocol::ContextUsage {
                 tag: darkwire_protocol::ContextUsageTag,
                 session_key: turn.scope.session_key.clone(),
-                estimated_tokens: u64::try_from(report.estimated_tokens).unwrap_or(u64::MAX),
-                context_window_tokens: report.context_window_tokens,
-                breakdown: report.breakdown.to_map(),
+                estimated_tokens: u64::try_from(breakdown.total()).unwrap_or(u64::MAX),
+                context_window_tokens: inner.config.context_window_tokens,
+                breakdown: breakdown.to_map(),
             })
             .await;
         }
@@ -2629,4 +2659,16 @@ fn wrap_subagent_event(
             }))
         }
     }
+}
+
+/// The history window's rows, read on the blocking pool. A turn reads them
+/// twice an iteration, and each read parses up to five hundred rows under the
+/// database lock every other session shares.
+async fn history_rows(
+    store: &Arc<SessionStore>,
+    session_key: &str,
+) -> Result<Vec<StoredMessageRecord>> {
+    let store = Arc::clone(store);
+    let key = session_key.to_owned();
+    blocking(move || read_history(&store, &key)).await
 }

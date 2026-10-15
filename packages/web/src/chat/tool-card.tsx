@@ -44,7 +44,7 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react';
-import { useEffect, useId, useState, type JSX } from 'react';
+import { memo, useEffect, useId, useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useQuery } from '@tanstack/react-query';
@@ -100,7 +100,14 @@ interface ToolCardProps {
   ) => void;
 }
 
-export function ToolCard({ tool, onApprove }: ToolCardProps): JSX.Element {
+/**
+ * Memoised because a streaming turn re-renders its parts on every token, and a
+ * card whose call has not moved would otherwise re-summarise its arguments,
+ * which for a `write` is the whole file.
+ */
+export const ToolCard = memo(ToolCardItem);
+
+function ToolCardItem({ tool, onApprove }: ToolCardProps): JSX.Element {
   const { t } = useTranslation();
   const subagent = tool.subagent;
   // Open by default while a decision is needed, and opened when a subagent
@@ -123,7 +130,7 @@ export function ToolCard({ tool, onApprove }: ToolCardProps): JSX.Element {
   const elapsedMs = useElapsed(tool.status === 'running', tool.elapsedMs);
   const risk = RISK[tool.risk];
 
-  const summary = summariseArgs(tool.args);
+  const summary = useMemo(() => summariseArgs(tool.args), [tool.args]);
 
   return (
     <section

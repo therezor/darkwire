@@ -12,8 +12,10 @@
 //! answered. Tokens are the body-shaped estimate from
 //! `darkwire-providers`, the same figure the context report prices.
 
+use std::collections::HashMap;
+
 use darkwire_core::history::{
-    DEFAULT_MAX_HISTORY_MESSAGES, HistoryOptions, find_legal_start, history_for_llm,
+    DEFAULT_MAX_HISTORY_MESSAGES, find_legal_start, history_window_start,
 };
 use darkwire_core::session_store::{ReadMessages, StoredMessageRecord};
 use darkwire_core::{Result, SessionStore};
@@ -58,6 +60,28 @@ pub fn history_budget(cost: &FixedCost) -> Option<usize> {
     Some(usize::try_from(budget).unwrap_or(usize::MAX))
 }
 
+/// Token estimates of stored rows, by row id.
+///
+/// A stored row never changes, so a turn prices each one once. Without this
+/// every iteration serialised the whole window again, twice: once to budget
+/// the request and once to report the context.
+#[derive(Debug, Default)]
+pub struct RowPrices {
+    by_id: HashMap<String, usize>,
+}
+
+impl RowPrices {
+    /// What `record` costs in a request.
+    pub fn of(&mut self, record: &StoredMessageRecord) -> usize {
+        if let Some(&tokens) = self.by_id.get(&record.id) {
+            return tokens;
+        }
+        let tokens = estimate_message_tokens(&record.message);
+        self.by_id.insert(record.id.clone(), tokens);
+        tokens
+    }
+}
+
 /// Whether the window may start at `index`: a user message that opens a turn.
 ///
 /// Rows of one turn share a `turn_id`, so a steering message inside a turn is
@@ -85,6 +109,7 @@ pub fn token_window_start(
     records: &[StoredMessageRecord],
     opening_seq: Option<i64>,
     budget: usize,
+    prices: &mut RowPrices,
 ) -> usize {
     let floor = match opening_seq {
         None => records.len(),
@@ -93,10 +118,7 @@ pub fn token_window_start(
             None => return 0,
         },
     };
-    let sizes: Vec<usize> = records
-        .iter()
-        .map(|record| estimate_message_tokens(&record.message))
-        .collect();
+    let sizes: Vec<usize> = records.iter().map(|record| prices.of(record)).collect();
     let mut used: usize = sizes[floor..].iter().sum();
     let mut start = floor;
     for index in (0..floor).rev() {
@@ -111,9 +133,9 @@ pub fn token_window_start(
     if start == 0 {
         return 0;
     }
-    let messages: Vec<ChatMessage> = records[start..]
+    let messages: Vec<&ChatMessage> = records[start..]
         .iter()
-        .map(|record| record.message.clone())
+        .map(|record| &record.message)
         .collect();
     start + find_legal_start(&messages)
 }
@@ -131,10 +153,9 @@ pub struct WindowedHistory {
 ///
 /// The loop and the context report both read through this, so the bar shows
 /// what the next request sends. Rows rather than messages, because the turn
-/// boundaries and the opening row are found by `turn_id` and `seq`.
-/// `history_for_llm` only trims from the front when tool results are left
-/// whole, so its output is a suffix of the rows and each message can be
-/// matched back to its row by position.
+/// boundaries and the opening row are found by `turn_id` and `seq`. The
+/// window `history_for_llm` keeps is a suffix, so its start index is all that
+/// is needed to cut the rows.
 ///
 /// # Errors
 ///
@@ -144,8 +165,22 @@ pub fn windowed_history(
     session_key: &str,
     opening_seq: Option<i64>,
     budget: Option<usize>,
+    prices: &mut RowPrices,
 ) -> Result<WindowedHistory> {
-    let records = store.messages(
+    let records = read_history(store, session_key)?;
+    Ok(window_records(records, opening_seq, budget, prices))
+}
+
+/// The rows [`windowed_history`] windows: the newest, up to the message cap.
+///
+/// The store half on its own, so an async caller can run it on the blocking
+/// pool and window the rows after.
+///
+/// # Errors
+///
+/// When the store cannot be read.
+pub fn read_history(store: &SessionStore, session_key: &str) -> Result<Vec<StoredMessageRecord>> {
+    store.messages(
         session_key,
         &ReadMessages {
             after_seq: Some(0),
@@ -153,29 +188,27 @@ pub fn windowed_history(
             from_end: true,
             ..ReadMessages::default()
         },
-    )?;
-    let all: Vec<ChatMessage> = records
-        .iter()
-        .map(|record| record.message.clone())
-        .collect();
-    let kept = history_for_llm(
-        &all,
-        &HistoryOptions {
-            max_tool_result_chars: 0,
-            ..HistoryOptions::default()
-        },
     )
-    .len();
-    let mut records = records;
-    records.drain(..all.len() - kept);
+}
+
+/// [`windowed_history`] over rows already read.
+pub fn window_records(
+    mut records: Vec<StoredMessageRecord>,
+    opening_seq: Option<i64>,
+    budget: Option<usize>,
+    prices: &mut RowPrices,
+) -> WindowedHistory {
+    let messages: Vec<&ChatMessage> = records.iter().map(|record| &record.message).collect();
+    let first = history_window_start(&messages, DEFAULT_MAX_HISTORY_MESSAGES);
+    records.drain(..first);
     let start = budget.map_or(0, |budget| {
-        token_window_start(&records, opening_seq, budget)
+        token_window_start(&records, opening_seq, budget, prices)
     });
     records.drain(..start);
-    Ok(WindowedHistory {
+    WindowedHistory {
         records,
         trimmed: start > 0,
-    })
+    }
 }
 
 impl WindowedHistory {
@@ -184,6 +217,14 @@ impl WindowedHistory {
         self.records
             .iter()
             .map(|record| record.message.clone())
+            .collect()
+    }
+
+    /// [`WindowedHistory::messages`], moved out rather than copied.
+    pub fn into_messages(self) -> Vec<ChatMessage> {
+        self.records
+            .into_iter()
+            .map(|record| record.message)
             .collect()
     }
 }

@@ -48,7 +48,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use darkwire_agent::ContextContributor;
@@ -206,7 +206,11 @@ struct Inner {
     revision: AtomicU64,
     generation: AtomicU64,
     in_flight: AtomicUsize,
-    closed: AtomicBool,
+    /// Woken when `in_flight` falls to zero.
+    settled: tokio::sync::Notify,
+    /// Cancelled by [`ExtensionHost::stop`]. Every start and every running
+    /// extension holds a child of it, so a stop reaches all of them.
+    closed: CancellationToken,
 }
 
 /// Third-party code, authorised and run beside the host.
@@ -237,7 +241,8 @@ impl ExtensionHost {
                 revision: AtomicU64::new(0),
                 generation: AtomicU64::new(0),
                 in_flight: AtomicUsize::new(0),
-                closed: AtomicBool::new(false),
+                settled: tokio::sync::Notify::new(),
+                closed: CancellationToken::new(),
             }),
         }
     }
@@ -258,18 +263,21 @@ impl ExtensionHost {
 
     /// Waits until nothing is mid-start, or `timeout` passes.
     ///
-    /// Answers whether it settled. Polled rather than signalled because the
-    /// thing being waited for is "no task is running", which no single task can
-    /// announce.
+    /// Answers whether it settled. The start that brings the count to zero
+    /// announces it, so this wakes when that happens rather than on a poll.
     pub async fn quiesce(&self, timeout: Duration) -> bool {
         let deadline = tokio::time::Instant::now() + timeout;
-        while self.in_flight() > 0 {
-            if tokio::time::Instant::now() >= deadline {
-                return false;
+        loop {
+            // Before the check, so a start that finishes between the two still
+            // wakes this one.
+            let settled = self.inner.settled.notified();
+            if self.in_flight() == 0 {
+                return true;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if tokio::time::timeout_at(deadline, settled).await.is_err() {
+                return self.in_flight() == 0;
+            }
         }
-        true
     }
 
     /// Brings what is running into line with what is installed and configured.
@@ -280,7 +288,7 @@ impl ExtensionHost {
     /// save, and tearing down and rebuilding a channel because an unrelated
     /// panel was edited would drop connections for no reason.
     pub fn reconcile(&self, config: &ExtensionsConfig) {
-        if self.inner.closed.load(Ordering::SeqCst) {
+        if self.inner.closed.is_cancelled() {
             return;
         }
         let disabled: HashSet<&str> = config.disabled.iter().map(String::as_str).collect();
@@ -456,7 +464,7 @@ impl ExtensionHost {
 
     /// Stops everything. Idempotent, and safe to call on a failed boot.
     pub async fn stop(&self) {
-        self.inner.closed.store(true, Ordering::SeqCst);
+        self.inner.closed.cancel();
         let (entries, starting): (Vec<Loaded>, Vec<Starting>) = {
             let mut loaded = self.inner.loaded.lock();
             let starting = std::mem::take(&mut *self.inner.starting.lock());
@@ -537,7 +545,7 @@ impl Inner {
                 running: None,
                 digest,
                 settings: Object::new(),
-                token: CancellationToken::new(),
+                token: self.closed.child_token(),
                 generation: 0,
                 respawned: false,
             },
@@ -609,7 +617,7 @@ impl Inner {
     /// forever.
     fn start(self: &Arc<Self>, resolution: ExtensionResolution, settings: Object, respawned: bool) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let token = CancellationToken::new();
+        let token = self.closed.child_token();
         let superseded = self.starting.lock().insert(
             resolution.id.clone(),
             Starting {
@@ -629,7 +637,9 @@ impl Inner {
             inner
                 .activate(resolution, settings, generation, spawn_token, respawned)
                 .await;
-            inner.in_flight.fetch_sub(1, Ordering::SeqCst);
+            if inner.in_flight.fetch_sub(1, Ordering::SeqCst) == 1 {
+                inner.settled.notify_waiters();
+            }
         });
     }
 
@@ -824,7 +834,7 @@ impl Inner {
             let current = starting
                 .get(&status.id)
                 .is_some_and(|start| start.generation == generation);
-            if !current || token.is_cancelled() || self.closed.load(Ordering::SeqCst) {
+            if !current || token.is_cancelled() {
                 return false;
             }
             starting.remove(&status.id);
@@ -924,7 +934,7 @@ impl Inner {
                 return;
             }
             tokio::time::sleep(inner.options.timings.respawn_delay).await;
-            if token.is_cancelled() || inner.closed.load(Ordering::SeqCst) {
+            if token.is_cancelled() {
                 return;
             }
             let settings = {

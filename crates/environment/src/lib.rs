@@ -9,5 +9,6 @@
 #![forbid(unsafe_code)]
 
 pub mod container_pool;
+pub mod docker_engine;
 pub mod proxy;
 pub mod service;

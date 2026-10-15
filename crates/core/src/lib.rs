@@ -35,7 +35,7 @@ pub use config::{LoadConfigOptions, LoadedConfig, load_config, parse_config, sav
 pub use cron::{CronSpec, next_cron_run, parse_cron};
 pub use db::Database;
 pub use errors::{ErrorKind, Result, WireError};
-pub use history::{HistoryOptions, SessionHistorySource, history_for_llm, session_history};
+pub use history::{HistoryOptions, history_for_llm};
 pub use logger::{JsonLayer, LogLevel, LogSink, LoggerOptions, create_logger, silent_logger};
 pub use message_bus::{MessageBus, MessageBusOptions, PublishResult, RateLimiter};
 pub use messages::{assistant_message, system_message, text_of, tool_message, user_message};

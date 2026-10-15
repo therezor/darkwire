@@ -1463,4 +1463,74 @@ describe('the context strip', () => {
     // back over the wire, up to forty times in one turn, to move four integers.
     expect(contextRequests()).toBe(1);
   });
+
+  it('fetches the context after a first turn, when there was none to patch', async () => {
+    // Before the first turn the session has no row, so the context is a 404.
+    // `context.usage` patches a cached context and never seeds one, so the
+    // turn's end is what has to fetch it.
+    const routes: Record<string, [number, unknown]> = {
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/context': [404, { error: { code: 'not_found' } }],
+    };
+    stubFetch(routes);
+    mount();
+    await connect();
+    deliver(START);
+    expect(
+      screen.queryByRole('button', { name: /of 10,000/ }),
+    ).not.toBeInTheDocument();
+
+    routes['/api/sessions/web%3A1/context'] = [200, CONTEXT];
+    deliver({
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+
+    expect(
+      await screen.findByRole('button', { name: /2,000 of 10,000/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('refreshes the list after a turn, and not the transcript', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/context': [200, CONTEXT],
+    });
+    const inner = globalThis.fetch;
+    const requested: string[] = [];
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      requested.push(
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+      );
+      return inner(input, init);
+    });
+    const count = (pattern: RegExp): number =>
+      requested.filter((url) => pattern.test(url)).length;
+    const LIST = /\/api\/sessions(\?|$)/u;
+    mount();
+    await connect();
+    await screen.findByRole('button', { name: /2,000 of 10,000/ });
+    const before = { messages: count(/\/messages/u), lists: count(LIST) };
+
+    deliver(START, {
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+
+    // The socket delivered the turn. Refetching the transcript downloaded
+    // every page of the conversation once per turn.
+    await waitFor(() => {
+      expect(count(LIST)).toBeGreaterThan(before.lists);
+    });
+    expect(count(/\/messages/u)).toBe(before.messages);
+    expect(count(/\/context/u)).toBe(1);
+  });
 });

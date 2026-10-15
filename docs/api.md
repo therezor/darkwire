@@ -284,7 +284,13 @@ copy of the answer text.
 
 One session runs one turn at a time; further messages queue FIFO up to 8, and past that
 the client gets `session_busy` rather than a silent drop. A socket that buffers more than
-4 MiB is closed with code 1013 — a client that cannot keep up is better told than starved.
+4 MiB of live frames is closed with code 1013. A client that cannot keep up is better told
+than starved.
+A resume's replay is counted against a budget of its own, room for one whole replay: twice
+`server.turnLogMaxBytes` or 4 MiB, whichever is larger, plus the 4 MiB above. Counting it
+against the live budget closed the socket on any replay larger than 4 MiB, which the
+client's next resume asked for again. A client that resumes over and over without reading
+still reaches the cap and is closed with 1013.
 
 A socket whose login is revoked is closed with code 4401 (`CLOSE_SIGNED_OUT`), after a
 logout or a password change. The web client does not redial on 4401. It shows the login

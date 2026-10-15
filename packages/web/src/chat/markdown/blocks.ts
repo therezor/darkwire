@@ -9,14 +9,15 @@
  * answer arrive while being unable to select the paragraph that already
  * finished is the failure this exists to avoid.
  *
- * The fix is that the *parse* is cheap and the *render* is not. `marked`'s lexer
- * is a single linear pass, so re-lexing the buffer per frame is fine; what has
- * to stop is re-rendering blocks that cannot have changed. Markdown is
- * append-only while streaming — text lands at the end — so only the trailing
- * token is live and every earlier one is final. Keying each block on its own
- * `raw` text is what lets `React.memo` skip it: a paragraph that finished four
- * seconds ago is the same string this frame as last, so its subtree is never
- * touched again.
+ * The render is the expensive half. Markdown is append-only while streaming
+ * (text lands at the end), so only the trailing token is live and every earlier
+ * one is final. Keying each block on its own `raw` text is what lets
+ * `React.memo` skip it: a paragraph that finished four seconds ago is the same
+ * string this frame as last, so its subtree is never touched again.
+ *
+ * The same fact bounds the lex. Given the previous frame's blocks, only the
+ * text from the start of the trailing block is lexed again, so a long answer
+ * costs the length of its last block per delta rather than its whole length.
  *
  * Two smaller decisions:
  *
@@ -44,6 +45,17 @@ interface MarkdownBlock {
   readonly token: Token;
   /** The token's source text. The memo comparator's only input. */
   readonly raw: string;
+  /**
+   * Where the block starts in the source. Absent when the lexer rewrote the
+   * input (it normalises line endings), which rules out resuming from it.
+   */
+  readonly offset: number | undefined;
+}
+
+/** One frame's lex, which the next frame of the same answer resumes from. */
+export interface LexedMarkdown {
+  readonly text: string;
+  readonly blocks: readonly MarkdownBlock[];
 }
 
 const OPTIONS = { gfm: true, breaks: true } as const;
@@ -56,15 +68,52 @@ const OPTIONS = { gfm: true, breaks: true } as const;
  * paragraph until its delimiter row lands. Both are exactly what should be on
  * screen mid-stream.
  */
-export function splitBlocks(markdown: string): readonly MarkdownBlock[] {
+export function splitBlocks(
+  markdown: string,
+  previous?: LexedMarkdown,
+): readonly MarkdownBlock[] {
   if (markdown === '') return [];
 
-  const blocks: MarkdownBlock[] = [];
-  for (const token of marked.lexer(markdown, OPTIONS)) {
-    if (token.type === 'space') continue;
-    blocks.push({ key: String(blocks.length), token, raw: token.raw });
+  // Every block but the last is final once more text is appended, so the lex
+  // resumes where the last one started.
+  const tail = previous?.blocks.at(-1);
+  if (
+    previous !== undefined &&
+    tail?.offset !== undefined &&
+    markdown.startsWith(previous.text)
+  ) {
+    const kept = previous.blocks.slice(0, -1);
+    return [
+      ...kept,
+      ...lex(markdown.slice(tail.offset), tail.offset, kept.length),
+    ];
   }
+  return lex(markdown, 0, 0);
+}
 
+function lex(
+  source: string,
+  base: number,
+  firstIndex: number,
+): MarkdownBlock[] {
+  const tokens = marked.lexer(source, OPTIONS);
+  const exact =
+    tokens.reduce((length, token) => length + token.raw.length, 0) ===
+    source.length;
+
+  const blocks: MarkdownBlock[] = [];
+  let offset = base;
+  for (const token of tokens) {
+    if (token.type !== 'space') {
+      blocks.push({
+        key: String(firstIndex + blocks.length),
+        token,
+        raw: token.raw,
+        offset: exact ? offset : undefined,
+      });
+    }
+    offset += token.raw.length;
+  }
   return blocks;
 }
 

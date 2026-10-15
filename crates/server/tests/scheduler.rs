@@ -463,7 +463,7 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         jobs: Arc::clone(&jobs),
         config: Arc::new(move || {
             reads_for_port.fetch_add(1, Ordering::SeqCst);
-            config_for_port.lock().clone()
+            Arc::new(config_for_port.lock().clone())
         }),
         connect: Arc::new(move |options: SchedulerConnectOptions| {
             Arc::new(ScriptedConnection {

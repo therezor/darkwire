@@ -451,6 +451,33 @@ async fn a_cancelled_connect_is_aborted() {
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_handshake_nobody_answers_times_out() {
+    let (client_side, _server_side) = tokio::io::duplex(1024);
+    let (read, write) = tokio::io::split(client_side);
+    let pipe = Mutex::new(Some((read, write)));
+    let connector = SdkConnector::new(SdkConnectorOptions {
+        pipe: Some(Arc::new(move || {
+            pipe.lock()
+                .take()
+                .map(|(read, write)| {
+                    (
+                        Box::new(read) as darkwire_mcp::sdk_connector::BoxRead,
+                        Box::new(write) as darkwire_mcp::sdk_connector::BoxWrite,
+                    )
+                })
+                .ok_or_else(|| std::io::Error::other("used"))
+        })),
+        ..SdkConnectorOptions::default()
+    });
+
+    let error = connector
+        .connect(spec(), McpConnectContext::bare(CancellationToken::new()))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Timeout, "{error:?}");
+}
+
 #[tokio::test]
 async fn a_stdio_command_that_does_not_exist_is_a_network_error_naming_it() {
     let connector = SdkConnector::new(SdkConnectorOptions::default());

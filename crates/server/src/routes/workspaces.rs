@@ -31,12 +31,12 @@ use darkwire_protocol::rest::{
     WorkspaceListResponse, WorkspaceSummary,
 };
 
-use crate::blocking::blocking;
 use crate::errors::HttpError;
 use crate::queries::IdParams;
 use crate::routes::AppState;
 use crate::runtime::ServerRuntime;
 use crate::schema::parse_body;
+use darkwire_core::db::blocking;
 
 /// A stored count or timestamp as the wire carries it.
 ///

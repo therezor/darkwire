@@ -44,7 +44,6 @@ use darkwire_protocol::uuid::new_uuid;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::blocking::blocking;
 use crate::context::build_context_response;
 use crate::cursor::{
     MessageCursor, SessionListCursor, assert_one_paging_mode, decode_message_cursor,
@@ -55,6 +54,7 @@ use crate::queries::{PageQuery, SessionListQuery, SessionParams, SessionSort, Tu
 use crate::routes::AppState;
 use crate::runtime::ServerRuntime;
 use crate::schema::{parse_body, validated};
+use darkwire_core::db::blocking;
 
 /// A stored count or timestamp as the wire carries it.
 ///
@@ -451,7 +451,7 @@ pub async fn messages(
 
     let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
     let key = params.key.clone();
-    let (rows, turns) = blocking(move || {
+    let (rows, failures) = blocking(move || {
         let rows = store.messages(
             &key,
             &ReadMessages {
@@ -460,7 +460,7 @@ pub async fn messages(
                 ..ReadMessages::default()
             },
         )?;
-        Ok((rows, store.turn_stats(&key, None)?))
+        Ok((rows, store.turn_failures(&key)?))
     })
     .await?;
 
@@ -473,7 +473,7 @@ pub async fn messages(
 
     Ok(Json(SessionMessagesResponse {
         session_key: params.key.clone(),
-        messages: page.rows.iter().map(to_stored_message).collect(),
+        messages: page.rows.into_iter().map(to_stored_message).collect(),
         next_cursor: page.next_cursor,
         // The one thing in a transcript these rows cannot describe: a
         // subagent's steps live in the subagent's own session. Sent whole
@@ -484,10 +484,7 @@ pub async fn messages(
         // Beside the runs, sent whole for the same reason. A failed turn
         // appends nothing, so without this a rebuilt transcript shows the
         // question, no answer, and no sign that anything went wrong.
-        failures: turns
-            .into_iter()
-            .filter_map(|turn| turn.error.map(|error| (turn.turn_id, error)))
-            .collect(),
+        failures: failures.into_iter().collect(),
     }))
 }
 

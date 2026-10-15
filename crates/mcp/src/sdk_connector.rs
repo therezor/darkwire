@@ -79,6 +79,25 @@ pub const CLIENT_NAME: &str = "darkwire";
 /// still drained so the child never blocks on a full pipe.
 pub const STDERR_BUDGET_BYTES: usize = 64 * 1024;
 
+/// How long the initialise handshake may take. Generous because a stdio server
+/// started through `npx` can be downloading its package on first run. A server
+/// that accepts and never answers would otherwise stay `connecting`, and its
+/// backoff would never arm.
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_mins(1);
+
+/// How long dialling an MCP or OAuth host may take. A connect timeout only:
+/// a read timeout would cut an idle Streamable HTTP event stream.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The HTTP client MCP traffic and its OAuth calls use.
+#[must_use]
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 /// The variables a stdio child inherits when the entry does not set them.
 ///
 /// The SDK's own safe-to-inherit set: enough to find binaries and behave like
@@ -111,7 +130,7 @@ impl Default for SdkConnectorOptions {
         SdkConnectorOptions {
             client_name: None,
             client_version: None,
-            http: reqwest::Client::new(),
+            http: http_client(),
             pipe: None,
         }
     }
@@ -566,20 +585,30 @@ impl SdkConnector {
             events: events.clone(),
         };
         let cancel = context.token.child_token();
-        let running = serve_client_with_ct(handler, transport, cancel)
-            .await
-            .map_err(|error| {
-                if error.is_authorization_required() {
-                    return AttemptError::NeedsAuthorization(
-                        error.auth_challenge().map(str::to_owned),
-                    );
-                }
-                AttemptError::Failed(match error {
-                    ClientInitializeError::Cancelled => WireError::aborted("MCP connect"),
-                    other => WireError::new(ErrorKind::Network, other.to_string())
-                        .with_detail("server", spec.server_id.as_str()),
-                })
-            })?;
+        let handshake = serve_client_with_ct(handler, transport, cancel.clone());
+        let Ok(served) = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake).await else {
+            cancel.cancel();
+            return Err(AttemptError::Failed(
+                WireError::new(
+                    ErrorKind::Timeout,
+                    format!(
+                        "The MCP server did not finish its handshake within {} s",
+                        HANDSHAKE_TIMEOUT.as_secs()
+                    ),
+                )
+                .with_detail("server", spec.server_id.as_str()),
+            ));
+        };
+        let running = served.map_err(|error| {
+            if error.is_authorization_required() {
+                return AttemptError::NeedsAuthorization(error.auth_challenge().map(str::to_owned));
+            }
+            AttemptError::Failed(match error {
+                ClientInitializeError::Cancelled => WireError::aborted("MCP connect"),
+                other => WireError::new(ErrorKind::Network, other.to_string())
+                    .with_detail("server", spec.server_id.as_str()),
+            })
+        })?;
 
         let peer = running.peer().clone();
         let stopper = running.cancellation_token();

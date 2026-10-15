@@ -148,8 +148,8 @@ error rather than a convention.
 `approval_denied`, `agent_fallback`, `tools_disabled`.
 
 The hub retains what it emits in two structures, because a reconnect and a reload ask
-different questions. The **replay ring** is bounded by a frame count and answers "what did
-I miss since `seq`", across turns. The **turn log** holds the turn that is running, whole,
+different questions. The **replay ring** is bounded by a frame count and by 4 MiB of encoded
+frames, and answers "what did I miss since `seq`", across turns. The **turn log** holds the turn that is running, whole,
 and answers "what has this turn done so far" — the one a reload asks, and the one no frame
 budget can answer, since a delegation spends a frame per token of its subagent. It merges
 adjacent deltas of the same part as it retains them, so its size follows the turn's output
@@ -238,7 +238,7 @@ cannot deadlock on itself. Every table is `STRICT`.
 | `turn_stats`                                     | Per turn: model, provider, iterations, stop reason, token counts  |
 | `workspaces`                                     | Id, name, timestamps, the default flag, metadata. No path column. |
 | `auth_secrets`, `auth_sessions`, `auth_throttle` | Password, username, setup code, sessions, throttle counters       |
-| `notifications`                                  | The bell and the archive                                          |
+| `notifications`                                  | The bell and the archive, the newest 1,000                        |
 | `extension_approvals`                            | The sha256 over every byte of each approved extension directory   |
 | `automation_jobs`                                | Schedule and payload as JSON, plus the indexed `next_run_at_ms`   |
 | `automation_runs`                                | One row per execution: status, output, warnings, session key      |

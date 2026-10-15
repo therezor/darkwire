@@ -10,9 +10,8 @@
 use std::collections::BTreeSet;
 
 use darkwire_core::history::{
-    DEFAULT_MAX_TOOL_RESULT_CHARS, HistoryOptions, MessageWindow, SessionHistorySource,
-    find_legal_end, find_legal_start, has_orphaned_tool_result, has_unanswered_tool_call,
-    history_for_llm, session_history, truncate_head_tail,
+    DEFAULT_MAX_TOOL_RESULT_CHARS, HistoryOptions, find_legal_end, find_legal_start,
+    has_orphaned_tool_result, has_unanswered_tool_call, history_for_llm, truncate_head_tail,
 };
 use darkwire_core::messages::{
     AssistantOptions, ToolOptions, assistant_message, system_message, tool_message, user_message,
@@ -74,7 +73,7 @@ mod find_legal_start_tests {
 
     #[test]
     fn accepts_an_empty_history() {
-        assert_eq!(find_legal_start(&[]), 0);
+        assert_eq!(find_legal_start::<ChatMessage>(&[]), 0);
     }
 
     #[test]
@@ -508,89 +507,6 @@ mod history_for_llm_tests {
         history_for_llm(&messages, &options);
         assert_eq!(messages[2], original);
         assert_eq!(tool_of(&messages[2]).content, long);
-    }
-}
-
-mod session_history_tests {
-    use super::*;
-
-    /// A store that records what it was asked and answers from a list.
-    struct Source {
-        rows: Vec<ChatMessage>,
-        asked: std::cell::RefCell<Vec<(String, MessageWindow)>>,
-    }
-
-    impl SessionHistorySource for Source {
-        fn messages(
-            &self,
-            session_key: &str,
-            window: &MessageWindow,
-        ) -> darkwire_core::Result<Vec<ChatMessage>> {
-            self.asked
-                .borrow_mut()
-                .push((session_key.to_owned(), *window));
-            let rows = match window.limit {
-                Some(limit) if window.from_end && self.rows.len() > limit => {
-                    self.rows[self.rows.len() - limit..].to_vec()
-                }
-                Some(limit) => self.rows.iter().take(limit).cloned().collect(),
-                None => self.rows.clone(),
-            };
-            Ok(rows)
-        }
-    }
-
-    fn source(rows: Vec<ChatMessage>) -> Source {
-        Source {
-            rows,
-            asked: std::cell::RefCell::new(Vec::new()),
-        }
-    }
-
-    #[test]
-    fn asks_for_the_last_max_messages_and_windows_them() {
-        let store = source(vec![user("a"), calling(&["x"]), tool("x", "r"), user("b")]);
-        let options = HistoryOptions {
-            max_messages: 2,
-            ..HistoryOptions::default()
-        };
-        let history = session_history(&store, "s", &options).unwrap();
-        assert_eq!(history, vec![user("b")]);
-        assert_eq!(
-            store.asked.borrow().as_slice(),
-            &[(
-                "s".to_owned(),
-                MessageWindow {
-                    after_seq: 0,
-                    limit: Some(2),
-                    from_end: true
-                }
-            )]
-        );
-    }
-
-    #[test]
-    fn reads_everything_when_there_is_no_limit() {
-        let store = source(vec![user("a"), user("b")]);
-        let options = HistoryOptions {
-            max_messages: 0,
-            ..HistoryOptions::default()
-        };
-        assert_eq!(
-            session_history(&store, "s", &options).unwrap(),
-            vec![user("a"), user("b")]
-        );
-        assert_eq!(store.asked.borrow()[0].1, MessageWindow::default());
-    }
-
-    #[test]
-    fn an_unknown_session_is_an_empty_history() {
-        let store = source(Vec::new());
-        assert!(
-            session_history(&store, "nope", &HistoryOptions::default())
-                .unwrap()
-                .is_empty()
-        );
     }
 }
 

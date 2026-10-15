@@ -62,6 +62,10 @@ pub const SCHEMA: &[&str] = &[
 
 const READ: RowReader = RowReader::new("notifications");
 
+/// How many rows the table keeps. The scheduler raises one per notable run, so
+/// without a ceiling an interval job grows the table for as long as it runs.
+pub const MAX_NOTIFICATIONS: i64 = 1_000;
+
 /// What [`NotificationStore::create`] takes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CreateNotificationInput {
@@ -173,7 +177,8 @@ impl NotificationStore {
     pub fn create(&self, input: CreateNotificationInput) -> Result<Notification> {
         let id = (self.new_id)();
         let created_at_ms = self.clock.now_ms();
-        self.db.lock().execute(
+        let guard = self.db.lock();
+        guard.execute(
             "INSERT INTO notifications (id, title, body, level, created_at_ms, read_at_ms, session_key, job_id)
              VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
             params![
@@ -186,6 +191,14 @@ impl NotificationStore {
                 input.job_id.as_deref(),
             ],
         )?;
+        guard.execute(
+            "DELETE FROM notifications WHERE id IN (
+               SELECT id FROM notifications
+                ORDER BY created_at_ms DESC, id ASC
+                LIMIT -1 OFFSET ?)",
+            params![MAX_NOTIFICATIONS],
+        )?;
+        drop(guard);
 
         Ok(Notification {
             id,
@@ -202,7 +215,7 @@ impl NotificationStore {
     /// One notification by id.
     pub fn get(&self, id: &str) -> Result<Option<Notification>> {
         let guard = self.db.lock();
-        let mut statement = guard.prepare("SELECT * FROM notifications WHERE id = ?")?;
+        let mut statement = guard.prepare_cached("SELECT * FROM notifications WHERE id = ?")?;
         let mut rows = statement.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(row_to_notification(row)?)),
@@ -223,7 +236,7 @@ impl NotificationStore {
         let after_id = options.after.as_ref().map(|after| after.id.as_str());
 
         let guard = self.db.lock();
-        let mut statement = guard.prepare(
+        let mut statement = guard.prepare_cached(
             "SELECT * FROM notifications
               WHERE (? = 0 OR read_at_ms IS NULL)
                 AND (? IS NULL
@@ -250,13 +263,17 @@ impl NotificationStore {
     }
 
     /// How many the same filter matches, ignoring the page.
+    ///
+    /// Two statements rather than `(? = 0 OR read_at_ms IS NULL)`: the planner
+    /// cannot use the partial index for a predicate it only learns at run time.
     pub fn count(&self, unread_only: bool) -> Result<i64> {
+        if unread_only {
+            return self.unread_count();
+        }
         let guard = self.db.lock();
-        let n = guard.query_row(
-            "SELECT COUNT(*) AS n FROM notifications WHERE (? = 0 OR read_at_ms IS NULL)",
-            params![i64::from(unread_only)],
-            |row| row.get::<_, i64>(0),
-        )?;
+        let n = guard.query_row("SELECT COUNT(*) AS n FROM notifications", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
         Ok(n)
     }
 

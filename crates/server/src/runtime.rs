@@ -166,7 +166,7 @@ fn no_policy_root() -> WireError {
 /// by the testkit double the route tests use.
 pub trait ServerRuntime: Send + Sync {
     /// The live settings tree. Replaced wholesale by [`Self::apply_settings`].
-    fn config(&self) -> Config;
+    fn config(&self) -> Arc<Config>;
 
     /// Applies a settings patch, rebuilds what depends on it, and persists it.
     ///

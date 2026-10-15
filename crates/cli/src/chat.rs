@@ -35,7 +35,6 @@
 use std::future::Future;
 use std::io::{IsTerminal, Write};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use darkwire_agent::{AgentLoop, PromptPreviewInput, describe_context};
@@ -669,13 +668,10 @@ async fn one_shot_turn(
     }
 
     let token = CancellationToken::new();
-    let interrupted = Arc::new(AtomicBool::new(false));
     let watcher = {
         let token = token.clone();
-        let interrupted = Arc::clone(&interrupted);
         tokio::spawn(async move {
             if tokio::signal::ctrl_c().await.is_ok() {
-                interrupted.store(true, Ordering::SeqCst);
                 token.cancel();
             }
         })

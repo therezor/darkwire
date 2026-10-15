@@ -30,7 +30,7 @@ use darkwire_providers::{estimate_message_tokens, estimate_tool_tokens};
 use indexmap::IndexMap;
 
 use crate::agent_loop::{AgentLoop, PromptPreview, PromptPreviewInput};
-use crate::history_window::{FixedCost, history_budget, windowed_history};
+use crate::history_window::{FixedCost, RowPrices, history_budget, read_history, window_records};
 use crate::prompt::runtime_reminder;
 
 /// Where the tokens went.
@@ -59,6 +59,11 @@ pub struct ContextBreakdown {
 }
 
 impl ContextBreakdown {
+    /// Every section together: what the next request would cost.
+    pub fn total(&self) -> usize {
+        self.system_prompt + self.tools + self.messages + self.runtime_block
+    }
+
     /// The sections as the wire carries them: a map, so a new section is not a
     /// wire change.
     ///
@@ -203,35 +208,63 @@ pub fn measure_context_with(
     input: &MeasureContext<'_>,
     window: &MeasureWindow,
 ) -> Result<ContextReport> {
-    let fixed = prompt_costs(input.prompt, input.tools);
-    // The window the loop sends, read by the same helper: the message cap,
-    // the legal-start rules, then the token budget.
-    let budget = history_budget(&FixedCost {
-        context_window_tokens: input.context_window_tokens,
-        prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
-        max_output_tokens: window.max_output_tokens,
-    });
-    let messages =
-        windowed_history(input.store, input.session_key, window.opening_seq, budget)?.records;
-    let message_tokens: usize = messages
-        .iter()
-        .map(|record| estimate_message_tokens(&record.message))
-        .sum();
-    let breakdown = ContextBreakdown {
-        messages: message_tokens,
-        ..fixed
-    };
-
+    let (messages, breakdown) = measure(input, window, &mut RowPrices::default())?;
     Ok(ContextReport {
         session_key: input.session_key.to_owned(),
         system_prompt: input.prompt.static_prompt.clone(),
         runtime_block: input.prompt.runtime_block.clone(),
         tools: input.tools.to_vec(),
         messages,
-        estimated_tokens: fixed.system_prompt + fixed.tools + message_tokens + fixed.runtime_block,
+        estimated_tokens: breakdown.total(),
         context_window_tokens: input.context_window_tokens,
         breakdown,
     })
+}
+
+/// [`measure_context_with`]'s figures alone, over rows already read, for the
+/// loop. It reports them every iteration, reads the rows off the runtime, and
+/// needs neither the prompt nor the tools copied back.
+pub(crate) fn measure_records(
+    records: Vec<StoredMessageRecord>,
+    prompt: &PromptPreview,
+    tools: &[ToolDefinition],
+    context_window_tokens: u64,
+    window: &MeasureWindow,
+    prices: &mut RowPrices,
+) -> (Vec<StoredMessageRecord>, ContextBreakdown) {
+    let fixed = prompt_costs(prompt, tools);
+    // The window the loop sends, read by the same helper: the message cap,
+    // the legal-start rules, then the token budget.
+    let budget = history_budget(&FixedCost {
+        context_window_tokens,
+        prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
+        max_output_tokens: window.max_output_tokens,
+    });
+    let messages = window_records(records, window.opening_seq, budget, prices).records;
+    let message_tokens: usize = messages.iter().map(|record| prices.of(record)).sum();
+    (
+        messages,
+        ContextBreakdown {
+            messages: message_tokens,
+            ..fixed
+        },
+    )
+}
+
+fn measure(
+    input: &MeasureContext<'_>,
+    window: &MeasureWindow,
+    prices: &mut RowPrices,
+) -> Result<(Vec<StoredMessageRecord>, ContextBreakdown)> {
+    let records = read_history(input.store, input.session_key)?;
+    Ok(measure_records(
+        records,
+        input.prompt,
+        input.tools,
+        input.context_window_tokens,
+        window,
+        prices,
+    ))
 }
 
 /// Measures the next turn's prompt for a session that already exists.

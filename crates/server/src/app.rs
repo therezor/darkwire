@@ -217,6 +217,7 @@ pub fn create_server(options: ServerOptions) -> Result<WireServer> {
             .clone()
             .unwrap_or_else(|| Arc::new(Argon2Hasher)),
     })?);
+    auth.purge_expired()?;
     if options.username.is_some() && options.password.is_none() {
         // Rotating a name without a password would leave sessions minted under
         // the old credential alive, and ignoring the flag would leave an

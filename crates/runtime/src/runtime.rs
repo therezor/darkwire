@@ -246,7 +246,8 @@ impl std::fmt::Debug for RuntimeOptions {
 /// Replaced as a unit, so a failure changes none of it — and the loop and the
 /// instance are absent together, never one without the other.
 struct Resolved {
-    config: Config,
+    /// Shared, so a reader borrows the tree rather than copying it.
+    config: Arc<Config>,
     /// Every enabled agent, resolved. Rebuilt with the config it came from.
     agents: Vec<EffectiveAgent>,
     /// What the settings asked for and this build had to ignore.
@@ -419,10 +420,9 @@ fn attach_web(runtime: &Arc<WireRuntime>, config: &Config) {
     let caps = &config.tools.web;
     let _ = runtime.web.set(Arc::new(LiveWebResolver::new(
         Arc::new(move || {
-            source.upgrade().map_or_else(
-                || Arc::clone(&at_start),
-                |runtime| Arc::new(runtime.config()),
-            )
+            source
+                .upgrade()
+                .map_or_else(|| Arc::clone(&at_start), |runtime| runtime.config())
         }),
         WebSettings {
             search_provider: caps.search_provider,
@@ -625,7 +625,7 @@ impl WireRuntime {
             building: ReentrantMutex::new(()),
             // Replaced by the build below before anything can observe it.
             current: RwLock::new(Arc::new(Resolved {
-                config: loaded.config.clone(),
+                config: Arc::new(loaded.config.clone()),
                 agents: Vec::new(),
                 warnings: Vec::new(),
                 paths: loaded.paths.clone(),
@@ -656,8 +656,8 @@ impl WireRuntime {
     }
 
     /// The current settings tree. Replaced wholesale by a reconfigure.
-    pub fn config(&self) -> Config {
-        self.current.read().config.clone()
+    pub fn config(&self) -> Arc<Config> {
+        Arc::clone(&self.current.read().config)
     }
 
     /// Resolved against the config, so a patched workspace moves it.
@@ -1125,7 +1125,7 @@ impl WireRuntime {
         let agent_loop = loops.get(DEFAULT_AGENT_ID)?;
 
         Ok(Resolved {
-            config,
+            config: Arc::new(config),
             agents,
             warnings,
             paths,
@@ -1170,7 +1170,7 @@ impl WireRuntime {
             return;
         }
         let previous = Arc::clone(&self.current.read());
-        match self.build(previous.config.clone(), Some(&previous)) {
+        match self.build(Config::clone(&previous.config), Some(&previous)) {
             Ok(built) => *self.current.write() = Arc::new(built),
             Err(error) => tracing::warn!(
                 error = %error.message,
@@ -1539,9 +1539,10 @@ impl WireRuntime {
         let zone_source = Arc::downgrade(self);
         let fallback = config.ui.timezone.clone();
         options.time_zone = Some(Arc::new(move || {
-            zone_source
-                .upgrade()
-                .map_or_else(|| fallback.clone(), |runtime| runtime.config().ui.timezone)
+            zone_source.upgrade().map_or_else(
+                || fallback.clone(),
+                |runtime| runtime.config().ui.timezone.clone(),
+            )
         }));
         options.agent = Some(LoopAgent {
             prompt: PromptAgent {
@@ -1655,7 +1656,7 @@ fn build_mcp(
         backoff,
         on_status_changed: None,
         callback_port,
-        http: reqwest::Client::new(),
+        http: darkwire_mcp::http_client(),
         endpoint_guard: None,
     }))
 }

@@ -16,7 +16,8 @@ use darkwire_core::session_store::IdSource;
 use darkwire_core::testkit::ManualClock;
 use darkwire_protocol::ws::NotificationLevel;
 use darkwire_server::notifications::{
-    CreateNotificationInput, ListNotifications, NotificationAfter, NotificationStore,
+    CreateNotificationInput, ListNotifications, MAX_NOTIFICATIONS, NotificationAfter,
+    NotificationStore,
 };
 
 const NOW: i64 = 1_700_000_000_000;
@@ -115,6 +116,24 @@ fn a_level_no_build_ever_wrote_reads_as_info_rather_than_failing() {
         store.get("odd").unwrap().unwrap().level,
         NotificationLevel::Info
     );
+}
+
+#[test]
+fn the_table_keeps_only_the_newest_rows() {
+    let (store, clock, _db) = store();
+    for n in 0..MAX_NOTIFICATIONS + 3 {
+        store.create(input(&format!("run {n}"))).unwrap();
+        clock.advance(std::time::Duration::from_millis(1));
+    }
+
+    assert_eq!(store.count(false).unwrap(), MAX_NOTIFICATIONS);
+    let oldest = store
+        .list(&ListNotifications {
+            offset: Some(MAX_NOTIFICATIONS - 1),
+            ..ListNotifications::default()
+        })
+        .unwrap();
+    assert_eq!(oldest[0].title, "run 3");
 }
 
 #[test]

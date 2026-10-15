@@ -48,7 +48,10 @@ import { useCommands } from '@/chat/use-commands.js';
 import type { MessageAction } from '@/chat/message.js';
 import { ContextStrip } from '@/context/context-strip.js';
 import { TaskPanel } from '@/tasks/task-panel.js';
-import { TranscriptView } from '@/chat/transcript-view.js';
+import {
+  TranscriptView,
+  type TranscriptViewProps,
+} from '@/chat/transcript-view.js';
 import { Welcome } from '@/chat/welcome.js';
 
 export function ChatRoute(): JSX.Element {
@@ -63,7 +66,9 @@ export function ChatRoute(): JSX.Element {
   // conversation that has no row yet is created bound to it.
   const { agentId } = useAgent();
 
-  const transcript = useTurnStore((state) => state.transcript);
+  // Whether there is anything, not the transcript itself. The transcript moves
+  // on every token, and only `LiveTranscript` should re-render with it.
+  const blank = useTurnStore((state) => state.transcript.length === 0);
   const busy = useTurnStore((state) => state.busy);
   const queueDepth = useTurnStore((state) => state.queueDepth);
   const connection = useTurnStore((state) => state.connection);
@@ -197,7 +202,7 @@ export function ChatRoute(): JSX.Element {
   // The welcome screen is for a conversation that is genuinely empty, not for
   // one whose history is still in flight — showing it and then replacing it
   // with a transcript is a flash of the wrong screen on every reload.
-  const empty = transcript.length === 0 && !history.isFetching;
+  const empty = blank && !history.isFetching;
 
   return (
     <div className="chat">
@@ -210,8 +215,7 @@ export function ChatRoute(): JSX.Element {
           <Welcome {...(sessionKey === undefined ? {} : { sessionKey })} />
         </div>
       ) : (
-        <TranscriptView
-          transcript={transcript}
+        <LiveTranscript
           busy={busy}
           sessionKey={sessionKey}
           onApprove={approveTool}
@@ -304,4 +308,12 @@ export function ChatRoute(): JSX.Element {
       />
     </div>
   );
+}
+
+/** The one part of the chat screen that follows the transcript per token. */
+function LiveTranscript(
+  props: Omit<TranscriptViewProps, 'transcript'>,
+): JSX.Element {
+  const transcript = useTurnStore((state) => state.transcript);
+  return <TranscriptView transcript={transcript} {...props} />;
 }

@@ -315,7 +315,15 @@ async fn refuses_an_environment_whose_definition_was_removed() {
             network: no_network(),
         })
         .await;
+    // Across the socket whole: the kind and the details, not only the words.
+    let error = refusal
+        .as_ref()
+        .err()
+        .map(|error| (error.kind, error.details.clone()));
     assert!(message(refusal).contains("No environment is installed"));
+    let (kind, details) = error.unwrap();
+    assert_eq!(kind, darkwire_core::ErrorKind::Config);
+    assert_eq!(details["name"], json!("dev"));
 }
 
 #[tokio::test]

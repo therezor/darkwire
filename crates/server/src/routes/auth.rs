@@ -27,7 +27,7 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse as _, Response};
-use darkwire_core::WireError;
+use darkwire_core::db::blocking;
 use darkwire_protocol::json::True;
 use darkwire_protocol::rest::{
     AuthSessionResponse, LoginRequest, LoginResponse, SetupClaimRequest, SetupPasswordRequest,
@@ -121,27 +121,6 @@ where
     let raw = serde_json::from_slice(&bytes)
         .map_err(|error| HttpError::bad_request(format!("Invalid JSON body: {error}")))?;
     parse_body("body", raw)
-}
-
-/// Runs one blocking store call off the runtime's worker threads.
-///
-/// argon2id is the reason: it is meant to be expensive, and a handler that
-/// awaited it inline would hold a worker for the whole of that expense.
-async fn blocking<T, F>(work: F) -> Result<T, HttpError>
-where
-    F: FnOnce() -> darkwire_core::Result<T> + Send + 'static,
-    T: Send + 'static,
-{
-    match tokio::task::spawn_blocking(work).await {
-        Ok(result) => result.map_err(HttpError::from),
-        // The task panicked or was cancelled. Neither is something a caller
-        // can act on, and neither is a credential failure, so it is the one
-        // generic 500 rather than a 401 that would read as a wrong password.
-        Err(error) => Err(HttpError::from(WireError::new(
-            darkwire_core::ErrorKind::Internal,
-            format!("The credential check did not complete: {error}"),
-        ))),
-    }
 }
 
 /// The success both logins share: a cookie, and a body with nothing secret in

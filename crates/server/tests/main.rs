@@ -19,7 +19,6 @@ mod auth_matrix;
 mod auth_store;
 mod automation_port;
 mod automation_store;
-mod blocking;
 mod boot;
 mod context;
 mod cursor;

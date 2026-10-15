@@ -30,11 +30,11 @@ use darkwire_protocol::rest::{
 };
 use indexmap::IndexMap;
 
-use crate::blocking::blocking;
 use crate::boot::assert_boot_policy;
 use crate::errors::HttpError;
 use crate::routes::AppState;
 use crate::schema::parse_body;
+use darkwire_core::db::blocking;
 
 /// The settings tree, with credentials replaced by presence flags.
 pub async fn get(State(state): State<AppState>) -> Result<Json<SettingsResponse>, HttpError> {
@@ -143,7 +143,7 @@ pub async fn credential(
 /// The whole answer both the read and the two writers give.
 fn settings_response(state: &AppState) -> SettingsResponse {
     SettingsResponse {
-        config: state.runtime.config(),
+        config: Config::clone(&state.runtime.config()),
         credentials_present: state.runtime.credentials_present(),
         // Empty for a runtime that has no channels to report — a route test
         // standing in for one, and any build that ships none.

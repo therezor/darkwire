@@ -9,7 +9,7 @@
 )]
 
 use darkwire_protocol::ws::{AssistantDelta, AssistantDeltaTag, PongTag, Sequenced, ServerMessage};
-use darkwire_server::replay::ReplayBuffer;
+use darkwire_server::replay::{MAX_REPLAY_BYTES, ReplayBuffer};
 
 fn delta(seq: u64, text: &str) -> ServerMessage {
     ServerMessage::AssistantDelta(Sequenced {
@@ -28,9 +28,9 @@ fn seqs(messages: &[ServerMessage]) -> Vec<u64> {
 
 #[test]
 fn retains_up_to_its_capacity_dropping_the_oldest() {
-    let mut buffer = ReplayBuffer::new(3);
+    let mut buffer = ReplayBuffer::new(3, MAX_REPLAY_BYTES);
     for seq in 1..=5 {
-        buffer.push(delta(seq, "x"));
+        buffer.push(delta(seq, "x"), 1);
     }
 
     assert_eq!(buffer.size(), 3);
@@ -40,9 +40,9 @@ fn retains_up_to_its_capacity_dropping_the_oldest() {
 
 #[test]
 fn replays_exactly_the_tail_after_a_mid_stream_seq() {
-    let mut buffer = ReplayBuffer::new(16);
+    let mut buffer = ReplayBuffer::new(16, MAX_REPLAY_BYTES);
     for seq in 1..=6 {
-        buffer.push(delta(seq, &format!("chunk-{seq}")));
+        buffer.push(delta(seq, &format!("chunk-{seq}")), 1);
     }
 
     let slice = buffer.after(3);
@@ -59,9 +59,9 @@ fn replays_exactly_the_tail_after_a_mid_stream_seq() {
 
 #[test]
 fn reports_a_gap_rather_than_a_tail_that_starts_late() {
-    let mut buffer = ReplayBuffer::new(2);
+    let mut buffer = ReplayBuffer::new(2, MAX_REPLAY_BYTES);
     for seq in 1..=5 {
-        buffer.push(delta(seq, "x"));
+        buffer.push(delta(seq, "x"), 1);
     }
 
     // The client wants everything after 1; the buffer starts at 4.
@@ -72,9 +72,9 @@ fn reports_a_gap_rather_than_a_tail_that_starts_late() {
 
 #[test]
 fn treats_a_client_that_has_seen_everything_as_complete_and_empty() {
-    let mut buffer = ReplayBuffer::new(8);
-    buffer.push(delta(1, "x"));
-    buffer.push(delta(2, "x"));
+    let mut buffer = ReplayBuffer::new(8, MAX_REPLAY_BYTES);
+    buffer.push(delta(1, "x"), 1);
+    buffer.push(delta(2, "x"), 1);
 
     let slice = buffer.after(2);
     assert!(slice.messages.is_empty());
@@ -84,8 +84,8 @@ fn treats_a_client_that_has_seen_everything_as_complete_and_empty() {
 #[test]
 fn treats_a_client_ahead_of_the_buffer_as_a_gap() {
     // A restart: the counter began again, and this client's history predates it.
-    let mut buffer = ReplayBuffer::new(8);
-    buffer.push(delta(1, "x"));
+    let mut buffer = ReplayBuffer::new(8, MAX_REPLAY_BYTES);
+    buffer.push(delta(1, "x"), 1);
 
     let slice = buffer.after(57);
     assert!(slice.messages.is_empty());
@@ -94,9 +94,9 @@ fn treats_a_client_ahead_of_the_buffer_as_a_gap() {
 
 #[test]
 fn keeps_counting_with_a_capacity_of_zero_and_never_claims_coverage() {
-    let mut buffer = ReplayBuffer::new(0);
-    buffer.push(delta(1, "x"));
-    buffer.push(delta(2, "x"));
+    let mut buffer = ReplayBuffer::new(0, MAX_REPLAY_BYTES);
+    buffer.push(delta(1, "x"), 1);
+    buffer.push(delta(2, "x"), 1);
 
     assert_eq!(buffer.size(), 0);
     assert_eq!(buffer.last_seq(), 2);
@@ -106,9 +106,9 @@ fn keeps_counting_with_a_capacity_of_zero_and_never_claims_coverage() {
 
 #[test]
 fn forgets_its_entries_on_clear_but_not_where_the_sequence_is() {
-    let mut buffer = ReplayBuffer::new(4);
-    buffer.push(delta(1, "x"));
-    buffer.push(delta(2, "x"));
+    let mut buffer = ReplayBuffer::new(4, MAX_REPLAY_BYTES);
+    buffer.push(delta(1, "x"), 1);
+    buffer.push(delta(2, "x"), 1);
     buffer.clear();
 
     assert_eq!(buffer.size(), 0);
@@ -120,13 +120,43 @@ fn forgets_its_entries_on_clear_but_not_where_the_sequence_is() {
 fn ignores_a_connection_level_event_that_carries_no_seq() {
     // `connected`, `pong` and `error` are not part of any session's replayable
     // history, so retaining one would invent a position it never held.
-    let mut buffer = ReplayBuffer::new(4);
-    buffer.push(delta(1, "x"));
-    buffer.push(ServerMessage::Pong(darkwire_protocol::ws::PongEvent {
-        tag: PongTag,
-        server_time_ms: 1_700_000_000_000,
-    }));
+    let mut buffer = ReplayBuffer::new(4, MAX_REPLAY_BYTES);
+    buffer.push(delta(1, "x"), 1);
+    buffer.push(
+        ServerMessage::Pong(darkwire_protocol::ws::PongEvent {
+            tag: PongTag,
+            server_time_ms: 1_700_000_000_000,
+        }),
+        1,
+    );
 
     assert_eq!(buffer.size(), 1);
     assert_eq!(buffer.last_seq(), 1);
+}
+
+#[test]
+fn drops_the_oldest_frames_past_its_byte_budget() {
+    let mut buffer = ReplayBuffer::new(16, 100);
+    for seq in 1..=4 {
+        buffer.push(delta(seq, "x"), 40);
+    }
+
+    assert_eq!(seqs(&buffer.after(0).messages), [3, 4]);
+    assert_eq!(buffer.retained_bytes(), 80);
+}
+
+#[test]
+fn covers_answers_what_after_would_without_copying() {
+    let mut buffer = ReplayBuffer::new(2, MAX_REPLAY_BYTES);
+    for seq in 1..=4 {
+        buffer.push(delta(seq, "x"), 1);
+    }
+
+    for last_seq in 0..=6 {
+        assert_eq!(
+            buffer.covers(last_seq),
+            buffer.after(last_seq).complete,
+            "last_seq {last_seq}"
+        );
+    }
 }

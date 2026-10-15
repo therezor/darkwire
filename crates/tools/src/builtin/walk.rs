@@ -70,31 +70,51 @@ pub fn walker(root: &Path) -> WalkBuilder {
 /// A symlink is skipped whatever it points at. The depth-0 entry is the root
 /// itself and is kept only when the root is a file, which is how both tools
 /// accept a single path as well as a directory.
-pub fn files(
-    root: &Path,
-    token: &CancellationToken,
+///
+/// Read as the walk reaches each file, so a caller that stops early stops the
+/// walk too. [`Files::tally`] counts what it could not read so far.
+pub struct Files<'a> {
+    walk: ignore::Walk,
+    token: &'a CancellationToken,
     name: &'static str,
-) -> Result<(Vec<PathBuf>, WalkTally)> {
-    let mut found = Vec::new();
-    let mut tally = WalkTally::default();
-    for entry in walker(root).build() {
-        if token.is_cancelled() {
-            return Err(WireError::aborted(name));
+    /// Entries the walk could not read, up to where it has got.
+    pub tally: WalkTally,
+}
+
+impl<'a> Files<'a> {
+    /// The walk under `root`, not yet started.
+    pub fn new(root: &Path, token: &'a CancellationToken, name: &'static str) -> Files<'a> {
+        Files {
+            walk: walker(root).build(),
+            token,
+            name,
+            tally: WalkTally::default(),
         }
-        let Ok(entry) = entry else {
-            tally.unreadable = tally.unreadable.saturating_add(1);
-            continue;
-        };
-        // `file_type` is `None` only for stdin, which this walk never has.
-        let Some(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_symlink() || !kind.is_file() {
-            continue;
-        }
-        found.push(entry.into_path());
     }
-    Ok((found, tally))
+}
+
+impl Iterator for Files<'_> {
+    type Item = Result<PathBuf>;
+
+    fn next(&mut self) -> Option<Result<PathBuf>> {
+        loop {
+            if self.token.is_cancelled() {
+                return Some(Err(WireError::aborted(self.name)));
+            }
+            let Ok(entry) = self.walk.next()? else {
+                self.tally.unreadable = self.tally.unreadable.saturating_add(1);
+                continue;
+            };
+            // `file_type` is `None` only for stdin, which this walk never has.
+            let Some(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() || !kind.is_file() {
+                continue;
+            }
+            return Some(Ok(entry.into_path()));
+        }
+    }
 }
 
 /// A path under the workspace root, relative to it, for a call through

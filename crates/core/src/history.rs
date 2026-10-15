@@ -18,11 +18,10 @@
 //! the stored data, the wire and the web client all measure text in; a cap that
 //! counted bytes or scalar values would move on a rewrite of the client.
 
+use std::borrow::Borrow;
 use std::collections::HashSet;
 
 use darkwire_protocol::ChatMessage;
-
-use crate::errors::Result;
 
 /// The first index from which every `tool` message has a matching preceding
 /// `assistant` message that declared its `tool_call_id`.
@@ -36,12 +35,15 @@ use crate::errors::Result;
 ///
 /// Runs in a single pass, and returns `messages.len()` when no legal window
 /// exists (an empty history is always legal).
-pub fn find_legal_start(messages: &[ChatMessage]) -> usize {
+///
+/// Generic over the element so a caller holding stored rows can pass
+/// references rather than copying every message to ask.
+pub fn find_legal_start<M: Borrow<ChatMessage>>(messages: &[M]) -> usize {
     let mut declared: HashSet<&str> = HashSet::new();
     let mut start = 0;
 
     for (index, message) in messages.iter().enumerate() {
-        match message {
+        match message.borrow() {
             ChatMessage::Assistant(assistant) => {
                 declared.extend(assistant.tool_calls.iter().map(|call| call.id.as_str()));
             }
@@ -226,6 +228,27 @@ impl Default for HistoryOptions {
     }
 }
 
+/// Where [`history_for_llm`]'s window begins: steps 1 to 3, as an index.
+///
+/// For a caller that needs the position rather than a copy of the messages.
+/// The window is always a suffix, so the index is all there is to it.
+pub fn history_window_start<M: Borrow<ChatMessage>>(messages: &[M], max_messages: usize) -> usize {
+    let mut start = 0;
+    if max_messages > 0 && messages.len() > max_messages {
+        start = messages.len() - max_messages;
+    }
+
+    if let Some(first_user) = messages[start..]
+        .iter()
+        .position(|message| matches!(message.borrow(), ChatMessage::User(_)))
+        && first_user > 0
+    {
+        start += first_user;
+    }
+
+    start + find_legal_start(&messages[start..])
+}
+
 /// Builds the message list for a provider request.
 ///
 /// Order matters and is not interchangeable:
@@ -245,23 +268,7 @@ impl Default for HistoryOptions {
 /// `system` message that reached storage is dropped by step 2 rather than
 /// competing with it.
 pub fn history_for_llm(messages: &[ChatMessage], options: &HistoryOptions) -> Vec<ChatMessage> {
-    let mut window = messages;
-    if options.max_messages > 0 && window.len() > options.max_messages {
-        window = &window[window.len() - options.max_messages..];
-    }
-
-    if let Some(first_user) = window
-        .iter()
-        .position(|message| matches!(message, ChatMessage::User(_)))
-        && first_user > 0
-    {
-        window = &window[first_user..];
-    }
-
-    let legal_start = find_legal_start(window);
-    if legal_start > 0 {
-        window = &window[legal_start..];
-    }
+    let window = &messages[history_window_start(messages, options.max_messages)..];
 
     if options.max_tool_result_chars == 0 {
         return window.to_vec();
@@ -283,51 +290,4 @@ pub fn history_for_llm(messages: &[ChatMessage], options: &HistoryOptions) -> Ve
             other => other.clone(),
         })
         .collect()
-}
-
-/// Which stored rows [`session_history`] asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MessageWindow {
-    /// Rows with a `seq` strictly greater than this. `0` reads from the start.
-    pub after_seq: u64,
-    /// At most this many rows; `None` for all of them.
-    pub limit: Option<usize>,
-    /// Take the *last* `limit` rows rather than the first, still in order.
-    pub from_end: bool,
-}
-
-/// The narrow view of a session store that [`session_history`] needs.
-///
-/// A trait rather than the store itself, so the store can depend on this
-/// module's boundary rules without this module depending on the store, and so
-/// the windowing can be tested against a list.
-pub trait SessionHistorySource {
-    /// The messages of one session, in `seq` order. An unknown session is an
-    /// empty list rather than an error: the window over nothing is empty.
-    fn messages(&self, session_key: &str, window: &MessageWindow) -> Result<Vec<ChatMessage>>;
-}
-
-/// The message list to send to a provider, read out of a store.
-///
-/// Here rather than on the store because the decision it encodes is about what
-/// a *model* should be sent, not about how rows are read; a persistence type
-/// that knew a provider existed would be the wrong shape. The rows come from
-/// the store; the window is this module's, beside [`history_for_llm`] and the
-/// boundary rules it applies.
-pub fn session_history(
-    source: &impl SessionHistorySource,
-    session_key: &str,
-    options: &HistoryOptions,
-) -> Result<Vec<ChatMessage>> {
-    let window = if options.max_messages > 0 {
-        MessageWindow {
-            after_seq: 0,
-            limit: Some(options.max_messages),
-            from_end: true,
-        }
-    } else {
-        MessageWindow::default()
-    };
-    let messages = source.messages(session_key, &window)?;
-    Ok(history_for_llm(&messages, options))
 }

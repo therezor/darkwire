@@ -171,15 +171,11 @@ impl TurnPort {
     /// This agent's own jobs.
     fn mine(&self) -> Vec<AutomationJob> {
         self.jobs
-            .list_jobs()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|job| {
-                job.created_by
-                    .as_ref()
-                    .is_some_and(|creator| creator.agent_id == self.agent_id)
+            .list_jobs_by(&self.agent_id)
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, agent_id = %self.agent_id, "could not list an agent's jobs");
+                Vec::new()
             })
-            .collect()
     }
 
     /// Stamps the calling agent and workspace onto whichever payload variant

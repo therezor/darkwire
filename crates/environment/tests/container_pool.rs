@@ -51,6 +51,9 @@ struct FakeEngine {
     start_fails: Mutex<Option<String>>,
     stop_fails: bool,
     reap_fails: bool,
+    /// Parks every start until released, so a test can hold the pool mid-start.
+    start_hold: Arc<Notify>,
+    starts_parked: Arc<AtomicBool>,
 }
 
 impl FakeEngine {
@@ -61,6 +64,8 @@ impl FakeEngine {
             start_fails: Mutex::new(None),
             stop_fails: false,
             reap_fails: false,
+            start_hold: Arc::new(Notify::new()),
+            starts_parked: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -98,7 +103,14 @@ impl ContainerEngine for FakeEngine {
             Some(reason) => Err(WireError::new(ErrorKind::Tool, reason)),
             None => Ok(()),
         };
-        Box::pin(async move { outcome })
+        let hold = Arc::clone(&self.start_hold);
+        let parked = Arc::clone(&self.starts_parked);
+        Box::pin(async move {
+            if parked.load(Ordering::SeqCst) {
+                hold.notified().await;
+            }
+            outcome
+        })
     }
 
     fn stop<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<()>> {
@@ -398,6 +410,41 @@ async fn puts_every_agent_and_conversation_in_one_container() {
 /// The lock this replaced had a one-minute queue timeout, which was survivable
 /// while sharing was opt-in and would have made a parent delegating to three
 /// subagents fail the slowest of them.
+/// A start awaits the daemon for up to a minute, and a warm container has no
+/// reason to wait for somebody else's.
+#[tokio::test]
+async fn a_cold_start_does_not_hold_up_a_warm_container() {
+    let h = Harness::new();
+    h.install("dev", &json!({}));
+    let pool = h.pool();
+    let warm = pool
+        .resolve_turn(&request("alice", "work", "one", "dev"))
+        .await
+        .unwrap()
+        .unwrap();
+    run(&warm).await.unwrap();
+    let cold = pool
+        .resolve_turn(&request("bob", "other", "two", "dev"))
+        .await
+        .unwrap()
+        .unwrap();
+
+    h.engine.starts_parked.store(true, Ordering::SeqCst);
+    let starting = tokio::spawn(async move { run(&cold).await });
+    while h.engine.starts().len() < 2 {
+        tokio::task::yield_now().await;
+    }
+
+    tokio::time::timeout(Duration::from_secs(5), run(&warm))
+        .await
+        .expect("the warm command waited on the cold start")
+        .unwrap();
+
+    h.engine.starts_parked.store(false, Ordering::SeqCst);
+    h.engine.start_hold.notify_waiters();
+    starting.await.unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn runs_two_commands_at_once_rather_than_queueing_them() {
     let h = Harness::new();

@@ -17,13 +17,18 @@
  * inside it survive the rest of the answer arriving.
  */
 
-import { memo, useMemo, type JSX, type ReactNode } from 'react';
+import { memo, useMemo, useRef, type JSX, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Token, Tokens } from 'marked';
 
 import { cn } from '@/lib/cn.js';
 import { safeHref, isSameOrigin } from '@/lib/url.js';
-import { fenceLanguage, inlineTokens, splitBlocks } from './blocks.js';
+import {
+  fenceLanguage,
+  inlineTokens,
+  splitBlocks,
+  type LexedMarkdown,
+} from './blocks.js';
 import { CodeBlock } from './code-block.js';
 
 interface MarkdownProps {
@@ -42,7 +47,15 @@ export function Markdown({
   streaming = false,
   className,
 }: MarkdownProps): JSX.Element {
-  const blocks = useMemo(() => splitBlocks(text), [text]);
+  // Resumed from the previous frame only while streaming. A finished answer is
+  // lexed whole once, so a link whose definition arrived after its use
+  // resolves in the end.
+  const lexed = useRef<LexedMarkdown | undefined>(undefined);
+  const blocks = useMemo(() => {
+    const next = splitBlocks(text, streaming ? lexed.current : undefined);
+    lexed.current = { text, blocks: next };
+    return next;
+  }, [text, streaming]);
 
   return (
     <div className={cn('markdown', className)}>

@@ -21,8 +21,8 @@ use darkwire_core::{Result, to_stored_message};
 use darkwire_protocol::messages::{ChatMessage, StoredMessage};
 use darkwire_protocol::rest::ContextResponse;
 
-use crate::blocking::blocking;
 use crate::runtime::ServerRuntime;
+use darkwire_core::db::blocking;
 
 /// Measures one session, or `None` when there is nothing to measure.
 ///
@@ -99,7 +99,7 @@ pub async fn build_context_response(
         tools: report.tools,
         messages: report
             .messages
-            .iter()
+            .into_iter()
             .map(to_stored_message)
             .map(without_reasoning)
             .collect(),

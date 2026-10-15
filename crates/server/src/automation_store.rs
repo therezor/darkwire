@@ -435,7 +435,7 @@ impl AutomationStore {
     fn drop_legacy_schedule_tz(&self) -> Result<()> {
         let candidates: Vec<(String, String)> = {
             let guard = self.db.lock();
-            let mut statement = guard.prepare(
+            let mut statement = guard.prepare_cached(
                 r#"SELECT id, schedule_json FROM automation_jobs WHERE schedule_json LIKE '%"tz"%'"#,
             )?;
             let mut rows = statement.query([])?;
@@ -534,7 +534,7 @@ impl AutomationStore {
     /// One job by id, or `None` when there is none or its shape does not parse.
     pub fn get_job(&self, id: &str) -> Result<Option<AutomationJob>> {
         let guard = self.db.lock();
-        let mut statement = guard.prepare("SELECT * FROM automation_jobs WHERE id = ?")?;
+        let mut statement = guard.prepare_cached("SELECT * FROM automation_jobs WHERE id = ?")?;
         let mut rows = statement.query(params![id])?;
         match rows.next()? {
             Some(row) => tolerate(row),
@@ -549,8 +549,8 @@ impl AutomationStore {
     /// second contract.
     pub fn list_jobs(&self) -> Result<Vec<AutomationJob>> {
         let guard = self.db.lock();
-        let mut statement =
-            guard.prepare("SELECT * FROM automation_jobs ORDER BY created_at_ms DESC, id ASC")?;
+        let mut statement = guard
+            .prepare_cached("SELECT * FROM automation_jobs ORDER BY created_at_ms DESC, id ASC")?;
         let mut rows = statement.query([])?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
@@ -565,7 +565,8 @@ impl AutomationStore {
     pub fn update_job(&self, id: &str, patch: &UpdateJobInput) -> Result<Option<AutomationJob>> {
         {
             let guard = self.db.lock();
-            let mut statement = guard.prepare("SELECT id FROM automation_jobs WHERE id = ?")?;
+            let mut statement =
+                guard.prepare_cached("SELECT id FROM automation_jobs WHERE id = ?")?;
             if !statement.exists(params![id])? {
                 return Ok(None);
             }
@@ -618,6 +619,28 @@ impl AutomationStore {
         Ok(changed > 0)
     }
 
+    /// The jobs one agent has made, newest first.
+    ///
+    /// Filtered here rather than over [`AutomationStore::list_jobs`], for the
+    /// reason [`AutomationStore::count_jobs_by`] gives: the caller is a path a
+    /// model drives.
+    pub fn list_jobs_by(&self, agent_id: &str) -> Result<Vec<AutomationJob>> {
+        let guard = self.db.lock();
+        let mut statement = guard.prepare_cached(
+            "SELECT * FROM automation_jobs
+              WHERE created_by_agent = ? AND created_by_agent <> ''
+              ORDER BY created_at_ms DESC, id ASC",
+        )?;
+        let mut rows = statement.query(params![agent_id])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            if let Some(job) = tolerate(row)? {
+                out.push(job);
+            }
+        }
+        Ok(out)
+    }
+
     /// How many jobs one agent has made.
     ///
     /// A count rather than the length of a listing, because the only caller is
@@ -660,7 +683,7 @@ impl AutomationStore {
 
         let verdicts: Vec<Verdict> = {
             let guard = self.db.lock();
-            let mut statement = guard.prepare(
+            let mut statement = guard.prepare_cached(
                 "SELECT * FROM automation_jobs
                   WHERE enabled = 1 AND next_run_at_ms > 0 AND next_run_at_ms <= ?
                   ORDER BY next_run_at_ms ASC, id ASC
@@ -792,7 +815,7 @@ impl AutomationStore {
     /// One run by id.
     pub fn get_run(&self, id: &str) -> Result<Option<AutomationRun>> {
         let guard = self.db.lock();
-        let mut statement = guard.prepare("SELECT * FROM automation_runs WHERE id = ?")?;
+        let mut statement = guard.prepare_cached("SELECT * FROM automation_runs WHERE id = ?")?;
         let mut rows = statement.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(row_to_run(row)?)),
@@ -812,7 +835,7 @@ impl AutomationStore {
         let after_id = options.after.as_ref().map(|after| after.id.as_str());
 
         let guard = self.db.lock();
-        let mut statement = guard.prepare(
+        let mut statement = guard.prepare_cached(
             "SELECT * FROM automation_runs
               WHERE job_id = ?
                 AND (? IS NULL
@@ -855,31 +878,24 @@ impl AutomationStore {
     /// the run row was the only thing naming it — and the caller deletes it so
     /// the sessions table stays bounded by the same knob.
     pub fn trim_runs(&self, job_id: &str, keep: i64) -> Result<Vec<TrimmedRun>> {
-        let doomed: Vec<TrimmedRun> = {
-            let guard = self.db.lock();
-            let mut statement = guard.prepare(
-                "SELECT id, session_key FROM automation_runs
-                  WHERE job_id = ?
-                    AND id NOT IN (SELECT id FROM automation_runs
-                                    WHERE job_id = ?
-                                    ORDER BY started_at_ms DESC, id ASC
-                                    LIMIT ?)",
-            )?;
-            let mut rows = statement.query(params![job_id, job_id, keep])?;
-            let mut found = Vec::new();
-            while let Some(row) = rows.next()? {
-                found.push(TrimmedRun {
-                    id: READ.string(row, "id")?,
-                    session_key: READ.optional_string(row, "session_key"),
-                });
-            }
-            found
-        };
-
-        for run in &doomed {
-            self.db
-                .lock()
-                .execute("DELETE FROM automation_runs WHERE id = ?", params![&run.id])?;
+        // One statement: one lock and one commit, however many rows go.
+        let guard = self.db.lock();
+        let mut statement = guard.prepare_cached(
+            "DELETE FROM automation_runs
+              WHERE job_id = ?
+                AND id NOT IN (SELECT id FROM automation_runs
+                                WHERE job_id = ?
+                                ORDER BY started_at_ms DESC, id ASC
+                                LIMIT ?)
+          RETURNING id, session_key",
+        )?;
+        let mut rows = statement.query(params![job_id, job_id, keep])?;
+        let mut doomed = Vec::new();
+        while let Some(row) = rows.next()? {
+            doomed.push(TrimmedRun {
+                id: READ.string(row, "id")?,
+                session_key: READ.optional_string(row, "session_key"),
+            });
         }
         Ok(doomed)
     }
