@@ -6,6 +6,47 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [0.5.1]
+
+Fixes for five places where memory or a connection could grow or loop without end, and
+less work per token in the browser, the server and the agent loop.
+
+### Fixed
+
+- **A reload during a long turn keeps its connection.** A replay larger than 4 MiB closed
+  the socket with code 1013, and the reconnect asked for the same replay again. Replay now
+  has its own budget on each connection, with room for one whole replay.
+- **Attachments stay inside the request's inline budget.** A file repeated through the
+  history was inlined in full every time after the first, past the 16 MiB cap.
+- **Expired logins are deleted.** They stayed in `darkwire.db` until someone presented the
+  same token again. They now go at startup and on every login.
+- **Notifications stop piling up.** The table keeps the newest 1,000. A job on an
+  interval used to add a row per run with no limit.
+- **An MCP server that never answers counts as failed.** It stayed "connecting" with no
+  retry. The handshake now times out after a minute, and reaching the host after 15
+  seconds.
+- **Regenerate works on a long turn.** It read the last 200 messages to find the question,
+  so a turn with more tool traffic than that had nothing to regenerate.
+
+### Changed
+
+- **Streaming does less work per token.** The browser re-renders the transcript alone,
+  re-reads only the markdown block being written, and no longer downloads the whole
+  conversation again when a turn ends. The server encodes each frame once for all open
+  tabs.
+- **The first page load is half the size.** Every screen but the chat and the sessions
+  list loads when it is first opened, which takes the first bundle from 1.03 MB to 490 KB.
+- **A long conversation costs less per agent step.** Each stored message is priced once a
+  turn rather than twice a step, and the history is read off the async threads.
+- **Writing a message updates the session row once instead of three times**, and a
+  filtered session list uses its indexes.
+- **`grep` stops walking the tree when it reaches its limit.**
+- **A slow container start no longer holds up commands in containers already running.**
+- **YAML is parsed by serde-saphyr.** `config.yaml`, environment definitions and extension
+  manifests go through a pure-Rust parser with no `unsafe` code and limits on alias
+  expansion. The serde_yaml_ng it replaces runs on an archived translation of libyaml.
+- **rustls is 0.23.46**, which fixes RUSTSEC-2026-0346 to RUSTSEC-2026-0349.
+
 ## [0.5.0]
 
 The first release. DarkWire is an AI agent you run yourself: one Rust binary with the
@@ -74,4 +115,5 @@ them reads as more finished than it is.
   ships as a scheduled job's payload; delivery does not.
 - **Session search is by title and filter, not by message content.**
 
+[0.5.1]: https://github.com/therezor/darkwire/releases/tag/v0.5.1
 [0.5.0]: https://github.com/therezor/darkwire/releases/tag/v0.5.0
