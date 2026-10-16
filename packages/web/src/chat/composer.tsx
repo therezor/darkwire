@@ -32,6 +32,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -220,6 +221,18 @@ export function Composer({
    */
   const marked = suggestions.findIndex((one) => one.current === true);
   const active = highlight ?? (marked < 0 ? 0 : marked);
+
+  // Focus stays in the textarea, so the browser never scrolls the list to the
+  // row `aria-activedescendant` names. `open` and the query are dependencies
+  // because the rows change under an unchanged `active`.
+  const listRef = useRef<HTMLUListElement>(null);
+  const queryName = query?.name;
+  const queryText = query?.query;
+  useEffect(() => {
+    listRef.current?.children.item(active)?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [open, active, queryName, queryText]);
 
   const ready = files.every(
     (file) => file.attachment !== undefined || file.failed,
@@ -410,6 +423,7 @@ export function Composer({
         <div className="composer__box">
           {open && (
             <ul
+              ref={listRef}
               id={listboxId}
               role="listbox"
               aria-label={t('chat.commands.label')}

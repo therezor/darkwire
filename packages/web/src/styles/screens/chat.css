@@ -714,18 +714,21 @@
 
   /* The slash-command list, anchored to the box rather than portalled.
    *
-   * `.floating` carries the surface — the same border, radius and elevation the
+   * `.floating` carries the surface: the same border, radius and elevation the
    * menus and the select use, because a popover that disagreed with them would
-   * read as a second application. What is here is only the placement, which is
-   * the one thing this list does not share: it belongs to a control at the
-   * bottom of the screen, so it opens upwards. */
+   * read as a second application. What is here is the placement and the height
+   * cap. It belongs to a control at the bottom of the screen, so it opens
+   * upwards, and a long model list scrolls instead of running off the top. */
   .composer__commands {
     position: absolute;
     bottom: 100%;
     left: 0;
     width: 22rem;
     max-width: 100%;
+    max-height: min(20rem, 50dvh);
     margin-bottom: var(--space-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .composer__command {

@@ -198,6 +198,21 @@ describe('the / autocomplete', () => {
     expect(box()).toHaveValue('/clear ');
   });
 
+  it('scrolls the highlighted row into view as the arrow keys move it', async () => {
+    // Focus never leaves the textarea, so nothing else brings a row below the
+    // list's height cap into sight.
+    const user = userEvent.setup();
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    mount();
+
+    await user.type(box(), '/');
+    await user.keyboard('{ArrowDown}');
+
+    const second = document.getElementById('composer-commands-1');
+    expect(scroll.mock.contexts).toContain(second);
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest' });
+  });
+
   it('closes on Escape and stays closed until the next keystroke', async () => {
     const user = userEvent.setup();
     mount();
