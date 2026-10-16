@@ -1,6 +1,6 @@
 {
   "name": "@darkwire/web",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "The browser UI: design tokens, app shell, chat view.",
   "type": "module",
   "license": "MIT",

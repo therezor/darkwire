@@ -6,6 +6,16 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [0.5.2]
+
+The browser's slash-command list fits on screen however many models it offers.
+
+### Fixed
+
+- **A long `/model` list scrolls.** It ran off the top of the window. The list now stops
+  at 20rem or half the window, whichever is less, and the arrow keys keep the highlighted
+  row in view.
+
 ## [0.5.1]
 
 Fixes for five places where memory or a connection could grow or loop without end, and
@@ -115,5 +125,6 @@ them reads as more finished than it is.
   ships as a scheduled job's payload; delivery does not.
 - **Session search is by title and filter, not by message content.**
 
+[0.5.2]: https://github.com/therezor/darkwire/releases/tag/v0.5.2
 [0.5.1]: https://github.com/therezor/darkwire/releases/tag/v0.5.1
 [0.5.0]: https://github.com/therezor/darkwire/releases/tag/v0.5.0
