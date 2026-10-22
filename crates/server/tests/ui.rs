@@ -15,7 +15,10 @@
 use std::fs;
 use std::path::Path;
 
-use darkwire_server::ui::{INDEX_FILE, UiFile, UiRoot, may_fall_back};
+use darkwire_server::ui::{
+    CACHE_IMMUTABLE, CACHE_REVALIDATE, INDEX_FILE, UiFile, UiRoot, accepts, is_build_asset,
+    may_fall_back, not_modified,
+};
 
 /// A `dist/` as a bundler would leave one: a shell and a hashed asset.
 fn bundle(root: &Path) {
@@ -29,7 +32,13 @@ fn bundle(root: &Path) {
 }
 
 fn text(file: &UiFile) -> String {
-    String::from_utf8(file.body.clone()).unwrap()
+    String::from_utf8(file.body.to_vec()).unwrap()
+}
+
+/// The copies the web build writes beside each hashed asset.
+fn compressed(root: &Path) {
+    fs::write(root.join("assets/app-abc123.js.br"), "brotli bytes").unwrap();
+    fs::write(root.join("assets/app-abc123.js.gz"), "gzip bytes").unwrap();
 }
 
 #[test]
@@ -180,4 +189,135 @@ fn an_embedded_build_can_serve_its_shell() {
     let shell = UiRoot::Embedded.shell().expect("a shell to fall back to");
     assert!(!shell.body.is_empty());
     assert_eq!(shell.content_type, "text/html; charset=utf-8");
+}
+
+// Compressed copies and caching
+
+#[test]
+fn a_hashed_asset_goes_out_as_the_best_copy_the_client_takes() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    compressed(dir.path());
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let brotli = ui
+        .negotiate("/assets/app-abc123.js", "gzip, deflate, br")
+        .unwrap();
+    assert_eq!(brotli.encoding, Some("br"));
+    assert_eq!(text(&brotli), "brotli bytes");
+    // The type is the file's, not the copy's.
+    assert_eq!(brotli.content_type, "text/javascript; charset=utf-8");
+
+    // A browser offers Brotli only over HTTPS, so plain HTTP on a LAN gets gzip.
+    let gzip = ui
+        .negotiate("/assets/app-abc123.js", "gzip, deflate")
+        .unwrap();
+    assert_eq!(gzip.encoding, Some("gzip"));
+
+    let plain = ui.negotiate("/assets/app-abc123.js", "").unwrap();
+    assert_eq!(plain.encoding, None);
+    assert_eq!(text(&plain), "console.log(1);\n");
+}
+
+#[test]
+fn a_refused_encoding_is_not_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    compressed(dir.path());
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let file = ui
+        .negotiate("/assets/app-abc123.js", "br;q=0, gzip")
+        .unwrap();
+    assert_eq!(file.encoding, Some("gzip"));
+}
+
+#[test]
+fn an_asset_without_copies_goes_out_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let file = ui.negotiate("/assets/app-abc123.js", "br, gzip").unwrap();
+    assert_eq!(file.encoding, None);
+    assert!(file.varies);
+}
+
+#[test]
+fn a_hashed_asset_is_cached_for_good_and_the_shell_is_revalidated() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let asset = ui.asset("/assets/app-abc123.js").unwrap();
+    assert_eq!(asset.cache_control, CACHE_IMMUTABLE);
+    assert_eq!(asset.etag, None);
+
+    let shell = ui.shell().unwrap();
+    assert_eq!(shell.cache_control, CACHE_REVALIDATE);
+    assert!(!shell.varies);
+    let etag = shell.etag.unwrap();
+    assert!(etag.starts_with('"') && etag.ends_with('"'), "{etag}");
+}
+
+#[test]
+fn the_shell_validator_follows_its_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let before = ui.shell().unwrap().etag;
+    assert_eq!(ui.shell().unwrap().etag, before);
+
+    fs::write(
+        dir.path().join(INDEX_FILE),
+        "<!doctype html><title>New</title>",
+    )
+    .unwrap();
+    assert_ne!(ui.shell().unwrap().etag, before);
+}
+
+#[test]
+fn a_file_outside_assets_has_no_compressed_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    bundle(dir.path());
+    fs::write(dir.path().join("boot.js.br"), "brotli bytes").unwrap();
+    fs::write(dir.path().join("boot.js"), "boot").unwrap();
+    let ui = UiRoot::Dir(dir.path().to_path_buf());
+
+    let file = ui.negotiate("/boot.js", "br").unwrap();
+    assert_eq!(file.encoding, None);
+    assert_eq!(text(&file), "boot");
+}
+
+#[test]
+fn only_build_output_is_a_build_asset() {
+    assert!(is_build_asset("/assets/app-abc123.js"));
+    assert!(!is_build_asset("/settings"));
+    assert!(!is_build_asset("/assetsy"));
+}
+
+#[test]
+fn if_none_match_is_compared_weakly_and_as_a_list() {
+    let etag = "\"abc\"";
+    assert!(not_modified("\"abc\"", etag));
+    assert!(not_modified("W/\"abc\"", etag));
+    assert!(not_modified("\"x\", \"abc\"", etag));
+    assert!(not_modified("*", etag));
+    assert!(!not_modified("\"abd\"", etag));
+    assert!(!not_modified("", etag));
+}
+
+#[test]
+fn accept_encoding_honours_names_wildcards_and_zero_weights() {
+    assert!(accepts("gzip, deflate, br", "br"));
+    assert!(accepts("GZIP", "gzip"));
+    assert!(accepts("*", "br"));
+    assert!(accepts("br;q=0.5", "br"));
+    assert!(!accepts("br;q=0", "br"));
+    assert!(!accepts("gzip", "br"));
+    assert!(!accepts("", "gzip"));
+    // Named, the refusal stands whatever the wildcard says.
+    assert!(!accepts("gzip;q=0, *", "gzip"));
+    assert!(accepts("gzip;q=0, *", "br"));
 }

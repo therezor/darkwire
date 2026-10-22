@@ -55,7 +55,7 @@ indexmap.workspace = true
 lru.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
-rust-embed = { workspace = true, optional = true }
+rust-embed = { workspace = true, optional = true, features = ["include-exclude"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

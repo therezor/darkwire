@@ -44,6 +44,7 @@ fn server(options: TestServerOptions) -> TestServer {
 struct Answer {
     status: StatusCode,
     content_type: String,
+    headers: axum::http::HeaderMap,
     body: String,
 }
 
@@ -54,9 +55,23 @@ impl Answer {
 }
 
 async fn request(test: &TestServer, method: Method, uri: &str, token: Option<&str>) -> Answer {
+    let headers: &[(&str, &str)] = &[];
+    request_with(test, method, uri, token, headers).await
+}
+
+async fn request_with(
+    test: &TestServer,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Answer {
     let mut builder = Request::builder().method(method).uri(uri);
     if let Some(token) = token {
         builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
     let response = test
         .router
@@ -65,6 +80,7 @@ async fn request(test: &TestServer, method: Method, uri: &str, token: Option<&st
         .await
         .expect("the router answered");
     let status = response.status();
+    let headers = response.headers().clone();
     let content_type = response
         .headers()
         .get("content-type")
@@ -77,6 +93,7 @@ async fn request(test: &TestServer, method: Method, uri: &str, token: Option<&st
     Answer {
         status,
         content_type,
+        headers,
         body: String::from_utf8_lossy(&bytes).into_owned(),
     }
 }
@@ -129,6 +146,80 @@ async fn the_asset_bundle_is_served_from_the_same_origin() {
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(answer.body, "console.log(1);\n");
     assert_eq!(answer.content_type, "text/javascript; charset=utf-8");
+}
+
+#[tokio::test]
+async fn a_hashed_asset_goes_out_compressed_and_cached_for_good() {
+    let dir = tempfile::tempdir().expect("a temporary bundle");
+    bundle(dir.path());
+    fs::write(dir.path().join("assets/app-abc123.js.gz"), "gzip bytes").expect("a copy");
+    let test = server(TestServerOptions {
+        ui: UiRoot::Dir(dir.path().to_path_buf()),
+        ..TestServerOptions::default()
+    });
+
+    let answer = request_with(
+        &test,
+        Method::GET,
+        "/assets/app-abc123.js",
+        None,
+        &[("accept-encoding", "gzip, deflate")],
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.body, "gzip bytes");
+    assert_eq!(answer.headers["content-encoding"], "gzip");
+    assert_eq!(answer.headers["vary"], "accept-encoding");
+    assert_eq!(
+        answer.headers["cache-control"],
+        "public, max-age=31536000, immutable"
+    );
+    assert_eq!(answer.content_type, "text/javascript; charset=utf-8");
+}
+
+#[tokio::test]
+async fn the_shell_answers_a_matching_validator_with_not_modified() {
+    let dir = tempfile::tempdir().expect("a temporary bundle");
+    bundle(dir.path());
+    let test = server(TestServerOptions {
+        ui: UiRoot::Dir(dir.path().to_path_buf()),
+        ..TestServerOptions::default()
+    });
+
+    let first = request(&test, Method::GET, "/sessions/abc", None).await;
+    assert_eq!(first.headers["cache-control"], "no-cache");
+    let etag = first.headers["etag"]
+        .to_str()
+        .expect("an ascii etag")
+        .to_owned();
+
+    let again = request_with(
+        &test,
+        Method::GET,
+        "/sessions/abc",
+        None,
+        &[("if-none-match", etag.as_str())],
+    )
+    .await;
+    assert_eq!(again.status, StatusCode::NOT_MODIFIED);
+    assert!(again.body.is_empty());
+    assert_eq!(again.headers["etag"], etag.as_str());
+}
+
+#[tokio::test]
+async fn a_missing_build_asset_is_a_404_rather_than_the_shell() {
+    let dir = tempfile::tempdir().expect("a temporary bundle");
+    bundle(dir.path());
+    let test = server(TestServerOptions {
+        ui: UiRoot::Dir(dir.path().to_path_buf()),
+        ..TestServerOptions::default()
+    });
+
+    // A tab open across an upgrade asks for a chunk the new build lacks. HTML in
+    // its place fails as a script syntax error instead of a missing file.
+    let answer = request(&test, Method::GET, "/assets/gone-123.js", None).await;
+    assert_eq!(answer.status, StatusCode::NOT_FOUND);
+    assert_eq!(answer.json()["error"]["code"], "not_found");
 }
 
 #[tokio::test]

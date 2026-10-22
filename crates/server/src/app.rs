@@ -21,7 +21,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use darkwire_core::session_store::IdSource;
 use darkwire_core::{Clock, Database, Result, SystemClock, WireError};
@@ -42,7 +42,7 @@ use crate::rate_limit::{Quota, RateLimiter};
 use crate::routes::{AppState, RouteDeps, router};
 use crate::runtime::ServerRuntime;
 use crate::scheduler::SchedulerPort;
-use crate::ui::{UiRoot, may_fall_back};
+use crate::ui::{UiRoot, is_build_asset, may_fall_back, not_modified};
 
 pub use crate::version::SERVER_VERSION;
 
@@ -333,13 +333,24 @@ pub fn create_server(options: ServerOptions) -> Result<WireServer> {
 async fn not_found(State(ui): State<UiRoot>, request: Request) -> Response {
     let method = request.method().as_str().to_owned();
     let path = request.uri().path().to_owned();
+    let header_of = |name: header::HeaderName| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+    };
+    let accept_encoding = header_of(header::ACCEPT_ENCODING);
+    let if_none_match = header_of(header::IF_NONE_MATCH);
 
     if may_fall_back(&method, &path) {
-        if let Some(asset) = ui.asset(&path) {
-            return file_response(asset);
+        if let Some(asset) = ui.negotiate(&path, accept_encoding) {
+            return file_response(asset, if_none_match);
         }
-        if let Some(shell) = ui.shell() {
-            return file_response(shell);
+        if !is_build_asset(&path)
+            && let Some(shell) = ui.shell()
+        {
+            return file_response(shell, if_none_match);
         }
     }
 
@@ -351,11 +362,37 @@ async fn not_found(State(ui): State<UiRoot>, request: Request) -> Response {
         .into_response()
 }
 
-fn file_response(file: crate::ui::UiFile) -> Response {
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, file.content_type)],
-        Body::from(file.body),
-    )
-        .into_response()
+fn file_response(file: crate::ui::UiFile, if_none_match: &str) -> Response {
+    let fresh = file
+        .etag
+        .as_deref()
+        .is_some_and(|etag| not_modified(if_none_match, etag));
+    let mut response = if fresh {
+        let mut empty = Response::new(Body::empty());
+        *empty.status_mut() = StatusCode::NOT_MODIFIED;
+        empty
+    } else {
+        Response::new(Body::from(file.body))
+    };
+
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(file.cache_control),
+    );
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(file.content_type),
+    );
+    if file.varies {
+        headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    }
+    if let Some(encoding) = file.encoding {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static(encoding));
+    }
+    // Hex between quotes, so it is always a valid header value.
+    if let Some(etag) = file.etag.and_then(|etag| HeaderValue::from_str(&etag).ok()) {
+        headers.insert(header::ETAG, etag);
+    }
+    response
 }
