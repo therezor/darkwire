@@ -105,11 +105,16 @@ export function TaskPanel({
 
   // Mid-turn. `turn.end` already invalidates the whole `['sessions']` prefix, so
   // this is only about the four or five times a list moves inside one turn.
+  //
+  // Cancelled first, by hand. Until the query has an answer, an invalidation
+  // hands back the request already in flight, and that request read the list
+  // before this call wrote it. Its stale answer would land last and stay.
   useEffect(() => {
     if (marker === '' || sessionKey === undefined) return;
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks(sessionKey),
-    });
+    const queryKey = queryKeys.tasks(sessionKey);
+    void queryClient
+      .cancelQueries({ queryKey })
+      .then(() => queryClient.invalidateQueries({ queryKey }));
   }, [marker, sessionKey, queryClient]);
 
   const clear = useMutation({

@@ -8,15 +8,15 @@
  * would catch it.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskPanel, lastTodoCallId } from '@/tasks/task-panel.js';
 import { useTurnStore } from '@/state/turn.js';
 import type { Transcript, TurnItem } from '@/state/transcript.js';
 import { seedTool } from '@/state/transcript/parts.js';
-import { renderWithProviders, stubApi } from '@testkit/render.js';
+import { renderWithProviders, stubApi, urlOf } from '@testkit/render.js';
 
 const PATH = '/api/sessions/web%3A1/tasks';
 
@@ -143,6 +143,63 @@ describe('the task panel', () => {
 });
 
 describe('the signal the panel watches', () => {
+  it('asks again when the plan moves while its first answer is on the way', async () => {
+    // The first answer is still in flight when the second list is written.
+    // A query with no data yet hands an invalidation the request it already
+    // has, so without a cancel the older list lands last and stays.
+    const answers: Array<(response: Response) => void> = [];
+    let asked = 0;
+    const json = (status: number, body: unknown): Response =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+      if (!urlOf(input).includes('/tasks')) {
+        return Promise.reject(new Error('unstubbed'));
+      }
+      asked += 1;
+      if (asked === 1) {
+        return Promise.resolve(json(404, { error: { code: 'not_found' } }));
+      }
+      return new Promise<Response>((resolve) => {
+        answers.push(resolve);
+      });
+    });
+    renderWithProviders(<TaskPanel sessionKey="web:1" />);
+    await waitFor(() => {
+      expect(asked).toBe(1);
+    });
+
+    act(() => {
+      setTranscript([
+        turn([seedTool('c1', 'todo', { tasks: [] }, 'safe', 'ok')]),
+      ]);
+    });
+    await waitFor(() => {
+      expect(asked).toBe(2);
+    });
+    act(() => {
+      setTranscript([
+        turn([
+          seedTool('c1', 'todo', { tasks: [] }, 'safe', 'ok'),
+          seedTool('c2', 'todo', { tasks: [] }, 'safe', 'ok'),
+        ]),
+      ]);
+    });
+    await waitFor(() => {
+      expect(asked).toBe(3);
+    });
+
+    act(() => {
+      answers[1]?.(json(200, PLAN));
+      answers[0]?.(
+        json(200, { tasks: [{ text: 'Inspect auth', status: 'doing' }] }),
+      );
+    });
+    expect(await screen.findByText('Update sessions')).toBeInTheDocument();
+  });
+
   it('is empty when nothing has written a plan', () => {
     expect(lastTodoCallId([])).toBe('');
     expect(
