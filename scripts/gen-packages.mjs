@@ -164,6 +164,9 @@ for (const [name, cfg] of Object.entries(PACKAGES)) {
       },
     },
     imports: { '#src/*': './src/*' },
+    // With the per-file build below, this is what lets the browser's bundler
+    // leave out a module nothing it imports reaches.
+    sideEffects: false,
     main: './dist/index.js',
     types: './dist/index.d.ts',
     scripts: {
@@ -222,7 +225,11 @@ export default defineConfig({
   const tsup = `import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // One file out per file in, with \`"sideEffects": false\` in package.json, so
+  // the browser's bundler can leave out a module nothing it imports reaches.
+  // One bundled file kept every schema in the first download.
+  entry: ['src/*.ts'],
+  bundle: false,
   format: ['esm'],
   target: 'node22',
   // tsc -b writes its declarations and .tsbuildinfo into this same dist, so
