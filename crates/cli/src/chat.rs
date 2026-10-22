@@ -391,7 +391,6 @@ impl ChatSession {
             Ok(Some(report)) => Some(ContextUsage {
                 used_tokens: report.estimated_tokens as u64,
                 window_tokens: report.context_window_tokens,
-                measured: report.measured,
             }),
             Ok(None) | Err(_) => None,
         };

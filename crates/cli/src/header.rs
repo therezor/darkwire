@@ -64,9 +64,6 @@ pub struct ContextUsage {
     pub used_tokens: u64,
     /// The model's budget.
     pub window_tokens: u64,
-    /// Whether the provider has counted a request on this model yet, so the
-    /// figure is its count rather than a character estimate.
-    pub measured: bool,
 }
 
 /// Everything the header and the status bar draw, already looked up.
@@ -176,9 +173,9 @@ pub fn startup_header(
 
 /// `63%/65.5k`, or nothing at all before a turn has been measured.
 ///
-/// `~` leads while the figure is a character estimate the provider has not
-/// counted yet. The percent and the window follow the web strip's rules, so a
-/// conversation open in both reads the same.
+/// No mark for a figure the provider has not counted yet: nobody writes one in
+/// front of a token count. The percent and the window follow the web strip's
+/// rules, so a conversation open in both reads the same.
 ///
 /// A window of nothing answers nothing rather than dividing by it: an
 /// unconfigured agent has no budget, and `NaN%` on the status bar is worse than
@@ -188,9 +185,8 @@ pub fn context_label(context: Option<&ContextUsage>, locale: &str) -> String {
     let Some(context) = context.filter(|usage| usage.window_tokens > 0) else {
         return String::new();
     };
-    let marker = if context.measured { "" } else { "~" };
     format!(
-        "{marker}{}/{}",
+        "{}/{}",
         format_window_share(context.used_tokens, context.window_tokens),
         format_token_count(context.window_tokens, locale)
     )

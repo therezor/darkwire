@@ -34,7 +34,6 @@ fn view() -> HeaderView {
         context: Some(ContextUsage {
             used_tokens: 15_872,
             window_tokens: 128_000,
-            measured: true,
         }),
         locale: "en".to_owned(),
     }
@@ -98,7 +97,6 @@ fn context_label_says_how_full_the_window_is_and_how_big_it_is() {
             Some(&ContextUsage {
                 used_tokens: 15_872,
                 window_tokens: 128_000,
-                measured: true,
             }),
             "en"
         ),
@@ -107,17 +105,18 @@ fn context_label_says_how_full_the_window_is_and_how_big_it_is() {
 }
 
 #[test]
-fn context_label_marks_a_figure_the_provider_has_not_counted() {
+fn context_label_puts_no_mark_in_front_of_the_figure() {
+    // An estimate and a provider's count read the same: nobody writes a mark in
+    // front of a token count.
     assert_eq!(
         context_label(
             Some(&ContextUsage {
                 used_tokens: 41_213,
                 window_tokens: 65_536,
-                measured: false,
             }),
             "en"
         ),
-        "~63%/65.5k"
+        "63%/65.5k"
     );
 }
 
@@ -133,7 +132,6 @@ fn context_label_says_nothing_rather_than_dividing_by_a_window_of_nothing() {
             Some(&ContextUsage {
                 used_tokens: 10,
                 window_tokens: 0,
-                measured: true,
             }),
             "en"
         ),
@@ -150,7 +148,6 @@ fn context_label_shortens_the_window_the_way_the_web_does() {
             Some(&ContextUsage {
                 used_tokens: 0,
                 window_tokens: tokens,
-                measured: true,
             }),
             locale,
         )

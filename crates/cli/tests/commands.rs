@@ -574,7 +574,7 @@ fn description_column(line: &str) -> Option<usize> {
 #[test]
 fn help_lists_every_command_a_reader_can_type() {
     let help = help_text(&Translations::default());
-    assert!(help.contains("/session [key]"));
+    assert!(help.contains("/session, /resume [key]"));
     assert!(help.contains("pick a session to continue, or attach to one by key"));
 }
 
@@ -743,7 +743,7 @@ async fn exit_and_quit_both_leave() {
 async fn help_is_printed_rather_than_returned() {
     let mut h = Harness::bare("cli:1");
     assert_eq!(h.run("/help").await, SlashOutcome::Continue);
-    assert!(h.text().contains("/session [key]"));
+    assert!(h.text().contains("/session, /resume [key]"));
 }
 
 #[tokio::test]
@@ -1672,6 +1672,19 @@ async fn session_with_a_key_attaches_and_without_one_describes() {
     h.run("/session").await;
     assert!(h.text().contains("(unnamed)"), "{}", h.text());
     assert!(h.text().contains("cli:1"));
+}
+
+#[tokio::test]
+async fn resume_is_another_name_for_session() {
+    let mut h = Harness::bare("cli:1");
+    assert_eq!(
+        h.run("/resume cli:other").await,
+        SlashOutcome::Attach("cli:other".to_owned())
+    );
+
+    h.sink.clear();
+    h.run("/resume").await;
+    assert!(h.text().contains("cli:1"), "{}", h.text());
 }
 
 #[tokio::test]

@@ -156,13 +156,13 @@ you meant.
 
 **Sessions**
 
-| Command           | What it does                               |
-| ----------------- | ------------------------------------------ |
-| `/session [key]`  | Pick one over the prompt, or attach by key |
-| `/new [title]`    | Start a fresh session and attach to it     |
-| `/rename <title>` | Rename this session                        |
-| `/delete [key]`   | Delete one, defaulting to this one         |
-| `/branch [ref]`   | Fork up to `<ref>` and attach to the fork  |
+| Command                       | What it does                               |
+| ----------------------------- | ------------------------------------------ |
+| `/session`, `/resume` `[key]` | Pick one over the prompt, or attach by key |
+| `/new [title]`                | Start a fresh session and attach to it     |
+| `/rename <title>`             | Rename this session                        |
+| `/delete [key]`               | Delete one, defaulting to this one         |
+| `/branch [ref]`               | Fork up to `<ref>` and attach to the fork  |
 
 A session is written when you say something in it, not when you start one. `/new`,
 `/session <key>` and the prompt you get on launch all move you to a name; the row appears
@@ -199,8 +199,8 @@ The tool and message rows are character estimates; the summary is scaled by the
 provider's count once the model has replied, and says which it is.
 
 The status bar shows the same figure as `63%/65.5k`: the share of the window and the
-window, shortened the way the browser's strip shortens it. A leading `~` means the model
-has not replied on this agent yet, so the figure is a character estimate.
+window, shortened the way the browser's strip shortens it. Until the model has replied
+on this agent the figure is a character estimate, and it carries no mark saying so.
 
 `/tasks` **opens over the prompt** too, one row per task in the markers the prompt uses,
 so what it shows is what the model reads. `ctrl-x` drops the one under the cursor and the

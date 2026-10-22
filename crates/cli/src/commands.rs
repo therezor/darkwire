@@ -291,7 +291,7 @@ fn help_layout() -> Vec<HelpSection> {
         HelpSection {
             heading: Some(keys::slash::sections::SESSIONS),
             rows: vec![
-                CommandRow::new("/session [key]", keys::slash::help::SESSION),
+                CommandRow::new("/session, /resume [key]", keys::slash::help::SESSION),
                 CommandRow::new("/new [title]", keys::slash::help::NEW),
                 CommandRow::new("/rename <title>", keys::slash::help::RENAME),
                 CommandRow::new("/delete", keys::slash::help::DELETE),
@@ -599,7 +599,7 @@ async fn dispatch(
 
         // ── Sessions ──────────────────────────────────────────────
         "new" => Ok(new_command(tail, ctx)),
-        "session" => session_command(argv, ctx).await,
+        "session" | "resume" => session_command(argv, ctx).await,
         "rename" => rename_command(tail, ctx),
         "delete" => delete_command(ctx),
         "branch" => branch_command(ctx),
@@ -644,10 +644,8 @@ async fn dispatch(
 
 // Messages and sessions
 
-/// `/session` — this one, another by key, or a picker over all of them.
-///
-/// One name for one subject. It used to be two: `/sessions` listed and
-/// `/session` — this one, another by key, or a picker over all of them.
+/// `/session`: this one, another by key, or a picker over all of them.
+/// `/resume` is the same command, under the name other agent CLIs use for it.
 ///
 /// One name for one subject. It used to be two: `/sessions` listed and
 /// `/session` showed, so the plural and the singular were a guess about which
