@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use darkwire_agent::AgentEvent;
 use darkwire_core::TurnStatsRecord;
 use darkwire_core::session_store::StoredMessageRecord;
-use darkwire_i18n::{args, keys};
+use darkwire_i18n::{args, format_token_count, keys};
 use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{
     ChatMessage, ErrorCode, NestedAgentEvent, StepStats, StopReason, SubagentEventBody, ToolRisk,
@@ -513,10 +513,8 @@ pub fn task_lines(args: &Value) -> Vec<(TaskStatus, String)> {
 /// a reader has to divide before it means anything.
 ///
 /// The sub-minute form stays one decimal all the way to sixty seconds, where
-/// the web drops the decimal above ten. That divergence is deliberate and is
-/// the same one that makes this file render `1.2k` where the web renders
-/// `8,192`: a terminal line is read at a glance and a settings panel is read on
-/// purpose.
+/// the web drops the decimal above ten. That divergence is deliberate: a
+/// terminal line is read at a glance and a settings panel is read on purpose.
 #[must_use]
 pub fn format_duration(ms: f64) -> String {
     if ms < 1000.0 {
@@ -537,19 +535,11 @@ pub fn format_duration(ms: f64) -> String {
     format!("{hours}h {minutes:02}m")
 }
 
-/// A token count, rounded to thousands once it stops being readable at a
-/// glance.
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "token counts are far below 2^53"
-)]
+/// A token count, shortened once it stops being readable at a glance: `950`,
+/// `41.2k`, `1.05M`. The web shortens with the same rule.
 #[must_use]
-pub fn format_count(value: u64) -> String {
-    if value < 1000 {
-        value.to_string()
-    } else {
-        format!("{:.1}k", value as f64 / 1000.0)
-    }
+pub fn format_count(value: u64, locale: &str) -> String {
+    format_token_count(value, locale)
 }
 
 /// Completion tokens per second, as a phrase, or nothing.
@@ -566,16 +556,16 @@ pub fn format_rate(usage: &Usage, timing: &TurnTiming) -> Option<String> {
 }
 
 /// What a turn cost, as one phrase.
-fn format_usage(usage: &Usage) -> String {
+fn format_usage(usage: &Usage, locale: &str) -> String {
     let mut parts = vec![
-        format!("{} in", format_count(usage.prompt_tokens)),
-        format!("{} out", format_count(usage.completion_tokens)),
+        format!("{} in", format_count(usage.prompt_tokens, locale)),
+        format!("{} out", format_count(usage.completion_tokens, locale)),
     ];
     if let Some(cached) = usage.cached_tokens.filter(|count| *count > 0) {
-        parts.push(format!("{} cached", format_count(cached)));
+        parts.push(format!("{} cached", format_count(cached, locale)));
     }
     if let Some(reasoning) = usage.reasoning_tokens.filter(|count| *count > 0) {
-        parts.push(format!("{} reasoning", format_count(reasoning)));
+        parts.push(format!("{} reasoning", format_count(reasoning, locale)));
     }
     parts.join(" / ")
 }
@@ -1074,7 +1064,7 @@ impl TurnRenderer {
                 },
                 self.t
                     .tr(keys::render::MESSAGES, args!["count" => row.iterations]),
-                format_usage(&row.usage),
+                format_usage(&row.usage, self.t.locale().as_str()),
                 format_duration(elapsed),
             ];
             let timing = TurnTiming {
@@ -1365,7 +1355,10 @@ impl TurnRenderer {
         };
         let mut parts = vec![
             format_duration(elapsed),
-            format!("{} out", format_count(stats.usage.completion_tokens)),
+            format!(
+                "{} out",
+                format_count(stats.usage.completion_tokens, self.t.locale().as_str())
+            ),
         ];
         if let Some(rate) = turn_rate(&stats.usage, &timing) {
             parts.push(format!("{rate:.0} tok/s"));

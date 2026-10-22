@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   durationParts,
-  formatCompactNumber,
   formatDate,
   formatNumber,
   formatRelativeSpan,
+  formatTokenCount,
+  formatWindowShare,
   pluralCategory,
   relativeSpan,
   type RelativeSpan,
@@ -27,11 +28,49 @@ describe('formatNumber', () => {
   });
 });
 
-describe('formatCompactNumber', () => {
-  it('shortens for a line that has no room to spare', () => {
-    expect(formatCompactNumber(1200, 'en')).toBe('1.2K');
-    expect(formatCompactNumber(88, 'en')).toBe('88');
-    expect(formatCompactNumber(Number.NaN, 'en')).toBe('—');
+describe('formatTokenCount', () => {
+  // The same table as `crates/i18n/tests/format.rs`, so the web and the
+  // terminal shorten a count identically.
+  const vectors: ReadonlyArray<readonly [number, string, string]> = [
+    [0, '0', '0'],
+    [950, '950', '950'],
+    [999, '999', '999'],
+    [1_000, '1k', '1k'],
+    [1_234, '1.23k', '1,23k'],
+    [8_192, '8.19k', '8,19k'],
+    [9_995, '10k', '10k'],
+    [41_213, '41.2k', '41,2k'],
+    [65_536, '65.5k', '65,5k'],
+    [99_950, '100k', '100k'],
+    [131_072, '131k', '131k'],
+    [200_000, '200k', '200k'],
+    [999_499, '999k', '999k'],
+    [999_950, '1M', '1M'],
+    [1_048_576, '1.05M', '1,05M'],
+    [12_345_678, '12.3M', '12,3M'],
+  ];
+
+  it.each(vectors)('shortens %d to %s, and %s in German', (value, en, de) => {
+    expect(formatTokenCount(value, 'en')).toBe(en);
+    expect(formatTokenCount(value, 'de')).toBe(de);
+  });
+
+  it('keeps a sign and survives what is not a number', () => {
+    expect(formatTokenCount(-41_213, 'en')).toBe('-41.2k');
+    expect(formatTokenCount(-0.2, 'en')).toBe('0');
+    expect(formatTokenCount(Number.NaN, 'en')).toBe('—');
+  });
+});
+
+describe('formatWindowShare', () => {
+  it('is never full until it is over, and never empty while holding anything', () => {
+    expect(formatWindowShare(0, 65_536)).toBe('0%');
+    expect(formatWindowShare(41_213, 65_536)).toBe('63%');
+    expect(formatWindowShare(1, 65_536)).toBe('<1%');
+    expect(formatWindowShare(65_535, 65_536)).toBe('99%');
+    expect(formatWindowShare(65_536, 65_536)).toBe('100%');
+    expect(formatWindowShare(73_400, 65_536)).toBe('112%');
+    expect(formatWindowShare(10, 0)).toBe('0%');
   });
 });
 

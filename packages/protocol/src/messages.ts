@@ -130,6 +130,22 @@ export const StepStatsSchema = z.object({
   generationTokens: z.number().int().nonnegative().optional(),
   /** The step's first request to its first token. */
   firstTokenMs: z.number().int().nonnegative().optional(),
+  /**
+   * The provider's prompt count beside the estimator's figure for the same
+   * requests, which is what turns the context meter's estimate into the
+   * provider's own number.
+   *
+   * Summed over the step's trusted calls only, so the pair stays a ratio when
+   * `usage` also holds a call that reported nothing. `model` is the id that was
+   * requested, not the one reported, so it can be compared with the agent's.
+   */
+  calibration: z
+    .object({
+      reportedTokens: z.number().int().positive(),
+      estimatedTokens: z.number().int().positive(),
+      model: z.string(),
+    })
+    .optional(),
 });
 export type StepStats = z.infer<typeof StepStatsSchema>;
 

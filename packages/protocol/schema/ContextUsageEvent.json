@@ -33,6 +33,10 @@
       "additionalProperties": {
         "type": "number"
       }
+    },
+    "measured": {
+      "default": false,
+      "type": "boolean"
     }
   },
   "required": [

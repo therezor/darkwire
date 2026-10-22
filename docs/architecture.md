@@ -165,7 +165,7 @@ command looks alive rather than hung.
 
 `context.usage` is the one that is not about the turn. It goes out at the end of each
 iteration, once the tool results are written, and reports what the next request would
-cost — the same numbers `describe_context` gives the REST route and the CLI, measured from
+cost: the same numbers `describe_context` gives the REST route and the CLI, measured from
 the prompt the iteration already composed rather than from a second assembly. The
 measurement runs through `wire_encode`, the module the transport builds its body
 with, so the figures price the request rather than the stored records and nothing the
@@ -173,6 +173,22 @@ provider never receives is billed to the window. Only the
 root loop emits it: a subagent measures its own session, which is not the one anybody is
 reading, and `ContextUsageEvent` sits outside `NestedAgentEvent` so that is a compile
 error rather than a convention.
+
+**The figure is the provider's count once it has one.** The estimate is a character
+heuristic (four UTF-16 units a token, about 1.4 characters a token for Han, kana and
+Hangul, a fixed 1,800 per image, an attachment at the size the request will carry). After
+every request the loop stores the provider's `prompt_tokens` beside its estimate of that
+same request, as `calibration` on the step's `StepStats`. The meter multiplies every
+section by the newest ratio for the agent's model, so right after a request the total is
+the provider's own number, and what was added since is priced at the ratio it just
+showed. The history trimmer budgets on the same scaled figure, so the meter and the
+request agree. A sample is not stored when the provider reported nothing, when it claims
+more cached tokens than it counted, when the retry ladder rewrote the request, or when
+the ratio is outside a factor of four. The budget never believes a ratio below 0.75: a
+server that truncates the prompt to a smaller context (Ollama's `num_ctx`) reports less
+than it was sent, and the loop says so in a `truncated_history` notice instead of
+growing the history to match. `measured` on the frame and on the REST response says
+which kind of number it is.
 
 `notice` is the loop telling the operator something without derailing the turn:
 `prompt_injection`, `degraded`, `truncated_history`, `provider_fallback`,

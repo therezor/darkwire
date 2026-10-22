@@ -360,6 +360,46 @@ pub struct StepStats {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub first_token_ms: Option<u64>,
+    /// The provider's prompt count beside the estimator's figure for the same
+    /// requests, which is what turns the context meter's estimate into the
+    /// provider's own number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub calibration: Option<Calibration>,
+}
+
+/// One step's prompt, counted twice: by the provider and by the estimator.
+///
+/// Summed over the step's trusted calls only, so the pair stays a ratio when
+/// `usage` also holds a call that reported nothing. `model` is the id that was
+/// requested, not the one reported, so it can be compared with the agent's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct Calibration {
+    /// What the provider counted.
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub reported_tokens: u64,
+    /// What the estimator priced the same requests at.
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub estimated_tokens: u64,
+    /// The model the requests named.
+    pub model: String,
+}
+
+impl Calibration {
+    /// Reported over estimated: what an estimate is multiplied by to read as
+    /// the provider's count.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "token counts are far below 2^53"
+    )]
+    #[must_use]
+    pub fn ratio(&self) -> f64 {
+        self.reported_tokens as f64 / self.estimated_tokens as f64
+    }
 }
 
 /// Completion tokens per second, or `None` when the figure would be a lie.

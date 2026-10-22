@@ -871,6 +871,12 @@ impl AgentView for CliAgentView {
             .map_or(self.max_tokens, darkwire_agent::AgentLoop::max_tokens)
     }
 
+    fn vision_enabled(&self) -> bool {
+        self.agent_loop
+            .as_ref()
+            .is_some_and(darkwire_agent::AgentLoop::vision_enabled)
+    }
+
     /// The loop's own composition, not a second assembly of it: memory and
     /// skills arrive as contributors attached to that object, and a
     /// reimplementation here could not see them.

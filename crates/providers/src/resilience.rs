@@ -578,6 +578,11 @@ impl Recovery {
         }
     }
 
+    /// Whether any step has rewritten the request.
+    fn degraded(&self) -> bool {
+        !self.fired.is_empty()
+    }
+
     async fn recover(
         &mut self,
         error: &ProviderError,
@@ -635,20 +640,21 @@ impl Recovery {
 }
 
 /// Runs `run` against the request, recovering until the ladder and the retry
-/// budget are both spent.
+/// budget are both spent. Also says whether a step rewrote the request on the
+/// way.
 async fn attempt<T, F>(
     request: ChatRequest,
     config: &Resolved,
     token: &CancellationToken,
     run: impl Fn(ChatRequest) -> F,
-) -> Result<T>
+) -> Result<(T, bool)>
 where
     F: Future<Output = Result<T>>,
 {
     let mut recovery = Recovery::new(request, config);
     loop {
         match run(recovery.request.clone()).await {
-            Ok(value) => return Ok(value),
+            Ok(value) => return Ok((value, recovery.degraded())),
             Err(raw) => {
                 let error = ProviderError::of(&raw);
                 if !recovery.recover(&error, config, token).await? {
@@ -704,11 +710,13 @@ impl ChatProvider for Resilient {
     ) -> BoxFuture<'a, Result<ChatResult>> {
         Box::pin(async move {
             let inner = Arc::clone(&self.inner);
-            attempt(request.clone(), &self.config, token, |req| {
+            let (mut result, degraded) = attempt(request.clone(), &self.config, token, |req| {
                 let inner = Arc::clone(&inner);
                 async move { inner.chat(&req, token).await }
             })
-            .await
+            .await?;
+            result.degraded |= degraded;
+            Ok(result)
         })
     }
 
@@ -790,9 +798,10 @@ impl StreamRecovery {
                     self.finished = true;
                     return None;
                 }
-                Some(Ok(event)) => {
+                Some(Ok(mut event)) => {
                     self.emitted = true;
-                    if matches!(event, ChatStreamEvent::Done(_)) {
+                    if let ChatStreamEvent::Done(result) = &mut event {
+                        result.degraded |= self.recovery.degraded();
                         self.finished = true;
                         self.current = None;
                     }
@@ -837,7 +846,7 @@ impl StreamRecovery {
         });
         let inner = Arc::clone(&self.inner);
         let token = self.token.clone();
-        let result = attempt(
+        let (mut result, degraded) = attempt(
             self.recovery.request.clone(),
             &self.config,
             &self.token,
@@ -848,6 +857,7 @@ impl StreamRecovery {
             },
         )
         .await?;
+        result.degraded |= degraded || self.recovery.degraded();
         self.pending.extend(synthesise_stream(&result));
         self.finished = true;
         Ok(())

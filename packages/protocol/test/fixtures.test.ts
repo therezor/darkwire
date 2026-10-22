@@ -1322,6 +1322,11 @@ const SERVER_FRAMES: readonly Json[] = [
       generationMs: 800,
       generationTokens: 40,
       firstTokenMs: 300,
+      calibration: {
+        reportedTokens: 60,
+        estimatedTokens: 66,
+        model: 'qwen3:8b',
+      },
     },
     turnElapsedMs: 6100,
   },
@@ -1344,6 +1349,7 @@ const SERVER_FRAMES: readonly Json[] = [
     estimatedTokens: 1200,
     contextWindowTokens: 65_536,
     breakdown: { systemPrompt: 400, messages: 800 },
+    measured: true,
   },
   {
     type: 'session.status',

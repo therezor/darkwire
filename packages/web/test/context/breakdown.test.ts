@@ -166,3 +166,29 @@ describe('summariseContext', () => {
     expect(budget.uncachedTokens).toBe(120);
   });
 });
+
+describe('how loud the budget is', () => {
+  const at = (estimatedTokens: number): ReturnType<typeof summariseContext> =>
+    summariseContext({ ...input, estimatedTokens }, t);
+
+  it('is calm until the last fifth, then warns, then is danger', () => {
+    expect(at(7_999).tone).toBe('calm');
+    expect(at(8_000).tone).toBe('warning');
+    expect(at(9_500).tone).toBe('danger');
+    expect(at(12_000).tone).toBe('danger');
+  });
+
+  it('reads the share the way the terminal does', () => {
+    expect(at(5_000).share).toBe('50%');
+    expect(at(9_990).share).toBe('99%');
+    expect(at(3).share).toBe('<1%');
+    expect(at(12_000).share).toBe('120%');
+  });
+
+  it('is an estimate unless the server says it measured', () => {
+    expect(summariseContext(input, t).measured).toBe(false);
+    expect(summariseContext({ ...input, measured: true }, t).measured).toBe(
+      true,
+    );
+  });
+});

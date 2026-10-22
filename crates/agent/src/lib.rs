@@ -40,8 +40,8 @@ pub use approval::{
     denied_tool_result,
 };
 pub use attachments::{
-    AttachmentCache, MAX_INLINE_TEXT_BYTES, MaterialiseOptions, materialise_attachments,
-    materialise_file_part,
+    AttachmentCache, MAX_INLINE_TEXT_BYTES, MaterialiseOptions, attachment_tokens,
+    materialise_attachments, materialise_file_part,
 };
 pub use context::{
     ContextBreakdown, ContextReport, MeasureContext, MeasureWindow, describe_context,
@@ -54,8 +54,8 @@ pub use dispatch::{
 };
 pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
 pub use history_window::{
-    FixedCost, HISTORY_BUDGET_FACTOR, RowPrices, WindowedHistory, history_budget, read_history,
-    token_window_start, window_records, windowed_history,
+    FixedCost, HISTORY_BUDGET_FACTOR, MIN_BUDGET_RATIO, RowPrices, WindowedHistory, calibration_of,
+    history_budget, read_history, token_window_start, window_records, windowed_history,
 };
 pub use length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 pub use memory_contributor::{MemoryContributor, render_memory_section};

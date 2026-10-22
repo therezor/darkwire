@@ -267,6 +267,7 @@ fn keeps_the_session_scoped_frames_out_so_a_replay_raises_no_second_toast() {
             estimated_tokens: 10,
             context_window_tokens: 100,
             breakdown: IndexMap::new(),
+            measured: false,
         },
     }));
     log.push(&ServerMessage::Notification(Sequenced {

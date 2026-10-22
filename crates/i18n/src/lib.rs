@@ -30,7 +30,7 @@ pub mod keys {
 pub use bundle::{Bundle, BundleError, CLI_NAMESPACE, cli_bundle};
 pub use format::{
     DurationParts, DurationUnit, PluralCategory, RelativeSpan, SpanUnit, duration_parts,
-    format_number, plural_category, relative_span,
+    format_number, format_token_count, format_window_share, plural_category, relative_span,
 };
 pub use locale::{
     DEFAULT_LOCALE, Locale, SUPPORTED_LOCALES, cli_locale_candidates, is_rtl, match_locale,

@@ -742,6 +742,7 @@ impl Inner {
                 .map_or_else(|| request.model.clone(), str::to_owned),
             generation_ms: None,
             first_token_ms: None,
+            degraded: false,
         })
     }
 
@@ -946,6 +947,7 @@ impl StreamState {
             generation_ms: timings.map(|(first, last)| ms_of(last.saturating_sub(first))),
             first_token_ms: timings
                 .map(|(first, _)| ms_of(first.saturating_sub(self.requested_at))),
+            degraded: false,
         }));
     }
 

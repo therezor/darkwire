@@ -143,6 +143,7 @@ export function useConnection(sessionKey: string | undefined): void {
                       estimatedTokens: message.estimatedTokens,
                       contextWindowTokens: message.contextWindowTokens,
                       breakdown: message.breakdown,
+                      measured: message.measured,
                     },
             );
             return;

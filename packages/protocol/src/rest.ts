@@ -530,6 +530,11 @@ export const ContextResponseSchema = z.object({
   /** Section name → token cost, so an oversized block is visible. */
   breakdown: z.record(z.string(), z.number()).default({}),
   /**
+   * Whether the figures are calibrated against the provider's count of an
+   * earlier request in this conversation. False means a character estimate.
+   */
+  measured: z.boolean().default(false),
+  /**
    * The agent these figures describe — the one a turn would actually run on.
    *
    * Not always the session's binding: an agent can be deleted out from under a

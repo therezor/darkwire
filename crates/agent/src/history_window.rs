@@ -10,7 +10,8 @@
 //! The cut only lands where a turn opens, so the model never sees half of an
 //! earlier exchange, and never past the message that opened the turn being
 //! answered. Tokens are the body-shaped estimate from
-//! `darkwire-providers`, the same figure the context report prices.
+//! `darkwire-providers`, the same figure the context report prices, scaled by
+//! the provider's own count of the last request (see [`calibration_of`]).
 
 use std::collections::HashMap;
 
@@ -19,18 +20,31 @@ use darkwire_core::history::{
 };
 use darkwire_core::session_store::{ReadMessages, StoredMessageRecord};
 use darkwire_core::{Result, SessionStore};
-use darkwire_protocol::ChatMessage;
+use darkwire_protocol::{ChatMessage, ContentPart};
 use darkwire_providers::estimate_message_tokens;
+
+use crate::attachments::{MaterialiseOptions, attachment_tokens};
 
 /// The share of what is left after the fixed costs that the history may use.
 ///
-/// The estimate is characters over four, and a real tokenizer can count a
-/// dense line higher. The margin is what keeps that error from turning into a
-/// context-length rejection.
+/// Room for what the scaled estimate still gets wrong: the rows added since the
+/// provider last counted, which are priced at the old request's ratio and may
+/// not share it. Without a provider count it is all that stands between a
+/// character estimate and a context-length rejection.
 pub const HISTORY_BUDGET_FACTOR: f64 = 0.9;
 
+/// The lowest ratio the budget will believe.
+///
+/// The worst steady overcount of the estimate is English prose, at about 0.79.
+/// A provider reporting less than this is more likely truncating what it was
+/// sent (Ollama with a `num_ctx` below the configured window) than counting a
+/// smaller prompt. Believing it would grow the budget, which grows the request,
+/// which the server truncates further, so the budget stops here and the loop
+/// says why. The meter still reports the provider's figure.
+pub const MIN_BUDGET_RATIO: f64 = 0.75;
+
 /// What a request costs before any history is added.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FixedCost {
     /// The window the whole request has to fit. `0` means unknown.
     pub context_window_tokens: u64,
@@ -38,26 +52,54 @@ pub struct FixedCost {
     pub prompt_tokens: usize,
     /// The completion the request asks room for.
     pub max_output_tokens: u64,
+    /// Provider tokens per estimated token, or `None` before the provider has
+    /// counted a request on this model.
+    pub calibration: Option<f64>,
 }
 
-/// The tokens the history may take, or `None` when no window is known.
+/// The tokens the history may take, in estimate units, or `None` when no
+/// window is known.
+///
+/// The window is in the provider's tokens, so the fixed costs are scaled up to
+/// meet it and what is left is scaled back down to the units rows are priced
+/// in.
 pub fn history_budget(cost: &FixedCost) -> Option<usize> {
     if cost.context_window_tokens == 0 {
         return None;
     }
-    let prompt = u64::try_from(cost.prompt_tokens).unwrap_or(u64::MAX);
-    let left = cost
-        .context_window_tokens
-        .saturating_sub(prompt)
-        .saturating_sub(cost.max_output_tokens);
+    let ratio = cost
+        .calibration
+        .map_or(1.0, |ratio| ratio.max(MIN_BUDGET_RATIO));
     #[allow(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "a token count far below 2^53, scaled by a factor below one"
+        reason = "token counts far below 2^53; the result is clamped at zero first"
     )]
-    let budget = (left as f64 * HISTORY_BUDGET_FACTOR) as u64;
+    let budget = {
+        let left = cost.context_window_tokens as f64
+            - cost.prompt_tokens as f64 * ratio
+            - cost.max_output_tokens as f64;
+        (left.max(0.0) * HISTORY_BUDGET_FACTOR / ratio) as u64
+    };
     Some(usize::try_from(budget).unwrap_or(usize::MAX))
+}
+
+/// Provider tokens per estimated token, from the newest step in `records` the
+/// provider counted, when that step ran on `model`.
+///
+/// The newest only, and none when it ran on another model: a different
+/// tokenizer's ratio says nothing about this one, and the first request on the
+/// new model replaces it.
+pub fn calibration_of(records: &[StoredMessageRecord], model: &str) -> Option<f64> {
+    let newest = records
+        .iter()
+        .rev()
+        .find_map(|record| match &record.message {
+            ChatMessage::Assistant(assistant) => assistant.stats.as_ref()?.calibration.as_ref(),
+            _ => None,
+        })?;
+    (newest.model == model).then(|| newest.ratio())
 }
 
 /// Token estimates of stored rows, by row id.
@@ -65,18 +107,53 @@ pub fn history_budget(cost: &FixedCost) -> Option<usize> {
 /// A stored row never changes, so a turn prices each one once. Without this
 /// every iteration serialised the whole window again, twice: once to budget
 /// the request and once to report the context.
-#[derive(Debug, Default)]
+///
+/// An attachment is priced as the request carries it, not as the reference
+/// the row stores: the file's text or a vision model's image, read off the
+/// part's type and size without touching the disk.
+#[derive(Debug)]
 pub struct RowPrices {
     by_id: HashMap<String, usize>,
+    attachments: MaterialiseOptions,
+}
+
+impl Default for RowPrices {
+    /// Images priced as a vision model reads them.
+    fn default() -> RowPrices {
+        RowPrices::new(true)
+    }
 }
 
 impl RowPrices {
+    /// Prices for an agent that does, or does not, send images.
+    pub fn new(images: bool) -> RowPrices {
+        RowPrices {
+            by_id: HashMap::new(),
+            attachments: MaterialiseOptions {
+                images,
+                ..MaterialiseOptions::default()
+            },
+        }
+    }
+
     /// What `record` costs in a request.
     pub fn of(&mut self, record: &StoredMessageRecord) -> usize {
         if let Some(&tokens) = self.by_id.get(&record.id) {
             return tokens;
         }
-        let tokens = estimate_message_tokens(&record.message);
+        let content = match &record.message {
+            ChatMessage::User(user) => user.content.as_slice(),
+            ChatMessage::Assistant(assistant) => assistant.content.as_slice(),
+            ChatMessage::System(_) | ChatMessage::Tool(_) => &[],
+        };
+        let attached: usize = content
+            .iter()
+            .map(|part| match part {
+                ContentPart::File(file) => attachment_tokens(file, self.attachments),
+                _ => 0,
+            })
+            .sum();
+        let tokens = estimate_message_tokens(&record.message) + attached;
         self.by_id.insert(record.id.clone(), tokens);
         tokens
     }

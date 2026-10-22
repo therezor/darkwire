@@ -191,6 +191,7 @@ pub fn result_of(text: &str) -> ChatResult {
         model: "test-model".to_owned(),
         generation_ms: None,
         first_token_ms: None,
+        degraded: false,
     }
 }
 

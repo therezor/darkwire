@@ -255,6 +255,7 @@ pub fn context_usage() -> ServerMessage {
         estimated_tokens: 100,
         context_window_tokens: 1000,
         breakdown: IndexMap::new(),
+        measured: false,
     }))
 }
 

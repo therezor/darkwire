@@ -42,6 +42,7 @@ fn result(text: &str, tool_calls: Vec<ToolCall>) -> ChatResult {
         model: "cheap".to_owned(),
         generation_ms: None,
         first_token_ms: None,
+        degraded: false,
     }
 }
 

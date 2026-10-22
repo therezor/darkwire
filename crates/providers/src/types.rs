@@ -176,6 +176,12 @@ pub struct ChatResult {
     /// the rate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_token_ms: Option<f64>,
+    /// Whether the degradation ladder rewrote the request before it succeeded.
+    ///
+    /// The usage then describes a smaller request than the one the caller
+    /// built, so a caller comparing the two has to know.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub degraded: bool,
 }
 
 /// A streaming event.

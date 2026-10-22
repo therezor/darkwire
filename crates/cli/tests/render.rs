@@ -275,8 +275,12 @@ fn format_duration_reads_at_a_glance_at_every_scale() {
 
 #[test]
 fn format_count_switches_to_thousands_past_999() {
-    assert_eq!(format_count(999), "999");
-    assert_eq!(format_count(1204), "1.2k");
+    assert_eq!(format_count(999, "en"), "999");
+    assert_eq!(format_count(1204, "en"), "1.2k");
+    // No `1.0k` and no `1000.0k`: zeros are dropped and the unit is picked
+    // after rounding.
+    assert_eq!(format_count(1000, "en"), "1k");
+    assert_eq!(format_count(999_950, "en"), "1M");
 }
 
 // -------------------------------------------------------- TurnRenderer

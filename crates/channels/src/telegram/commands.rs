@@ -20,6 +20,7 @@ use darkwire_core::session_store::{
     CreateSession, ForkSession, ListSessions, ReadMessages, SessionSummaryRecord, UpdateSession,
 };
 use darkwire_core::{ErrorKind, Result, SessionStore, WireError};
+use darkwire_i18n::{DEFAULT_LOCALE, format_number, format_token_count, format_window_share};
 use darkwire_protocol::tasks::render_tasks;
 use darkwire_protocol::{
     EditMessage, EditTag, RegenerateMessage, RegenerateTag, StopTurnMessage, StopTurnTag,
@@ -536,27 +537,27 @@ fn run_context<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandR
         // The breakdown, not the transcript. A context report also carries the
         // whole system prompt, every tool definition and every stored message,
         // which in a chat app is thousands of lines nobody asked for.
+        //
+        // A chat has no locale of its own, so the install default. The headline
+        // is shortened the way the web strip is; the rows stay exact.
+        let locale = DEFAULT_LOCALE.as_str();
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "a section's token count is a whole number far below 2^53"
+        )]
         let rows: Vec<String> = report
             .breakdown
             .iter()
-            .map(|(name, tokens)| format!("  {name}: {tokens}"))
+            .map(|(name, tokens)| {
+                format!("  {name}: {}", format_number(tokens.round() as i64, locale))
+            })
             .collect();
-        let percent = if report.context_window_tokens > 0 {
-            #[allow(
-                clippy::cast_precision_loss,
-                reason = "a token count below 2^53, rendered as a whole percent"
-            )]
-            {
-                ((report.estimated_tokens as f64 / report.context_window_tokens as f64) * 100.0)
-                    .round()
-            }
-        } else {
-            0.0
-        };
+        let marker = if report.measured { "" } else { "~" };
         Ok(CommandResult::say(format!(
-            "{} of {} tokens ({percent}%), on agent `{}`\n{}",
-            report.estimated_tokens,
-            report.context_window_tokens,
+            "{marker}{} of {} tokens ({}), on agent `{}`\n{}",
+            format_token_count(report.estimated_tokens, locale),
+            format_token_count(report.context_window_tokens, locale),
+            format_window_share(report.estimated_tokens, report.context_window_tokens),
             report.agent_id.as_deref().unwrap_or("default"),
             rows.join("\n")
         )))

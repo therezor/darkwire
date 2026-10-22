@@ -15,7 +15,7 @@
 //! context budget and the model — are the ones anchored to the right edge and
 //! the workspace name is what gets truncated when the window is narrow.
 
-use darkwire_i18n::keys;
+use darkwire_i18n::{format_token_count, format_window_share, keys};
 use darkwire_tui::{Theme, justify, pad_to_width, rule, truncate_to_width, visible_width};
 
 use crate::i18n::Translations;
@@ -64,6 +64,9 @@ pub struct ContextUsage {
     pub used_tokens: u64,
     /// The model's budget.
     pub window_tokens: u64,
+    /// Whether the provider has counted a request on this model yet, so the
+    /// figure is its count rather than a character estimate.
+    pub measured: bool,
 }
 
 /// Everything the header and the status bar draw, already looked up.
@@ -96,6 +99,8 @@ pub struct HeaderView {
     pub session_key: String,
     /// Absent until a turn has run and there is something to measure.
     pub context: Option<ContextUsage>,
+    /// The install's locale, for the decimal separator in a shortened count.
+    pub locale: String,
 }
 
 /// The six labelled rows, in the order they are printed.
@@ -169,23 +174,26 @@ pub fn startup_header(
     lines.join("\n")
 }
 
-/// `12.4%/128k`, or nothing at all before a turn has been measured.
+/// `63%/65.5k`, or nothing at all before a turn has been measured.
+///
+/// `~` leads while the figure is a character estimate the provider has not
+/// counted yet. The percent and the window follow the web strip's rules, so a
+/// conversation open in both reads the same.
 ///
 /// A window of nothing answers nothing rather than dividing by it: an
 /// unconfigured agent has no budget, and `NaN%` on the status bar is worse than
 /// a blank.
 #[must_use]
-pub fn context_label(context: Option<&ContextUsage>) -> String {
+pub fn context_label(context: Option<&ContextUsage>, locale: &str) -> String {
     let Some(context) = context.filter(|usage| usage.window_tokens > 0) else {
         return String::new();
     };
-    // Token counts are far below 2^53, where an f64 is still exact.
-    #[allow(clippy::cast_precision_loss)]
-    let percent = (context.used_tokens as f64 / context.window_tokens as f64) * 100.0;
-    // Nearest thousand, rounding halves up, without going through a float: a
-    // budget is an integer and the label is read at a glance.
-    let window = context.window_tokens.saturating_add(500) / 1000;
-    format!("{percent:.1}%/{window}k")
+    let marker = if context.measured { "" } else { "~" };
+    format!(
+        "{marker}{}/{}",
+        format_window_share(context.used_tokens, context.window_tokens),
+        format_token_count(context.window_tokens, locale)
+    )
 }
 
 /// The rule and the two status rows that sit under the editor.
@@ -195,7 +203,7 @@ pub fn context_label(context: Option<&ContextUsage>) -> String {
 /// before the prompt is drawn.
 #[must_use]
 pub fn status_bar(view: &HeaderView, width: usize, theme: &Theme) -> Vec<String> {
-    let context = context_label(view.context.as_ref());
+    let context = context_label(view.context.as_ref(), &view.locale);
     let model = if view.provider.is_empty() {
         view.model.clone()
     } else {

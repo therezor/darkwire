@@ -38,6 +38,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use darkwire_core::messages::{ImageSource, image_part, text_part};
 use darkwire_core::workspace_files::{DEFAULT_MIME_TYPE, mime_type_for, read_text};
 use darkwire_protocol::{ChatMessage, ContentPart, FilePart};
+use darkwire_providers::IMAGE_TOKENS;
 use darkwire_security::{JailCheck, WorkspaceJail};
 use darkwire_tools::format_bytes;
 use regex::Regex;
@@ -54,9 +55,8 @@ const MAX_INLINE_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// Not the 512 KiB a human scrolling an editor gets: that much prose is well
 /// over 100k tokens, so one attachment could fill a context window on its own.
-/// 32 KiB is a long source file or a few thousand CSV rows, and it keeps the
-/// drift in the context meter — which sizes the *stored* reference, not this —
-/// small enough to ignore.
+/// 32 KiB is a long source file or a few thousand CSV rows, about 8k tokens,
+/// which [`attachment_tokens`] adds to the meter before the file is ever read.
 pub const MAX_INLINE_TEXT_BYTES: u64 = 32 * 1024;
 
 /// The most bytes one request will inline across *all* its attachments.
@@ -146,6 +146,38 @@ fn header(path: &str, mime_type: &str, size_bytes: u64) -> String {
         "[attachment: {path} · {mime_type} · {}]",
         format_bytes(size_bytes)
     )
+}
+
+/// What an attachment adds to a request beyond the reference line its stored
+/// row is priced at: the text or the image [`materialise_file_part`] would put
+/// there.
+///
+/// Read off the part's type and recorded size, with no I/O, because it prices
+/// every row of the window on every iteration. It follows the same branches but
+/// cannot run the NUL-byte check, so a small binary file is priced as text, and
+/// the request-wide byte budget is not modelled. The provider's count of the
+/// first request that carries the file corrects both.
+pub fn attachment_tokens(part: &FilePart, options: MaterialiseOptions) -> usize {
+    let Some(size) = part.size_bytes.filter(|size| *size > 0) else {
+        return 0;
+    };
+    let derived = mime_type_for(&part.path);
+    let mime_type = if derived == DEFAULT_MIME_TYPE {
+        part.mime_type.as_str()
+    } else {
+        derived
+    };
+    if mime_type.starts_with("image/") {
+        return if options.images && size <= options.max_image_bytes {
+            IMAGE_TOKENS
+        } else {
+            0
+        };
+    }
+    if size <= options.max_text_bytes {
+        return usize::try_from(size.div_ceil(4)).unwrap_or(usize::MAX);
+    }
+    0
 }
 
 /// Where an attachment is, or nothing if it is not addressable.

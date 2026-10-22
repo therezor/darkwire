@@ -32,11 +32,12 @@ export {
 
 export {
   durationParts,
-  formatCompactNumber,
   formatDate,
   formatDateTime,
   formatNumber,
   formatRelativeSpan,
+  formatTokenCount,
+  formatWindowShare,
   pluralCategory,
   relativeSpan,
   type RelativeSpan,

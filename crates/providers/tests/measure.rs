@@ -8,9 +8,11 @@
 
 use crate::common;
 
-use darkwire_core::messages::{FileDetails, file_part, text_part};
+use darkwire_core::messages::{FileDetails, ImageSource, file_part, image_part, text_part};
 use darkwire_protocol::{ToolAnnotations, ToolDefinition, ToolRisk, ToolSource};
-use darkwire_providers::{estimate_message_tokens, estimate_tokens, estimate_tool_tokens};
+use darkwire_providers::{
+    IMAGE_TOKENS, estimate_message_tokens, estimate_tokens, estimate_tool_tokens,
+};
 use serde_json::json;
 
 fn tool() -> ToolDefinition {
@@ -105,5 +107,23 @@ fn bills_the_three_fields_a_body_carries_and_prices_the_array() {
     assert!(
         estimate_tool_tokens(&[definition.clone(), definition.clone()])
             > estimate_tool_tokens(&[definition])
+    );
+}
+
+#[test]
+fn prices_an_image_by_the_picture_not_by_its_base64() {
+    let with = |data: String| {
+        common::user_parts(vec![
+            text_part("look"),
+            image_part("image/png", ImageSource::Data(data)),
+        ])
+    };
+    // A megabyte of base64 was a quarter of a million tokens by characters.
+    let large = estimate_message_tokens(&with("A".repeat(1_000_000)));
+    let small = estimate_message_tokens(&with("A".repeat(10)));
+    assert_eq!(large, small);
+    assert!(
+        (IMAGE_TOKENS..IMAGE_TOKENS + 50).contains(&large),
+        "{large}"
     );
 }

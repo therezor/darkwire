@@ -9,6 +9,7 @@
     "breakdown": {
       "systemPrompt": 400,
       "messages": 800
-    }
+    },
+    "measured": true
   }
 }

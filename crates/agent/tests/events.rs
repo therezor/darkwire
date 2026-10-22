@@ -303,6 +303,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             estimated_tokens: 1,
             context_window_tokens: 2,
             breakdown: indexmap::IndexMap::new(),
+            measured: false,
         }
         .into(),
     ];

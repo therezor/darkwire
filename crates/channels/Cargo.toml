@@ -21,6 +21,7 @@ testkit = []
 
 [dependencies]
 darkwire-core.workspace = true
+darkwire-i18n.workspace = true
 darkwire-protocol.workspace = true
 darkwire-security.workspace = true
 futures.workspace = true

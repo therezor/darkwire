@@ -311,6 +311,10 @@ impl AgentView for FakeAgentView {
         self.max_tokens
     }
 
+    fn vision_enabled(&self) -> bool {
+        true
+    }
+
     fn system_prompt<'a>(
         &'a self,
         input: &'a PromptPreviewInput,

@@ -283,6 +283,8 @@
       "tools": "how the next tool’s output arrives"
     },
     "notes": {
+      "contextEstimated": "estimated from characters until the model replies",
+      "contextMeasured": "the provider's count at the last reply, plus an estimate of what was added since",
       "created": "created {{id}}",
       "deleted": "deleted {{key}}",
       "deletedMessage": "dropped the last exchange",

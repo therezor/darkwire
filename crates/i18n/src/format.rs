@@ -1,23 +1,21 @@
 //! The locale-aware primitives, shared; the presentation is not.
 //!
-//! A settings panel renders a token budget as `8,192` and a terminal status line
-//! renders the same interval as `2m 30s` rather than a sentence, and that
-//! difference is deliberate — a panel has a column to spend and a status line
-//! does not. So what is shared here is the part that is *locale* knowledge
-//! (which separator, which plural category, which unit) and not the part that
-//! is *layout* judgement.
+//! What is shared here is the part that is *locale* knowledge (which separator,
+//! which plural category, which unit) and the rules both surfaces must agree on,
+//! such as how a token count shortens to `41.2k`. Which surface shows the short
+//! form and which the exact one is layout judgement, and stays with the surface.
 //!
 //! Every function takes the locale explicitly. That is the entire fix for the
 //! bug a hand-rolled comma grouper once worked around: a machine set to `de-DE`
 //! rendered 8192 as `8.192`, which reads as eight in the one panel whose job is
-//! making a budget legible. The problem was never that grouping is locale-aware
-//! — it is that the locale was *implicit*, and so was whatever the machine
+//! making a budget legible. The problem was never that grouping is locale-aware;
+//! it is that the locale was *implicit*, and so was whatever the machine
 //! happened to be set to. Passed in, it is the install's locale on every machine.
 //!
-//! Only the primitives the terminal needs are here: number grouping, plural
-//! categories, and the two pure arithmetic helpers behind "2m 30s" and "5m ago".
-//! Absolute dates, compact numbers and worded intervals need CLDR pattern data
-//! the terminal has no caller for, and are left to the web layer.
+//! Only the primitives the terminal needs are here: number grouping, the short
+//! token count, plural categories, and the two pure arithmetic helpers behind
+//! "2m 30s" and "5m ago". Absolute dates and worded intervals need CLDR pattern
+//! data the terminal has no caller for, and are left to the web layer.
 
 pub use icu_plurals::PluralCategory;
 use icu_plurals::{PluralOperands, PluralRules, PluralRulesOptions};
@@ -52,11 +50,93 @@ pub fn format_number(value: i64, locale: &str) -> String {
 /// this is the whole of what the terminal needs, and CLDR number data is a
 /// dependency worth taking when a second locale ships, not before.
 fn grouping_separator(locale: &str) -> &'static str {
-    let normalised = normalise_locale(Some(locale));
-    match normalised.split('-').next().unwrap_or("") {
+    match language(locale).as_str() {
         "de" => ".",
         _ => ",",
     }
+}
+
+/// The decimal separator, from the same table as [`grouping_separator`].
+fn decimal_separator(locale: &str) -> &'static str {
+    match language(locale).as_str() {
+        "de" => ",",
+        _ => ".",
+    }
+}
+
+fn language(locale: &str) -> String {
+    let normalised = normalise_locale(Some(locale));
+    normalised.split('-').next().unwrap_or("").to_owned()
+}
+
+/// A token count shortened to three significant digits: `950`, `1.23k`,
+/// `41.2k`, `131k`, `1.05M`.
+///
+/// The same rule as `formatTokenCount` in `@darkwire/i18n`, and the two share
+/// their test vectors. Not CLDR's compact notation, which leaves German
+/// thousands unabbreviated (`41.200`, a rounded number that reads as exact) and
+/// counts Japanese in 万. The suffix is the SI one in every language; only the
+/// decimal separator follows the locale.
+///
+/// The unit is picked after rounding, so 999,950 is `1M` rather than `1000k`.
+/// Trailing zeros are dropped: `1k`, not `1.00k`.
+#[must_use]
+pub fn format_token_count(value: u64, locale: &str) -> String {
+    if value < 1000 {
+        return value.to_string();
+    }
+    let (units, decimals, suffix) = shortened(value);
+    let scale = 10u64.pow(decimals);
+    let whole = units / scale;
+    let fraction = format!("{:0width$}", units % scale, width = decimals as usize);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        format!("{whole}{suffix}")
+    } else {
+        format!("{whole}{}{fraction}{suffix}", decimal_separator(locale))
+    }
+}
+
+/// How much of a context window is used, as a whole percent: `63%`.
+///
+/// Never `100%` while the request still fits, because a full bar that is not
+/// over reads as a request about to fail. Never `0%` for a window holding
+/// anything: that reads as empty. Past the window the real figure, so
+/// `112%` says by how much. The web strip uses the same rule.
+#[must_use]
+pub fn format_window_share(used: u64, window: u64) -> String {
+    if window == 0 || used == 0 {
+        return "0%".to_owned();
+    }
+    let hundredfold = u128::from(used) * 100;
+    let window = u128::from(window);
+    if hundredfold < window {
+        return "<1%".to_owned();
+    }
+    let rounded = (hundredfold + window / 2) / window;
+    let shown = if hundredfold < window * 100 {
+        rounded.min(99)
+    } else {
+        rounded
+    };
+    format!("{shown}%")
+}
+
+/// `value` as three significant digits of thousands or millions: the digits,
+/// how many of them are decimals, and the suffix.
+fn shortened(value: u64) -> (u64, u32, &'static str) {
+    let mut last = (0, 0, "M");
+    for (base, suffix) in [(1_000u64, "k"), (1_000_000, "M")] {
+        for decimals in [2u32, 1, 0] {
+            let step = base / 10u64.pow(decimals);
+            let units = value.saturating_add(step / 2) / step;
+            last = (units, decimals, suffix);
+            if units < 1000 {
+                return last;
+            }
+        }
+    }
+    last
 }
 
 /// Which CLDR plural category a count falls into for this locale.

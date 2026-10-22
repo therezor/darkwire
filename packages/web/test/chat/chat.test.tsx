@@ -1923,7 +1923,9 @@ describe('the context strip', () => {
     await connect();
 
     expect(
-      await screen.findByRole('button', { name: /2,000 of 10,000 · 20%/ }),
+      await screen.findByRole('button', {
+        name: 'About 2,000 of 10,000 tokens · 20%',
+      }),
     ).toBeInTheDocument();
 
     // A step of a turn that is still running. The whole point of the frame:
@@ -1935,10 +1937,14 @@ describe('the context strip', () => {
       estimatedTokens: 7_000,
       contextWindowTokens: 10_000,
       breakdown: { systemPrompt: 1_500, tools: 400, messages: 5_100 },
+      measured: true,
     });
 
+    // No longer "about": the frame says the provider has counted a request.
     expect(
-      await screen.findByRole('button', { name: /7,000 of 10,000 · 70%/ }),
+      await screen.findByRole('button', {
+        name: '7,000 of 10,000 tokens · 70%',
+      }),
     ).toBeInTheDocument();
 
     // The numbers came off the frame. Refetching to learn them would pull the

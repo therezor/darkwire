@@ -19,6 +19,8 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { formatTokenCount } from '@darkwire/i18n';
+
 import { useAppLocale } from '@/i18n/i18n-context.js';
 import { useAppTimezone } from '@/timezone/timezone-context.js';
 
@@ -32,6 +34,8 @@ import {
 interface Formatters {
   /** A token count with the locale's grouping separator. */
   readonly tokens: (value: number) => string;
+  /** A token count shortened for a glance: `41.2k`. The CLI's rule too. */
+  readonly tokensShort: (value: number) => string;
   /** `just now`, `5m ago`, or a date once counting back stops working. */
   readonly relativeTime: (atMs: number, now: number) => string;
   /** A date with no time of day. For when the day is the answer. */
@@ -51,6 +55,7 @@ export function useFormat(): Formatters {
   return useMemo(
     () => ({
       tokens: (value: number) => formatTokens(value, resolved),
+      tokensShort: (value: number) => formatTokenCount(value, resolved),
       relativeTime: (atMs: number, now: number) =>
         formatRelativeTime(atMs, now, resolved, t),
       date: (atMs: number) => formatDate(atMs, resolved, timeZone),

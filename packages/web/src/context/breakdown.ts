@@ -24,6 +24,8 @@
 
 import type { TFunction } from 'i18next';
 
+import { formatWindowShare } from '@darkwire/i18n';
+
 import type { WebKey } from '@/i18n/keys.js';
 
 /** The order the three sections the server reports are always shown in. */
@@ -61,6 +63,16 @@ const CACHEABLE: ReadonlySet<string> = new Set([
   'messages',
 ]);
 
+/**
+ * How loud the figure should be. Ambient below 80%, a warning past it and
+ * danger from 95%, where other harnesses put the same two lines: the last
+ * fifth is when to start trimming, the last twentieth is when a turn fails.
+ */
+export type ContextTone = 'calm' | 'warning' | 'danger';
+
+const WARNING_PERCENT = 80;
+const DANGER_PERCENT = 95;
+
 export interface ContextSegment {
   /** The breakdown key, or `other` for the unaccounted remainder. */
   readonly key: string;
@@ -77,9 +89,20 @@ interface ContextBudget {
   readonly usedTokens: number;
   readonly windowTokens: number;
   readonly usedPercent: number;
+  /**
+   * The percent as it is read: whole, never `100%` while the request still
+   * fits, never `0%` for a window holding anything.
+   */
+  readonly share: string;
+  readonly tone: ContextTone;
   /** What is left, floored at zero: a negative "remaining" is not a quantity. */
   readonly freeTokens: number;
   readonly over: boolean;
+  /**
+   * Whether the server scaled the figures by the provider's own count of an
+   * earlier request. False means a character estimate.
+   */
+  readonly measured: boolean;
   /**
    * What every iteration costs again — the sections the cache cannot serve.
    *
@@ -94,10 +117,11 @@ interface ContextInput {
   readonly breakdown: Readonly<Record<string, number>>;
   readonly estimatedTokens: number;
   readonly contextWindowTokens: number;
+  readonly measured?: boolean;
 }
 
 export function summariseContext(
-  { breakdown, estimatedTokens, contextWindowTokens }: ContextInput,
+  { breakdown, estimatedTokens, contextWindowTokens, measured }: ContextInput,
   t: TFunction,
 ): ContextBudget {
   const windowTokens = contextWindowTokens > 0 ? contextWindowTokens : 0;
@@ -121,13 +145,23 @@ export function summariseContext(
     cacheable: CACHEABLE.has(key),
   }));
 
+  const usedPercent = percentOf(estimatedTokens);
+  const over = estimatedTokens > windowTokens;
   return {
     segments,
     usedTokens: estimatedTokens,
     windowTokens,
-    usedPercent: percentOf(estimatedTokens),
+    usedPercent,
+    share: formatWindowShare(estimatedTokens, windowTokens),
+    tone:
+      over || usedPercent >= DANGER_PERCENT
+        ? 'danger'
+        : usedPercent >= WARNING_PERCENT
+          ? 'warning'
+          : 'calm',
     freeTokens: Math.max(0, windowTokens - estimatedTokens),
-    over: estimatedTokens > windowTokens,
+    over,
+    measured: measured === true,
     uncachedTokens: segments
       .filter((segment) => !segment.cacheable)
       .reduce((total, segment) => total + segment.tokens, 0),

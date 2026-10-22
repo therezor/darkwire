@@ -762,6 +762,10 @@ pub struct ContextResponse {
     /// Section name → token cost, so an oversized block is visible.
     #[serde(default)]
     pub breakdown: IndexMap<String, f64>,
+    /// Whether the figures are calibrated against the provider's count of an
+    /// earlier request in this conversation. False means a character estimate.
+    #[serde(default)]
+    pub measured: bool,
     /// The agent these figures describe — the one a turn would actually run
     /// on, which is not always the session's binding.
     #[serde(default, skip_serializing_if = "Option::is_none")]

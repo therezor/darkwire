@@ -659,6 +659,11 @@ export const ContextUsageEventSchema = z.object({
    * `summariseContext` and a new section is not a wire change.
    */
   breakdown: z.record(z.string(), z.number()).default({}),
+  /**
+   * Whether the figures are calibrated against the provider's count of an
+   * earlier request in this conversation. False means a character estimate.
+   */
+  measured: z.boolean().default(false),
 });
 
 export const SessionStatusEventSchema = z.object({

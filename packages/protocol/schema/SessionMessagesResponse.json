@@ -312,6 +312,29 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 9007199254740991
+                      },
+                      "calibration": {
+                        "type": "object",
+                        "properties": {
+                          "reportedTokens": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "estimatedTokens": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "model": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reportedTokens",
+                          "estimatedTokens",
+                          "model"
+                        ]
                       }
                     },
                     "required": [

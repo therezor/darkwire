@@ -160,6 +160,8 @@ pub struct ScriptedTurn {
     /// The seam a test uses to hold a turn open while something else happens to
     /// it: a stop, a steer, a wall-clock cap.
     pub delay_ms: u64,
+    /// The degradation ladder rewrote the request before this answered.
+    pub degraded: bool,
 }
 
 impl ScriptedTurn {
@@ -220,6 +222,7 @@ impl ScriptedTurn {
             // default scripted turn looks like a request nothing could measure.
             generation_ms: self.generation_ms,
             first_token_ms: self.first_token_ms,
+            degraded: self.degraded,
         }
     }
 }

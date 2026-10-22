@@ -37,6 +37,11 @@
     color: var(--fg-3);
   }
 
+  .context__basis {
+    font-size: var(--text-sm);
+    color: var(--fg-3);
+  }
+
   .context__bar {
     display: flex;
     width: 100%;
@@ -274,7 +279,14 @@
     line-height: var(--leading-2xs);
   }
 
-  .context-strip__over {
+  /* Only the share takes the tone, and only in the last fifth of the window:
+   * status here is ambient, and a coloured figure is already louder than the
+   * rest of the line. */
+  .context-strip--warning .context-strip__share {
     color: var(--warning-fg);
+  }
+
+  .context-strip--danger .context-strip__share {
+    color: var(--danger-fg);
   }
 }

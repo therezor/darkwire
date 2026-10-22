@@ -1093,6 +1093,10 @@ pub struct ContextUsage {
     /// section is not a wire change.
     #[serde(default)]
     pub breakdown: IndexMap<String, f64>,
+    /// Whether the figures are calibrated against the provider's count of an
+    /// earlier request in this conversation. False means a character estimate.
+    #[serde(default)]
+    pub measured: bool,
 }
 
 /// Where a session stands.

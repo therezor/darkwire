@@ -213,10 +213,19 @@ cancel the disclosure on every click to work at all.
 
 ### Context inspector
 
-A bar showing the whole context window and where it went — system prompt, tool
-definitions, session — with overflow stated in words rather than a clipped bar. It is
+A bar showing the whole context window and where it went (system prompt, tool
+definitions, session), with overflow stated in words rather than a clipped bar. It is
 the same measurement the CLI's `/context` prints and `GET /api/sessions/:key/context`
 returns, so all three agree.
+
+**The strip reads at a glance: `41.2k of 65.5k · 63%`.** Counts are shortened to three
+significant digits with the rule the terminal uses, and the window is shortened the same
+way as the count, so `65.5k` rather than the model card's `64K`: two units on one line
+would make 65,000 of 65,536 read as over. The exact figures are the button's accessible
+name and the inspector's table. The percent never reads `100%` while the request still
+fits. It turns amber at 80% and red at 95%. A leading `~` means the figure is still a
+character estimate; it goes after the model's first reply, when the server scales the
+estimate by the provider's own count (see [Architecture](architecture.md)).
 
 **It moves while a turn runs.** The loop reports the figure at the end of every tool
 iteration on a `context.usage` frame, and the strip takes the numbers straight off it

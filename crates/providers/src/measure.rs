@@ -16,19 +16,42 @@
 //! **What is still an estimate, and will stay one.** The figure is
 //! [`estimate_tokens`] over the JSON body, so structural characters (keys,
 //! quotes, escaping) are counted as the model's tokenizer would not count
-//! them, and [`estimate_tokens`] is characters over four. The claim here is
-//! narrower than accuracy: this is the *right input* to that heuristic, where
-//! the stored object was the wrong one.
+//! them. The claim here is narrower than accuracy: this is the *right input*
+//! to that heuristic, where the stored object was the wrong one. The meter
+//! scales the result by the provider's own count of an earlier request, which
+//! absorbs a steady error like this one.
+//!
+//! The exception is an image. Its base64 is what the body carries and nothing
+//! like what the model reads: a 1 MB photo is a quarter of a million
+//! "tokens" by characters and somewhere between a few hundred and a few
+//! thousand to a vision model. It is priced at [`IMAGE_TOKENS`] instead.
 
 use darkwire_protocol::{ChatMessage, ToolDefinition};
 
 use crate::tokens::estimate_tokens;
-use crate::wire_encode::{encode_message, encode_tools};
+use crate::wire_encode::{WireContent, WireContentPart, encode_message, encode_tools};
+
+/// What one image costs a vision model, whatever its size.
+///
+/// Near what other harnesses use (Cline 1,600, Codex about 1,844, Claude Code
+/// 2,000). Real figures run from 256 (Gemma 3) to several thousand for a large
+/// image on a patch-based model. The provider's count corrects it after the
+/// first request that carries the image.
+pub const IMAGE_TOKENS: usize = 1_800;
 
 /// One message, as the request body would carry it.
 pub fn estimate_message_tokens(message: &ChatMessage) -> usize {
-    let encoded = encode_message(message);
-    estimate_tokens(&serde_json::to_string(&encoded).unwrap_or_default())
+    let mut encoded = encode_message(message);
+    let mut images = 0;
+    if let Some(WireContent::Parts(parts)) = &mut encoded.content {
+        for part in parts {
+            if let WireContentPart::ImageUrl { image_url } = part {
+                images += 1;
+                image_url.url.clear();
+            }
+        }
+    }
+    estimate_tokens(&serde_json::to_string(&encoded).unwrap_or_default()) + images * IMAGE_TOKENS
 }
 
 /// The whole tool array, not a sum over single tools.

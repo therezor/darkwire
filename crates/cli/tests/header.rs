@@ -34,7 +34,9 @@ fn view() -> HeaderView {
         context: Some(ContextUsage {
             used_tokens: 15_872,
             window_tokens: 128_000,
+            measured: true,
         }),
+        locale: "en".to_owned(),
     }
 }
 
@@ -92,47 +94,70 @@ fn never_writes_a_line_wider_than_the_window() {
 #[test]
 fn context_label_says_how_full_the_window_is_and_how_big_it_is() {
     assert_eq!(
-        context_label(Some(&ContextUsage {
-            used_tokens: 15_872,
-            window_tokens: 128_000,
-        })),
-        "12.4%/128k"
+        context_label(
+            Some(&ContextUsage {
+                used_tokens: 15_872,
+                window_tokens: 128_000,
+                measured: true,
+            }),
+            "en"
+        ),
+        "12%/128k"
+    );
+}
+
+#[test]
+fn context_label_marks_a_figure_the_provider_has_not_counted() {
+    assert_eq!(
+        context_label(
+            Some(&ContextUsage {
+                used_tokens: 41_213,
+                window_tokens: 65_536,
+                measured: false,
+            }),
+            "en"
+        ),
+        "~63%/65.5k"
     );
 }
 
 #[test]
 fn context_label_says_nothing_before_a_turn_has_been_measured() {
-    assert_eq!(context_label(None), "");
+    assert_eq!(context_label(None, "en"), "");
 }
 
 #[test]
 fn context_label_says_nothing_rather_than_dividing_by_a_window_of_nothing() {
     assert_eq!(
-        context_label(Some(&ContextUsage {
-            used_tokens: 10,
-            window_tokens: 0,
-        })),
+        context_label(
+            Some(&ContextUsage {
+                used_tokens: 10,
+                window_tokens: 0,
+                measured: true,
+            }),
+            "en"
+        ),
         ""
     );
 }
 
 #[test]
-fn context_label_rounds_the_window_to_the_nearest_thousand() {
-    // Halves go up, which is what a reader expects of a rounded budget.
-    assert_eq!(
-        context_label(Some(&ContextUsage {
-            used_tokens: 0,
-            window_tokens: 1_500,
-        })),
-        "0.0%/2k"
-    );
-    assert_eq!(
-        context_label(Some(&ContextUsage {
-            used_tokens: 0,
-            window_tokens: 1_499,
-        })),
-        "0.0%/1k"
-    );
+fn context_label_shortens_the_window_the_way_the_web_does() {
+    // Three significant digits rather than whole thousands, so a 64 KiB window
+    // is not rounded up to a budget it does not have.
+    let window = |tokens: u64, locale: &str| {
+        context_label(
+            Some(&ContextUsage {
+                used_tokens: 0,
+                window_tokens: tokens,
+                measured: true,
+            }),
+            locale,
+        )
+    };
+    assert_eq!(window(65_536, "en"), "0%/65.5k");
+    assert_eq!(window(65_536, "de"), "0%/65,5k");
+    assert_eq!(window(1_048_576, "en"), "0%/1.05M");
 }
 
 #[test]
@@ -155,7 +180,7 @@ fn status_bar_puts_the_workspace_and_the_agent_at_opposite_ends() {
 #[test]
 fn status_bar_puts_the_context_budget_and_the_model_on_the_next_row() {
     let bar = status_bar(&view(), 44, &PLAIN_THEME);
-    assert!(bar[2].starts_with("12.4%/128k"));
+    assert!(bar[2].starts_with("12%/128k"));
     assert!(bar[2].ends_with("Anthropic/claude-opus-5"));
 }
 

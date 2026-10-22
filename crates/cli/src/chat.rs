@@ -391,6 +391,7 @@ impl ChatSession {
             Ok(Some(report)) => Some(ContextUsage {
                 used_tokens: report.estimated_tokens as u64,
                 window_tokens: report.context_window_tokens,
+                measured: report.measured,
             }),
             Ok(None) | Err(_) => None,
         };
@@ -470,6 +471,7 @@ impl ChatSession {
             },
             session_key: self.attachment.session_key.clone(),
             context: self.context,
+            locale: self.t.locale().as_str().to_owned(),
         }
     }
 }

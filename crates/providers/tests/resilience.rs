@@ -772,6 +772,54 @@ async fn degrades_a_stream_the_same_way_as_a_single_request() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn says_when_the_request_that_succeeded_was_not_the_one_built() {
+    // Its usage then describes a smaller request, so a caller comparing the
+    // count with its own estimate must not.
+    let degraded = ScriptedProvider::new(
+        spec(),
+        vec![
+            err_param(ProviderErrorReason::UnsupportedParam, "reasoning_effort"),
+            ok("ok"),
+        ],
+    );
+    let (provider, _) = wrap(degraded);
+    let effort = ChatRequest {
+        reasoning_effort: Some(ReasoningEffort::High),
+        ..request()
+    };
+    let result = provider
+        .chat(&effort, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(result.degraded);
+
+    let streamed = ScriptedProvider::new(
+        spec(),
+        vec![
+            err_param(ProviderErrorReason::UnsupportedParam, "reasoning_effort"),
+            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(result_of("ok")))]),
+        ],
+    );
+    let (provider, _) = wrap(streamed);
+    let collected = collect(provider.stream(effort, CancellationToken::new()))
+        .await
+        .unwrap();
+    assert!(collected.done.unwrap().degraded);
+
+    // A retry sends the same request again, so it is not a degradation.
+    let retried = ScriptedProvider::new(
+        spec(),
+        vec![err(ProviderErrorReason::RateLimit, "slow down"), ok("ok")],
+    );
+    let (provider, _) = wrap(retried);
+    let result = provider
+        .chat(&request(), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!result.degraded);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_stream_that_exhausts_recovery_raises_the_error() {
     let inner = ScriptedProvider::new(spec(), vec![err(ProviderErrorReason::Auth, "bad key")]);
     let (provider, _) = wrap(inner);

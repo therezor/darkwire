@@ -63,7 +63,7 @@ use darkwire_core::{
 use darkwire_protocol::json::{MAX_SAFE_INTEGER, Object};
 use darkwire_protocol::tasks::TaskItem;
 use darkwire_protocol::{
-    AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
+    AgentEnvironment, AgentSettings, AssistantDelta, Calibration, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
     SUBAGENT_ORIGIN, Steer, SteerEventTag, StepEnd, StepEndTag, StepStats, StopReason,
     SubagentLineage, SubagentRunRef, ToolDefinition, ToolPromptOverrides, Usage,
@@ -85,13 +85,16 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approval::ApprovalGate;
 use crate::attachments::{AttachmentCache, MaterialiseOptions, materialise_attachments};
-use crate::context::{MeasureWindow, measure_records, prompt_costs};
+use crate::context::{MeasureWindow, RequestShape, measure_records, prompt_costs};
 use crate::dispatch::{
     SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions, TurnScope,
     parse_tool_args,
 };
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
-use crate::history_window::{FixedCost, RowPrices, history_budget, read_history, window_records};
+use crate::history_window::{
+    FixedCost, MIN_BUDGET_RATIO, RowPrices, calibration_of, history_budget, read_history,
+    window_records,
+};
 use crate::length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 use crate::prompt::{
     BuildRawPrompt, BuildRuntimeBlock, BuildStaticPrompt, ContextContributor, Host, PromptAgent,
@@ -625,9 +628,8 @@ struct TurnState {
     /// Set for exactly one iteration, then cleared. See `text_tool_call`.
     correction: Option<String>,
     corrected_once: bool,
-    /// The truncated-history notice goes out once a turn, however many
-    /// iterations trim.
-    trim_noted: bool,
+    /// The notices a turn sends once, however many iterations repeat them.
+    noted: Noted,
     /// Every row this turn has priced. See [`RowPrices`].
     prices: RowPrices,
     first_seq: i64,
@@ -685,7 +687,12 @@ impl TurnState {
     }
 
     /// Folds one call's figures into the step that has not been written yet.
-    fn note_step(&mut self, requested_at: Duration, result: &ChatResult) {
+    fn note_step(
+        &mut self,
+        requested_at: Duration,
+        result: &ChatResult,
+        sample: Option<Calibration>,
+    ) {
         let window = result.generation_ms.filter(|ms| *ms > 0.0);
         let call = StepStats {
             usage: result.usage,
@@ -694,6 +701,7 @@ impl TurnState {
             generation_ms: window.map(round_ms),
             generation_tokens: window.map(|_| result.usage.completion_tokens),
             first_token_ms: result.first_token_ms.map(round_ms),
+            calibration: sample,
         };
         let Some(mut pending) = self.pending_step.take() else {
             self.pending_step = Some(PendingStep {
@@ -705,6 +713,18 @@ impl TurnState {
         let stats = &mut pending.stats;
         stats.usage = accumulate_usage(&stats.usage, &call.usage);
         stats.model = call.model;
+        stats.calibration = match (stats.calibration.take(), call.calibration) {
+            // Summed only while both calls named the same model, which a turn
+            // does unless its agent is reconfigured mid-step.
+            (Some(before), Some(next)) if before.model == next.model => Some(Calibration {
+                reported_tokens: before.reported_tokens.saturating_add(next.reported_tokens),
+                estimated_tokens: before
+                    .estimated_tokens
+                    .saturating_add(next.estimated_tokens),
+                model: next.model,
+            }),
+            (before, next) => next.or(before),
+        };
         stats.generation_ms = sum_optional(stats.generation_ms, call.generation_ms);
         stats.generation_tokens = sum_optional(stats.generation_tokens, call.generation_tokens);
         if stats.first_token_ms.is_none() {
@@ -736,9 +756,68 @@ impl TurnState {
             generation_ms: pending.stats.generation_ms.map(safe),
             generation_tokens: pending.stats.generation_tokens.map(safe),
             first_token_ms: pending.stats.first_token_ms.map(safe),
+            calibration: pending.stats.calibration.map(|sample| Calibration {
+                reported_tokens: safe(sample.reported_tokens),
+                estimated_tokens: safe(sample.estimated_tokens),
+                model: sample.model,
+            }),
             ..pending.stats
         })
     }
+}
+
+/// The notices a turn sends once, however many iterations would repeat them.
+#[derive(Debug, Default, Clone, Copy)]
+struct Noted {
+    /// Older turns were left out to fit the window.
+    trimmed: bool,
+    /// The provider counted far less than the request it was sent.
+    undercount: bool,
+}
+
+/// What [`AgentLoop::build_request`] built.
+struct Built {
+    request: ChatRequest,
+    /// Whether older turns were left out to fit the window.
+    trimmed: bool,
+    /// The request as the estimator prices it, row by row.
+    estimated_tokens: usize,
+}
+
+/// The widest ratio a sample may show and still be believed.
+///
+/// A real tokenizer lands within about a factor of two of the estimate either
+/// way. Past four, the count is describing some other request: a server that
+/// reports only the tokens its cache missed, or one that truncated the prompt.
+const SAMPLE_RATIO_LIMIT: f64 = 4.0;
+
+/// The provider's count of one request beside the estimate of it, when the
+/// count can be believed.
+///
+/// Not when the provider reported nothing (`0`, which is how a missing field
+/// decodes), when it claims more cached tokens than it counted, or when the
+/// degradation ladder sent a smaller request than the one estimated.
+fn calibration_sample(result: &ChatResult, estimated: usize, model: &str) -> Option<Calibration> {
+    let reported = result.usage.prompt_tokens;
+    let estimated = u64::try_from(estimated).ok()?;
+    if reported == 0 || estimated == 0 || result.degraded {
+        return None;
+    }
+    if result
+        .usage
+        .cached_tokens
+        .is_some_and(|cached| cached > reported)
+    {
+        return None;
+    }
+    let sample = Calibration {
+        reported_tokens: reported,
+        estimated_tokens: estimated,
+        model: model.to_owned(),
+    };
+    (1.0 / SAMPLE_RATIO_LIMIT..=SAMPLE_RATIO_LIMIT)
+        .contains(&sample.ratio())
+        .then_some(sample)
 }
 
 fn millis(duration: Duration) -> u64 {
@@ -980,6 +1059,11 @@ impl AgentLoop {
     /// The model a turn on this loop would use.
     pub fn model(&self) -> &str {
         &self.inner.model_id
+    }
+
+    /// Whether an attached image reaches the model as an image.
+    pub fn vision_enabled(&self) -> bool {
+        self.inner.config.vision_enabled
     }
 
     /// The provider a turn on this loop would reach.
@@ -1751,6 +1835,7 @@ impl AgentLoop {
             continued: input.continue_from.is_some(),
             usage: empty_usage(),
             started_at,
+            prices: RowPrices::new(inner.config.vision_enabled),
             ..TurnState::default()
         };
 
@@ -1909,7 +1994,11 @@ impl AgentLoop {
             correction.as_deref(),
             &turn.placed,
         );
-        let (request, trimmed) = self
+        let Built {
+            request,
+            trimmed,
+            estimated_tokens,
+        } = self
             .build_request(
                 turn,
                 &prompt,
@@ -1918,8 +2007,8 @@ impl AgentLoop {
                 attachments,
             )
             .await?;
-        if trimmed && !state.trim_noted {
-            state.trim_noted = true;
+        if trimmed && !state.noted.trimmed {
+            state.noted.trimmed = true;
             sink.emit(darkwire_protocol::Notice {
                 tag: darkwire_protocol::NoticeTag,
                 kind: NoticeKind::TruncatedHistory,
@@ -1952,7 +2041,10 @@ impl AgentLoop {
         };
 
         state.usage = accumulate_usage(&state.usage, &result.usage);
-        state.note_step(requested_at, &result);
+        let sample = calibration_sample(&result, estimated_tokens, &inner.model_id);
+        self.note_undercount(turn, state, sample.as_ref(), sink)
+            .await;
+        state.note_step(requested_at, &result, sample);
         // Beside the usage it was measured against, and only ever from a
         // result. Both sides together, and only when there is a window to speak
         // of: a request whose content arrived in one frame measured a real
@@ -2037,8 +2129,46 @@ impl AgentLoop {
         Ok(Flow::Continue)
     }
 
-    /// The request one iteration sends, and whether older turns were left out
-    /// to fit the context window.
+    /// Says so, once a turn, when the provider counted far less than the
+    /// request it was sent.
+    ///
+    /// The budget will not follow a ratio that low (see [`MIN_BUDGET_RATIO`]),
+    /// and without this the operator would never learn why: the likely cause is
+    /// a server truncating to a smaller context than the agent was configured
+    /// with.
+    async fn note_undercount(
+        &self,
+        turn: &TurnContext,
+        state: &mut TurnState,
+        sample: Option<&Calibration>,
+        sink: &EventSink,
+    ) {
+        let Some(sample) = sample.filter(|sample| sample.ratio() < MIN_BUDGET_RATIO) else {
+            return;
+        };
+        if state.noted.undercount {
+            return;
+        }
+        state.noted.undercount = true;
+        sink.emit(darkwire_protocol::Notice {
+            tag: darkwire_protocol::NoticeTag,
+            kind: NoticeKind::TruncatedHistory,
+            message: format!(
+                "The provider counted {} prompt tokens for a request estimated at {}. \
+                 It may be cutting the prompt to a smaller context than {} tokens; \
+                 check the server's context size (for Ollama, num_ctx).",
+                sample.reported_tokens,
+                sample.estimated_tokens,
+                self.inner.config.context_window_tokens
+            ),
+            turn_id: Some(turn.turn_id.clone()),
+            call_id: None,
+        })
+        .await;
+    }
+
+    /// The request one iteration sends, whether older turns were left out to
+    /// fit the context window, and what the estimator priced it at.
     async fn build_request(
         &self,
         turn: &TurnContext,
@@ -2046,25 +2176,35 @@ impl AgentLoop {
         opening_seq: i64,
         prices: &mut RowPrices,
         attachments: &mut AttachmentCache,
-    ) -> Result<(ChatRequest, bool)> {
+    ) -> Result<Built> {
         let inner = &self.inner;
         let system = ChatMessage::System(system_message(&prompt.static_prompt));
         let runtime = (!prompt.runtime_block.is_empty())
             .then(|| ChatMessage::User(user_message(runtime_reminder(&prompt.runtime_block))));
         let fixed = prompt_costs(prompt, &turn.tool_definitions);
-        let budget = history_budget(&FixedCost {
-            context_window_tokens: inner.config.context_window_tokens,
-            prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
-            max_output_tokens: inner.config.max_tokens,
-        });
         // Re-read every iteration: the tool results this turn just wrote are
         // part of the next request, and reading them back from the store is
         // what keeps history and the request identical rather than merely
         // similar. Windowed before attachments are read, because an inlined
-        // image priced as text would crowd out every older turn.
+        // image's base64 would crowd out every older turn; `prices` charges
+        // the reference what the file will cost instead.
         let rows = history_rows(&inner.store, &turn.scope.session_key).await?;
+        let budget = history_budget(&FixedCost {
+            context_window_tokens: inner.config.context_window_tokens,
+            prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
+            max_output_tokens: inner.config.max_tokens,
+            calibration: calibration_of(&rows, &inner.model_id),
+        });
         let windowed = window_records(rows, Some(opening_seq), budget, prices);
         let trimmed = windowed.trimmed;
+        // Priced the way the meter prices the next request, row by row, so the
+        // ratio the provider's count makes with it carries over to the meter.
+        let estimated_tokens = fixed.total()
+            + windowed
+                .records
+                .iter()
+                .map(|record| prices.of(record))
+                .sum::<usize>();
         let history = windowed.into_messages();
         // Attachments become readable here and nowhere else. Storage holds a
         // path; a provider needs bytes or characters, and only this scope has
@@ -2113,7 +2253,11 @@ impl AgentLoop {
             // ladder.
             cache_key: Some(turn.scope.session_key.clone()),
         };
-        Ok((request, trimmed))
+        Ok(Built {
+            request,
+            trimmed,
+            estimated_tokens,
+        })
     }
 
     /// Streams one request, emitting deltas as they arrive.
@@ -2435,11 +2579,14 @@ impl AgentLoop {
         // a subagent's events are wrapped rather than by this condition alone.
         if turn.scope.root_session_key == turn.scope.session_key {
             let rows = history_rows(&inner.store, &turn.scope.session_key).await?;
-            let (_, breakdown) = measure_records(
+            let measured = measure_records(
                 rows,
-                prompt,
-                &turn.tool_definitions,
-                inner.config.context_window_tokens,
+                &RequestShape {
+                    prompt,
+                    tools: &turn.tool_definitions,
+                    context_window_tokens: inner.config.context_window_tokens,
+                    model: &inner.model_id,
+                },
                 &MeasureWindow {
                     max_output_tokens: inner.config.max_tokens,
                     opening_seq: Some(state.first_seq),
@@ -2449,9 +2596,10 @@ impl AgentLoop {
             sink.emit(darkwire_protocol::ContextUsage {
                 tag: darkwire_protocol::ContextUsageTag,
                 session_key: turn.scope.session_key.clone(),
-                estimated_tokens: u64::try_from(breakdown.total()).unwrap_or(u64::MAX),
+                estimated_tokens: u64::try_from(measured.breakdown.total()).unwrap_or(u64::MAX),
                 context_window_tokens: inner.config.context_window_tokens,
-                breakdown: breakdown.to_map(),
+                breakdown: measured.breakdown.to_map(),
+                measured: measured.calibrated,
             })
             .await;
         }

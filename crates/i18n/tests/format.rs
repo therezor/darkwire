@@ -2,7 +2,7 @@
 
 use darkwire_i18n::{
     DurationParts, DurationUnit, PluralCategory, RelativeSpan, SpanUnit, duration_parts,
-    format_number, plural_category, relative_span,
+    format_number, format_token_count, format_window_share, plural_category, relative_span,
 };
 
 #[test]
@@ -23,6 +23,46 @@ fn number_keeps_a_sign_and_every_group_boundary() {
     assert_eq!(format_number(1000, "en"), "1,000");
     assert_eq!(format_number(1_234_567, "en"), "1,234,567");
     assert_eq!(format_number(i64::MIN, "en"), "-9,223,372,036,854,775,808");
+}
+
+/// The same table as `packages/i18n/test/format.test.ts`, so the terminal and
+/// the web shorten a count identically.
+const TOKEN_COUNTS: &[(u64, &str, &str)] = &[
+    (0, "0", "0"),
+    (950, "950", "950"),
+    (999, "999", "999"),
+    (1_000, "1k", "1k"),
+    (1_234, "1.23k", "1,23k"),
+    (8_192, "8.19k", "8,19k"),
+    (9_995, "10k", "10k"),
+    (41_213, "41.2k", "41,2k"),
+    (65_536, "65.5k", "65,5k"),
+    (99_950, "100k", "100k"),
+    (131_072, "131k", "131k"),
+    (200_000, "200k", "200k"),
+    (999_499, "999k", "999k"),
+    (999_950, "1M", "1M"),
+    (1_048_576, "1.05M", "1,05M"),
+    (12_345_678, "12.3M", "12,3M"),
+];
+
+#[test]
+fn a_token_count_shortens_to_three_significant_digits() {
+    for &(value, en, de) in TOKEN_COUNTS {
+        assert_eq!(format_token_count(value, "en"), en, "{value} in en");
+        assert_eq!(format_token_count(value, "de"), de, "{value} in de");
+    }
+}
+
+#[test]
+fn a_window_share_is_never_full_until_it_is_over() {
+    assert_eq!(format_window_share(0, 65_536), "0%");
+    assert_eq!(format_window_share(41_213, 65_536), "63%");
+    assert_eq!(format_window_share(1, 65_536), "<1%");
+    assert_eq!(format_window_share(65_535, 65_536), "99%");
+    assert_eq!(format_window_share(65_536, 65_536), "100%");
+    assert_eq!(format_window_share(73_400, 65_536), "112%");
+    assert_eq!(format_window_share(10, 0), "0%");
 }
 
 #[test]

@@ -478,6 +478,8 @@
     "reconnecting": "Reconnecting"
   },
   "context": {
+    "estimated": "Estimated from characters until the model replies.",
+    "free": "{{tokens}} free",
     "intro": "What a turn on this session would send to the model right now.",
     "labels": {
       "messages": "Session",
@@ -487,17 +489,23 @@
       "tools": "Tool definitions"
     },
     "loadError": "Could not read the context: {{message}}",
+    "measured": "Counted by the provider at the last reply, plus an estimate of what was added since.",
     "measuring": "Measuring…",
     "messagesInWindow_one": "{{count}} message in the window",
     "messagesInWindow_other": "{{count}} messages in the window",
     "nothingYet": "Nothing to measure yet: this session has not started. Send a message and the budget appears here.",
     "noTools": "This agent has no tools.",
+    "ofWindow": "{{used}} of {{window}}",
+    "ofWindowTokens": "of {{window}} tokens",
+    "over": "over the window",
     "perIteration": "{{tokens}} per message",
     "runtimeBlock": "Live state",
     "section": "Section",
     "session_one": "Session ({{count}} message)",
     "session_other": "Session ({{count}} messages)",
     "share": "Share",
+    "summary": "{{used}} of {{window}} tokens · {{share}}",
+    "summaryEstimated": "About {{used}} of {{window}} tokens · {{share}}",
     "systemPrompt": "System prompt",
     "title": "Context",
     "tokens": "Tokens",

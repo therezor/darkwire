@@ -656,14 +656,17 @@ async fn context_reports_the_breakdown_not_the_transcript() {
         estimated_tokens: 500,
         context_window_tokens: 1000,
         breakdown,
+        measured: false,
         agent_id: Some("researcher".to_owned()),
         requested_agent_id: None,
     }));
 
     let result = run(&harness, "/context").await;
 
+    // `~` because no provider count calibrated it, and shortened the way the
+    // web strip is.
     assert!(
-        result.text.contains("500 of 1000 tokens (50%)"),
+        result.text.contains("~500 of 1k tokens (50%)"),
         "{}",
         result.text
     );

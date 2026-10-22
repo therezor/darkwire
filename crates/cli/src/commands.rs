@@ -48,7 +48,7 @@ use darkwire_core::session_store::{
 };
 use darkwire_core::workspace_store::{CreateWorkspace, WorkspaceRecord};
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, text_of};
-use darkwire_i18n::{args, format_number, keys};
+use darkwire_i18n::{args, format_number, format_window_share, keys};
 use darkwire_protocol::config::{AgentSettingsChange, agent_settings_patch};
 use darkwire_protocol::tasks::{TaskStatus, render_tasks};
 use darkwire_protocol::{
@@ -990,7 +990,7 @@ async fn context_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
         return Ok(SlashOutcome::Continue);
     };
 
-    let summary = format_context(&report, ctx.t.locale().as_str());
+    let summary = format_context(&report, ctx.t);
     let shown = ctx
         .menu
         .show(ListingRequest {
@@ -1110,23 +1110,30 @@ fn role_of(message: &darkwire_protocol::ChatMessage) -> &'static str {
 
 /// The `/context` breakdown.
 ///
-/// Grouped with the locale's own separator rather than the machine's, which is
-/// the same rule the browser applies: one install must not print `8.192` at a
-/// prompt and `8,192` in a tab.
-fn format_context(report: &darkwire_agent::ContextReport, locale: &str) -> String {
+/// Exact and grouped with the locale's own separator rather than the
+/// machine's, which is the same rule the browser's table applies: one install
+/// must not print `8.192` at a prompt and `8,192` in a tab. The percent is the
+/// status bar's, so the two never disagree about how full the window is.
+fn format_context(report: &darkwire_agent::ContextReport, t: &Translations) -> String {
+    let locale = t.locale();
+    let locale = locale.as_str();
     let window = report.context_window_tokens.max(1);
     let estimated = u64::try_from(report.estimated_tokens).unwrap_or(u64::MAX);
-    // Integer arithmetic with rounding applied by hand: a percentage of two
-    // token counts has no business going through a float.
-    let percent = (estimated.saturating_mul(100) + window / 2) / window;
+    let percent = format_window_share(estimated, window);
     let n = |value: usize| format_number(i64::try_from(value).unwrap_or(i64::MAX), locale);
     let breakdown = &report.breakdown;
+    let basis = if report.measured {
+        keys::slash::notes::CONTEXT_MEASURED
+    } else {
+        keys::slash::notes::CONTEXT_ESTIMATED
+    };
     [
         format!(
-            "{} of {} tokens · {percent}%",
+            "{} of {} tokens · {percent}",
             n(report.estimated_tokens),
             format_number(i64::try_from(window).unwrap_or(i64::MAX), locale)
         ),
+        format!("  {}", t.t(basis)),
         format!(
             "  {}{}",
             pad_to_width("system", CONTEXT_LABEL_COLUMN),

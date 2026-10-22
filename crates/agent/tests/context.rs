@@ -64,6 +64,8 @@ async fn it_prices_both_halves_of_the_prompt_apart() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -101,6 +103,8 @@ async fn raw_mode_has_no_second_half_to_price() {
             ..preview()
         },
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -124,6 +128,8 @@ async fn the_tools_are_returned_as_well_as_measured() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -152,6 +158,8 @@ async fn every_window_entry_is_matched_back_to_the_row_it_came_from() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -190,6 +198,8 @@ async fn a_session_past_the_message_cap_reports_the_newest_rows() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -231,6 +241,8 @@ async fn a_window_the_walker_trims_keeps_the_rows_it_kept() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report");
 
@@ -256,6 +268,8 @@ async fn reasoning_is_stored_beside_the_answer_and_billed_nothing() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report")
     .breakdown
@@ -282,6 +296,8 @@ async fn reasoning_is_stored_beside_the_answer_and_billed_nothing() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     })
     .expect("a report")
     .breakdown
@@ -384,6 +400,8 @@ async fn between_turns_the_budget_leaves_out_the_oldest_turns() {
         session_key: "web:1",
         prompt: &preview(),
         context_window_tokens: 65_536,
+        model: "test-model",
+        vision: true,
     };
 
     let report = measure_context_with(
@@ -405,4 +423,34 @@ async fn between_turns_the_budget_leaves_out_the_oldest_turns() {
     })
     .expect("a report");
     assert_eq!(unbounded.messages.len(), 80);
+}
+
+#[test]
+fn scaled_sections_still_add_up_to_the_scaled_total() {
+    let breakdown = ContextBreakdown {
+        system_prompt: 1,
+        tools: 1,
+        messages: 1,
+        runtime_block: 1,
+    };
+    // Each section is 1.5, and rounding each would give 8, not 6.
+    let scaled = breakdown.scaled(1.5);
+    assert_eq!(scaled.total(), 6);
+    assert_eq!(breakdown.scaled(1.0), breakdown);
+
+    let uneven = ContextBreakdown {
+        system_prompt: 1_234,
+        tools: 3_210,
+        messages: 40_001,
+        runtime_block: 77,
+    };
+    let scaled = uneven.scaled(0.83);
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "token counts far below 2^53"
+    )]
+    let expected = (uneven.total() as f64 * 0.83).round() as usize;
+    assert_eq!(scaled.total(), expected);
 }

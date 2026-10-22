@@ -259,8 +259,9 @@ const SCREENS: readonly Screen[] = [
     route: '/sessions/web:default',
     settle: async (page) => {
       await ask(page, PROMPTS.answer);
-      // The strip's accessible name is the figure it shows — "1,024 of 65,536 ·
-      // 2%" — which is also the only stable thing about it.
+      // The strip's accessible name is the exact figure behind the short one
+      // it shows ("About 1,024 of 65,536 tokens · 2%"), which is also the only
+      // stable thing about it.
       await page.getByRole('button', { name: /\bof\b.*·/u }).click();
       await page.getByRole('dialog').waitFor();
       await page.getByText('Tool definitions').first().waitFor();

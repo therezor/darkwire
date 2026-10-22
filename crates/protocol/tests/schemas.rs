@@ -58,6 +58,7 @@ const UNREGISTERED: &[&str] = &[
     "ExtensionEngines",
     "AutomationJobCreator",
     "ErrorBody",
+    "Calibration",
     // Patch shapes, which the browser derives from the full shape and never
     // exports by name.
     "AgentSettingsPatch",

@@ -1001,6 +1001,8 @@ async fn the_context_route_reports_the_prompt_and_the_window() {
     // Section name to token cost, so an oversized block is visible.
     assert!(answer.json()["breakdown"]["systemPrompt"].is_number());
     assert!(answer.json()["breakdown"]["runtimeBlock"].is_number());
+    // Seeded rows carry no provider count, so this is a character estimate.
+    assert_eq!(answer.json()["measured"], false);
 }
 
 #[tokio::test]

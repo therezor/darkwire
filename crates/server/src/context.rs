@@ -1,7 +1,7 @@
 //! What the agent would send to the model, for one session.
 //!
 //! Kept here rather than inside the sessions route, because the interesting
-//! twenty lines are not glue — they are the *agent-resolution policy*, and two
+//! twenty lines are not glue: they are the *agent-resolution policy*, and two
 //! surfaces disagreeing about which agent a conversation is measured against is
 //! exactly the class of bug that made the measurement a shared function in the
 //! first place.
@@ -77,6 +77,8 @@ pub async fn build_context_response(
         opening_seq: None,
     };
     let context_window_tokens = agent.context_window_tokens().into();
+    let model = agent.model().to_owned();
+    let vision = agent.vision_enabled();
     let key = session_key.to_owned();
     let report = blocking(move || {
         measure_context_with(
@@ -86,6 +88,8 @@ pub async fn build_context_response(
                 session_key: &key,
                 prompt: &prompt,
                 context_window_tokens,
+                model: &model,
+                vision,
             },
             &window,
         )
@@ -106,6 +110,7 @@ pub async fn build_context_response(
         estimated_tokens: u64::try_from(report.estimated_tokens).unwrap_or(u64::MAX),
         context_window_tokens: report.context_window_tokens,
         breakdown: report.breakdown.to_map(),
+        measured: report.measured,
         agent_id: Some(agent.id().to_owned()),
         // Present only on a fallback, so a client can treat its presence as the
         // whole signal rather than comparing two ids on every response.

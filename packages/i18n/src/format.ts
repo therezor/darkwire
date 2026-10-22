@@ -1,11 +1,11 @@
 /**
  * The locale-aware primitives, shared; the presentation is not.
  *
- * `packages/web` renders a token budget as `8,192` and the CLI renders the same
- * number as `1.2k`, and that difference is deliberate — a settings panel has a
- * column to spend and a terminal status line does not. So what is shared here is
- * the part that is *locale* knowledge (which separator, which unit word, which
- * plural category) and not the part that is *layout* judgement.
+ * What is shared here is the part that is *locale* knowledge (which separator,
+ * which unit word, which plural category) and the rules the web and the CLI must
+ * agree on, such as how a token count shortens to `41.2k`. Which surface shows
+ * the short form and which the exact one is layout judgement, and stays with the
+ * surface.
  *
  * Every function takes the locale explicitly. That is the entire fix for the
  * bug the old `formatTokens` was working around: it hand-rolled comma grouping
@@ -25,10 +25,70 @@ export function formatNumber(value: number, locale: string): string {
   return numberFormat(locale).format(value);
 }
 
-/** A number shortened to three significant digits — `1.2K`, `8.2K`, `1.1M`. */
-export function formatCompactNumber(value: number, locale: string): string {
+/**
+ * A token count shortened to three significant digits: `950`, `1.23k`, `41.2k`,
+ * `131k`, `1.05M`.
+ *
+ * The same rule as `format_token_count` in `crates/i18n`, and the two share
+ * their test vectors. Not `Intl`'s compact notation, which leaves German
+ * thousands unabbreviated (`41.200`, a rounded number that reads as exact) and
+ * counts Japanese in 万. The suffix is the SI one in every language; only the
+ * decimal separator follows the locale.
+ *
+ * The unit is picked after rounding, so 999,950 is `1M` rather than `1000k`.
+ * Trailing zeros are dropped: `1k`, not `1.00k`.
+ */
+export function formatTokenCount(value: number, locale: string): string {
   if (!Number.isFinite(value)) return '—';
-  return compactNumberFormat(locale).format(value);
+  const whole = Math.round(Math.abs(value));
+  const sign = value < 0 && whole > 0 ? '-' : '';
+  if (whole < 1000) return `${sign}${String(whole)}`;
+
+  const { units, decimals, suffix } = shortened(whole);
+  const scale = 10 ** decimals;
+  const fraction = String(units % scale)
+    .padStart(decimals, '0')
+    .replace(/0+$/, '');
+  const integer = String(Math.floor(units / scale));
+  return fraction === ''
+    ? `${sign}${integer}${suffix}`
+    : `${sign}${integer}${decimalSeparator(locale)}${fraction}${suffix}`;
+}
+
+/**
+ * How much of a context window is used, as a whole percent: `63%`.
+ *
+ * Never `100%` while the request still fits, because a full bar that is not
+ * over reads as a request about to fail. Never `0%` for a window holding
+ * anything: that reads as empty. Past the window the real figure, so `112%`
+ * says by how much. `format_window_share` in `crates/i18n` is the same rule.
+ */
+export function formatWindowShare(used: number, window: number): string {
+  if (!(window > 0) || !(used > 0)) return '0%';
+  if (used * 100 < window) return '<1%';
+  const rounded = Math.round((used * 100) / window);
+  return `${String(used < window ? Math.min(rounded, 99) : rounded)}%`;
+}
+
+/** Three significant digits of thousands or millions, as integer units. */
+function shortened(value: number): {
+  units: number;
+  decimals: number;
+  suffix: string;
+} {
+  let last = { units: 0, decimals: 0, suffix: 'M' };
+  for (const [base, suffix] of [
+    [1_000, 'k'],
+    [1_000_000, 'M'],
+  ] as const) {
+    for (const decimals of [2, 1, 0]) {
+      const step = base / 10 ** decimals;
+      const units = Math.floor((value + step / 2) / step);
+      last = { units, decimals, suffix };
+      if (units < 1000) return last;
+    }
+  }
+  return last;
 }
 
 /**
@@ -216,7 +276,7 @@ export function pluralCategory(
 // Memoised constructors
 
 const numberFormats = new Map<string, Intl.NumberFormat>();
-const compactNumberFormats = new Map<string, Intl.NumberFormat>();
+const decimalSeparators = new Map<string, string>();
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
 const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
@@ -226,16 +286,14 @@ function numberFormat(locale: string): Intl.NumberFormat {
   return cached(numberFormats, locale, () => new Intl.NumberFormat(locale));
 }
 
-function compactNumberFormat(locale: string): Intl.NumberFormat {
+function decimalSeparator(locale: string): string {
   return cached(
-    compactNumberFormats,
+    decimalSeparators,
     locale,
     () =>
-      new Intl.NumberFormat(locale, {
-        notation: 'compact',
-        compactDisplay: 'short',
-        maximumSignificantDigits: 2,
-      }),
+      numberFormat(locale)
+        .formatToParts(1.5)
+        .find((part) => part.type === 'decimal')?.value ?? '.',
   );
 }
 

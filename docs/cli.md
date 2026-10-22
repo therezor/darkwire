@@ -195,6 +195,12 @@ full, one row per tool with what it costs, and one row per message in the window
 numbers are the same measurement the browser's context inspector draws and
 `GET /api/sessions/:key/context` returns, so all three agree. The other three tabs are
 the follow-up question: the only thing anyone asks after "tools: 4,102" is _which_ tools.
+The tool and message rows are character estimates; the summary is scaled by the
+provider's count once the model has replied, and says which it is.
+
+The status bar shows the same figure as `63%/65.5k`: the share of the window and the
+window, shortened the way the browser's strip shortens it. A leading `~` means the model
+has not replied on this agent yet, so the figure is a character estimate.
 
 `/tasks` **opens over the prompt** too, one row per task in the markers the prompt uses,
 so what it shows is what the model reads. `ctrl-x` drops the one under the cursor and the

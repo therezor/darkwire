@@ -133,30 +133,52 @@ export function ContextBody({
   // overflow is then said in words rather than drawn.
   const scale =
     budget.over && budget.usedPercent > 0 ? 100 / budget.usedPercent : 1;
+  const share = budget.over ? t('context.over') : budget.share;
 
   return (
     <div className="stack context">
+      {/* Shortened for the glance, like the strip, with the exact sentence for
+          a screen reader. The exact figures per section are the table's. */}
       <div className="cluster context__headline">
-        <span className="context__used">{fmt.tokens(budget.usedTokens)}</span>
-        <span className="context__of">
-          of {fmt.tokens(budget.windowTokens)} tokens ·{' '}
-          {budget.usedPercent.toFixed(0)}%
+        <span className="context__used" aria-hidden="true">
+          {budget.measured ? '' : '~'}
+          {fmt.tokensShort(budget.usedTokens)}
+        </span>
+        <span className="context__of" aria-hidden="true">
+          {t('context.ofWindowTokens', {
+            window: fmt.tokensShort(budget.windowTokens),
+          })}
+          {' · '}
+          {budget.share}
+        </span>
+        <span className="sr-only">
+          {t(budget.measured ? 'context.summary' : 'context.summaryEstimated', {
+            used: fmt.tokens(budget.usedTokens),
+            window: fmt.tokens(budget.windowTokens),
+            share,
+          })}
         </span>
         <span className="spacer" />
         {budget.over ? (
-          <Badge tone="danger">over the window</Badge>
+          <Badge tone="danger">{t('context.over')}</Badge>
         ) : (
-          <Badge tone="neutral">{fmt.tokens(budget.freeTokens)} free</Badge>
+          <Badge tone="neutral">
+            {t('context.free', { tokens: fmt.tokensShort(budget.freeTokens) })}
+          </Badge>
         )}
         {/* The figure the two halves exist to move. Everything else here is
             paid once for the conversation; this is paid again on every request
             of every turn, which is what makes it the number worth acting on. */}
         <Badge tone="neutral">
           {t('context.perIteration', {
-            tokens: fmt.tokens(budget.uncachedTokens),
+            tokens: fmt.tokensShort(budget.uncachedTokens),
           })}
         </Badge>
       </div>
+
+      <p className="context__basis">
+        {t(budget.measured ? 'context.measured' : 'context.estimated')}
+      </p>
 
       {/* The bar is decoration for the table below it, which carries the same
           numbers as text — so it is hidden from the accessibility tree rather

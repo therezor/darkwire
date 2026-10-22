@@ -83,10 +83,61 @@ describe('the context strip', () => {
     mount();
 
     // The whole point of moving it here: the number is readable at a glance,
-    // rather than behind a button nobody presses.
+    // rather than behind a button nobody presses. Shortened on screen, exact
+    // in the name a screen reader reads, and "about" until a provider counts.
+    const strip = await screen.findByRole('button', {
+      name: 'About 5,120 of 10,000 tokens · 51%',
+    });
+    expect(strip).toHaveTextContent('~5.12k of 10k · 51%');
+  });
+
+  it('drops the estimate mark once the provider has counted a request', async () => {
+    mount({
+      '/api/sessions/web%3A1/context': [200, { ...CONTEXT, measured: true }],
+    });
+
+    const strip = await screen.findByRole('button', {
+      name: '5,120 of 10,000 tokens · 51%',
+    });
+    expect(strip).toHaveTextContent('5.12k of 10k · 51%');
+    expect(strip).not.toHaveTextContent('~');
+  });
+
+  it('takes a warning tone in the last fifth and danger in the last twentieth', async () => {
+    mount({
+      '/api/sessions/web%3A1/context': [
+        200,
+        { ...CONTEXT, estimatedTokens: 8_500 },
+      ],
+    });
+    const warning = await screen.findByRole('button', { name: /8,500/ });
+    expect(warning).toHaveClass('context-strip--warning');
+  });
+
+  it('says a sliver as under one percent, to a screen reader too', async () => {
+    mount({
+      '/api/sessions/web%3A1/context': [
+        200,
+        { ...CONTEXT, estimatedTokens: 30, measured: true },
+      ],
+    });
     expect(
-      await screen.findByRole('button', { name: /5,120 of 10,000 · 51%/ }),
-    ).toBeInTheDocument();
+      await screen.findByRole('button', {
+        name: '30 of 10,000 tokens · <1%',
+      }),
+    ).toHaveTextContent('30 of 10k · <1%');
+  });
+
+  it('never reads full while the request still fits', async () => {
+    mount({
+      '/api/sessions/web%3A1/context': [
+        200,
+        { ...CONTEXT, estimatedTokens: 9_990 },
+      ],
+    });
+    const strip = await screen.findByRole('button', { name: /9,990/ });
+    expect(strip).toHaveTextContent('99%');
+    expect(strip).toHaveClass('context-strip--danger');
   });
 
   it('renders nothing before a session exists', () => {
@@ -120,12 +171,16 @@ describe('the context inspector', () => {
     const user = mount();
     await open(user);
 
-    expect(await screen.findByText('5,120')).toBeInTheDocument();
-    expect(screen.getByText(/of 10,000 tokens · 51%/)).toBeInTheDocument();
-    expect(screen.getByText('4,880 free')).toBeInTheDocument();
+    expect(await screen.findByText('~5.12k')).toBeInTheDocument();
+    expect(screen.getByText('of 10k tokens · 51%')).toBeInTheDocument();
+    expect(screen.getByText('4.88k free')).toBeInTheDocument();
     // The figure the two halves exist to move, beside the total rather than
     // buried in the table: what one more step of this turn costs.
     expect(screen.getByText('120 per message')).toBeInTheDocument();
+    // Says which kind of number this is.
+    expect(
+      screen.getByText(/Estimated from characters until the model replies/),
+    ).toBeInTheDocument();
   });
 
   it('breaks the total down by section, in a table and not only in a bar', async () => {

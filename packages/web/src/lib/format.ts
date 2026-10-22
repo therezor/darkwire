@@ -2,17 +2,16 @@
  * The small formatters the transcript needs.
  *
  * Here rather than inline in a component for one reason: every one of them has
- * a boundary that is easy to get wrong and invisible when it is — 59.9 seconds
+ * a boundary that is easy to get wrong and invisible when it is: 59.9 seconds
  * rounding to "60s", a zero-byte file reading as "NaN B", a tool that finished
  * in under a millisecond reporting "0ms" as though it never ran. They are three
  * lines each and they have tests.
  *
- * **The locale is a parameter, never the machine's.** The arithmetic — where a
- * minute becomes an hour, when an interval stops beating a date — lives in
- * `@darkwire/i18n` because the CLI decides it identically. What stays here is the
- * *wording*, which the two surfaces deliberately disagree about: this renders
- * `8,192` where the terminal renders `1.2k`, and `just now` where bare `Intl`
- * would say `now`.
+ * **The locale is a parameter, never the machine's.** The arithmetic (where a
+ * minute becomes an hour, when an interval stops beating a date, how `41,213`
+ * shortens to `41.2k`) lives in `@darkwire/i18n` because the CLI decides it
+ * identically. What stays here is the *wording*, which the two surfaces may
+ * disagree about: `just now` where bare `Intl` would say `now`.
  */
 
 import {

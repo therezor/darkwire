@@ -11,8 +11,14 @@
 //!
 //! **The figures are of the request body, not of what is stored.** They come
 //! from the estimators in `darkwire-providers`, which run the same encoder the
-//! transport sends with — so a field that never reaches a provider is never
-//! billed. Two such fields are easy to bill by mistake: an assistant record's
+//! transport sends with, so a field that never reaches a provider is never
+//! billed.
+//!
+//! **And they are in the provider's tokens once it has counted one.** Every
+//! step stores the provider's prompt count beside the estimate of the same
+//! request. The newest pair's ratio scales every section, so right after a
+//! request the total is the provider's own number and what was added since is
+//! priced at the ratio it just showed. Two such fields are easy to bill by mistake: an assistant record's
 //! reasoning, which is kept beside the answer to be shown and excluded from
 //! history replay, and a tool's risk and source, which drive an approval prompt
 //! and a badge. That is a second reason this cannot move down to core: pricing
@@ -30,7 +36,9 @@ use darkwire_providers::{estimate_message_tokens, estimate_tool_tokens};
 use indexmap::IndexMap;
 
 use crate::agent_loop::{AgentLoop, PromptPreview, PromptPreviewInput};
-use crate::history_window::{FixedCost, RowPrices, history_budget, read_history, window_records};
+use crate::history_window::{
+    FixedCost, RowPrices, calibration_of, history_budget, read_history, window_records,
+};
 use crate::prompt::runtime_reminder;
 
 /// Where the tokens went.
@@ -77,6 +85,46 @@ impl ContextBreakdown {
         map.insert("messages".to_owned(), as_f64(self.messages));
         map.insert("runtimeBlock".to_owned(), as_f64(self.runtime_block));
         map
+    }
+
+    /// Every section multiplied by `ratio`, rounded so they still add up.
+    ///
+    /// Largest remainder: each section is floored and the tokens the floors
+    /// lost go to the sections that lost the most, so the total is the scaled
+    /// total rounded once rather than four roundings summed.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "token estimates far below 2^53, scaled by a positive ratio"
+    )]
+    #[must_use]
+    pub fn scaled(self, ratio: f64) -> ContextBreakdown {
+        let sections = [
+            self.system_prompt,
+            self.tools,
+            self.messages,
+            self.runtime_block,
+        ];
+        let exact = sections.map(|tokens| tokens as f64 * ratio);
+        let mut floors = exact.map(|value| value.floor() as usize);
+        let target = (self.total() as f64 * ratio).round() as usize;
+        let mut order = [0, 1, 2, 3];
+        order.sort_by(|a, b| {
+            let lost = |index: usize| exact[index] - exact[index].floor();
+            lost(*b).total_cmp(&lost(*a))
+        });
+        let short = target.saturating_sub(floors.iter().sum());
+        for &index in order.iter().take(short) {
+            floors[index] += 1;
+        }
+        let [system_prompt, tools, messages, runtime_block] = floors;
+        ContextBreakdown {
+            system_prompt,
+            tools,
+            messages,
+            runtime_block,
+        }
     }
 }
 
@@ -128,6 +176,9 @@ pub struct ContextReport {
     pub context_window_tokens: u64,
     /// Where those tokens went.
     pub breakdown: ContextBreakdown,
+    /// Whether the figures are scaled by the provider's count of an earlier
+    /// request on this model, rather than a character estimate alone.
+    pub measured: bool,
 }
 
 /// The measurement, given a prompt somebody has already built.
@@ -142,6 +193,10 @@ pub struct MeasureContext<'a> {
     pub prompt: &'a PromptPreview,
     /// The window the total is measured against.
     pub context_window_tokens: u64,
+    /// The model a turn would request, which picks the calibration.
+    pub model: &'a str,
+    /// Whether an attached image is sent as an image.
+    pub vision: bool,
 }
 
 /// What the window depends on beyond [`MeasureContext`].
@@ -208,17 +263,36 @@ pub fn measure_context_with(
     input: &MeasureContext<'_>,
     window: &MeasureWindow,
 ) -> Result<ContextReport> {
-    let (messages, breakdown) = measure(input, window, &mut RowPrices::default())?;
+    let measured = measure(input, window, &mut RowPrices::new(input.vision))?;
     Ok(ContextReport {
         session_key: input.session_key.to_owned(),
         system_prompt: input.prompt.static_prompt.clone(),
         runtime_block: input.prompt.runtime_block.clone(),
         tools: input.tools.to_vec(),
-        messages,
-        estimated_tokens: breakdown.total(),
+        messages: measured.records,
+        estimated_tokens: measured.breakdown.total(),
         context_window_tokens: input.context_window_tokens,
-        breakdown,
+        breakdown: measured.breakdown,
+        measured: measured.calibrated,
     })
+}
+
+/// The window a request would carry, and what it costs.
+pub(crate) struct Measured {
+    /// The rows in the window.
+    pub records: Vec<StoredMessageRecord>,
+    /// In the provider's tokens when `calibrated`, in estimate units otherwise.
+    pub breakdown: ContextBreakdown,
+    /// Whether a provider count scaled the figures.
+    pub calibrated: bool,
+}
+
+/// What a request on `model` would carry, besides its history.
+pub(crate) struct RequestShape<'a> {
+    pub prompt: &'a PromptPreview,
+    pub tools: &'a [ToolDefinition],
+    pub context_window_tokens: u64,
+    pub model: &'a str,
 }
 
 /// [`measure_context_with`]'s figures alone, over rows already read, for the
@@ -226,42 +300,47 @@ pub fn measure_context_with(
 /// needs neither the prompt nor the tools copied back.
 pub(crate) fn measure_records(
     records: Vec<StoredMessageRecord>,
-    prompt: &PromptPreview,
-    tools: &[ToolDefinition],
-    context_window_tokens: u64,
+    shape: &RequestShape<'_>,
     window: &MeasureWindow,
     prices: &mut RowPrices,
-) -> (Vec<StoredMessageRecord>, ContextBreakdown) {
-    let fixed = prompt_costs(prompt, tools);
+) -> Measured {
+    let fixed = prompt_costs(shape.prompt, shape.tools);
+    let calibration = calibration_of(&records, shape.model);
     // The window the loop sends, read by the same helper: the message cap,
     // the legal-start rules, then the token budget.
     let budget = history_budget(&FixedCost {
-        context_window_tokens,
+        context_window_tokens: shape.context_window_tokens,
         prompt_tokens: fixed.system_prompt + fixed.runtime_block + fixed.tools,
         max_output_tokens: window.max_output_tokens,
+        calibration,
     });
-    let messages = window_records(records, window.opening_seq, budget, prices).records;
-    let message_tokens: usize = messages.iter().map(|record| prices.of(record)).sum();
-    (
-        messages,
-        ContextBreakdown {
-            messages: message_tokens,
-            ..fixed
-        },
-    )
+    let records = window_records(records, window.opening_seq, budget, prices).records;
+    let message_tokens: usize = records.iter().map(|record| prices.of(record)).sum();
+    let estimate = ContextBreakdown {
+        messages: message_tokens,
+        ..fixed
+    };
+    Measured {
+        records,
+        breakdown: calibration.map_or(estimate, |ratio| estimate.scaled(ratio)),
+        calibrated: calibration.is_some(),
+    }
 }
 
 fn measure(
     input: &MeasureContext<'_>,
     window: &MeasureWindow,
     prices: &mut RowPrices,
-) -> Result<(Vec<StoredMessageRecord>, ContextBreakdown)> {
+) -> Result<Measured> {
     let records = read_history(input.store, input.session_key)?;
     Ok(measure_records(
         records,
-        input.prompt,
-        input.tools,
-        input.context_window_tokens,
+        &RequestShape {
+            prompt: input.prompt,
+            tools: input.tools,
+            context_window_tokens: input.context_window_tokens,
+            model: input.model,
+        },
         window,
         prices,
     ))
@@ -296,6 +375,8 @@ pub async fn describe_context(
             session_key: &input.session_key,
             prompt: &prompt,
             context_window_tokens,
+            model: agent_loop.model(),
+            vision: agent_loop.vision_enabled(),
         },
         &MeasureWindow {
             max_output_tokens: agent_loop.max_tokens(),

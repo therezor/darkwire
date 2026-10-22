@@ -58,7 +58,7 @@ pub use instances::{
     ProviderInstance, ResolveInstanceOptions, describe_instance, find_instance, instance_label,
     list_instances, next_instance_id, resolve_instance,
 };
-pub use measure::{estimate_message_tokens, estimate_tool_tokens};
+pub use measure::{IMAGE_TOKENS, estimate_message_tokens, estimate_tool_tokens};
 pub use openai_chat::{
     OpenAiChatProvider, assert_usable_api_base, build_body, create_openai_chat_provider,
     tool_call_id,

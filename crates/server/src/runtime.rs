@@ -92,6 +92,10 @@ pub trait AgentView: Send + Sync {
     /// reserves out of the window before it fits the history.
     fn max_tokens(&self) -> u64;
 
+    /// Whether an attached image reaches the model as an image, which is what
+    /// the meter charges it.
+    fn vision_enabled(&self) -> bool;
+
     /// The prompt a turn on this session would carry, in its two halves.
     ///
     /// Comes from the loop itself rather than being reassembled here, so the
