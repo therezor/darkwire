@@ -6,6 +6,96 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [0.6.0]
+
+Each model call is now a message of its own, the context meter reads the provider's own
+token count, and a first load of the web UI fetches 268 KB instead of 960 KB.
+
+### Added
+
+- **Every message has its own line.** Each model call in a turn is a message. Under each
+  one is a line with how long it took, how many tokens it wrote and how fast, and Copy,
+  Regenerate, Branch and Info. Regenerate works on any message, and Branch works while a
+  turn is still running.
+- **Typing while a turn runs steers it.** The loop reads the text before its next message.
+  A steer it never reads runs as the next turn, so nothing typed is lost. Telegram and the
+  other channels steer the same way.
+- **The context meter shows the provider's own count.** After a reply the total is the
+  number the provider reported, and only what came after it is estimated. The history
+  trimmer budgets on the same figure, so the meter and the request agree.
+- **`/resume` in the terminal** is another name for `/session`.
+- **`GET /api/sessions/:key/context?summary=true`** returns the totals without the system
+  prompt, the tool definitions or the messages. The context strip under the composer uses
+  it.
+
+### Changed
+
+- **The server sends the web UI compressed and cached.** The build writes a Brotli and a
+  gzip copy of each script and stylesheet, and the server sends the one the browser accepts.
+  The browser keeps hashed files for a year and checks the page itself with an ETag. A
+  first load over plain HTTP fetches 268 KB instead of 960 KB, and a second load fetches
+  no scripts or styles at all.
+- **Streaming renders in batches.** The browser applies the tokens that arrive within 16
+  ms as one update, where it used to render once per token. Finished messages and tool
+  lists no longer render again while the next message streams, and the browser skips
+  layout for messages off screen.
+- **The first download is smaller.** The setup wizard, the sessions page, the context
+  inspector and the form controls load when first used. The terminal's strings and
+  schemas the browser never reads are out of the bundle.
+- **The browser keeps less in memory.** It drops a conversation's cached history and
+  context 30 seconds after you leave it, where it used to keep them for 5 minutes. The
+  code highlighting cache has a size limit, and at most five toasts show at once.
+- **The server holds less per connection.** It reads at most 16 frames from a socket ahead
+  of the hub, each at most 8 MiB, and a steer counts against the same queue of 8 as a
+  message. Lines from MCP servers and extensions, and provider error bodies, have a size
+  limit too.
+- **Token counts carry no `~`.** The browser and the terminal show `5.12k` whether or not
+  the provider has counted it yet. A screen reader still hears "about" for an estimate.
+- **The binary no longer carries source maps**, which makes it 8 MB smaller.
+  `darkwire serve --ui <dir>` still serves them.
+- **Protocol changes.** `user.message` carries `workspaceId`. An `error` that refuses a
+  message carries its `clientMessageId`. `connected` and `session.status` leave out
+  `workspaceId` for a session that has no row yet, and the greeting includes
+  `session.status` while a turn runs. See [API](docs/api.md).
+- **rustls-webpki is 0.103.16 and webpki-root-certs is 1.0.10**, which fixes
+  RUSTSEC-2026-0382 and RUSTSEC-2026-0383.
+
+### Fixed
+
+- **A reload in the middle of a turn shows the turn.** The page used to show the stored
+  part as finished, with no Stop button, and drop everything after it. A tab that opens a
+  conversation mid-turn now gets its status from the server and keeps growing the turn.
+- **The browser re-sends a message a dead connection lost.** It pings a quiet connection,
+  reconnects when the ping goes unanswered, and sends again any message the server has not
+  acknowledged.
+- **A refused message says so.** When the queue is full the bubble shows "Not sent" and
+  the reason, where it used to say "Sending…" forever.
+- **The browser refuses a message larger than 8 MiB** with a toast and keeps the text in
+  the box. Such a message used to close the connection.
+- **A new conversation starts in the workspace you picked.** The switcher no longer
+  jumps back to `default`, and a fresh tab sends its choice with the first message.
+- **A draft stays with its conversation.** Text typed in one session no longer appears in
+  the next one you open.
+- **A crash shows an error screen** with a Reload button, where it used to leave a blank
+  page.
+- **A tab left open across an upgrade gets a 404 for a missing file**, so the error names
+  the file rather than reporting a syntax error.
+- **The approval countdown stops** at the deadline and once the prompt is answered.
+- **The task panel shows the newest plan.** When a turn wrote its list twice while the
+  panel's first request was still on its way, the older list stayed on screen.
+- **The scheduler starts a job once.** "Run now" racing the timer, or a restart during a
+  run, could start it twice.
+- **An approval answers only its own session's call.** Two sessions whose models numbered
+  their calls the same way could deny or approve each other's prompts.
+- **DarkWire retries a stream cut off in the middle of a tool call**, where it used to run
+  the call with half its arguments. It retries a response with an empty body too.
+- **Stop interrupts a slow error response** from a provider.
+- **The agent loop and the scheduler read the database and files off the async threads**,
+  so one slow read no longer stalls other sessions' streams.
+- **A stored token calibration of zero no longer breaks the meter.**
+- **About 50 messages and labels in the browser can be translated.** They were English in
+  the code.
+
 ## [0.5.2]
 
 The browser's slash-command list fits on screen however many models it offers.

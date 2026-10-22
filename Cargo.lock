@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-agent"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-channels"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "darkwire-channels",
  "darkwire-core",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-core"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "cap-std",
  "chrono",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-environment"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "darkwire-core",
  "darkwire-protocol",
@@ -1129,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-extension-host"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "darkwire-agent",
  "darkwire-channels",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-i18n"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-mcp"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-protocol"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "garde",
  "indexmap 2.14.2",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-providers"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "darkwire-core",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-runtime"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "darkwire-agent",
  "darkwire-channels",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-security"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-server"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "argon2",
  "axum",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-tools"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -1370,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "darkwire-tui"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "crossterm",
  "darkwire-tui",

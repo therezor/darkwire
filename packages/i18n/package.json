@@ -1,6 +1,6 @@
 {
   "name": "@darkwire/i18n",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "The translation layer: i18next instance, locale negotiation and locale-aware formatting primitives.",
   "type": "module",
   "license": "MIT",
