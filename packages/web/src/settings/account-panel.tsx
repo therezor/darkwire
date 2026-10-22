@@ -80,8 +80,8 @@ function PasswordForm(): JSX.Element {
       setPassword('');
       setConfirm('');
       toast.success(
-        'Password changed',
-        'Every other device was signed out. This tab stayed signed in.',
+        t('toasts.account.passwordChanged'),
+        t('toasts.account.passwordChangedBody'),
       );
       // The name may have moved, and `me` is where it is read from.
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });

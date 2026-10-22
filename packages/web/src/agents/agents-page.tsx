@@ -21,7 +21,6 @@
  * where the choice is actually made; this page is for keeping the list.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
   BrainCircuit,
@@ -55,8 +54,7 @@ import { ListSort } from '@/components/crud/list-sort.js';
 import { Pagination } from '@/components/crud/pagination.js';
 import { useListPage } from '@/components/crud/use-list-page.js';
 import type { Comparators } from '@/components/crud/sort.js';
-import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { useAgentsQuery } from '@/lib/queries.js';
 import { useSaveSettings, useSettings } from '@/settings/use-settings.js';
 import {
   toAgentDeletePatch,
@@ -135,10 +133,7 @@ export function AgentsRoute(): JSX.Element {
     undefined,
   );
 
-  const agents = useQuery({
-    queryKey: queryKeys.agents,
-    queryFn: ({ signal }) => api.agents(signal),
-  });
+  const agents = useAgentsQuery();
 
   const list = settings.data?.config.agents.list ?? {};
 
@@ -332,7 +327,7 @@ export function AgentsRoute(): JSX.Element {
                     to="/agents/$agentId"
                     params={{ agentId: row.id }}
                     className="data-list__open"
-                    aria-label={`Edit ${row.label}`}
+                    aria-label={t('common.editNamed', { name: row.label })}
                   >
                     <BrainCircuit />
                     <span className="stack agents__name">

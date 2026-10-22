@@ -8,9 +8,11 @@
  * events, or none — long after the mistake.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { useTurnStore } from '@/state/turn.js';
+import type { ServerMessage } from '@darkwire/protocol';
+
+import { flushFrames, setFrameScheduler, useTurnStore } from '@/state/turn.js';
 
 const state = () => useTurnStore.getState();
 
@@ -118,6 +120,27 @@ describe('the turn store', () => {
     expect(state().runningTurnId).toBe('t3');
   });
 
+  it('ignores a status older than one it already applied', () => {
+    state().attach('web:1');
+    const status = (seq: number, busy: boolean) =>
+      ({
+        type: 'session.status',
+        seq,
+        sessionKey: 'web:1',
+        workspaceId: 'default',
+        busy,
+        queueDepth: 0,
+        ...(busy ? { turnId: 't2' } : {}),
+      }) as const;
+
+    // A resume announces the session as it is now, then the ring re-sends
+    // what came before, an idle status from the last turn's end among it.
+    state().apply(status(10, true));
+    state().apply(status(4, false));
+
+    expect(state()).toMatchObject({ busy: true, runningTurnId: 't2' });
+  });
+
   it('leaves everything alone when re-attaching to the same session', () => {
     state().attach('web:1');
     state().applySeq(12);
@@ -132,5 +155,98 @@ describe('the turn store', () => {
       lastSeq: 12,
       busy: true,
     });
+  });
+});
+
+describe('streamed frames', () => {
+  const start = {
+    type: 'turn.start',
+    seq: 1,
+    sessionKey: 'web:1',
+    turnId: 't1',
+    agentId: 'default',
+    model: 'm',
+    provider: 'p',
+  } as const satisfies ServerMessage;
+  const delta = (seq: number, text: string): ServerMessage => ({
+    type: 'assistant.delta',
+    seq,
+    turnId: 't1',
+    text,
+  });
+  const textOf = (): string => {
+    const turn = state().transcript.find((item) => item.kind === 'turn');
+    if (turn?.kind !== 'turn') return '';
+    return turn.parts
+      .map((part) => (part.kind === 'text' ? part.text : ''))
+      .join('');
+  };
+
+  let queued = 0;
+  beforeEach(() => {
+    queued = 0;
+    setFrameScheduler(() => {
+      queued += 1;
+    });
+    state().attach('web:1');
+    state().apply(start);
+  });
+  afterEach(() => {
+    setFrameScheduler(undefined);
+  });
+
+  it('applies a run of deltas in one update', () => {
+    let updates = 0;
+    const unsubscribe = useTurnStore.subscribe((next, previous) => {
+      if (next.transcript !== previous.transcript) updates += 1;
+    });
+    for (let seq = 2; seq <= 101; seq += 1) state().apply(delta(seq, 'x'));
+
+    expect(textOf()).toBe('');
+    expect(queued).toBe(1);
+    flushFrames();
+    unsubscribe();
+
+    expect(textOf()).toBe('x'.repeat(100));
+    expect(updates).toBe(1);
+  });
+
+  it('keeps the cursor exact while frames are held', () => {
+    state().apply(delta(2, 'a'));
+    state().apply(delta(3, 'b'));
+
+    // A reconnect resumes from here, so it cannot wait for the flush.
+    expect(state().lastSeq).toBe(3);
+  });
+
+  it('applies held frames before the next frame that is not streamed', () => {
+    state().apply(delta(2, 'the answer'));
+    state().apply({
+      type: 'turn.end',
+      seq: 3,
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+
+    // `turn.end` finishes the turn, and a finished turn drops any growth, so
+    // the delta has to land first.
+    expect(textOf()).toBe('the answer');
+  });
+
+  it('applies held frames before a change made on this tab', () => {
+    state().apply(delta(2, 'streamed'));
+    state().appendPending({ clientMessageId: 'c1', text: 'next' });
+
+    expect(textOf()).toBe('streamed');
+    expect(state().transcript.at(-1)).toMatchObject({ kind: 'user' });
+  });
+
+  it('drops held frames when moving to another session', () => {
+    state().apply(delta(2, 'from the old session'));
+    state().attach('web:2');
+    flushFrames();
+
+    expect(state().transcript).toEqual([]);
   });
 });

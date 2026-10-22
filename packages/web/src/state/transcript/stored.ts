@@ -330,6 +330,7 @@ export function fromStoredMessages(
           text: textOf(message.content),
           attachments: attachmentsOf(message.content),
           pending: false,
+          refused: undefined,
           steering: false,
         });
         // A turn that failed appended no answer, so nothing below would ever

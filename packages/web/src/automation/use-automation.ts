@@ -19,6 +19,7 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type {
   AutomationJob,
   AutomationJobListResponse,
@@ -79,18 +80,19 @@ export function useCreateJob(): MutationHandle<
   CreateAutomationJob,
   AutomationJob
 > {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (body: CreateAutomationJob) => api.createAutomationJob(body),
     onSuccess: (job: AutomationJob) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.automation });
-      toast.success('Job created', job.name);
+      toast.success(t('toasts.automation.created'), job.name);
     },
     // The server's own words, never a generic replacement: a 422 here says
     // which field of the cron expression was wrong, and that sentence is the
     // whole value of the response.
     onError: (error: Error) => {
-      toast.error('Could not create the job', error.message);
+      toast.error(t('toasts.automation.createFailed'), error.message);
     },
   });
   return { mutate: mutation.mutate, pending: mutation.isPending };
@@ -99,31 +101,33 @@ export function useCreateJob(): MutationHandle<
 export function useSaveJob(
   jobId: string,
 ): MutationHandle<UpdateAutomationJob, AutomationJob> {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (body: UpdateAutomationJob) =>
       api.updateAutomationJob(jobId, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.automation });
-      toast.success('Job saved');
+      toast.success(t('toasts.automation.saved'));
     },
     onError: (error: Error) => {
-      toast.error('Could not save the job', error.message);
+      toast.error(t('toasts.automation.saveFailed'), error.message);
     },
   });
   return { mutate: mutation.mutate, pending: mutation.isPending };
 }
 
 export function useRemoveJob(): MutationHandle<string> {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (id: string) => api.deleteAutomationJob(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.automation });
-      toast.success('Job deleted');
+      toast.success(t('toasts.automation.deleted'));
     },
     onError: (error: Error) => {
-      toast.error('Could not delete the job', error.message);
+      toast.error(t('toasts.automation.deleteFailed'), error.message);
     },
   });
   return { mutate: mutation.mutate, pending: mutation.isPending };
@@ -133,6 +137,7 @@ export function useRemoveJob(): MutationHandle<string> {
 // job here, it agreed with a client that was parsing the wrong schema — so the
 // two halves of one mistake type-checked against each other.
 export function useRunJob(): MutationHandle<string, AutomationRun> {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (id: string) => api.runAutomationJob(id),
@@ -144,12 +149,12 @@ export function useRunJob(): MutationHandle<string, AutomationRun> {
       // Said out loud because the run is invisible: the route answered the
       // moment it queued, and the result lands minutes later as a notification.
       toast.success(
-        'Run started',
-        'The result will arrive in your notifications.',
+        t('toasts.automation.runStarted'),
+        t('toasts.automation.runStartedBody'),
       );
     },
     onError: (error: Error) => {
-      toast.error('Could not start the run', error.message);
+      toast.error(t('toasts.automation.runFailed'), error.message);
     },
   });
   return { mutate: mutation.mutate, pending: mutation.isPending };

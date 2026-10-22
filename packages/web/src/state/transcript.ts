@@ -35,12 +35,13 @@ export {
 
 export { unwrapToolOutput } from './transcript/parts.js';
 
-export { messagesOf, type TurnPiece } from './transcript/steps.js';
+export { messageText, messagesOf, type TurnPiece } from './transcript/steps.js';
 
 export {
   appendPendingUserMessage,
   applyServerMessage,
   markApprovalAnswered,
+  markTurnRunning,
   truncateTranscriptAfter,
 } from './transcript/live.js';
 

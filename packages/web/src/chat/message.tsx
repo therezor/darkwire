@@ -23,7 +23,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { WebKey } from '@/i18n/keys.js';
-import { memo, useRef, useState, type JSX } from 'react';
+import { memo, useCallback, useRef, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -53,16 +53,19 @@ import { useCopy } from '@/components/use-copy.js';
 import { AutoGrowTextarea } from '@/components/auto-grow-textarea.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 import {
+  messageText,
   messagesOf,
   type TranscriptItem,
   type TurnItem,
+  type TurnPart,
   type TurnPiece,
   type UserItem,
 } from '@/state/transcript.js';
+import { useTurnStore } from '@/state/turn.js';
 import { AttachmentList } from './attachment-list.js';
 import { MessageActions } from './message-actions.js';
 import { Notice } from './notice.js';
-import { TurnParts } from './tool-card.js';
+import { sameParts, TurnParts } from './tool-card.js';
 import { MessageFigures, MessageInfo } from './message-info.js';
 
 /**
@@ -96,8 +99,6 @@ interface MessageProps {
   readonly item: TranscriptItem;
   /** True for the newest turn while the session is busy. */
   readonly streaming: boolean;
-  /** True while any turn is running — what disables everything destructive. */
-  readonly busy: boolean;
   readonly onApprove: (
     callId: string,
     approved: boolean,
@@ -116,19 +117,17 @@ export const Message = memo(MessageItem);
 function MessageItem({
   item,
   streaming,
-  busy,
   onApprove,
   onAction,
 }: MessageProps): JSX.Element {
   switch (item.kind) {
     case 'user':
-      return <UserMessage item={item} busy={busy} onAction={onAction} />;
+      return <UserMessage item={item} onAction={onAction} />;
     case 'turn':
       return (
         <TurnMessage
           turn={item}
           streaming={streaming}
-          busy={busy}
           onApprove={onApprove}
           onAction={onAction}
         />
@@ -140,14 +139,15 @@ function MessageItem({
 
 function UserMessage({
   item,
-  busy,
   onAction,
 }: {
   readonly item: UserItem;
-  readonly busy: boolean;
   readonly onAction: (action: MessageAction) => void;
 }): JSX.Element {
   const { t } = useTranslation();
+  // Read here rather than passed down: a turn starting or ending would
+  // otherwise re-render every message in the transcript.
+  const busy = useTurnStore((state) => state.busy);
   const { workspaceId } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
@@ -204,7 +204,7 @@ function UserMessage({
           />
           <div className="cluster message-user__editor-actions">
             <Button type="submit" size="sm" disabled={draft.trim() === ''}>
-              Save
+              {t('common.save')}
             </Button>
             <Button
               type="button"
@@ -215,7 +215,7 @@ function UserMessage({
                 setEditing(false);
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </form>
@@ -228,7 +228,8 @@ function UserMessage({
       <div
         className={cn(
           'message-user__bubble',
-          item.pending && 'message-user__bubble--pending',
+          (item.pending || item.refused !== undefined) &&
+            'message-user__bubble--pending',
         )}
       >
         {item.text}
@@ -238,7 +239,13 @@ function UserMessage({
 
       {item.pending && (
         <span className="message-user__pending" role="status">
-          {item.steering ? t('chat.steerPending') : 'Sending…'}
+          {item.steering ? t('chat.steerPending') : t('chat.sending')}
+        </span>
+      )}
+
+      {item.refused !== undefined && (
+        <span className="message-user__pending" role="alert">
+          {t('chat.notSent', { reason: item.refused })}
         </span>
       )}
 
@@ -270,13 +277,11 @@ function UserMessage({
 function TurnMessage({
   turn,
   streaming,
-  busy,
   onApprove,
   onAction,
 }: {
   readonly turn: TurnItem;
   readonly streaming: boolean;
-  readonly busy: boolean;
   readonly onApprove: MessageProps['onApprove'];
   readonly onAction: (action: MessageAction) => void;
 }): JSX.Element {
@@ -307,7 +312,6 @@ function TurnMessage({
     if (piece.end === undefined && !closing) return undefined;
     return {
       number: piece.number,
-      text: piece.text,
       stats: piece.end?.stats,
       firstSeq: piece.end?.firstSeq ?? turn.firstSeq,
       lastSeq: closing
@@ -341,7 +345,7 @@ function TurnMessage({
               unanswered={unanswered}
             />
             {line !== undefined && (
-              <MessageLine line={line} busy={busy} onAction={onAction} />
+              <MessageLine {...line} parts={piece.parts} onAction={onAction} />
             )}
           </div>
         );
@@ -386,15 +390,12 @@ function TurnMessage({
       {turn.done && lastMessage === undefined && (
         <div className="stack turn__message">
           <MessageLine
-            line={{
-              number: 1,
-              text: '',
-              stats: undefined,
-              firstSeq: turn.firstSeq,
-              lastSeq: turn.lastSeq,
-              reason,
-            }}
-            busy={busy}
+            number={1}
+            stats={undefined}
+            firstSeq={turn.firstSeq}
+            lastSeq={turn.lastSeq}
+            reason={reason}
+            parts={NO_PARTS}
             onAction={onAction}
           />
         </div>
@@ -403,12 +404,12 @@ function TurnMessage({
   );
 }
 
+const NO_PARTS: readonly TurnPart[] = [];
+
 /** What one message's line shows and acts on. */
 interface Line {
   /** From 1, among the turn's messages. */
   readonly number: number;
-  /** What Copy takes. */
-  readonly text: string;
   /** Absent on a message that ended without `step.end` naming it. */
   readonly stats: StepStats | undefined;
   /** Regenerate re-runs from here. */
@@ -432,18 +433,41 @@ interface Line {
  * buttons after every message is most of what a phone would show, so it gets
  * the row menu the lists use. Both are rendered and the stylesheet keeps one.
  */
-function MessageLine({
-  line,
-  busy,
-  onAction,
-}: {
-  readonly line: Line;
-  readonly busy: boolean;
+interface MessageLineProps extends Line {
+  /** The message's parts. Copy reads its text off them on the click. */
+  readonly parts: readonly TurnPart[];
   readonly onAction: (action: MessageAction) => void;
-}): JSX.Element {
+}
+
+/**
+ * Memoised on its fields, because the turn above it builds a new line for every
+ * message on every delta. Only the message still being written has changed.
+ */
+const MessageLine = memo(
+  MessageLineItem,
+  (previous, next) =>
+    previous.number === next.number &&
+    previous.stats === next.stats &&
+    previous.firstSeq === next.firstSeq &&
+    previous.lastSeq === next.lastSeq &&
+    previous.reason === next.reason &&
+    previous.onAction === next.onAction &&
+    sameParts(previous.parts, next.parts),
+);
+
+function MessageLineItem({
+  number,
+  stats,
+  firstSeq,
+  lastSeq,
+  reason,
+  parts,
+  onAction,
+}: MessageLineProps): JSX.Element {
   const { t } = useTranslation();
   const fmt = useFormat();
-  const { number, stats, firstSeq, lastSeq } = line;
+  const busy = useTurnStore((state) => state.busy);
+  const text = useCallback(() => messageText(parts), [parts]);
 
   const rate = stats === undefined ? undefined : turnRate(stats.usage, stats);
   const figures = [
@@ -475,12 +499,12 @@ function MessageLine({
 
   return (
     <footer className="turn__line">
-      {(line.reason !== undefined || figures !== '') && (
+      {(reason !== undefined || figures !== '') && (
         <span className="turn__figures">
-          {line.reason !== undefined && (
-            <span className="turn__stop-reason">{t(line.reason)}</span>
+          {reason !== undefined && (
+            <span className="turn__stop-reason">{t(reason)}</span>
           )}
-          {line.reason !== undefined && figures !== '' && ' · '}
+          {reason !== undefined && figures !== '' && ' · '}
           {figures}
         </span>
       )}
@@ -488,7 +512,7 @@ function MessageLine({
       <div className="turn__line-actions">
         <MessageActions
           className="message-actions--line"
-          text={line.text}
+          text={text}
           busy={busy}
           copyLabel={t('turn.message.copy', { number })}
           regenerateLabel={t('turn.message.regenerate', { number })}
@@ -505,7 +529,7 @@ function MessageLine({
           <MessageMenu
             number={number}
             stats={stats}
-            text={line.text}
+            text={text}
             busy={busy}
             onRegenerate={onRegenerate}
             onBranch={onBranch}
@@ -533,7 +557,7 @@ function MessageMenu({
 }: {
   readonly number: number;
   readonly stats: StepStats | undefined;
-  readonly text: string;
+  readonly text: () => string;
   readonly busy: boolean;
   readonly onRegenerate: (() => void) | undefined;
   readonly onBranch: (() => void) | undefined;

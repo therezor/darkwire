@@ -14,6 +14,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type {
   EnvironmentDefinition,
@@ -39,6 +40,7 @@ export function useSaveEnvironment(): {
   readonly saving: boolean;
   readonly error: Error | null;
 } {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation<
@@ -50,12 +52,12 @@ export function useSaveEnvironment(): {
     onSuccess: (listed, definition) => {
       queryClient.setQueryData(queryKeys.environments, listed);
       toast.success(
-        'Environment saved',
-        `Commands land in ${definition.name} from the next turn.`,
+        t('toasts.environments.saved'),
+        t('toasts.environments.savedBody', { name: definition.name }),
       );
     },
     onError: (error) => {
-      toast.error('Could not save the environment', error.message);
+      toast.error(t('toasts.environments.saveFailed'), error.message);
     },
   });
 
@@ -84,6 +86,7 @@ export function useRemoveEnvironment(): {
   ) => void;
   readonly removing: boolean;
 } {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation<EnvironmentListResponse, Error, string>({
@@ -91,12 +94,12 @@ export function useRemoveEnvironment(): {
     onSuccess: (listed) => {
       queryClient.setQueryData(queryKeys.environments, listed);
       toast.success(
-        'Environment removed',
-        'Containers already running from it are swept when they go idle.',
+        t('toasts.environments.removed'),
+        t('toasts.environments.removedBody'),
       );
     },
     onError: (error) => {
-      toast.error('Could not remove the environment', error.message);
+      toast.error(t('toasts.environments.removeFailed'), error.message);
     },
   });
 

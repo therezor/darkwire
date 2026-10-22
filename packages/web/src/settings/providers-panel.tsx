@@ -158,7 +158,9 @@ export function ProvidersPanel(): JSX.Element {
                   to="/settings/providers/$instanceId"
                   params={{ instanceId: instance.id }}
                   className="data-list__open"
-                  aria-label={`Edit ${instance.displayName}`}
+                  aria-label={t('common.editNamed', {
+                    name: instance.displayName,
+                  })}
                 >
                   <Plug />
                   <span className="row">

@@ -23,7 +23,11 @@ interface CopyState {
   readonly copy: () => void;
 }
 
-export function useCopy(text: string): CopyState {
+/**
+ * `text` may be a function, for a caller whose text is costly to assemble and
+ * is only needed on the click.
+ */
+export function useCopy(text: string | (() => string)): CopyState {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -39,7 +43,8 @@ export function useCopy(text: string): CopyState {
   return {
     copied,
     copy: () => {
-      void copyToClipboard(text).then((ok) => {
+      const value = typeof text === 'string' ? text : text();
+      void copyToClipboard(value).then((ok) => {
         if (ok) setCopied(true);
       });
     },

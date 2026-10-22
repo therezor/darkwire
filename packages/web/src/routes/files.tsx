@@ -231,7 +231,7 @@ export function FilesRoute(): JSX.Element {
       refresh();
     },
     onError: (error: Error) => {
-      toast.error('Upload failed', error.message);
+      toast.error(t('toasts.files.uploadFailed'), error.message);
     },
   });
 
@@ -253,7 +253,7 @@ export function FilesRoute(): JSX.Element {
       }
     },
     onError: (error: Error) => {
-      toast.error('Could not delete it', error.message);
+      toast.error(t('toasts.common.deleteFailed'), error.message);
     },
   });
 
@@ -297,7 +297,7 @@ export function FilesRoute(): JSX.Element {
       }
     },
     onError: (error: Error) => {
-      toast.error('Could not create it', error.message);
+      toast.error(t('toasts.common.createFailed'), error.message);
     },
   });
 
@@ -334,7 +334,7 @@ export function FilesRoute(): JSX.Element {
       }
     },
     onError: (error: Error) => {
-      toast.error('Could not rename it', error.message);
+      toast.error(t('toasts.common.renameFailed'), error.message);
     },
   });
 

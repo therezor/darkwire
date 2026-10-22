@@ -24,7 +24,6 @@ import {
   EnvironmentDefinitionSchema,
   type ContainerRuntime,
   type EnvironmentDefinition,
-  type EnvironmentSummary,
 } from '@darkwire/protocol';
 
 /**
@@ -88,7 +87,7 @@ export interface EnvironmentForm {
 }
 
 /** `"a\nb\n\n c "` → `['a','b','c']`. Empty lines dropped, order kept. */
-export function parseLines(value: string): string[] {
+function parseLines(value: string): string[] {
   return value
     .split('\n')
     .map((line) => line.trim())
@@ -149,14 +148,6 @@ export function toEnvironmentForm(
     capsAdd: definition.caps.add.join('\n'),
     env: definition.env.join('\n'),
   };
-}
-
-/** The form of an installed environment, or a fresh one when it did not parse. */
-export function formOf(
-  summary: EnvironmentSummary | undefined,
-): EnvironmentForm {
-  if (summary?.definition === undefined) return emptyEnvironmentForm();
-  return toEnvironmentForm(summary.definition);
 }
 
 /**

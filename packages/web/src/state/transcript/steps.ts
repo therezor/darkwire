@@ -35,14 +35,23 @@ export type TurnPiece =
       readonly parts: readonly TurnPart[];
       /** Its end, once the loop wrote it: the seqs and the figures. */
       readonly end: StepPart | undefined;
-      /** The answer text it wrote, for Copy. */
-      readonly text: string;
     }
   | {
       /** What the user said to the running turn, where the loop read it. */
       readonly kind: 'steer';
       readonly part: SteerPart;
     };
+
+/**
+ * The answer text a message wrote, for Copy. Assembled on the click rather
+ * than on every delta.
+ */
+export function messageText(parts: readonly TurnPart[]): string {
+  return parts
+    .filter((part) => part.kind === 'text')
+    .map((part) => part.text)
+    .join('\n\n');
+}
 
 /**
  * A turn's parts as the messages it is made of, with each steer between the
@@ -66,10 +75,6 @@ export function messagesOf(parts: readonly TurnPart[]): readonly TurnPiece[] {
       number,
       parts: current,
       end,
-      text: current
-        .filter((part) => part.kind === 'text')
-        .map((part) => part.text)
-        .join('\n\n'),
     });
     current = [];
   };

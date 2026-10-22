@@ -749,10 +749,17 @@ export const api = {
       },
     ),
 
-  /** What a turn on this session would actually send, for the context inspector. */
-  context: (key: string, signal?: AbortSignal): Promise<ContextResponse> =>
+  /**
+   * What a turn on this session would actually send, for the context inspector.
+   * `summary` asks for the totals alone, which is all the strip shows.
+   */
+  context: (
+    key: string,
+    signal?: AbortSignal,
+    summary = false,
+  ): Promise<ContextResponse> =>
     request(
-      `/api/sessions/${encodeURIComponent(key)}/context`,
+      `/api/sessions/${encodeURIComponent(key)}/context${summary ? '?summary=true' : ''}`,
       ContextResponseSchema,
       {
         ...(signal ? { signal } : {}),

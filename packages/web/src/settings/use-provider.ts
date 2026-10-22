@@ -20,6 +20,7 @@
 import type { TFunction } from 'i18next';
 import { useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type {
   ConfigPatch,
   ProviderTestRequest,
@@ -139,6 +140,7 @@ export function useTestProvider(): TestProviderHandle {
 }
 
 export function useSaveProvider(): SaveProviderHandle {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const probe = useProbe();
   // The check is started from the mutation's own `onSuccess`, which cannot see
@@ -169,12 +171,12 @@ export function useSaveProvider(): SaveProviderHandle {
       // One toast for one press. Composing `useSaveSettings` with
       // `useSaveCredential` would have stacked two, which reads as two saves.
       toast.success(
-        'Provider saved',
+        t('toasts.providers.saved'),
         input.credential === undefined
           ? undefined
           : input.credential === null
-            ? 'Its stored key was removed.'
-            : 'The next turn will use the new key.',
+            ? t('toasts.providers.keyRemoved')
+            : t('toasts.providers.keySaved'),
       );
       if (input.test !== null) {
         probe.run(input.test, {
@@ -185,7 +187,7 @@ export function useSaveProvider(): SaveProviderHandle {
     onError: (error: Error) => {
       // The server's own message: a refused patch says *which* field could not
       // be served, and "could not save" is none of that.
-      toast.error('Could not save the provider', error.message);
+      toast.error(t('toasts.providers.saveFailed'), error.message);
     },
   });
 
@@ -222,6 +224,7 @@ export function useRemoveProvider(): {
   ) => void;
   readonly removing: boolean;
 } {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation<unknown, Error, string>({
@@ -229,10 +232,13 @@ export function useRemoveProvider(): {
       api.patchSettings(toDeleteProviderPatch(instanceId)),
     onSuccess: async () => {
       await queryClient.invalidateQueries();
-      toast.success('Provider removed', 'Its saved key was deleted with it.');
+      toast.success(
+        t('toasts.providers.removed'),
+        t('toasts.providers.removedBody'),
+      );
     },
     onError: (error) => {
-      toast.error('Could not remove the provider', error.message);
+      toast.error(t('toasts.providers.removeFailed'), error.message);
     },
   });
 

@@ -51,6 +51,7 @@ import {
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';
+import { useAgentsQuery } from '@/lib/queries.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 import { formatBytes } from '@/lib/format.js';
 import { Button } from '@/components/ui/button.js';
@@ -183,11 +184,7 @@ export function Composer({
   // moment it is wanted — accepting `/agent ` would close the popover and
   // reopen it when the response landed, which reads as a flicker rather than as
   // a menu. Still lazy: nothing is requested until a `/` opens the line.
-  const agents = useQuery({
-    queryKey: queryKeys.agents,
-    queryFn: ({ signal }) => api.agents(signal),
-    enabled: query !== undefined,
-  });
+  const agents = useAgentsQuery({ enabled: query !== undefined });
 
   // Narrower, and deliberately so. `GET /api/models` reaches every configured
   // endpoint, so it is asked for only when the word being completed is the one
@@ -344,7 +341,7 @@ export function Composer({
         }
         // The workspace the conversation is in, so an attachment lands beside
         // the files the turn can already see rather than in the default tree.
-        void stage(file, workspaceId, setFiles);
+        void stage(file, workspaceId, setFiles, t);
       }
     },
     [t, workspaceId],
@@ -405,7 +402,7 @@ export function Composer({
                 </span>
                 <button
                   type="button"
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t('chat.removeAttachment', { name: file.name })}
                   onClick={() => {
                     setFiles((current) =>
                       current.filter((entry) => entry.id !== file.id),
@@ -647,6 +644,7 @@ async function stage(
   setFiles: (
     update: (current: readonly StagedFile[]) => readonly StagedFile[],
   ) => void,
+  t: TFunction,
 ): Promise<void> {
   const id = newUuid();
   const entry: StagedFile = {
@@ -693,7 +691,7 @@ async function stage(
       ),
     );
     toast.error(
-      `Could not upload ${file.name}`,
+      t('toasts.files.uploadNamedFailed', { name: file.name }),
       error instanceof Error ? error.message : undefined,
     );
   }

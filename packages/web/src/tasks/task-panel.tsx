@@ -57,8 +57,20 @@ const ICONS = {
  * same number of tasks still moves it.
  */
 export function lastTodoCallId(transcript: Transcript): string {
-  // From the end, because this runs on every store update and the answer is
-  // almost always in the last turn.
+  // The selector runs on every store update, most of which leave the
+  // transcript alone. A session with no `todo` call would otherwise scan every
+  // part each time.
+  if (transcript === scanned) return found;
+  scanned = transcript;
+  found = findTodoCallId(transcript);
+  return found;
+}
+
+let scanned: Transcript | undefined;
+let found = '';
+
+function findTodoCallId(transcript: Transcript): string {
+  // From the end: the answer is almost always in the last turn.
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const item = transcript[index];
     if (item?.kind !== 'turn') continue;

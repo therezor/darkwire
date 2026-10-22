@@ -223,9 +223,10 @@ significant digits with the rule the terminal uses, and the window is shortened 
 way as the count, so `65.5k` rather than the model card's `64K`: two units on one line
 would make 65,000 of 65,536 read as over. The exact figures are the button's accessible
 name and the inspector's table. The percent never reads `100%` while the request still
-fits. It turns amber at 80% and red at 95%. A leading `~` means the figure is still a
-character estimate; it goes after the model's first reply, when the server scales the
-estimate by the provider's own count (see [Architecture](architecture.md)).
+fits. It turns amber at 80% and red at 95%. The figure carries no estimate mark: until
+the model's first reply it is a character estimate, which the accessible name says as
+"about", and after it the server scales the estimate by the provider's own count (see
+[Architecture](architecture.md)).
 
 **It moves while a turn runs.** The loop reports the figure at the end of every tool
 iteration on a `context.usage` frame, and the strip takes the numbers straight off it
@@ -486,3 +487,11 @@ running one — which removes the gotcha this paragraph used to warn about, wher
 `index.html` was served beside 404ing hashed assets and the result was a blank page that
 looked like a crash and was not one. `--ui <dir>` serves a directory instead, and is the
 escape hatch for working on the UI itself.
+
+**How it is served.** The build writes a Brotli and a gzip copy beside every hashed file
+under `assets/`, and the server sends the one the browser accepts (Brotli only reaches
+HTTPS, so a plain-HTTP LAN install gets gzip). Those files are cached for a year, since
+their names change with their contents. `index.html`, `boot.js` and the icon carry an
+`ETag` and are revalidated on every load. A missing file under `assets/` is a 404 rather
+than the shell, so a tab left open across an upgrade reports a missing chunk instead of a
+script syntax error. Source maps stay out of the binary; `--ui` still serves them.

@@ -18,7 +18,6 @@
  * occurrences — must not read as a failure.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Play } from 'lucide-react';
 import { useMemo, useState, type JSX } from 'react';
@@ -37,8 +36,7 @@ import { Pagination } from '@/components/crud/pagination.js';
 import { usePagination } from '@/components/crud/use-pagination.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { useAgentsQuery, useWorkspacesQuery } from '@/lib/queries.js';
 import { useFormat } from '@/lib/use-format.js';
 import { useAppTimezone } from '@/timezone/timezone-context.js';
 import {
@@ -157,10 +155,7 @@ function Editor({ job }: { readonly job?: AutomationJob }): JSX.Element {
   // The real list, so a job cannot name an agent that does not exist. Absent —
   // a fresh install, or the query still in flight — leaves just the default,
   // which is the one agent that always resolves.
-  const agents = useQuery({
-    queryKey: queryKeys.agents,
-    queryFn: ({ signal }) => api.agents(signal),
-  });
+  const agents = useAgentsQuery();
   const agentOptions = useMemo(() => {
     const known = agents.data?.agents ?? [];
     const options = [
@@ -191,10 +186,7 @@ function Editor({ job }: { readonly job?: AutomationJob }): JSX.Element {
   // The same shape as the agents above, and for the same reasons — including
   // the deleted-binding branch: a job pointing at a detached workspace keeps
   // showing it, because hiding it would make the editor lie about what runs.
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
   const workspaceOptions = useMemo(() => {
     const known = workspaces.data?.workspaces ?? [];
     const options = [

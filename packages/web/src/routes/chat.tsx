@@ -24,7 +24,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { useCallback, useEffect, type JSX } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
 
 import { api } from '@/lib/api.js';
 import { usePageTitle } from '@/app/page-title.js';
@@ -35,13 +35,15 @@ import {
   sendUserMessage,
   stopTurn,
 } from '@/lib/connection.js';
-import { queryKeys } from '@/lib/query.js';
+import { CONVERSATION_GC_MS, queryKeys } from '@/lib/query.js';
+import { useSessionRow } from '@/lib/queries.js';
 import { useTranslation } from 'react-i18next';
 import { useTurnStore } from '@/state/turn.js';
 import { toast } from '@/components/ui/toast.js';
 import { AgentPicker } from '@/agents/agent-picker.js';
 import { useAgentChoice } from '@/agents/use-agent-choice.js';
 import { WorkspacePicker } from '@/workspaces/workspace-picker.js';
+import { useWorkspace } from '@/workspaces/workspace-context.js';
 import { useAgent } from '@/agents/agent-context.js';
 import { Composer } from '@/chat/composer.js';
 import { useCommands } from '@/chat/use-commands.js';
@@ -65,6 +67,9 @@ export function ChatRoute(): JSX.Element {
   // What the picker in the composer is showing. Carried on the message so a
   // conversation that has no row yet is created bound to it.
   const { agentId } = useAgent();
+  // What the workspace picker shows. For a conversation with no row yet it is
+  // where the first message creates it; the server ignores it otherwise.
+  const { workspaceId } = useWorkspace();
 
   // Whether there is anything, not the transcript itself. The transcript moves
   // on every token, and only `LiveTranscript` should re-render with it.
@@ -77,18 +82,14 @@ export function ChatRoute(): JSX.Element {
   // agent this conversation runs on. React Query dedupes the two queries behind
   // it, so asking here costs nothing the picker was not already paying.
   const agentChoice = useAgentChoice(sessionKey);
+  const conversation = useConversationGeneration(sessionKey);
 
   const queryClient = useQueryClient();
 
   // The tab is named after the stored row. A session nobody has spoken in has
   // no row yet, so the 404 means "new", not "failed". The same query the agent
   // picker runs, so it costs nothing extra.
-  const stored = useQuery({
-    queryKey: queryKeys.session(session ?? ''),
-    queryFn: ({ signal }) => api.session(session ?? '', signal),
-    enabled: session !== undefined,
-    retry: false,
-  });
+  const stored = useSessionRow(session);
   usePageTitle(
     session === undefined || stored.isError || stored.data?.title === ''
       ? t('sessions.untitled')
@@ -119,7 +120,7 @@ export function ChatRoute(): JSX.Element {
       });
     },
     onError: (error: Error) => {
-      toast.error('Could not branch the session', error.message);
+      toast.error(t('toasts.sessions.branchFailed'), error.message);
     },
   });
 
@@ -172,6 +173,7 @@ export function ChatRoute(): JSX.Element {
     // "everything before this is in storage", so a stale copy of storage is
     // indistinguishable from the truth.
     staleTime: 0,
+    gcTime: CONVERSATION_GC_MS,
   });
 
   useEffect(() => {
@@ -244,6 +246,10 @@ export function ChatRoute(): JSX.Element {
       )}
 
       <Composer
+        // A new conversation gets an empty box. Without this the route is
+        // reused across a switch, and text typed for one chat is sent to the
+        // next.
+        key={conversation}
         // What the next turn runs under, both halves of it: which agent, and
         // which workspace its files are in. In the session rather than the
         // sidebar, because choosing either is part of asking the question.
@@ -291,7 +297,9 @@ export function ChatRoute(): JSX.Element {
         onStop={stopTurn}
         onCommand={runSlashCommand}
         onSend={(text, attachments) => {
-          if (!sendUserMessage(text, attachments, agentId)) return false;
+          if (!sendUserMessage(text, attachments, agentId, workspaceId)) {
+            return false;
+          }
           // The URL catches up with the session the server named, so a reload
           // or a shared link lands on the same conversation. `replace`, because
           // sending a message is not a navigation the back button should undo.
@@ -307,6 +315,23 @@ export function ChatRoute(): JSX.Element {
       />
     </div>
   );
+}
+
+/**
+ * A number that moves when the conversation on screen changes.
+ *
+ * Not when the first key arrives: a fresh tab learns its key from the server's
+ * greeting, after the composer is on screen and possibly holding text.
+ */
+function useConversationGeneration(sessionKey: string | undefined): number {
+  const [seen, setSeen] = useState({ key: sessionKey, generation: 0 });
+  if (sessionKey !== undefined && sessionKey !== seen.key) {
+    const generation =
+      seen.key === undefined ? seen.generation : seen.generation + 1;
+    setSeen({ key: sessionKey, generation });
+    return generation;
+  }
+  return seen.generation;
 }
 
 /** The one part of the chat screen that follows the transcript per token. */

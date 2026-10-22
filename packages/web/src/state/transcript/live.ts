@@ -61,6 +61,7 @@ export function appendPendingUserMessage(
       text: input.text,
       attachments: input.attachments ?? [],
       pending: true,
+      refused: undefined,
       steering: input.steering ?? false,
     },
   ];
@@ -101,6 +102,32 @@ export function applyServerMessage(
       if (
         items.some((item) => item.kind === 'turn' && item.id === message.turnId)
       ) {
+        // A turn this tab never saw start: rebuilt from storage, reopened by a
+        // status, or a seat a replay put down. Its `turn.start` coming back
+        // means the ring is sending the whole turn, so the frames rebuild it
+        // rather than land on top of a copy of themselves. Kept in place: the
+        // question above it is storage's alone.
+        const unwatched = (turn: TurnItem): boolean => turn.sessionKey === '';
+        if (
+          items.some(
+            (item) =>
+              item.kind === 'turn' &&
+              item.id === message.turnId &&
+              unwatched(item),
+          )
+        ) {
+          const reseated = updateTurn(items, message.turnId, (turn) => ({
+            ...turn,
+            sessionKey: message.sessionKey,
+            parts: [],
+            stopReason: undefined,
+            firstSeq: turn.firstSeq ?? message.firstSeq,
+            lastSeq: undefined,
+            done: false,
+            failure: undefined,
+          }));
+          return stampUserSeq(reseated, message.turnId, message.firstSeq);
+        }
         const filled = updateTurn(items, message.turnId, (turn) =>
           turn.sessionKey === '' || turn.firstSeq === undefined
             ? {
@@ -188,6 +215,11 @@ export function applyServerMessage(
     }
 
     case 'error':
+      // A refused message answers its own bubble, which would otherwise wait
+      // for an ack that is not coming.
+      if (message.clientMessageId !== undefined) {
+        return refuse(items, message.clientMessageId, message.message);
+      }
       // A connection-scoped error is not a transcript entry — `connection.ts`
       // raises a toast for it. A turn-scoped one belongs on the turn it killed.
       return message.turnId === undefined
@@ -438,6 +470,45 @@ export function truncateTranscriptAfter(
 }
 
 /** The seq a turn that wrote no question is addressed by: its first message. */
+function refuse(
+  items: Transcript,
+  clientMessageId: string,
+  reason: string,
+): Transcript {
+  const index = items.findLastIndex(
+    (item) =>
+      item.kind === 'user' &&
+      item.pending &&
+      item.clientMessageId === clientMessageId,
+  );
+  const item = items[index];
+  if (item?.kind !== 'user') return items;
+  const copy = [...items];
+  copy[index] = { ...item, pending: false, refused: reason };
+  return copy;
+}
+
+/**
+ * Reopens a turn storage built as ended, because the server says it is running.
+ *
+ * Storage holds the messages a turn has finished and none of the one it is
+ * writing, so the live frames that follow extend it rather than repeat it.
+ * A tab that opened the conversation mid-turn has only this to go on: it never
+ * saw the `turn.start` that a replay would rebuild the turn from.
+ */
+export function markTurnRunning(items: Transcript, turnId: string): Transcript {
+  const index = items.findLastIndex(
+    (item) => item.kind === 'turn' && item.id === turnId,
+  );
+  const turn = items[index];
+  if (turn?.kind !== 'turn' || !turn.done || turn.sessionKey !== '') {
+    return items;
+  }
+  const copy = [...items];
+  copy[index] = { ...turn, done: false, stopReason: undefined };
+  return copy;
+}
+
 function firstStepSeq(turn: TurnItem): number | undefined {
   const step = turn.parts.find((part) => part.kind === 'step');
   return step?.kind === 'step' ? step.firstSeq : undefined;

@@ -28,7 +28,7 @@
  * drawer it is filed in — so it is a column here, not a filter.
  */
 
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -47,9 +47,10 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { SearchFilter } from '@/components/ui/search-filter.js';
-import { newSession, startFreshSession } from '@/lib/connection.js';
+import { startFreshSession } from '@/lib/connection.js';
 import { useFormat } from '@/lib/use-format.js';
 import { useTurnStore } from '@/state/turn.js';
+import { useStartSession } from '@/sessions/use-start-session.js';
 import { useAgent } from '@/agents/agent-context.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 import {
@@ -75,7 +76,6 @@ const BADGED_ORIGINS = new Set(['automation', 'subagent']);
 export function SessionsRoute(): JSX.Element {
   const { t } = useTranslation();
   const fmt = useFormat();
-  const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const { agentId } = useAgent();
 
@@ -122,14 +122,9 @@ export function SessionsRoute(): JSX.Element {
   const title = (session: SessionSummary): string =>
     session.title === '' ? t('sessions.untitled') : session.title;
 
+  const startSession = useStartSession();
   function startChat(): void {
-    // Nothing is written until the first message lands — the same as the
-    // sidebar's New session, and for the same reason.
-    const key = newSession(workspaceId, agentId);
-    void navigate({
-      to: '/sessions/$sessionKey',
-      params: { sessionKey: key },
-    });
+    startSession();
   }
 
   return (

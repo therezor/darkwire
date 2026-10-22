@@ -42,6 +42,7 @@ import type { EnvironmentSummary } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';
+import { useWorkspacesQuery } from '@/lib/queries.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
@@ -126,10 +127,7 @@ export function EnvironmentsPanel(): JSX.Element {
     EnvironmentSummary | undefined
   >(undefined);
   const [workspace, setWorkspace] = useState('');
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
   const start = useSandbox();
 
   // The default workspace until someone picks another, derived rather than

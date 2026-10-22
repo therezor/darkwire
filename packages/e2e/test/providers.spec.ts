@@ -83,7 +83,7 @@ test.describe('providers', () => {
     await app.getByRole('link', { name: 'New provider' }).click();
     await app.getByRole('combobox', { name: 'Type' }).click();
     await app.getByRole('option', { name: 'Ollama' }).click();
-    await app.getByLabel('Name').fill('GPU box');
+    await app.getByLabel('Name', { exact: true }).fill('GPU box');
 
     // Nothing has been written yet — the dialog this replaced had already
     // created the endpoint by now.
@@ -112,7 +112,7 @@ test.describe('providers', () => {
     await seedOllama(app, harness.url);
     await app.goto(`${harness.url}/settings/providers/ollama`);
 
-    await app.getByLabel('Name').fill('Workstation');
+    await app.getByLabel('Name', { exact: true }).fill('Workstation');
     await app.getByLabel('API base').fill('http://gpu.lan:11434/v1');
     await app.getByLabel('API token (optional)').fill('lan-token');
     await app.getByRole('button', { name: 'Save changes' }).click();
@@ -184,7 +184,7 @@ test.describe('providers', () => {
     await seedOllama(app, harness.url, true);
     await app.goto(`${harness.url}/settings/providers/ollama`);
 
-    await app.getByLabel('Name').fill('Workstation');
+    await app.getByLabel('Name', { exact: true }).fill('Workstation');
     await app.getByRole('button', { name: 'Save changes' }).click();
 
     await expect

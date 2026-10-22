@@ -13,16 +13,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CLOSE_SIGNED_OUT,
+  MAX_CLIENT_FRAME_BYTES,
   type ClientMessage,
   type ServerMessage,
 } from '@darkwire/protocol';
 
-import { useToastStore } from '@/components/ui/toast.js';
 import { useTurnStore } from '@/state/turn.js';
 import { readCursor, writeCursor } from '@/lib/cursor.js';
 import {
   approveTool,
   closeConnection,
+  onConnectionNotice,
+  type ConnectionNotice,
   regenerateTurn,
   editMessage,
   onServerMessage,
@@ -91,10 +93,15 @@ function open(sessionKey: string | undefined = 'web:1'): void {
   socket().onopen?.();
 }
 
+/** What the module asked the app to tell the person, in order. */
+let notices: ConnectionNotice[] = [];
+
 beforeEach(() => {
   seq = 0;
   FakeSocket.opened.length = 0;
   vi.stubGlobal('WebSocket', FakeSocket);
+  notices = [];
+  onConnectionNotice((notice) => notices.push(notice));
 });
 
 describe('opening', () => {
@@ -264,7 +271,7 @@ describe('switching', () => {
     });
 
     expect(useTurnStore.getState().transcript).toEqual([]);
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(notices).toHaveLength(1);
   });
 
   it('ignores a connected frame for a session it is not on', () => {
@@ -662,7 +669,7 @@ describe('listening', () => {
     expect(seen).toEqual(['pong']);
   });
 
-  it('raises a toast for an error with no turn to render it on', () => {
+  it('reports an error with no turn to render it on', () => {
     open('web:1');
 
     deliver({
@@ -672,7 +679,7 @@ describe('listening', () => {
       retryable: false,
     });
 
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(notices).toEqual([{ kind: 'serverError', message: 'it broke' }]);
   });
 
   it('says nothing about an error that belongs to a turn', () => {
@@ -695,7 +702,7 @@ describe('listening', () => {
     });
 
     // It renders on the turn. A toast as well would be the same news twice.
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(notices).toEqual([]);
   });
 
   it('reports an unreadable frame rather than silently missing events', () => {
@@ -703,9 +710,34 @@ describe('listening', () => {
 
     socket().onmessage?.({ data: '{"type":"assistant.delta"}' });
 
-    expect(useToastStore.getState().toasts[0]).toMatchObject({
-      title: 'Unreadable message from the server',
+    expect(notices[0]).toMatchObject({ kind: 'unreadable' });
+  });
+});
+
+describe('a message too large to send', () => {
+  it('is refused before it is drawn or sent', () => {
+    open('web:1');
+    deliver({
+      type: 'connected',
+      workspaceId: 'default',
+      protocolVersion: 2,
+      sessionKey: 'web:1',
+      serverTimeMs: 0,
+      lastSeq: 0,
     });
+
+    const sent = sendUserMessage('x'.repeat(MAX_CLIENT_FRAME_BYTES));
+
+    // Past the server's cap the socket would close, and a kept message would
+    // close the next one too. The text stays in the box.
+    expect(sent).toBe(false);
+    expect(
+      socket().sent.filter((frame) => frame.type === 'user.message'),
+    ).toEqual([]);
+    expect(useTurnStore.getState().transcript).toEqual([]);
+    expect(notices).toEqual([
+      { kind: 'tooLarge', limitBytes: MAX_CLIENT_FRAME_BYTES },
+    ]);
   });
 });
 
@@ -782,7 +814,7 @@ describe('being signed out', () => {
     expect(heard).toHaveBeenCalledTimes(1);
     expect(useTurnStore.getState().connection).toBe('closed');
     // Not a dropped connection, so nothing says it is reconnecting.
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(notices).toEqual([]);
     expect(FakeSocket.opened).toHaveLength(1);
 
     resumeConnection();
@@ -797,9 +829,7 @@ describe('losing the connection', () => {
 
     socket().onclose?.({ code: 1006 });
 
-    expect(useToastStore.getState().toasts[0]).toMatchObject({
-      title: 'Connection lost',
-    });
+    expect(notices).toEqual([{ kind: 'lost' }]);
     expect(useTurnStore.getState().connection).toBe('reconnecting');
   });
 
@@ -809,7 +839,7 @@ describe('losing the connection', () => {
 
     // A socket that reconnects six times over a lunch break should not leave
     // six toasts stacked up.
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(notices).toEqual([]);
   });
 
   it('goes quiet on close', () => {

@@ -17,6 +17,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type { ExtensionListResponse } from '@darkwire/protocol';
 import type { UseQueryResult } from '@tanstack/react-query';
 
@@ -36,6 +37,7 @@ export function useApproveExtension(): {
   readonly revoke: (id: string) => void;
   readonly pending: boolean;
 } {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const settle = async (answer: ExtensionListResponse): Promise<void> => {
@@ -57,18 +59,18 @@ export function useApproveExtension(): {
       // kind of disagreement an operator stops trusting the screen over.
       if (row?.state === 'ready') {
         toast.success(
-          'Extension approved',
-          'It is loaded. Grant its tools to an agent in that agent’s editor.',
+          t('toasts.extensions.approved'),
+          t('toasts.extensions.approvedBody'),
         );
       } else {
         toast.warning(
-          'Extension approved, and did not load',
-          row?.lastError ?? 'See the row for what went wrong.',
+          t('toasts.extensions.approvedNotLoaded'),
+          row?.lastError ?? t('toasts.extensions.seeRow'),
         );
       }
     },
     onError: (error) => {
-      toast.error('Could not approve the extension', error.message);
+      toast.error(t('toasts.extensions.approveFailed'), error.message);
     },
   });
 
@@ -77,12 +79,12 @@ export function useApproveExtension(): {
     onSuccess: async (answer) => {
       await settle(answer);
       toast.success(
-        'Approval withdrawn',
-        'The files are still installed; nothing from it is loaded.',
+        t('toasts.extensions.revoked'),
+        t('toasts.extensions.revokedBody'),
       );
     },
     onError: (error) => {
-      toast.error('Could not withdraw the approval', error.message);
+      toast.error(t('toasts.extensions.revokeFailed'), error.message);
     },
   });
 

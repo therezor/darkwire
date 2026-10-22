@@ -61,10 +61,20 @@
     padding-inline: var(--gutter);
   }
 
+  /* A message off screen skips layout and paint, which is most of what a long
+     session costs a slow device. That containment clips paint at the item's
+     edge, so the item carries room for a focus ring on every side and hands it
+     back with a negative margin: the layout is unchanged. */
   .transcript__item {
+    --ring-room: calc(var(--ring-width) + var(--ring-offset));
+
     display: flex;
     flex-direction: column;
     min-width: 0;
+    margin: calc(-1 * var(--ring-room));
+    padding: var(--ring-room);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 12rem;
   }
 
   .transcript__jump {

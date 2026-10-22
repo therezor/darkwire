@@ -15,6 +15,7 @@ import type {
 import {
   applyServerMessage,
   fromStoredMessages,
+  messageText,
   messagesOf,
   truncateTranscriptAfter,
   type Transcript,
@@ -218,9 +219,14 @@ describe('a turn as its messages', () => {
     const pieces = messagesOf(turnOf(play(...TWO_STEPS)).parts);
 
     expect(pieces).toMatchObject([
-      { kind: 'message', number: 1, text: 'Looking.', key: 't1#0' },
-      { kind: 'message', number: 2, text: 'It says x.', key: 't1#3' },
+      { kind: 'message', number: 1, key: 't1#0' },
+      { kind: 'message', number: 2, key: 't1#3' },
     ]);
+    expect(
+      pieces.map((piece) =>
+        piece.kind === 'message' ? messageText(piece.parts) : '',
+      ),
+    ).toEqual(['Looking.', 'It says x.']);
     expect(pieces[0]?.kind === 'message' && pieces[0].end?.lastSeq).toBe(3);
     // The tool card belongs to the message that asked for it.
     expect(

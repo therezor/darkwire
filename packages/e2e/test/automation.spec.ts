@@ -114,7 +114,7 @@ test('creating a job writes it to the store, from the create page', async ({
   await app.getByRole('link', { name: 'New job' }).click();
   await expect(app).toHaveURL(/\/automation\/new$/u);
 
-  await app.getByLabel('Name').fill('Nightly build');
+  await app.getByLabel('Name', { exact: true }).fill('Nightly build');
   await app.getByLabel('Message').fill('check the build');
   await app.getByRole('button', { name: 'Save changes' }).click();
 
@@ -165,7 +165,7 @@ test('an abandoned create writes nothing at all', async ({ app, harness }) => {
   // The reason create is a page rather than the dialog it replaced: that dialog
   // POSTed a job with an invented message the moment it was submitted.
   await app.goto(`${harness.url}/automation/new`);
-  await app.getByLabel('Name').fill('Never finished');
+  await app.getByLabel('Name', { exact: true }).fill('Never finished');
   await app.getByRole('link', { name: 'Back to Automation' }).click();
 
   await expect(app).toHaveURL(/\/automation$/u);

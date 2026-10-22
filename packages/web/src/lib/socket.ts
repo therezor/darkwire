@@ -16,6 +16,11 @@
  *     Replaying it is safe because `user.message` carries a `clientMessageId`
  *     and the hub is idempotent on it; a `turn.stop` that arrives late still
  *     stops the turn, which kept running while the socket was gone.
+ *  4. **A `user.message` is kept until the server acks it**, and sent again on
+ *     every new connection until then. A connection can die without the
+ *     browser noticing (Wi-Fi gone, a laptop lid), and a frame written into it
+ *     is lost without an error. A quiet connection is pinged, and one that
+ *     stays silent after the ping is dropped and dialled again.
  *
  * Deliberately knows nothing about the transcript, the store or React. What it
  * emits is parsed frames and a status; `connection.ts` is what wires those into
@@ -54,8 +59,31 @@ const RECONNECT_DELAYS_MS: readonly number[] = [
  */
 const MAX_BUFFERED_FRAMES = 32;
 
+/**
+ * How many connections an unacked `user.message` is written to before it is
+ * given up. An ack sent to a session this tab has since left never reaches it,
+ * and a frame re-sent on every reconnect would outlive the server's memory of
+ * having taken it.
+ */
+const MAX_SENDS = 3;
+
+/** How long a connection may stay silent before it is pinged. */
+const QUIET_MS = 20_000;
+
+/** How long a ping may go unanswered before the connection counts as dead. */
+const PONG_TIMEOUT_MS = 10_000;
+
+/** `WebSocket.CLOSING` and `WebSocket.CLOSED`. */
+const CLOSING = 2;
+const CLOSED = 3;
+
 /** The parts of `WebSocket` this uses, so a test can supply a fake. */
 export interface SocketLike {
+  /**
+   * The browser's state. Only closing and closed are acted on: `send` on a
+   * socket in either discards the frame without an error.
+   */
+  readonly readyState?: number;
   send(data: string): void;
   close(): void;
   onopen: (() => void) | null;
@@ -101,6 +129,18 @@ export class ReconnectingSocket {
   private readonly options: ReconnectingSocketOptions;
   private readonly delays: readonly number[];
   private readonly buffer: ClientMessage[] = [];
+  /**
+   * Sent `user.message` frames by `clientMessageId`, until the server acks,
+   * with the number of connections each has been written to.
+   */
+  private readonly unacked = new Map<
+    string,
+    { readonly message: ClientMessage; sends: number }
+  >();
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
+  private lastHeardMs = 0;
+  /** When the unanswered ping went out, if one is out. */
+  private pingSentMs: number | undefined;
 
   private socket: SocketLike | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -142,6 +182,7 @@ export class ReconnectingSocket {
     this.stopped = true;
     this.clearTimer();
     this.buffer.length = 0;
+    this.unacked.clear();
     this.teardown();
     this.setStatus('closed');
   }
@@ -180,14 +221,30 @@ export class ReconnectingSocket {
    * test uses for everything.
    */
   send(message: ClientMessage): boolean {
+    const tracked = untilAcked(message);
+    const entry = { message, sends: 0 };
+    if (tracked !== undefined) {
+      this.unacked.set(tracked, entry);
+      if (this.unacked.size > MAX_BUFFERED_FRAMES) {
+        const oldest = this.unacked.keys().next().value;
+        if (oldest !== undefined) this.unacked.delete(oldest);
+      }
+    }
+
     if (this.socket !== undefined && this.currentStatus === 'open') {
+      entry.sends += 1;
       this.write(this.socket, message);
       return true;
     }
 
-    this.buffer.push(message);
-    if (this.buffer.length > MAX_BUFFERED_FRAMES) this.buffer.shift();
+    // Kept above, and sent again when a socket opens.
+    if (tracked === undefined) this.hold(message);
     return false;
+  }
+
+  /** The server acked this `clientMessageId`; it is not sent again. */
+  acknowledge(clientMessageId: string): void {
+    this.unacked.delete(clientMessageId);
   }
 
   private dial(status: ConnectionStatus): void {
@@ -213,7 +270,16 @@ export class ReconnectingSocket {
       this.options.onOpen?.((message) => {
         this.write(socket, message);
       });
+      for (const [id, entry] of this.unacked) {
+        if (entry.sends >= MAX_SENDS) {
+          this.unacked.delete(id);
+          continue;
+        }
+        entry.sends += 1;
+        this.write(socket, entry.message);
+      }
       this.flush(socket);
+      this.startHeartbeat(socket);
     };
 
     socket.onmessage = (event): void => {
@@ -221,6 +287,8 @@ export class ReconnectingSocket {
       // The connection has proved itself: the next drop starts at the top of
       // the schedule rather than wherever this attempt left the counter.
       this.attempt = 0;
+      this.lastHeardMs = Date.now();
+      this.pingSentMs = undefined;
       this.receive(event.data);
     };
 
@@ -231,6 +299,7 @@ export class ReconnectingSocket {
     socket.onclose = (event): void => {
       if (this.socket !== socket) return;
       this.socket = undefined;
+      this.stopHeartbeat();
       if (this.stopped) return;
       if (event.code === CLOSE_SIGNED_OUT) {
         this.signedOut = true;
@@ -270,14 +339,25 @@ export class ReconnectingSocket {
   }
 
   private write(socket: SocketLike, message: ClientMessage): void {
+    // A `user.message` waits in `unacked` and goes again on the next socket.
+    const requeue = untilAcked(message) === undefined;
+    if (socket.readyState === CLOSING || socket.readyState === CLOSED) {
+      if (requeue) this.hold(message);
+      return;
+    }
     try {
       socket.send(JSON.stringify(message));
     } catch {
-      // The socket died between the readyState check and the write. Buffer it
-      // for the next connection rather than losing what the user typed.
-      this.buffer.push(message);
-      if (this.buffer.length > MAX_BUFFERED_FRAMES) this.buffer.shift();
+      // The socket died between the readyState check and the write. Held for
+      // the next connection rather than losing what the user typed.
+      if (requeue) this.hold(message);
     }
+  }
+
+  /** Keeps a frame for the next socket, dropping the oldest past the cap. */
+  private hold(message: ClientMessage): void {
+    this.buffer.push(message);
+    if (this.buffer.length > MAX_BUFFERED_FRAMES) this.buffer.shift();
   }
 
   private scheduleReconnect(): void {
@@ -300,6 +380,39 @@ export class ReconnectingSocket {
     }, delay);
   }
 
+  /**
+   * Pings a quiet connection, and drops one that does not answer.
+   *
+   * The browser reports a dead connection only when TCP gives up, which can
+   * take minutes. Every frame counts as an answer, so a busy turn is never
+   * pinged at all.
+   */
+  private startHeartbeat(socket: SocketLike): void {
+    this.stopHeartbeat();
+    this.lastHeardMs = Date.now();
+    this.pingSentMs = undefined;
+    this.heartbeat = setInterval(() => {
+      if (this.socket !== socket) return;
+      const now = Date.now();
+      if (this.pingSentMs !== undefined) {
+        if (now - this.pingSentMs < PONG_TIMEOUT_MS) return;
+        this.stopHeartbeat();
+        this.teardown();
+        this.scheduleReconnect();
+        return;
+      }
+      if (now - this.lastHeardMs < QUIET_MS) return;
+      this.pingSentMs = now;
+      this.write(socket, { type: 'ping' });
+    }, PONG_TIMEOUT_MS / 2);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat === undefined) return;
+    clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
+  }
+
   private clearTimer(): void {
     if (this.timer === undefined) return;
     clearTimeout(this.timer);
@@ -308,6 +421,7 @@ export class ReconnectingSocket {
 
   /** Drops the handlers before closing, so our own `close` is not a reconnect. */
   private teardown(): void {
+    this.stopHeartbeat();
     const socket = this.socket;
     if (socket === undefined) return;
     this.socket = undefined;
@@ -345,6 +459,11 @@ export function socketUrl(
   return sessionKey === undefined
     ? base
     : `${base}?session=${encodeURIComponent(sessionKey)}`;
+}
+
+/** The id a frame is kept under until its ack, for a frame that has one. */
+function untilAcked(message: ClientMessage): string | undefined {
+  return message.type === 'user.message' ? message.clientMessageId : undefined;
 }
 
 function defaultCreate(url: string): SocketLike {

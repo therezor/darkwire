@@ -39,7 +39,12 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs.js';
-import { Toaster, resetToasts, toast } from '@/components/ui/toast.js';
+import {
+  Toaster,
+  resetToasts,
+  toast,
+  useToastStore,
+} from '@/components/ui/toast.js';
 
 describe('Dialog', () => {
   function Example({
@@ -269,6 +274,26 @@ describe('toast', () => {
     await waitFor(() => {
       expect(screen.queryByText('Saved')).not.toBeInTheDocument();
     });
+  });
+
+  it('shows a repeated report once', () => {
+    resetToasts();
+    const first = toast.error('Unreadable message', 'bad frame');
+    const second = toast.error('Unreadable message', 'bad frame');
+
+    expect(second).toBe(first);
+    expect(useToastStore.getState().toasts).toHaveLength(1);
+  });
+
+  it('keeps only the newest few on screen', () => {
+    resetToasts();
+    for (let index = 1; index <= 20; index += 1) {
+      toast.error(`Failure ${String(index)}`);
+    }
+
+    const titles = useToastStore.getState().toasts.map((item) => item.title);
+    expect(titles).toHaveLength(5);
+    expect(titles.at(-1)).toBe('Failure 20');
   });
 
   it('keeps failures on screen and lets successes expire', () => {

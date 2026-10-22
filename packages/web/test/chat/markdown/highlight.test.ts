@@ -130,6 +130,21 @@ describe('highlight', () => {
     expect(second).toBe(first);
   });
 
+  it('evicts the oldest blocks once the source budget is spent', async () => {
+    const big = (tag: string): string =>
+      `// ${tag}\n${'const a = 1;\n'.repeat(8_000)}`;
+    const first = await highlight(big('first'), 'typescript', 'dark');
+    for (const tag of ['b', 'c', 'd']) {
+      await highlight(big(tag), 'typescript', 'dark');
+    }
+
+    // About 100k characters each against a budget well under four of them, so
+    // the first is gone and comes back as a new array.
+    const again = await highlight(big('first'), 'typescript', 'dark');
+    expect(again).toEqual(first);
+    expect(again).not.toBe(first);
+  });
+
   it('shares one grammar between a name and its aliases', async () => {
     const viaAlias = await highlight('const a = 1;', 'ts', 'dark');
     const viaName = await highlight('const a = 1;', 'typescript', 'dark');

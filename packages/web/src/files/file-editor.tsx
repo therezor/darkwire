@@ -113,7 +113,7 @@ export function FileEditor({
         setConflict(true);
         return;
       }
-      toast.error('Could not save the file', error.message);
+      toast.error(t('toasts.files.saveFailed'), error.message);
     },
   });
 
@@ -183,7 +183,9 @@ export function FileEditor({
             // control that looks live and does nothing is worse than one that
             // says why it cannot.
             disabled={editing && dirty}
-            {...(editing && dirty ? { title: 'Save or reload first' } : {})}
+            {...(editing && dirty
+              ? { title: t('files.saveOrReloadFirst') }
+              : {})}
             onClick={() => {
               setEditing(!editing);
               if (!editing) {

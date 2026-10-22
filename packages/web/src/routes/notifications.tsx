@@ -77,7 +77,7 @@ export function NotificationsRoute(): JSX.Element {
       );
     },
     onError: (error: Error) => {
-      toast.error('Could not mark it read', error.message);
+      toast.error(t('toasts.notifications.markFailed'), error.message);
     },
   });
 
@@ -87,7 +87,7 @@ export function NotificationsRoute(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
     },
     onError: (error: Error) => {
-      toast.error('Could not mark them read', error.message);
+      toast.error(t('toasts.notifications.markAllFailed'), error.message);
     },
   });
 
@@ -97,7 +97,7 @@ export function NotificationsRoute(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
     },
     onError: (error: Error) => {
-      toast.error('Could not delete it', error.message);
+      toast.error(t('toasts.common.deleteFailed'), error.message);
     },
   });
 
@@ -300,7 +300,7 @@ function NotificationRow({
       <Button
         variant="ghost"
         size="icon"
-        aria-label={`Delete “${notification.title}”`}
+        aria-label={t('common.deleteNamed', { name: notification.title })}
         onClick={onDelete}
       >
         <Trash2 />

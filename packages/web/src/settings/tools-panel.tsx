@@ -56,7 +56,7 @@ export function ToolsPanel({
   const [provider, setProvider] = useState<string>(web.searchProvider);
   const [searchUrl, setSearchUrl] = useState(web.searchUrl);
   const [userAgent, setUserAgent] = useState(web.userAgent);
-  const [timeout, setTimeout] = useState(String(web.timeoutSeconds));
+  const [timeout, setTimeoutText] = useState(String(web.timeoutSeconds));
   const [readTimeout, setReadTimeout] = useState(
     String(web.readTimeoutSeconds),
   );
@@ -165,7 +165,7 @@ export function ToolsPanel({
           value={timeout}
           error={errors.timeoutSeconds}
           inputMode="numeric"
-          onValueChange={touched(setTimeout)}
+          onValueChange={touched(setTimeoutText)}
         />
         <TextField
           label={t('settings.tools.readTimeout')}
@@ -212,7 +212,7 @@ export function ToolsPanel({
           setProvider(web.searchProvider);
           setSearchUrl(web.searchUrl);
           setUserAgent(web.userAgent);
-          setTimeout(String(web.timeoutSeconds));
+          setTimeoutText(String(web.timeoutSeconds));
           setReadTimeout(String(web.readTimeoutSeconds));
           setMaxKb(bytesToKb(web.maxBytes));
           setCacheEntries(String(web.cacheEntries));

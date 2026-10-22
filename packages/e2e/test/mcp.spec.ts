@@ -89,7 +89,7 @@ test.describe('MCP servers', () => {
     await app.goto(`${harness.url}/settings?panel=mcp`);
     await app.getByRole('link', { name: 'New MCP server' }).click();
 
-    await app.getByLabel('Name').fill('files');
+    await app.getByLabel('Name', { exact: true }).fill('files');
     await app.getByLabel('Command').fill('not-a-real-command');
 
     // Nothing yet: an abandoned editor must not leave a server behind.

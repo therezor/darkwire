@@ -32,7 +32,7 @@
  */
 
 import type { TFunction } from 'i18next';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
@@ -53,6 +53,7 @@ import { RowActions } from '@/components/crud/row-actions.js';
 import { api } from '@/lib/api.js';
 import { useFormat } from '@/lib/use-format.js';
 import { queryKeys } from '@/lib/query.js';
+import { useWorkspacesQuery } from '@/lib/queries.js';
 import {
   FieldGrid,
   SaveBar,
@@ -78,10 +79,7 @@ import { useWorkspace } from './workspace-context.js';
  */
 export function WorkspaceCreateRoute(): JSX.Element {
   const { t } = useTranslation();
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
 
   if (workspaces.isPending) {
     return <p className="page__note">{t('workspaces.loadingOne')}</p>;
@@ -101,10 +99,7 @@ export function WorkspaceEditorRoute(): JSX.Element {
   const { t } = useTranslation();
   const { workspaceId } = useParams({ from: '/workspaces/$workspaceId' });
 
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
 
   if (workspaces.isPending) {
     return <p className="page__note">{t('workspaces.loadingOne')}</p>;
@@ -229,7 +224,7 @@ function Editor({
       toast.success(`Renamed to ${updated.name}`);
     },
     onError: (error: Error) => {
-      toast.error('Could not save it', error.message);
+      toast.error(t('toasts.common.saveFailed'), error.message);
     },
   });
 

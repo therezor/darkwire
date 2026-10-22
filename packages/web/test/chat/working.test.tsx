@@ -53,13 +53,7 @@ function turn(parts: readonly TurnPart[]): TurnItem {
 
 function show(item: TurnItem): void {
   renderWithProviders(
-    <Message
-      item={item}
-      streaming
-      busy
-      onApprove={vi.fn()}
-      onAction={vi.fn()}
-    />,
+    <Message item={item} streaming onApprove={vi.fn()} onAction={vi.fn()} />,
   );
 }
 

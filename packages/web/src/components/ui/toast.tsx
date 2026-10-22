@@ -50,11 +50,28 @@ interface ToastStore {
  */
 let nextId = 0;
 
-export const useToastStore = create<ToastStore>((set) => ({
+/**
+ * The most on screen at once. A server this client cannot read raises one per
+ * frame, and an unbounded stack of them is a page nobody can use.
+ */
+const MAX_TOASTS = 5;
+
+function sameToast(a: ToastInput, b: ToastInput): boolean {
+  return (
+    a.title === b.title && a.description === b.description && a.role === b.role
+  );
+}
+
+export const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
   push: (input) => {
+    // The same report twice is still one thing to read.
+    const shown = get().toasts.find((toast) => sameToast(toast, input));
+    if (shown !== undefined) return shown.id;
     const id = (nextId += 1);
-    set((state) => ({ toasts: [...state.toasts, { ...input, id }] }));
+    set((state) => ({
+      toasts: [...state.toasts, { ...input, id }].slice(-MAX_TOASTS),
+    }));
     return id;
   },
   dismiss: (id) => {

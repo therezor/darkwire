@@ -76,6 +76,8 @@ export interface UserItem {
   readonly attachments: readonly Attachment[];
   /** True until the ack lands — the bubble that has not been accepted yet. */
   readonly pending: boolean;
+  /** Why the server would not take it. Set instead of an ack, never with one. */
+  readonly refused: string | undefined;
   /**
    * Sent to the running turn rather than as a turn of its own. It goes when
    * the loop reads it, or becomes an ordinary message if the turn ends first.

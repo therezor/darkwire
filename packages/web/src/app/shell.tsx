@@ -75,7 +75,7 @@ const PAGE_TITLES: ReadonlyArray<readonly [string, WebKey]> = [
 ];
 
 /** The section of `pathname`, or `undefined` at the root and on an unknown path. */
-export function pageTitleKey(pathname: string): WebKey | undefined {
+function pageTitleKey(pathname: string): WebKey | undefined {
   return PAGE_TITLES.find(
     ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   )?.[1];

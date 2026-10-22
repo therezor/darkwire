@@ -38,8 +38,8 @@ import { Button } from '@/components/ui/button.js';
 import { useCopy } from '@/components/use-copy.js';
 
 interface MessageActionsProps {
-  /** What Copy puts on the clipboard. */
-  readonly text: string;
+  /** What Copy puts on the clipboard, or how to assemble it on the click. */
+  readonly text: string | (() => string);
   readonly onEdit?: (() => void) | undefined;
   readonly onRegenerate?: (() => void) | undefined;
   readonly onBranch?: (() => void) | undefined;
@@ -77,7 +77,9 @@ export function MessageActions({
       <Button
         variant="ghost"
         size="icon"
-        aria-label={copied ? 'Copied' : (copyLabel ?? 'Copy message')}
+        aria-label={
+          copied ? t('chat.copied') : (copyLabel ?? t('chat.copyMessage'))
+        }
         onClick={copy}
       >
         {copied ? <Check /> : <Copy />}

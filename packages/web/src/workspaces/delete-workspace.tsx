@@ -76,8 +76,8 @@ export function DeleteWorkspaceDialog({
       onOpenChange(false);
       refresh();
       toast.success(
-        `Deleted ${target.name}`,
-        'Its folder and files are still on disk.',
+        t('toasts.workspaces.deleted', { name: target.name }),
+        t('toasts.workspaces.deletedBody'),
       );
       onDeleted?.(target);
     },
@@ -89,7 +89,7 @@ export function DeleteWorkspaceDialog({
         setStage('blocked');
         return;
       }
-      toast.error('Could not delete it', error.message);
+      toast.error(t('toasts.common.deleteFailed'), error.message);
     },
   });
 
@@ -100,7 +100,7 @@ export function DeleteWorkspaceDialog({
       remove.mutate(target);
     },
     onError: (error: Error) => {
-      toast.error('Could not move the sessions', error.message);
+      toast.error(t('toasts.workspaces.moveFailed'), error.message);
     },
   });
 

@@ -66,7 +66,7 @@ import {
   summariseCall,
 } from '@/lib/format.js';
 import { useElapsed } from '@/lib/use-elapsed.js';
-import { queryKeys } from '@/lib/query.js';
+import { CONVERSATION_GC_MS, queryKeys } from '@/lib/query.js';
 import { Badge, type BadgeProps } from '@/components/ui/badge.js';
 import {
   fromStoredMessages,
@@ -147,7 +147,7 @@ function ToolCardItem({ tool, onApprove }: ToolCardProps): JSX.Element {
       // Named, which makes it a landmark: a screen-reader user navigating a
       // turn with six calls in it can move between them instead of reading
       // through them.
-      aria-label={`Tool call: ${tool.name}`}
+      aria-label={t('chat.toolCall', { name: tool.name })}
       className={cn(
         'tool-card',
         tool.status === 'awaiting-approval' && 'tool-card--awaiting',
@@ -174,7 +174,10 @@ function ToolCardItem({ tool, onApprove }: ToolCardProps): JSX.Element {
           {/* Labelled, because a pill reading `exec` is cryptic on its own,
               and because the band and the tool are often the same word. */}
           {risk !== undefined && (
-            <Badge tone={risk.tone} aria-label={`Risk: ${risk.label}`}>
+            <Badge
+              tone={risk.tone}
+              aria-label={t('chat.risk', { risk: risk.label })}
+            >
               {risk.label}
             </Badge>
           )}
@@ -285,6 +288,7 @@ function SubagentRun({
     // A subagent session that has been deleted is a 404, and an expected one:
     // retrying it three times to show the same empty card helps nobody.
     retry: false,
+    gcTime: CONVERSATION_GC_MS,
   });
 
   const parts = run.loaded
@@ -356,28 +360,55 @@ function partsOf(
 }
 
 /**
- * A list of parts, in arrival order.
- *
- * One implementation for a turn and for a delegation, which is what makes a
- * nested `exec` card identical to a top-level one — including its approval
- * prompt, which is answered by the same frame wherever it is drawn.
- *
- * Calls made back to back share one list, a row each. A message that reads
- * five files is one block, not five boxes.
+ * Whether two part lists hold the same parts. The reducer replaces only the
+ * part a frame touched, so the rest keep their identity across a delta.
  */
-export function TurnParts({
-  parts,
-  streaming,
-  onApprove,
-  unanswered = false,
-}: {
+export function sameParts(
+  previous: readonly TurnPart[],
+  next: readonly TurnPart[],
+): boolean {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+  return previous.every((part, index) => part === next[index]);
+}
+
+interface TurnPartsProps {
   readonly parts: readonly TurnPart[];
-  /** True while the list is still growing — only its last part can be live. */
+  /** True while the list is still growing. Only its last part can be live. */
   readonly streaming: boolean;
   readonly onApprove: ToolCardProps['onApprove'];
   /** Expands reasoning on a turn that produced nothing else. */
   readonly unanswered?: boolean;
-}): JSX.Element {
+}
+
+/**
+ * A list of parts, in arrival order.
+ *
+ * One implementation for a turn and for a delegation, which is what makes a
+ * nested `exec` card identical to a top-level one, including its approval
+ * prompt, which is answered by the same frame wherever it is drawn.
+ *
+ * Calls made back to back share one list, a row each. A message that reads
+ * five files is one block, not five boxes.
+ *
+ * Memoised on the parts themselves: a turn splits into messages afresh on every
+ * delta, so each finished message arrives in a new array holding the same parts.
+ */
+export const TurnParts = memo(
+  TurnPartsList,
+  (previous, next) =>
+    previous.streaming === next.streaming &&
+    previous.onApprove === next.onApprove &&
+    previous.unanswered === next.unanswered &&
+    sameParts(previous.parts, next.parts),
+);
+
+function TurnPartsList({
+  parts,
+  streaming,
+  onApprove,
+  unanswered = false,
+}: TurnPartsProps): JSX.Element {
   const last = parts.at(-1);
 
   return (

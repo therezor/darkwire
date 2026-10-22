@@ -11,7 +11,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CLOSE_SIGNED_OUT, type ServerMessage } from '@darkwire/protocol';
+import {
+  CLOSE_SIGNED_OUT,
+  type ClientMessage,
+  type ServerMessage,
+} from '@darkwire/protocol';
 
 import {
   ReconnectingSocket,
@@ -378,5 +382,104 @@ describe('the reconnecting socket', () => {
     first.deliver(CONNECTED);
 
     expect(messages).toEqual([]);
+  });
+});
+
+describe('a connection that dies without saying so', () => {
+  const message: ClientMessage = {
+    type: 'user.message',
+    sessionKey: 'web:1',
+    content: 'hello',
+    attachments: [],
+    clientMessageId: 'c1',
+  };
+  const typesSent = (socket: FakeSocket): string[] =>
+    socket.sent.map((frame) => (JSON.parse(frame) as { type: string }).type);
+
+  it('sends a message again on the next connection until it is acked', () => {
+    const { socket } = harness();
+    socket.open();
+    const first = latest();
+    first.open();
+
+    // Written into a connection that was already dead. No error, no echo.
+    expect(socket.send(message)).toBe(true);
+    first.drop();
+    vi.advanceTimersByTime(100);
+    latest().open();
+
+    expect(typesSent(latest())).toEqual(['user.message']);
+
+    socket.acknowledge('c1');
+    latest().drop();
+    // The second attempt in a row waits the second delay.
+    vi.advanceTimersByTime(400);
+    expect(FakeSocket.opened).toHaveLength(3);
+    latest().open();
+
+    expect(typesSent(latest())).toEqual([]);
+  });
+
+  it('gives a message up after three connections with no ack', () => {
+    // The ack went to a session this tab has left, so it never arrives here.
+    const { socket } = harness();
+    socket.open();
+    latest().open();
+    socket.send(message);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      latest().drop();
+      vi.advanceTimersByTime(1_000);
+      latest().open();
+    }
+
+    const sentAcross = FakeSocket.opened.map(
+      (one) => typesSent(one).filter((type) => type === 'user.message').length,
+    );
+    expect(sentAcross).toEqual([1, 1, 1, 0]);
+  });
+
+  it('holds a frame for a socket that is already closing', () => {
+    const { socket } = harness();
+    socket.open();
+    const closing = latest();
+    closing.open();
+    Object.assign(closing, { readyState: 2 });
+
+    socket.send({ type: 'turn.stop', sessionKey: 'web:1' });
+
+    // The browser would have dropped it without an error.
+    expect(closing.sent).toEqual([]);
+    expect(socket.buffered).toBe(1);
+  });
+
+  it('pings a quiet connection and redials one that does not answer', () => {
+    const { socket, statuses } = harness();
+    socket.open();
+    const silent = latest();
+    silent.open();
+
+    vi.advanceTimersByTime(20_000);
+    expect(typesSent(silent)).toEqual(['ping']);
+
+    vi.advanceTimersByTime(10_000);
+    expect(statuses.at(-1)).toBe('reconnecting');
+    expect(silent.closed).toBe(true);
+    vi.advanceTimersByTime(100);
+    expect(FakeSocket.opened).toHaveLength(2);
+  });
+
+  it('leaves a connection alone while frames keep arriving', () => {
+    const { socket } = harness();
+    socket.open();
+    const busy = latest();
+    busy.open();
+
+    for (let second = 0; second < 60; second += 1) {
+      vi.advanceTimersByTime(1_000);
+      busy.deliver({ type: 'pong' });
+    }
+
+    expect(typesSent(busy)).toEqual([]);
+    expect(FakeSocket.opened).toHaveLength(1);
   });
 });

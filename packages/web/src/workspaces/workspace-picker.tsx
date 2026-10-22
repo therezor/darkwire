@@ -37,7 +37,7 @@
  * is why the server does not refuse a move mid-turn.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown, Folder, Settings2, TriangleAlert } from 'lucide-react';
 import { useEffect, type JSX } from 'react';
@@ -58,6 +58,7 @@ import {
 } from '@/components/ui/dropdown-menu.js';
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';
+import { useSessionRow, useWorkspacesQuery } from '@/lib/queries.js';
 import { toast } from '@/components/ui/toast.js';
 import { folderLabel } from './folder.js';
 import { useWorkspace } from './workspace-context.js';
@@ -71,20 +72,10 @@ export function WorkspacePicker({
   const { workspaceId: preferred, select, adopt } = useWorkspace();
   const queryClient = useQueryClient();
 
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
 
-  // A conversation nobody has spoken in has no row, so this 404s until the
-  // first turn lands. That is the signal, not a failure: no row means the
-  // choice is still only a preference.
-  const stored = useQuery({
-    queryKey: queryKeys.session(sessionKey ?? ''),
-    queryFn: ({ signal }) => api.session(sessionKey ?? '', signal),
-    enabled: sessionKey !== undefined,
-    retry: false,
-  });
+  // No row means the choice is still only a preference.
+  const stored = useSessionRow(sessionKey);
 
   // `SessionSummary.workspaceId` carries a schema default, unlike `agentId`, so
   // this is `undefined` in exactly one case: the query 404'd and there is no

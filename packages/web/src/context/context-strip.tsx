@@ -13,8 +13,9 @@
  * reading "41.2k" says neither the number nor its unit. `title` would carry
  * the same sentence only to a mouse.
  *
- * `~` leads the figure while it is a character estimate. Once the model has
- * replied, the server scales it by the provider's own count, and the mark goes.
+ * The figure carries no estimate mark. While it is a character estimate the
+ * screen reader sentence says "about"; once the model has replied, the server
+ * scales it by the provider's own count.
  *
  * It renders nothing at all when there is nothing to measure. A fresh tab has a
  * session key the socket minted and no stored row behind it, so the request
@@ -23,15 +24,20 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useState, type JSX } from 'react';
+import { Suspense, lazy, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '@/lib/api.js';
 import { cn } from '@/lib/cn.js';
 import { useFormat } from '@/lib/use-format.js';
-import { queryKeys } from '@/lib/query.js';
+import { CONVERSATION_GC_MS, queryKeys } from '@/lib/query.js';
 import { summariseContext, type ContextTone } from './breakdown.js';
-import { ContextDialog } from './context-inspector.js';
+
+// Loaded on the first click. The strip is on every chat screen, and the
+// inspector behind it is opened rarely.
+const ContextDialog = lazy(async () => ({
+  default: (await import('./context-inspector.js')).ContextDialog,
+}));
 
 /** The same table the dialog uses, so the strip and the panel cannot disagree. */
 const SEGMENT_FILLS: Readonly<Record<string, string>> = {
@@ -57,14 +63,17 @@ export function ContextStrip({
   const { t } = useTranslation();
   const fmt = useFormat();
   const [open, setOpen] = useState(false);
+  // Stays true after a close, so the dialog can animate out.
+  const [opened, setOpened] = useState(false);
 
   const context = useQuery({
-    queryKey: queryKeys.context(sessionKey ?? ''),
-    queryFn: ({ signal }) => api.context(sessionKey ?? '', signal),
+    queryKey: queryKeys.contextSummary(sessionKey ?? ''),
+    queryFn: ({ signal }) => api.context(sessionKey ?? '', signal, true),
     enabled: sessionKey !== undefined,
     // A conversation that has not started 404s, and that is not a condition
     // worth retrying three times under the composer.
     retry: false,
+    gcTime: CONVERSATION_GC_MS,
   });
 
   if (sessionKey === undefined || !context.isSuccess) return null;
@@ -82,6 +91,7 @@ export function ContextStrip({
         type="button"
         className={cn('context-strip', TONES[budget.tone])}
         onClick={() => {
+          setOpened(true);
           setOpen(true);
         }}
       >
@@ -99,7 +109,6 @@ export function ContextStrip({
         </span>
 
         <span className="context-strip__label" aria-hidden="true">
-          {budget.measured ? '' : '~'}
           {t('context.ofWindow', {
             used: fmt.tokensShort(budget.usedTokens),
             window: fmt.tokensShort(budget.windowTokens),
@@ -116,11 +125,15 @@ export function ContextStrip({
         </span>
       </button>
 
-      <ContextDialog
-        sessionKey={sessionKey}
-        open={open}
-        onOpenChange={setOpen}
-      />
+      {opened && (
+        <Suspense fallback={null}>
+          <ContextDialog
+            sessionKey={sessionKey}
+            open={open}
+            onOpenChange={setOpen}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

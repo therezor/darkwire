@@ -20,6 +20,7 @@ import { ThemeProvider } from '@/theme/theme-context.js';
 import { TimezoneProvider } from '@/timezone/timezone-context.js';
 import { WorkspaceProvider } from '@/workspaces/workspace-context.js';
 import { AgentProvider } from '@/agents/agent-context.js';
+import { ErrorBoundary } from './error-screen.js';
 
 export function Providers({
   children,
@@ -61,15 +62,20 @@ export function Providers({
                     buttons behaves like a control strip rather than eight
                     separate waits. */}
                 <TooltipProvider delayDuration={400} skipDelayDuration={300}>
-                  {children}
-                  <LoginOverlay />
-                  {/* Above the login overlay in the tree, because on an unclaimed
-                      install `/api/auth/me` also 401s and both would otherwise be
-                      showing — and this is the one that can actually get the user
-                      in. It renders itself only when the server says setup is
-                      needed, so a claimed install never sees it. */}
-                  <SetupOverlay />
-                  <Toaster />
+                  {/* Under the providers, so the error screen still has a
+                      language and a theme to render in. */}
+                  <ErrorBoundary>
+                    {children}
+                    <LoginOverlay />
+                    {/* Above the login overlay in the tree, because on an
+                        unclaimed install `/api/auth/me` also 401s and both
+                        would otherwise be showing, and this is the one that
+                        can actually get the user in. It renders itself only
+                        when the server says setup is needed, so a claimed
+                        install never sees it. */}
+                    <SetupOverlay />
+                    <Toaster />
+                  </ErrorBoundary>
                 </TooltipProvider>
               </AgentProvider>
             </WorkspaceProvider>

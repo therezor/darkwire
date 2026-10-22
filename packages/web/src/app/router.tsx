@@ -26,9 +26,9 @@ import {
 import type { JSX } from 'react';
 import { z } from 'zod';
 
+import { ErrorScreen } from './error-screen.js';
 import { Shell } from './shell.js';
 import { ChatRoute } from '@/routes/chat.js';
-import { SessionsRoute } from '@/sessions/sessions-page.js';
 import { NotFoundRoute } from '@/routes/not-found.js';
 
 const rootRoute = createRootRoute({
@@ -168,7 +168,10 @@ const workspacesRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sessions',
-  component: SessionsRoute,
+  component: lazyRouteComponent(
+    () => import('@/sessions/sessions-page.js'),
+    'SessionsRoute',
+  ),
 });
 
 /** Creating an agent, on the same form that edits one. */
@@ -345,7 +348,12 @@ const routeTree = rootRoute.addChildren([
 ]);
 
 export function createAppRouter(): Router<typeof routeTree, 'never', true> {
-  return createRouter({ routeTree, defaultPreload: 'intent' });
+  return createRouter({
+    routeTree,
+    defaultPreload: 'intent',
+    // A route that throws keeps the header and sidebar around its error.
+    defaultErrorComponent: ({ error }) => <ErrorScreen error={error} />,
+  });
 }
 
 declare module '@tanstack/react-router' {

@@ -19,7 +19,7 @@
  * with empty conversations belonging to people who changed their mind.
  */
 
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   Boxes,
@@ -40,7 +40,6 @@ import type { WebKey } from '@/i18n/keys.js';
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
-import { newSession } from '@/lib/connection.js';
 import { queryKeys } from '@/lib/query.js';
 import { ConfirmDialog } from '@/components/crud/confirm-dialog.js';
 import { Button } from '@/components/ui/button.js';
@@ -53,8 +52,7 @@ import {
 } from '@/components/ui/dropdown-menu.js';
 import { ScrollArea } from '@/components/ui/scroll-area.js';
 import { useTurnStore } from '@/state/turn.js';
-import { useAgent } from '@/agents/agent-context.js';
-import { useWorkspace } from '@/workspaces/workspace-context.js';
+import { useStartSession } from '@/sessions/use-start-session.js';
 import { useDeleteSession, useRenameSession } from '@/sessions/use-sessions.js';
 
 interface NavItem {
@@ -141,9 +139,6 @@ export function Sidebar({
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  const { workspaceId } = useWorkspace();
-  const { agentId } = useAgent();
-  const navigate = useNavigate();
 
   // The session the socket is actually on, not the one the URL names. The two
   // differ for one render after starting a conversation — the route navigates
@@ -161,21 +156,10 @@ export function Sidebar({
     SessionSummary | undefined
   >(undefined);
 
+  const startSession = useStartSession();
   function startChat(): void {
-    // Nothing is written yet: the row appears in the list below when the first
-    // message lands, so pressing this and changing your mind leaves no trace.
-    // See `newSession` for why the key is minted client-side.
-    // The agent and the workspace go with it: a session is bound to both when
-    // it is created, and after that the binding is the stored row's rather than
-    // the picker's. Both come from the composer's pickers, which is where the
-    // choice is actually made.
-    const key = newSession(workspaceId, agentId);
-    setStartedKey(key);
+    setStartedKey(startSession());
     onNavigate?.();
-    void navigate({
-      to: '/sessions/$sessionKey',
-      params: { sessionKey: key },
-    });
   }
 
   // Every conversation, whatever workspace it is in. Scoping the column to a

@@ -80,16 +80,6 @@ export function writeCursor(
   }
 }
 
-export function clearCursor(
-  storage: Storage | undefined = safeStorage(),
-): void {
-  try {
-    storage?.removeItem(KEY);
-  } catch {
-    // See above.
-  }
-}
-
 function isCursor(value: unknown): value is Cursor {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<Cursor>;

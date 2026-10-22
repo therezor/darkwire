@@ -79,19 +79,36 @@ async function open(user: ReturnType<typeof userEvent.setup>): Promise<void> {
 }
 
 describe('the context strip', () => {
+  it('asks for the totals alone, and the inspector for the rest', async () => {
+    const calls = stubApi({ '/api/sessions/web%3A1/context': [200, CONTEXT] });
+    renderWithProviders(<ContextStrip sessionKey="web:1" />);
+    const user = userEvent.setup();
+    await open(user);
+    await screen.findByRole('dialog');
+
+    const asked = calls
+      .filter((call) => call.path === '/api/sessions/web%3A1/context')
+      .map((call) => call.query.get('summary'));
+    // The strip's request leaves the prompt, the tools and the messages
+    // behind. Only opening the panel fetches them.
+    expect(asked[0]).toBe('true');
+    expect(asked.slice(1)).toContain(null);
+  });
+
   it('shows the budget without being opened', async () => {
     mount();
 
     // The whole point of moving it here: the number is readable at a glance,
     // rather than behind a button nobody presses. Shortened on screen, exact
     // in the name a screen reader reads, and "about" until a provider counts.
+    // No mark in front of the figure: nobody writes one before a token count.
     const strip = await screen.findByRole('button', {
       name: 'About 5,120 of 10,000 tokens · 51%',
     });
-    expect(strip).toHaveTextContent('~5.12k of 10k · 51%');
+    expect(strip).toHaveTextContent(/^5\.12k of 10k · 51%/u);
   });
 
-  it('drops the estimate mark once the provider has counted a request', async () => {
+  it('drops the "about" once the provider has counted a request', async () => {
     mount({
       '/api/sessions/web%3A1/context': [200, { ...CONTEXT, measured: true }],
     });
@@ -100,7 +117,6 @@ describe('the context strip', () => {
       name: '5,120 of 10,000 tokens · 51%',
     });
     expect(strip).toHaveTextContent('5.12k of 10k · 51%');
-    expect(strip).not.toHaveTextContent('~');
   });
 
   it('takes a warning tone in the last fifth and danger in the last twentieth', async () => {
@@ -171,7 +187,7 @@ describe('the context inspector', () => {
     const user = mount();
     await open(user);
 
-    expect(await screen.findByText('~5.12k')).toBeInTheDocument();
+    expect(await screen.findByText('5.12k')).toBeInTheDocument();
     expect(screen.getByText('of 10k tokens · 51%')).toBeInTheDocument();
     expect(screen.getByText('4.88k free')).toBeInTheDocument();
     // The figure the two halves exist to move, beside the total rather than

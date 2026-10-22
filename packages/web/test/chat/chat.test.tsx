@@ -44,7 +44,7 @@ class ControlledSocket {
 
   readonly sent: ClientMessage[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { readonly code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
@@ -1084,6 +1084,91 @@ describe('sending', () => {
       expect(screen.queryByText('Sending…')).not.toBeInTheDocument();
     });
   });
+
+  it('says a refused message was not sent, rather than sending forever', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Message' }),
+      'one too many',
+    );
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const sent = framesOf('user.message')[0] as { clientMessageId: string };
+
+    deliver({
+      type: 'error',
+      code: 'session_busy',
+      message: 'This session already has 8 messages waiting. Let it catch up.',
+      retryable: true,
+      clientMessageId: sent.clientMessageId,
+    });
+
+    expect(
+      await screen.findByText(/Not sent\. This session already has 8/u),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Sending…')).not.toBeInTheDocument();
+    // Said on the bubble, so not again in a toast.
+    expect(screen.queryByText('Server error')).not.toBeInTheDocument();
+  });
+});
+
+describe('the workspace of a conversation not yet saved', () => {
+  it('stays the one the user chose when the server has none to report', async () => {
+    localStorage.setItem('darkwire:workspace', 'research');
+    mount('/');
+    const instance = await opened();
+    act(() => {
+      instance.onopen?.();
+    });
+    deliver({
+      type: 'connected',
+      protocolVersion: 2,
+      sessionKey: SESSION,
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+    deliver({
+      type: 'session.status',
+      sessionKey: SESSION,
+      busy: false,
+      queueDepth: 0,
+    });
+
+    await waitFor(() => {
+      expect(useTurnStore.getState().sessionKey).toBe(SESSION);
+    });
+    expect(localStorage.getItem('darkwire:workspace')).toBe('research');
+  });
+
+  it('goes with the first message, which is where the server creates it', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('darkwire:workspace', 'research');
+    mount('/');
+    const instance = await opened();
+    act(() => {
+      instance.onopen?.();
+    });
+    // A key the server minted, for a session with no row and so no workspace.
+    deliver({
+      type: 'connected',
+      protocolVersion: 2,
+      sessionKey: SESSION,
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Message' }),
+      'hello',
+    );
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(framesOf('user.message')[0]).toMatchObject({
+      workspaceId: 'research',
+    });
+  });
 });
 
 describe('a message that storage catches up with', () => {
@@ -1315,6 +1400,93 @@ describe('switching to a session whose history is already cached', () => {
 
     expect(await screen.findByText('the current answer')).toBeInTheDocument();
     expect(screen.queryByText('the stale answer')).not.toBeInTheDocument();
+  });
+});
+
+describe('a dropped connection', () => {
+  it('says so in a toast, once', async () => {
+    mount();
+    await connect();
+
+    act(() => {
+      socket().onclose?.({ code: 1006 });
+    });
+
+    expect(await screen.findByText('Connection lost')).toBeInTheDocument();
+    expect(
+      screen.getByText('Reconnecting. The turn keeps running on the server.'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('a draft', () => {
+  const OTHER = 'web:2';
+
+  it('stays with the conversation it was typed in', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions': [
+        200,
+        {
+          sessions: [
+            {
+              key: OTHER,
+              title: 'Second chat',
+              origin: 'web',
+              createdAtMs: 1,
+              updatedAtMs: 1,
+              messageCount: 1,
+            },
+          ],
+          total: 1,
+        },
+      ],
+      [`/api/sessions/${encodeURIComponent(OTHER)}/messages`]: [
+        200,
+        { sessionKey: OTHER, messages: [] },
+      ],
+    });
+
+    mount();
+    await connect();
+    await user.type(
+      screen.getByRole('textbox', { name: 'Message' }),
+      'meant for the first chat',
+    );
+
+    await user.click(await screen.findByRole('link', { name: /Second chat/u }));
+
+    await waitFor(() => {
+      expect(useTurnStore.getState().sessionKey).toBe(OTHER);
+    });
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+  });
+
+  it('survives the server naming a fresh tab', async () => {
+    const user = userEvent.setup();
+    mount('/');
+    const instance = await opened();
+    act(() => {
+      instance.onopen?.();
+    });
+    // Typed before the greeting says which conversation this is.
+    await user.type(
+      screen.getByRole('textbox', { name: 'Message' }),
+      'typed early',
+    );
+    deliver({
+      type: 'connected',
+      workspaceId: 'default',
+      protocolVersion: 2,
+      sessionKey: SESSION,
+      serverTimeMs: Date.now(),
+      lastSeq: 0,
+    });
+
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(
+      'typed early',
+    );
   });
 });
 
@@ -1653,6 +1825,166 @@ describe('a mid-stream reload', () => {
       await screen.findByText('the original question'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/lost text/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a turn storage has only part of', () => {
+  const STATS = {
+    usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    model: 'test-model',
+    elapsedMs: 1000,
+  };
+  const row = (seq: number, message: unknown) => ({
+    id: `m${String(seq)}`,
+    sessionKey: SESSION,
+    seq,
+    createdAtMs: 0,
+    turnId: 't1',
+    message,
+  });
+  /** The question, and the one message of the running turn that has ended. */
+  const STORED = {
+    sessionKey: SESSION,
+    messages: [
+      row(1, { role: 'user', content: [{ type: 'text', text: 'go' }] }),
+      row(2, {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'The first message.' }],
+        toolCalls: [],
+        stats: STATS,
+      }),
+    ],
+  };
+
+  it('is rebuilt by a replay that lands after the history', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [200, STORED],
+    });
+    // A reload: this tab had the conversation on screen, with its boundary
+    // before the turn.
+    writeCursor(SESSION, 0);
+    mount();
+
+    // Storage answers first, and builds the turn as if it had ended.
+    expect(await screen.findByText('The first message.')).toBeInTheDocument();
+
+    const resumed = await opened();
+    act(() => {
+      resumed.onopen?.();
+    });
+    deliver(
+      {
+        type: 'connected',
+        workspaceId: 'default',
+        protocolVersion: 2,
+        sessionKey: SESSION,
+        serverTimeMs: Date.now(),
+        lastSeq: 0,
+      },
+      {
+        type: 'session.replay',
+        sessionKey: SESSION,
+        messages: [],
+        complete: true,
+      },
+      { ...START, firstSeq: 1 },
+      { type: 'assistant.delta', turnId: 't1', text: 'The first message.' },
+      {
+        type: 'step.end',
+        turnId: 't1',
+        firstSeq: 2,
+        lastSeq: 2,
+        stats: STATS,
+        turnElapsedMs: 1000,
+      },
+      { type: 'assistant.delta', turnId: 't1', text: 'The second message.' },
+    );
+
+    expect(await screen.findByText('The second message.')).toBeInTheDocument();
+    // Rebuilt from the frames, not appended to the stored copy.
+    expect(screen.getAllByText('The first message.')).toHaveLength(1);
+  });
+
+  it('is rebuilt once when the status arrives before the replay', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [200, STORED],
+    });
+    writeCursor(SESSION, 0);
+    mount();
+    expect(await screen.findByText('The first message.')).toBeInTheDocument();
+
+    const resumed = await opened();
+    act(() => {
+      resumed.onopen?.();
+    });
+    // The order the server sends: the greeting, the status that says a turn
+    // is running, then the replay of that turn from its start.
+    deliver(
+      {
+        type: 'connected',
+        workspaceId: 'default',
+        protocolVersion: 2,
+        sessionKey: SESSION,
+        serverTimeMs: Date.now(),
+        lastSeq: 0,
+      },
+      {
+        type: 'session.status',
+        workspaceId: 'default',
+        sessionKey: SESSION,
+        busy: true,
+        queueDepth: 0,
+        turnId: 't1',
+      },
+      {
+        type: 'session.replay',
+        sessionKey: SESSION,
+        messages: [],
+        complete: true,
+      },
+      { ...START, firstSeq: 1 },
+      { type: 'assistant.delta', turnId: 't1', text: 'The first message.' },
+      {
+        type: 'step.end',
+        turnId: 't1',
+        firstSeq: 2,
+        lastSeq: 2,
+        stats: STATS,
+        turnElapsedMs: 1000,
+      },
+      { type: 'assistant.delta', turnId: 't1', text: 'The second message.' },
+    );
+
+    expect(await screen.findByText('The second message.')).toBeInTheDocument();
+    expect(screen.getAllByText('The first message.')).toHaveLength(1);
+  });
+
+  it('keeps growing in a tab that opened it mid-turn', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [200, STORED],
+    });
+    mount();
+    expect(await screen.findByText('The first message.')).toBeInTheDocument();
+
+    await connect(5);
+    // What the greeting says when a turn is running.
+    deliver(
+      {
+        type: 'session.status',
+        workspaceId: 'default',
+        sessionKey: SESSION,
+        busy: true,
+        queueDepth: 0,
+        turnId: 't1',
+      },
+      { type: 'assistant.delta', turnId: 't1', text: 'Live from here.' },
+    );
+
+    expect(await screen.findByText('Live from here.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Stop/u })).toBeInTheDocument();
   });
 });
 

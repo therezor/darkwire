@@ -69,7 +69,7 @@ export function NotificationBell(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
     },
     onError: (error: Error) => {
-      toast.error('Could not mark them read', error.message);
+      toast.error(t('toasts.notifications.markAllFailed'), error.message);
     },
   });
 

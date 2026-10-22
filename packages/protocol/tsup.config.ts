@@ -1,7 +1,11 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // One file out per file in, with `"sideEffects": false` in package.json, so
+  // the browser's bundler can leave out a module nothing it imports reaches.
+  // One bundled file kept every schema in the first download.
+  entry: ['src/*.ts'],
+  bundle: false,
   format: ['esm'],
   target: 'node22',
   // tsc -b writes its declarations and .tsbuildinfo into this same dist, so

@@ -10,7 +10,7 @@
  * the state is held still.
  */
 
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -197,6 +197,24 @@ describe('a prompt nobody answered in time', () => {
       screen.getByText(/The approval window closed\. The call was refused\./),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('stops ticking once the window has closed', () => {
+    vi.setSystemTime(new Date('2026-07-28T12:00:00Z'));
+    promptWith({ expiresAtMs: Date.now() + 2_000 });
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+
+    expect(screen.getByText(/The approval window closed/)).toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not tick for a prompt already answered', () => {
+    vi.setSystemTime(new Date('2026-07-28T12:00:00Z'));
+    promptWith({ answered: 'approved' });
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('counts down on the server clock, not this one', () => {

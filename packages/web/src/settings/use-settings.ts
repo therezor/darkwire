@@ -23,6 +23,7 @@ import {
   type QueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type {
   SetCredentialRequest,
   SettingsPatchRequest,
@@ -98,19 +99,20 @@ interface SaveHandle<T> {
 }
 
 export function useSaveSettings(): SaveHandle<SettingsPatchRequest> {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: (patch: SettingsPatchRequest) => api.patchSettings(patch),
     onSuccess: (response) => {
       afterSettingsWrite(queryClient, response);
-      toast.success('Settings saved');
+      toast.success(t('toasts.settings.saved'));
     },
     onError: (error: Error) => {
       // The server's message, not a generic one: a refused patch says *which*
       // field could not be served — "auth cannot be disabled on a LAN bind" is
       // the whole answer, and "could not save" is none of it.
-      toast.error('Could not save settings', error.message);
+      toast.error(t('toasts.settings.saveFailed'), error.message);
     },
   });
 
@@ -128,6 +130,7 @@ export function useSaveSettings(): SaveHandle<SettingsPatchRequest> {
  * provider build, so the next turn uses it without a restart.
  */
 export function useSaveCredential(): SaveHandle<SetCredentialRequest> {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -135,12 +138,14 @@ export function useSaveCredential(): SaveHandle<SetCredentialRequest> {
     onSuccess: (result, input) => {
       afterCredentialWrite(queryClient);
       toast.success(
-        input.value === null ? 'Key removed' : 'Key saved',
-        'The next turn will use it.',
+        input.value === null
+          ? t('toasts.settings.keyRemoved')
+          : t('toasts.settings.keySaved'),
+        t('toasts.settings.keyNextTurn'),
       );
     },
     onError: (error: Error) => {
-      toast.error('Could not save the key', error.message);
+      toast.error(t('toasts.settings.keyFailed'), error.message);
     },
   });
 

@@ -26,6 +26,7 @@
 
 import { Moon, Sun, SunMoon } from 'lucide-react';
 import type { JSX } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAppTheme } from '@/theme/theme-context.js';
 import { isThemePreference, type ThemePreference } from '@/theme/theme.js';
@@ -67,6 +68,7 @@ export function ThemeSwitcher({
 }: {
   readonly className?: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   const { preference, resolved, setPreference } = useAppTheme();
   const Icon = ICONS[preference];
 
@@ -79,7 +81,7 @@ export function ThemeSwitcher({
           className={className}
           // The resolution is in the label because it is the thing the icon
           // cannot show: `system` resolved to dark is still `system`.
-          aria-label={`Colour scheme: ${preference} (currently ${resolved})`}
+          aria-label={t('shell.colourScheme', { preference, resolved })}
         >
           <Icon />
         </Button>

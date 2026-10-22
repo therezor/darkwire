@@ -100,6 +100,13 @@ export const queryKeys = {
     ['file-url', workspace, path] as const,
   context: (key: string) => ['sessions', key, 'context'] as const,
   /**
+   * The totals alone, for the strip. Under `context`, so whatever refreshes the
+   * full answer refreshes this too, and a key of its own so the inspector never
+   * opens on a cached answer with its text left out.
+   */
+  contextSummary: (key: string) =>
+    ['sessions', key, 'context', 'summary'] as const,
+  /**
    * The plan a conversation is running on.
    *
    * Under the `['sessions']` prefix like the rest, so the invalidation
@@ -119,6 +126,13 @@ export const queryKeys = {
   automationRuns: (id: string, page = 1) =>
     ['automation', id, 'runs', { page }] as const,
 };
+
+/**
+ * How long a conversation's history or context stays cached once nothing shows
+ * it. Each is a copy of a whole conversation, beside the one the turn store
+ * already holds, and the default five minutes kept one per session visited.
+ */
+export const CONVERSATION_GC_MS = 30_000;
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({

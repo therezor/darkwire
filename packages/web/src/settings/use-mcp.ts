@@ -13,6 +13,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import type { McpStatusResponse } from '@darkwire/protocol';
 import type { UseQueryResult } from '@tanstack/react-query';
 
@@ -44,19 +45,17 @@ export function useRemoveMcpServer(): {
   ) => void;
   readonly removing: boolean;
 } {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const mutation = useMutation<unknown, Error, string>({
     mutationFn: (serverId) => api.patchSettings(toDeleteMcpPatch(serverId)),
     onSuccess: async () => {
       await queryClient.invalidateQueries();
-      toast.success(
-        'MCP server removed',
-        'Its tools are no longer offered to any agent.',
-      );
+      toast.success(t('toasts.mcp.removed'), t('toasts.mcp.removedBody'));
     },
     onError: (error) => {
-      toast.error('Could not remove the MCP server', error.message);
+      toast.error(t('toasts.mcp.removeFailed'), error.message);
     },
   });
 

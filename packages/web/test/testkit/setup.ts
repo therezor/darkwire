@@ -19,7 +19,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { resetToasts } from '@/components/ui/toast.js';
 import { resetConnection } from '@/lib/connection.js';
-import { useTurnStore } from '@/state/turn.js';
+import { setFrameScheduler, useTurnStore } from '@/state/turn.js';
 
 /**
  * A default instance for components rendered without the provider.
@@ -123,6 +123,11 @@ class MemoryStorage implements Storage {
 }
 
 beforeEach(() => {
+  // Streamed frames apply at once, so a test reads the store it just wrote.
+  // `turn.test.ts` swaps in a manual scheduler to test the batching itself.
+  setFrameScheduler((flush) => {
+    flush();
+  });
   // The DOM lib types all of these as always present, which is exactly why
   // their absence is a surprise: a menu that refuses to open rather than a
   // type error. `Object.assign` because they live on the prototype, where

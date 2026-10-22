@@ -18,6 +18,7 @@
 
 import { MoreHorizontal } from 'lucide-react';
 import type { JSX, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button.js';
 import {
@@ -34,10 +35,15 @@ export function RowActions({
   readonly label: string;
   readonly children: ReactNode;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${label}`}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t('common.actionsFor', { name: label })}
+        >
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>

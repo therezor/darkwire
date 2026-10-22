@@ -42,7 +42,7 @@ import {
 import { formatDuration } from '@/lib/format.js';
 import { Button } from '@/components/ui/button.js';
 import { Tooltip } from '@/components/ui/tooltip.js';
-import { TextField } from '@/components/form/controls.js';
+import { TextField } from '@/components/form/text-field.js';
 import type { ToolApprovalState } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
 
@@ -63,9 +63,12 @@ export function ApprovalPrompt({
 }: ApprovalPromptProps): JSX.Element | null {
   const { t } = useTranslation();
   const offsetMs = useTurnStore((state) => state.clockOffsetMs);
-  const remainingMs = useCountdown(approval.expiresAtMs - offsetMs);
-  const [editing, setEditing] = useState(false);
   const answered = approval.answered;
+  const remainingMs = useCountdown(
+    approval.expiresAtMs - offsetMs,
+    answered === undefined,
+  );
+  const [editing, setEditing] = useState(false);
   const command = approval.command;
 
   if (answered !== undefined) {
@@ -273,26 +276,27 @@ function RuleEditor({
 }
 
 /**
- * Milliseconds left, ticking once a second.
+ * Milliseconds left, ticking once a second while `running`.
  *
  * A second is the right cadence because that is the resolution shown. Ticking
  * on `requestAnimationFrame` would re-render sixty times to change a number
- * once.
+ * once. It stops at the deadline and once the prompt is answered: a card that
+ * stays on screen for the rest of the session has nothing left to count.
  */
-function useCountdown(deadlineMs: number): number {
+function useCountdown(deadlineMs: number, running: boolean): number {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (deadlineMs <= now) return undefined;
+    if (!running || deadlineMs <= Date.now()) return undefined;
     const timer = setInterval(() => {
-      setNow(Date.now());
+      const tick = Date.now();
+      setNow(tick);
+      if (tick >= deadlineMs) clearInterval(timer);
     }, 1000);
     return () => {
       clearInterval(timer);
     };
-    // `now` is deliberately not a dependency: it changes on every tick, and
-    // including it would tear down and rebuild the interval each second.
-  }, [deadlineMs]);
+  }, [deadlineMs, running]);
 
   return deadlineMs - now;
 }

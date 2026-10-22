@@ -27,7 +27,6 @@
  * `DeleteWorkspaceDialog`, shared with the editor.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Folder, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type JSX } from 'react';
@@ -46,9 +45,8 @@ import { ListSort } from '@/components/crud/list-sort.js';
 import { Pagination } from '@/components/crud/pagination.js';
 import { useListPage } from '@/components/crud/use-list-page.js';
 import type { Comparators } from '@/components/crud/sort.js';
-import { api } from '@/lib/api.js';
 import { useFormat } from '@/lib/use-format.js';
-import { queryKeys } from '@/lib/query.js';
+import { useWorkspacesQuery } from '@/lib/queries.js';
 import { folderLabel } from '@/workspaces/folder.js';
 import { DeleteWorkspaceDialog } from '@/workspaces/delete-workspace.js';
 
@@ -72,10 +70,7 @@ export function WorkspacesRoute(): JSX.Element {
     WorkspaceSummary | undefined
   >(undefined);
 
-  const workspaces = useQuery({
-    queryKey: queryKeys.workspaces,
-    queryFn: ({ signal }) => api.workspaces(signal),
-  });
+  const workspaces = useWorkspacesQuery();
 
   const all = workspaces.data?.workspaces ?? [];
   // The whole registry is already in memory — this list is one request, not one
@@ -160,7 +155,7 @@ export function WorkspacesRoute(): JSX.Element {
                     to="/workspaces/$workspaceId"
                     params={{ workspaceId: workspace.id }}
                     className="data-list__open"
-                    aria-label={`Edit ${workspace.name}`}
+                    aria-label={t('common.editNamed', { name: workspace.name })}
                   >
                     {/* A folder, because that is what a workspace is. One icon
                           for every row — which one is the default is what the

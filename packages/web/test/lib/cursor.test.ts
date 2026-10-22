@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { clearCursor, readCursor, writeCursor } from '@/lib/cursor.js';
+import { readCursor, writeCursor } from '@/lib/cursor.js';
 
 /** Storage in a Map, so the assertions are about the module and not jsdom. */
 function memory(initial: Record<string, string> = {}): Storage {
@@ -117,9 +117,6 @@ describe('the reconnect cursor', () => {
     expect(() => {
       writeCursor('web:1', 4, hostile);
     }).not.toThrow();
-    expect(() => {
-      clearCursor(hostile);
-    }).not.toThrow();
   });
 
   it('survives storage that is not there at all', () => {
@@ -127,14 +124,5 @@ describe('the reconnect cursor', () => {
     expect(() => {
       writeCursor('web:1', 4, undefined);
     }).not.toThrow();
-  });
-
-  it('clears', () => {
-    const storage = memory();
-    writeCursor('web:1', 5, storage);
-
-    clearCursor(storage);
-
-    expect(readCursor('web:1', storage)).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ContextResponse } from '@darkwire/protocol';
 
@@ -29,6 +30,7 @@ import { queryKeys } from '@/lib/query.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
   closeConnection,
+  onConnectionNotice,
   onServerMessage,
   onSignedOut,
   openConnection,
@@ -46,6 +48,39 @@ function deliveredLive(key: readonly unknown[]): boolean {
 export function useConnection(sessionKey: string | undefined): void {
   const queryClient = useQueryClient();
   const { adopt } = useWorkspace();
+  const { t } = useTranslation();
+
+  // What the transport has to say, in this app's words and on its toaster.
+  useEffect(
+    () =>
+      onConnectionNotice((notice) => {
+        switch (notice.kind) {
+          case 'lost':
+            toast({
+              title: t('connection.lost'),
+              description: t('connection.lostBody'),
+              role: 'warning',
+              durationMs: 4000,
+            });
+            return;
+          case 'unreadable':
+            toast.error(t('connection.unreadable'), notice.reason);
+            return;
+          case 'serverError':
+            toast.error(t('connection.serverError'), notice.message);
+            return;
+          case 'tooLarge':
+            toast.error(
+              t('connection.tooLarge'),
+              t('connection.tooLargeBody', {
+                limit: Math.floor(notice.limitBytes / (1024 * 1024)),
+              }),
+            );
+            return;
+        }
+      }),
+    [t],
+  );
 
   // The server is the authority on which workspace a session is in, and it says
   // so on `connected` and on every `session.status`. Following it is what keeps
@@ -133,9 +168,12 @@ export function useConnection(sessionKey: string | undefined): void {
             // this route 404s on a conversation nobody has spoken in yet.
             // Seeding an entry here would put a bar under the composer of a
             // conversation that does not exist.
-            queryClient.setQueryData<ContextResponse>(
+            // Both answers, the full one and the strip's totals.
+            for (const key of [
               queryKeys.context(message.sessionKey),
-              (previous) =>
+              queryKeys.contextSummary(message.sessionKey),
+            ]) {
+              queryClient.setQueryData<ContextResponse>(key, (previous) =>
                 previous === undefined
                   ? previous
                   : {
@@ -145,7 +183,8 @@ export function useConnection(sessionKey: string | undefined): void {
                       breakdown: message.breakdown,
                       measured: message.measured,
                     },
-            );
+              );
+            }
             return;
 
           case 'notification':

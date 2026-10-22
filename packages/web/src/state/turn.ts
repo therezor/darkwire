@@ -31,6 +31,7 @@ import {
   appendPendingUserMessage,
   applyServerMessage,
   markApprovalAnswered,
+  markTurnRunning,
   mergeStoredHistory,
   truncateTranscriptAfter,
   EMPTY_TRANSCRIPT,
@@ -39,6 +40,72 @@ import {
 import type { ConnectionStatus } from '@/lib/socket.js';
 
 export type { ConnectionStatus };
+
+/**
+ * Frames that only grow a turn already on screen. They arrive per token, so
+ * they are held and applied together; every other frame applies at once, after
+ * the ones held before it. None of them adds a user message or ends a step, so
+ * code looking for those can read the store without flushing.
+ */
+const STREAMED: ReadonlySet<ServerMessage['type']> = new Set([
+  'assistant.delta',
+  'reasoning.delta',
+  'tool.progress',
+  'subagent.event',
+]);
+
+/**
+ * How long a streamed frame may wait for company. One frame at 60 Hz: the
+ * reader cannot see the difference, and a slow device renders once per batch
+ * instead of once per token.
+ */
+const BATCH_MS = 16;
+
+type Scheduler = (flush: () => void) => void;
+
+const defaultScheduler: Scheduler = (flush) => {
+  // A timer, not `requestAnimationFrame`: a hidden tab gets no frames at all,
+  // and a held batch would grow there until the tab came back.
+  setTimeout(flush, BATCH_MS);
+};
+
+let schedule: Scheduler = defaultScheduler;
+let held: ServerMessage[] = [];
+let flushQueued = false;
+
+/** Test seam: run held frames synchronously, or under the test's control. */
+export function setFrameScheduler(next: Scheduler | undefined): void {
+  schedule = next ?? defaultScheduler;
+  flushQueued = false;
+}
+
+/** Applies every held frame now. Anything that reads the transcript calls it. */
+export function flushFrames(): void {
+  flushQueued = false;
+  if (held.length === 0) return;
+  const batch = held;
+  held = [];
+  useTurnStore.setState((state) => {
+    const transcript = reduceFrames(state.transcript, batch);
+    return transcript === state.transcript ? state : { transcript };
+  });
+}
+
+function reduceFrames(
+  transcript: Transcript,
+  frames: readonly ServerMessage[],
+): Transcript {
+  let next = transcript;
+  for (const frame of frames) next = applyServerMessage(next, frame);
+  return next;
+}
+
+/** Takes the held frames, for an update that applies them itself. */
+function takeHeld(): readonly ServerMessage[] {
+  const batch = held;
+  held = [];
+  return batch;
+}
 
 interface TurnState {
   /** The session the socket is attached to, or `undefined` before the first. */
@@ -135,7 +202,8 @@ export const useTurnStore = create<TurnState>((set) => ({
   attach: (sessionKey) => {
     // A different session is a different replay buffer: carrying `lastSeq`
     // across would resume from a sequence number that means nothing there. The
-    // transcript goes with it for the same reason.
+    // transcript goes with it for the same reason, and so do its held frames.
+    if (useTurnStore.getState().sessionKey !== sessionKey) held = [];
     set((state) =>
       state.sessionKey === sessionKey
         ? {}
@@ -152,10 +220,22 @@ export const useTurnStore = create<TurnState>((set) => ({
   applySeq: (seq) => {
     // Monotonic: a replayed frame that arrives after a live one must not move
     // the cursor backwards, or the next resume asks for events twice.
-    set((state) => (seq > state.lastSeq ? { lastSeq: seq } : {}));
+    set((state) => (seq > state.lastSeq ? { lastSeq: seq } : state));
   },
 
   apply: (message) => {
+    if (STREAMED.has(message.type)) {
+      held.push(message);
+      // The cursor stays exact per frame. The socket reads it to resume.
+      if ('seq' in message) useTurnStore.getState().applySeq(message.seq);
+      if (!flushQueued) {
+        flushQueued = true;
+        schedule(flushFrames);
+      }
+      return;
+    }
+
+    const batch = takeHeld();
     set((state) => {
       // Mutable because it is built up across a switch. `TurnState` is readonly
       // for its consumers, which is a different question from how a patch to it
@@ -165,6 +245,10 @@ export const useTurnStore = create<TurnState>((set) => ({
       if ('seq' in message && message.seq > state.lastSeq) {
         next.lastSeq = message.seq;
       }
+      // Older than a frame already applied: the ring re-sending history after
+      // a resume announced the session as it is now. Its transcript still
+      // counts. What it says about whether a turn is running no longer does.
+      const stale = 'seq' in message && message.seq < state.lastSeq;
 
       switch (message.type) {
         case 'connected':
@@ -178,6 +262,7 @@ export const useTurnStore = create<TurnState>((set) => ({
           if (message.lastSeq < state.lastSeq) next.lastSeq = message.lastSeq;
           break;
         case 'session.status':
+          if (stale) break;
           next.busy = message.busy;
           // A tab that attached mid-turn never saw its `turn.start`.
           if (!message.busy) {
@@ -192,11 +277,12 @@ export const useTurnStore = create<TurnState>((set) => ({
           next.workspaceId = message.workspaceId;
           break;
         case 'turn.start':
+          if (stale) break;
           next.busy = true;
           next.runningTurnId = message.turnId;
           break;
         case 'turn.end':
-          if (message.turnId === state.runningTurnId) {
+          if (!stale && message.turnId === state.runningTurnId) {
             next.runningTurnId = undefined;
           }
           break;
@@ -204,7 +290,15 @@ export const useTurnStore = create<TurnState>((set) => ({
           break;
       }
 
-      const transcript = applyServerMessage(state.transcript, message);
+      let transcript = applyServerMessage(
+        reduceFrames(state.transcript, batch),
+        message,
+      );
+      const running =
+        'runningTurnId' in next ? next.runningTurnId : state.runningTurnId;
+      if (running !== undefined) {
+        transcript = markTurnRunning(transcript, running);
+      }
       if (transcript !== state.transcript) next.transcript = transcript;
 
       return next;
@@ -212,24 +306,28 @@ export const useTurnStore = create<TurnState>((set) => ({
   },
 
   appendPending: (input) => {
+    flushFrames();
     set((state) => ({
       transcript: appendPendingUserMessage(state.transcript, input),
     }));
   },
 
   truncateAfter: (seq) => {
+    flushFrames();
     set((state) => ({
       transcript: truncateTranscriptAfter(state.transcript, seq),
     }));
   },
 
   answerApproval: (callId, answered) => {
+    flushFrames();
     set((state) => ({
       transcript: markApprovalAnswered(state.transcript, callId, answered),
     }));
   },
 
   rejectApproval: (callId, message) => {
+    flushFrames();
     set((state) => ({
       transcript: markApprovalAnswered(
         state.transcript,
@@ -241,21 +339,31 @@ export const useTurnStore = create<TurnState>((set) => ({
   },
 
   mergeHistory: (messages, subagentRuns, failures) => {
-    set((state) => ({
-      transcript: mergeStoredHistory(
+    flushFrames();
+    set((state) => {
+      const merged = mergeStoredHistory(
         state.transcript,
         messages,
         subagentRuns,
         failures,
-      ),
-    }));
+      );
+      return {
+        transcript:
+          state.runningTurnId === undefined
+            ? merged
+            : markTurnRunning(merged, state.runningTurnId),
+      };
+    });
   },
 
   setTranscript: (transcript) => {
+    held = [];
     set({ transcript });
   },
 
   reset: () => {
+    held = [];
+    flushQueued = false;
     set(INITIAL);
   },
 }));

@@ -30,13 +30,14 @@
  * toasted would give one of them two.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { DEFAULT_AGENT_ID, type AgentSummary } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
 import { queryKeys } from '@/lib/query.js';
+import { useAgentsQuery, useSessionRow } from '@/lib/queries.js';
 import { useAgent } from './agent-context.js';
 
 export interface AgentChoice {
@@ -59,20 +60,10 @@ export function useAgentChoice(sessionKey: string | undefined): AgentChoice {
   const { agentId: preferred, select, adopt } = useAgent();
   const queryClient = useQueryClient();
 
-  const agents = useQuery({
-    queryKey: queryKeys.agents,
-    queryFn: ({ signal }) => api.agents(signal),
-  });
+  const agents = useAgentsQuery();
 
-  // A conversation nobody has spoken in has no row, so this 404s until the
-  // first turn lands. That is the signal, not a failure: no row means the
-  // choice is still only a preference.
-  const stored = useQuery({
-    queryKey: queryKeys.session(sessionKey ?? ''),
-    queryFn: ({ signal }) => api.session(sessionKey ?? '', signal),
-    enabled: sessionKey !== undefined,
-    retry: false,
-  });
+  // No row means the choice is still only a preference.
+  const stored = useSessionRow(sessionKey);
 
   // **An empty `agentId` is not a binding.** The column is nullable and the DTO
   // takes any string, so a row can hold `''` — and `agentForTurn` already

@@ -99,7 +99,9 @@ function lexed(): string[] {
 function rendered(): string[] {
   return vi
     .mocked(actions.MessageActions)
-    .mock.calls.map(([props]) => props.text);
+    .mock.calls.map(([props]) =>
+      typeof props.text === 'string' ? props.text : props.text(),
+    );
 }
 
 beforeEach(() => {
@@ -120,6 +122,30 @@ describe('a delta arriving', () => {
 
     expect(rendered()).not.toContain('the finished answer');
     expect(lexed()).toEqual(['streaming on']);
+  });
+
+  it('does not render the line of a message the turn already finished', () => {
+    const before = play(
+      [],
+      start('t1'),
+      delta('t1', 'the first message'),
+      {
+        type: 'step.end',
+        turnId: 't1',
+        firstSeq: 1,
+        lastSeq: 2,
+        stats: {
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          model: 'm',
+          elapsedMs: 1000,
+        },
+        turnElapsedMs: 1000,
+      },
+      delta('t1', 'the second'),
+    );
+    stream(before, delta('t1', ' message'));
+
+    expect(rendered()).not.toContain('the first message');
   });
 
   it('does not lex the earlier text of the turn it grows', () => {

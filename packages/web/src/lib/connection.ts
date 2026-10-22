@@ -23,6 +23,7 @@
  */
 
 import {
+  MAX_CLIENT_FRAME_BYTES,
   newUuid,
   type ApprovalScope,
   type ExecRule,
@@ -32,7 +33,6 @@ import {
 
 import type { Transcript } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
-import { toast } from '@/components/ui/toast.js';
 import { readCursor, writeCursor } from './cursor.js';
 import {
   ReconnectingSocket,
@@ -42,8 +42,25 @@ import {
 
 type Listener = (message: ServerMessage) => void;
 
+/**
+ * Something to tell the person that has no place in the transcript.
+ *
+ * Raised as an event rather than a toast, so this module knows nothing about
+ * how the app shows things. `use-connection.ts` turns each into a toast.
+ */
+export type ConnectionNotice =
+  /** The socket dropped while it was open. The turn goes on on the server. */
+  | { readonly kind: 'lost' }
+  /** A frame this client cannot read: a version skew, worth naming. */
+  | { readonly kind: 'unreadable'; readonly reason: string }
+  /** An error with no turn to render it on. */
+  | { readonly kind: 'serverError'; readonly message: string }
+  /** A message larger than the server reads. It was not sent. */
+  | { readonly kind: 'tooLarge'; readonly limitBytes: number };
+
 const listeners = new Set<Listener>();
 const signedOutListeners = new Set<() => void>();
+const noticeListeners = new Set<(notice: ConnectionNotice) => void>();
 
 let socket: ReconnectingSocket | undefined;
 /** The session the *URL* asked for, which is not always the one attached yet. */
@@ -110,6 +127,20 @@ export function onSignedOut(listener: () => void): () => void {
   };
 }
 
+/** Subscribe to the notices this module raises. Returns the unsubscribe. */
+export function onConnectionNotice(
+  listener: (notice: ConnectionNotice) => void,
+): () => void {
+  noticeListeners.add(listener);
+  return () => {
+    noticeListeners.delete(listener);
+  };
+}
+
+function notify(notice: ConnectionNotice): void {
+  for (const listener of noticeListeners) listener(notice);
+}
+
 /**
  * Dials again after a sign-out, once there is a login to dial with. Safe to
  * call at any time: a socket that was not signed out ignores it.
@@ -173,7 +204,7 @@ export function openConnection(sessionKey: string | undefined): void {
     onInvalidFrame: (reason) => {
       // A server this client cannot read is a version skew, and the honest
       // report names it rather than letting the UI quietly miss events.
-      toast.error('Unreadable message from the server', reason);
+      notify({ kind: 'unreadable', reason });
     },
   });
 
@@ -320,10 +351,12 @@ export function sendUserMessage(
   text: string,
   attachments: readonly Attachment[] = [],
   agentId?: string,
+  workspaceId?: string,
 ): boolean {
   const store = useTurnStore.getState();
   const sessionKey = store.sessionKey;
   if (sessionKey === undefined || socket === undefined) return false;
+  if (!fits(text, attachments)) return false;
 
   // The idempotency key. A retry after a dropped socket — which the buffer in
   // `socket.ts` makes routine — is acked with the id the first attempt got,
@@ -349,6 +382,9 @@ export function sendUserMessage(
     attachments: [...attachments],
     clientMessageId,
     ...(agentId === undefined ? {} : { agentId }),
+    // Where a conversation with no row yet is created, for the same reason
+    // the agent rides along: a fresh tab never sent `session.new`.
+    ...(workspaceId === undefined ? {} : { workspaceId }),
   });
   return true;
 }
@@ -423,6 +459,26 @@ export function regenerateTurn(seq?: number): void {
   });
 }
 
+/**
+ * Whether a message fits in one frame the server will read.
+ *
+ * Checked before anything is drawn or sent. Past the cap the server closes the
+ * socket, and a message the socket keeps for a re-send would close the next one
+ * too. Measured as encoded, escaping included, with a kilobyte for the frame's
+ * other fields.
+ */
+function fits(text: string, attachments: readonly Attachment[]): boolean {
+  const encoded = JSON.stringify({ content: text, attachments });
+  if (
+    new TextEncoder().encode(encoded).length + 1024 <=
+    MAX_CLIENT_FRAME_BYTES
+  ) {
+    return true;
+  }
+  notify({ kind: 'tooLarge', limitBytes: MAX_CLIENT_FRAME_BYTES });
+  return false;
+}
+
 /** Whether `seq` is where one message of a turn begins. */
 function startsMessage(transcript: Transcript, seq: number): boolean {
   return transcript.some(
@@ -441,6 +497,7 @@ export function editMessage(
   const store = useTurnStore.getState();
   const sessionKey = store.sessionKey;
   if (sessionKey === undefined || socket === undefined) return;
+  if (!fits(text, attachments)) return;
 
   const clientMessageId = newUuid();
   // Below the edited message, because the replacement is appended next: cutting
@@ -492,6 +549,7 @@ export function resetConnection(): void {
   resuming = undefined;
   listeners.clear();
   signedOutListeners.clear();
+  noticeListeners.clear();
 }
 
 function handleStatus(status: ConnectionStatus): void {
@@ -501,12 +559,7 @@ function handleStatus(status: ConnectionStatus): void {
   // Only on the transition, and only downwards: a socket that reconnects six
   // times over a lunch break should not leave six toasts stacked up.
   if (status === 'reconnecting' && previous === 'open') {
-    toast({
-      title: 'Connection lost',
-      description: 'Reconnecting. The turn keeps running on the server.',
-      role: 'warning',
-      durationMs: 4000,
-    });
+    notify({ kind: 'lost' });
   }
 }
 
@@ -560,6 +613,16 @@ function sessionOf(message: ServerMessage): string | undefined {
 }
 
 function handleMessage(message: ServerMessage): void {
+  // Before anything else: an ack for a message sent from another session's
+  // screen still means the socket can stop re-sending it.
+  // A refusal ends it the same way: the server will not take it on a retry.
+  if (
+    (message.type === 'message.ack' || message.type === 'error') &&
+    message.clientMessageId !== undefined
+  ) {
+    socket?.acknowledge(message.clientMessageId);
+  }
+
   if (!belongsHere(message)) {
     // Not for this transcript, but what the subscribers do with it is not
     // about the transcript either: the old session's `turn.end` is still what
@@ -621,8 +684,12 @@ function handleMessage(message: ServerMessage): void {
   // One naming a call answers this tab's approval, and shows on its card.
   if (message.type === 'error' && message.callId !== undefined) {
     useTurnStore.getState().rejectApproval(message.callId, message.message);
-  } else if (message.type === 'error' && message.turnId === undefined) {
-    toast.error('Server error', message.message);
+  } else if (
+    message.type === 'error' &&
+    message.turnId === undefined &&
+    message.clientMessageId === undefined
+  ) {
+    notify({ kind: 'serverError', message: message.message });
   }
 
   for (const listener of listeners) listener(message);

@@ -42,8 +42,10 @@ test.describe('workspaces', () => {
     await app.goto(`${harness.url}/workspaces`);
 
     await app.getByRole('link', { name: 'New workspace' }).click();
-    await app.getByLabel('Name').fill('Client Acme (2024 rebuild)');
-    await app.getByLabel('Folder').fill('acme24');
+    await app
+      .getByLabel('Name', { exact: true })
+      .fill('Client Acme (2024 rebuild)');
+    await app.getByLabel('Folder', { exact: true }).fill('acme24');
     await app.getByRole('button', { name: 'Save changes' }).click();
 
     // The durable state, not the toast that announces it: the registry holds
@@ -69,7 +71,7 @@ test.describe('workspaces', () => {
     const before = await workspacesOf(app, harness.url);
 
     await app.goto(`${harness.url}/workspaces/new`);
-    await app.getByLabel('Name').fill('Never finished');
+    await app.getByLabel('Name', { exact: true }).fill('Never finished');
     await app.getByRole('link', { name: 'Workspaces' }).first().click();
 
     expect(await workspacesOf(app, harness.url)).toEqual(before);
@@ -86,9 +88,9 @@ test.describe('workspaces', () => {
 
     await app.getByRole('link', { name: 'Edit Acme' }).click();
     await expect(app).toHaveURL(/\/workspaces\/acme$/u);
-    await expect(app.getByLabel('Folder')).toHaveValue('acme');
+    await expect(app.getByLabel('Folder', { exact: true })).toHaveValue('acme');
 
-    await app.getByLabel('Name').fill('Acme Ltd');
+    await app.getByLabel('Name', { exact: true }).fill('Acme Ltd');
     await app.getByRole('button', { name: 'Save changes' }).click();
 
     await expect
@@ -118,7 +120,7 @@ test.describe('workspaces', () => {
     });
 
     await app.goto(`${harness.url}/workspaces/acme`);
-    await app.getByLabel('Folder').fill('acme24');
+    await app.getByLabel('Folder', { exact: true }).fill('acme24');
     await app.getByRole('button', { name: 'Save changes' }).click();
 
     // The durable state: the editor is now on the new folder's URL.
@@ -157,8 +159,10 @@ test.describe('workspaces', () => {
     // A folder like any other, named after the id. The id is what every session
     // falls back to, so the box is inert rather than absent, states the folder,
     // and says why it cannot move.
-    await expect(app.getByLabel('Folder')).toBeDisabled();
-    await expect(app.getByLabel('Folder')).toHaveValue('/default');
+    await expect(app.getByLabel('Folder', { exact: true })).toBeDisabled();
+    await expect(app.getByLabel('Folder', { exact: true })).toHaveValue(
+      '/default',
+    );
     await expect(app.getByText(/cannot move/)).toBeVisible();
   });
 

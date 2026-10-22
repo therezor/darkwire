@@ -141,7 +141,6 @@ export function ContextBody({
           a screen reader. The exact figures per section are the table's. */}
       <div className="cluster context__headline">
         <span className="context__used" aria-hidden="true">
-          {budget.measured ? '' : '~'}
           {fmt.tokensShort(budget.usedTokens)}
         </span>
         <span className="context__of" aria-hidden="true">

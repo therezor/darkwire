@@ -100,7 +100,6 @@ export function TranscriptView({
               <Message
                 item={item}
                 streaming={busy && item === lastTurn}
-                busy={busy}
                 onApprove={onApprove}
                 onAction={onAction}
               />
