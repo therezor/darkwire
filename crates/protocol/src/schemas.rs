@@ -757,6 +757,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<rest::UpdateSessionRequest>,
     },
     RegisteredSchema {
+        name: "ContextQuery",
+        schema: schema_for::<rest::ContextQuery>,
+    },
+    RegisteredSchema {
         name: "ContextResponse",
         schema: schema_for::<rest::ContextResponse>,
     },

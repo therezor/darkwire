@@ -61,6 +61,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 
 use crate::errors::{ErrorKind, Result, WireError};
+use crate::text::truncate_bytes;
 
 /// The folder inside the workspace that holds them.
 pub const MEMORY_DIRNAME: &str = "memory";
@@ -553,7 +554,7 @@ fn read_one(root: &Dir, dir: &Path, key: &str, options: &OpenOptions) -> io::Res
     let mut text = String::new();
     file.read_to_string(&mut text)?;
 
-    let content = truncate_bytes(&text).to_owned();
+    let content = truncate_bytes(&text, MEMORY_MAX_BYTES).to_owned();
     Ok(Memory {
         title: derive_title(&content, key),
         key: key.to_owned(),
@@ -580,19 +581,4 @@ fn write_atomic(root: &Dir, target: &Path, text: &str, options: &OpenOptions) ->
 /// One line, whatever it arrived as. A title spanning two breaks an index.
 fn collapse(text: &str) -> String {
     js_trim(&WHITESPACE.replace_all(text, " ")).to_owned()
-}
-
-/// At most [`MEMORY_MAX_BYTES`] of a file, cut on a character boundary.
-fn truncate_bytes(text: &str) -> &str {
-    if text.len() <= MEMORY_MAX_BYTES {
-        return text;
-    }
-    // Back up to the start of the character the cap landed inside: the bound
-    // holds and a multi-byte character is dropped whole rather than corrupting
-    // what follows.
-    let mut cut = MEMORY_MAX_BYTES;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    &text[..cut]
 }

@@ -195,6 +195,11 @@ pub struct UserMessageRequest {
     /// The agent to run as, for a session that does not have one yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// The workspace to create the session in, for a session that does not
+    /// have one yet. A session that exists keeps its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(length(utf16, min = 1))]
+    pub workspace_id: Option<String>,
     /// Client-generated idempotency key. Lets a retry after a dropped socket
     /// avoid appending the same user turn twice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -553,14 +558,11 @@ pub struct ConnectedEvent {
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub last_seq: u64,
     /// The workspace this connection landed in, so a reconnecting tab learns
-    /// which one it is looking at without a REST round trip.
-    #[serde(default = "default_workspace")]
+    /// which one it is looking at without a REST round trip. Absent for a
+    /// session with no row yet: it is in no workspace until its first message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]
-    pub workspace_id: String,
-}
-
-fn default_workspace() -> String {
-    crate::ids::DEFAULT_WORKSPACE_ID.to_owned()
+    pub workspace_id: Option<String>,
 }
 
 /// Answer to a `ping`.
@@ -629,6 +631,10 @@ pub struct ErrorEvent {
     /// Present when the error answers a `tool.approve` for this call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
+    /// Present when the error refuses a message this client sent, under the id
+    /// it sent it with. The message was not taken, so nothing will ack it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 /// The user message was stored.
@@ -1116,10 +1122,11 @@ pub struct SessionStatus {
     #[serde(default)]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub queue_depth: u64,
-    /// The session's workspace, restated on every switch.
-    #[serde(default = "default_workspace")]
+    /// The session's workspace, restated on every switch. Absent for a
+    /// session with no row yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]
-    pub workspace_id: String,
+    pub workspace_id: Option<String>,
     /// The running turn, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,

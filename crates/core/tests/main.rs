@@ -14,6 +14,7 @@
 mod capture;
 mod common;
 
+mod capped_lines;
 mod clock;
 mod config;
 mod cron;
@@ -31,5 +32,6 @@ mod paths;
 mod session_store;
 mod session_title;
 mod sqlite_row;
+mod text;
 mod workspace_files;
 mod workspace_store;

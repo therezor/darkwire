@@ -416,6 +416,8 @@ impl Bridge {
             content,
             attachments,
             agent_id: None,
+            // The connection's own workspace, which the channel set on connect.
+            workspace_id: None,
             // The channel's own id for the message, so a transport that
             // redelivers — every one of them, on a dropped connection — is
             // acked rather than running the same turn twice.

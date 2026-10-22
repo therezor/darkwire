@@ -189,6 +189,7 @@ export const PROTOCOL_SCHEMAS = {
   SessionMessagesResponse: rest.SessionMessagesResponseSchema,
   CreateSessionRequest: rest.CreateSessionRequestSchema,
   UpdateSessionRequest: rest.UpdateSessionRequestSchema,
+  ContextQuery: rest.ContextQuerySchema,
   ContextResponse: rest.ContextResponseSchema,
   TurnStats: rest.TurnStatsSchema,
   TurnStatsResponse: rest.TurnStatsResponseSchema,

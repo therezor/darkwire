@@ -727,6 +727,21 @@ pub struct UpdateSessionRequest {
     pub workspace_id: Option<String>,
 }
 
+/// `GET /api/sessions/:key/context`.
+///
+/// `summary` answers with the totals and leaves the system prompt, the tool
+/// definitions and the messages empty. The strip under the composer shows
+/// three numbers and asks on every conversation it opens; the inspector asks
+/// for the rest when someone looks.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct ContextQuery {
+    /// Totals only.
+    #[serde(default)]
+    pub summary: bool,
+}
+
 /// What the agent would actually send to the model, for the context
 /// inspector — the panel that makes the token budget legible.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]

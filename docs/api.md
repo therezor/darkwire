@@ -87,7 +87,7 @@ the schema, and changing either revokes every other session.
 | GET / POST           | `/api/sessions`               | `required` | Lists every origin. `origin` narrows to one, `excludeOrigin` drops one, `workspace` scopes. |
 | GET / PATCH / DELETE | `/api/sessions/:key`          | `required` | `PATCH` renames, or moves the session to another agent or workspace.                        |
 | GET / DELETE         | `/api/sessions/:key/messages` | `required` |                                                                                             |
-| GET                  | `/api/sessions/:key/context`  | `required` | What would be sent to the model, and the token breakdown.                                   |
+| GET                  | `/api/sessions/:key/context`  | `required` | What would be sent to the model, and the token breakdown. `?summary=true`: totals only.     |
 | GET                  | `/api/sessions/:key/turns`    | `required` | Per-turn stats: model, provider, iterations, stop reason, tokens.                           |
 | GET / DELETE         | `/api/sessions/:key/tasks`    | `required` | The plan the session is running on, as the `todo` tool left it. `DELETE` empties it.        |
 | POST                 | `/api/sessions/:key/branch`   | `required` | Forks the session at a message. While a turn runs, only up to its last finished step.       |
@@ -198,7 +198,7 @@ parameters `?session=` and `?agent=`.
 | Type              | Does                                                                                                       |
 | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | `ping`            | Answered with `pong`.                                                                                      |
-| `user.message`    | Starts a turn. Content may be text or parts, for images.                                                   |
+| `user.message`    | Starts a turn. Content may be text or parts. `workspaceId` creates a session with no row there.            |
 | `turn.steer`      | Guidance for the running turn. Runs as the next turn if that one never reads it.                           |
 | `turn.stop`       | Aborts. With `turnId`, only that turn, and withdrawn if still queued.                                      |
 | `turn.regenerate` | Re-runs from `seq`: a question is asked again; an answer is dropped and the turn continues from before it. |
@@ -261,6 +261,12 @@ turn instead of losing it.
 `connected`, `pong` and `error` are the only unsequenced frames; they are addressed to one
 client rather than to the session.
 
+A socket that joins a session while a turn runs also gets that session's `session.status`
+straight after `connected`, stamped with the current `seq` rather than a new one. It never
+saw the turn start, and without it a fresh tab offers no Stop. `connected` and
+`session.status` leave `workspaceId` out for a session that has no row yet: it is in no
+workspace until its first message, and a client keeps its own choice until then.
+
 Past the ring the answer is `session.replay { complete: false }` and the stored tail. **512
 frames is not many** — every nested delta of a delegation is one — so this is the ordinary
 outcome of reloading during a subagent, not a corner case.
@@ -298,7 +304,12 @@ copy of the answer text.
 ### Concurrency and backpressure
 
 One session runs one turn at a time; further messages queue FIFO up to 8, and past that
-the client gets `session_busy` rather than a silent drop. A socket that buffers more than
+the client gets `session_busy` rather than a silent drop. A steer the turn has not read yet
+counts against the same 8. The refusal carries the message's `clientMessageId`, so the
+sender knows which message was not taken and stops waiting for its ack.
+
+The server reads at most 16 frames ahead of the hub per socket, each at most 8 MiB; past
+that it stops reading and TCP pushes back on the sender. A socket that buffers more than
 4 MiB of live frames is closed with code 1013. A client that cannot keep up is better told
 than starved.
 A resume's replay is counted against a budget of its own, room for one whole replay: twice

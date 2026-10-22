@@ -24,6 +24,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
+use darkwire_server::routes::ws::MAX_FRAME_BYTES;
 use darkwire_server::testkit::{TestServer, TestServerOptions, start_test_server};
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
@@ -446,6 +447,31 @@ async fn a_closed_socket_detaches_and_leaves_the_session_for_the_next_tab() {
     assert_eq!(server.test.hub.watchers("web:1"), 0);
     assert_eq!(server.test.hub.session_count(), 1);
     assert!(!server.test.hub.busy("web:1"));
+}
+
+#[tokio::test]
+async fn a_frame_past_the_size_cap_closes_the_socket() {
+    let server = listening(TestServerOptions::default()).await;
+    let token = server.test.token.clone();
+
+    let mut connection = connect(&server, "?session=web:big", Some(&token))
+        .await
+        .expect("the handshake completed");
+    connection.next_of("connected").await;
+    assert_eq!(server.test.hub.watchers("web:big"), 1);
+
+    // The write can fail part way, once the server has hung up on it.
+    let _ = connection
+        .socket
+        .send(Message::Text("x".repeat(MAX_FRAME_BYTES + 1).into()))
+        .await;
+    connection.closed_with().await;
+
+    let deadline = tokio::time::Instant::now() + FRAME_TIMEOUT;
+    while server.test.hub.watchers("web:big") > 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(server.test.hub.watchers("web:big"), 0);
 }
 
 #[tokio::test]

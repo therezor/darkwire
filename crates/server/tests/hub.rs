@@ -34,8 +34,9 @@ use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
 use darkwire_server::auth_store::{Carried, Revocation};
 use darkwire_server::hub::{
     AgentMissReason, AgentResolution, CLOSE_SIGNED_OUT, ConnectOptions, Frame, HubClient, HubEvent,
-    Login, Outbound, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
+    Login, MAX_INBOUND_FRAMES, Outbound, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
 };
+use futures::FutureExt as _;
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
@@ -455,13 +456,60 @@ async fn greets_a_new_connection_with_the_protocol_version_and_where_the_session
     };
     assert_eq!(connected.session_key, SESSION);
     assert_eq!(connected.last_seq, 0);
-    assert_eq!(connected.workspace_id, "default");
+    // No row and no workspace asked for: it is in none yet, and the client
+    // keeps its own choice rather than being told `default`.
+    assert_eq!(connected.workspace_id, None);
     // The version is a type, so a client built against another fails on the
     // handshake rather than three frames later.
     assert_eq!(
         serde_json::to_value(connected).unwrap()["protocolVersion"],
         json!(PROTOCOL_VERSION)
     );
+}
+
+#[tokio::test]
+async fn greets_a_connection_to_a_running_turn_with_its_status() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let turn = h.runner.turn(0);
+    turn.start();
+    client.until_seen("turn.start").await;
+
+    // A tab opened now never sees this turn start. Without the status it
+    // shows no Stop and drops every frame for a turn storage says is over.
+    let late = h.plain();
+    late.until_seen("connected").await;
+    late.until_seen("session.status").await;
+    let frames = late.frames();
+    let ServerMessage::Connected(connected) = &frames[0] else {
+        panic!("the first frame is the handshake");
+    };
+    let ServerMessage::SessionStatus(status) = &frames[1] else {
+        panic!("the status follows the handshake: {frames:?}");
+    };
+    assert!(status.event.busy);
+    assert_eq!(status.event.turn_id, Some(turn.turn_id()));
+    // Not a new event: the seq every other tab is already at.
+    assert_eq!(seq(&frames[1]), connected.last_seq);
+    turn.end();
+}
+
+#[tokio::test]
+async fn greets_an_idle_session_with_the_handshake_alone() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    assert_eq!(client.types(), ["connected"]);
 }
 
 #[tokio::test]
@@ -1267,6 +1315,7 @@ async fn forwards_a_mid_turn_error_without_sequencing_it_and_still_closes_the_tu
         retryable: true,
         turn_id: Some(turn.turn_id()),
         call_id: None,
+        client_message_id: None,
     });
     turn.end();
     client.until_seen("turn.end").await;
@@ -2543,6 +2592,149 @@ async fn a_steer_sent_as_the_turn_is_handed_to_its_loop_still_arrives() {
     h.runner.turn(0).end();
 }
 
+/// The client message ids of every ack a client was sent, in order.
+fn acked_ids(client: &TestClient) -> Vec<String> {
+    client
+        .of("message.ack")
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMessage::MessageAck(ack) => ack.event.client_message_id.clone(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The code of every error a client was sent, in order.
+fn error_codes(client: &TestClient) -> Vec<ErrorCode> {
+    client
+        .of("error")
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMessage::Error(error) => Some(error.code),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `clientMessageId` every refusal named, in order.
+fn refused_ids(client: &TestClient) -> Vec<String> {
+    client
+        .of("error")
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMessage::Error(error) => error.client_message_id.clone(),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn steers_past_the_queue_bound_are_refused_as_a_queued_message_is() {
+    // A steer the turn never reads runs as a turn of its own, so it is a
+    // queued message in waiting and counts against the same bound.
+    let h = harness(&HarnessOptions {
+        max_queue_depth: Some(2),
+        ..HarnessOptions::default()
+    });
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.reset();
+
+    for index in 0..5 {
+        client.send(steer("and another thing", &format!("s{index}")));
+    }
+    fence(&client).await;
+    assert_eq!(error_codes(&client), [ErrorCode::SessionBusy; 3]);
+    // Each refusal names the steer it refuses, so its bubble can stop waiting.
+    assert_eq!(refused_ids(&client), ["s2", "s3", "s4"]);
+    assert_eq!(h.runner.steers.lock().len(), 2);
+
+    // The turn ends without reading them. Both run, and nothing past the bound.
+    client.reset();
+    turn.end();
+    until_turns(&h, 2).await;
+    client.until_count("message.ack", 2).await;
+    fence(&client).await;
+    assert_eq!(acked_ids(&client), ["s0", "s1"]);
+    assert!(error_codes(&client).is_empty());
+}
+
+#[tokio::test]
+async fn steers_sent_as_the_turn_starts_count_against_the_bound_too() {
+    let h = harness(&HarnessOptions {
+        max_queue_depth: Some(1),
+        ..HarnessOptions::default()
+    });
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    until_turns(&h, 1).await;
+    client.reset();
+
+    client.send(steer("early", "s0"));
+    client.send(steer("too many", "s1"));
+    fence(&client).await;
+    assert_eq!(error_codes(&client), [ErrorCode::SessionBusy]);
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_message_is_refused_while_held_steers_fill_the_queue() {
+    let h = harness(&HarnessOptions {
+        max_queue_depth: Some(1),
+        ..HarnessOptions::default()
+    });
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.reset();
+
+    client.send(steer("be brief", "s0"));
+    client.send(user(SESSION, "and then this"));
+    fence(&client).await;
+    assert_eq!(error_codes(&client), [ErrorCode::SessionBusy]);
+    turn.end();
+}
+
+// Inbound backpressure
+
+#[tokio::test]
+async fn a_peer_that_sends_faster_than_the_hub_runs_frames_waits_for_room() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.reset();
+    let user_with_id = |id: &str| {
+        Frame::Value(json!({
+            "type": "user.message", "sessionKey": SESSION, "content": id, "clientMessageId": id,
+        }))
+    };
+    let ping = || Frame::Value(json!({ "type": "ping" }));
+
+    // Nothing here yields, so the hub has run none of these yet.
+    assert!(
+        client
+            .client
+            .receive_paced(user_with_id("m0"))
+            .now_or_never()
+            .is_some()
+    );
+    for _ in 1..MAX_INBOUND_FRAMES {
+        assert!(client.client.receive_paced(ping()).now_or_never().is_some());
+    }
+    let mut last = std::pin::pin!(client.client.receive_paced(user_with_id("m1")));
+    assert!(futures::poll!(&mut last).is_pending());
+
+    // Room again once the hub catches up, and nothing lost or reordered.
+    last.await;
+    client.until_count("message.ack", 2).await;
+    assert_eq!(acked_ids(&client), ["m0", "m1"]);
+    assert_eq!(client.of("pong").len(), MAX_INBOUND_FRAMES - 1);
+}
+
 #[tokio::test]
 async fn resolves_a_pending_approval_from_an_inbound_tool_approve() {
     let h = harness(&HarnessOptions::default());
@@ -2581,6 +2773,82 @@ async fn resolves_a_pending_approval_from_an_inbound_tool_approve() {
     let decision = pending.await.unwrap();
     assert!(decision.approved);
     assert_eq!(decision.scope, Some(ApprovalScope::Session));
+}
+
+/// A request parked on `session_key`, filed under the conversation `root`.
+fn park_on(
+    h: &Harness,
+    session_key: &str,
+    root: &str,
+) -> tokio::task::JoinHandle<darkwire_agent::ApprovalDecision> {
+    let request = darkwire_agent::ApprovalRequest {
+        session_key: session_key.to_owned(),
+        root_session_key: root.to_owned(),
+        agent_id: "default".to_owned(),
+        turn_id: "turn-1".to_owned(),
+        call_id: "call-1".to_owned(),
+        name: "exec".to_owned(),
+        args: json!({ "argv": ["ls"] }),
+        risk: ToolRisk::Exec,
+        memory_key: "exec".to_owned(),
+        command: Some(cargo_test()),
+        expires_at_ms: 4_000_000_000_000,
+        token: CancellationToken::new(),
+    };
+    let gate = Arc::clone(&h.approvals);
+    tokio::spawn(async move {
+        use darkwire_agent::ApprovalGate as _;
+        gate.ask(&request).await.unwrap()
+    })
+}
+
+/// Waits for a pong, so every frame sent before the ping has run.
+async fn fence(client: &TestClient) {
+    let before = client.of("pong").len();
+    client.send(json!({ "type": "ping" }));
+    client.until_count("pong", before + 1).await;
+}
+
+#[tokio::test]
+async fn a_client_cannot_answer_a_call_parked_in_another_session() {
+    let h = harness(&HarnessOptions::default());
+    let saved = recording_rules(&h, None);
+    let owner = h.plain();
+    let other = h.connect(ConnectOptions {
+        session_key: Some("web:2".to_owned()),
+        ..ConnectOptions::default()
+    });
+    owner.until_seen("connected").await;
+    other.until_seen("connected").await;
+    let pending = park_on(&h, SESSION, SESSION);
+    until_parked(&h).await;
+
+    other.reset();
+    other.send(approve_with_rule(true));
+    fence(&other).await;
+    // Silent, as an answer to a call that is not parked is today.
+    assert_eq!(other.types(), ["pong"]);
+    assert_eq!(h.approvals.pending_count(), 1);
+    assert!(saved.lock().is_empty());
+
+    owner.send(json!({
+        "type": "tool.approve", "callId": "call-1", "approved": true, "scope": "once",
+    }));
+    assert!(pending.await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn answers_a_subagent_call_from_the_conversation_watching_it() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let pending = park_on(&h, "web:1:sub:1", SESSION);
+    until_parked(&h).await;
+
+    client.send(json!({
+        "type": "tool.approve", "callId": "call-1", "approved": true, "scope": "once",
+    }));
+    assert!(pending.await.unwrap().approved);
 }
 
 #[tokio::test]
@@ -2948,7 +3216,33 @@ async fn re_emits_the_status_with_the_workspace_the_store_now_holds() {
     let ServerMessage::SessionStatus(status) = &client.of("session.status")[0] else {
         panic!("expected a status");
     };
-    assert_eq!(status.event.workspace_id, "research");
+    assert_eq!(status.event.workspace_id.as_deref(), Some("research"));
+}
+
+#[tokio::test]
+async fn creates_a_session_in_the_workspace_its_first_message_names() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    // A tab that never sent `session.new`: its key came from the server, and
+    // the composer's choice rides on the message instead.
+    client.send(json!({
+        "type": "user.message",
+        "sessionKey": SESSION,
+        "content": "hi",
+        "workspaceId": "research",
+    }));
+    for _ in 0..500 {
+        if h.runner.count() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(
+        h.runner.turn(0).input.workspace_id.as_deref(),
+        Some("research")
+    );
+    h.runner.turn(0).end();
 }
 
 #[tokio::test]

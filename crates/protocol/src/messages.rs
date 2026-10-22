@@ -392,13 +392,16 @@ pub struct Calibration {
 impl Calibration {
     /// Reported over estimated: what an estimate is multiplied by to read as
     /// the provider's count.
+    ///
+    /// Always finite. Validation guards the wire, not a row read back from
+    /// storage, so the estimate may be zero here.
     #[allow(
         clippy::cast_precision_loss,
         reason = "token counts are far below 2^53"
     )]
     #[must_use]
     pub fn ratio(&self) -> f64 {
-        self.reported_tokens as f64 / self.estimated_tokens as f64
+        self.reported_tokens as f64 / self.estimated_tokens.max(1) as f64
     }
 }
 

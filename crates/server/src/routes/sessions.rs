@@ -34,7 +34,7 @@ use darkwire_core::to_stored_message;
 use darkwire_protocol::json::Object;
 use darkwire_protocol::messages::Usage;
 use darkwire_protocol::rest::{
-    BranchSessionRequest, ContextResponse, CreateSessionRequest, SessionListResponse,
+    BranchSessionRequest, ContextQuery, ContextResponse, CreateSessionRequest, SessionListResponse,
     SessionMessagesResponse, SessionSummary, TasksResponse, TurnStats, TurnStatsResponse,
     UpdateSessionRequest,
 };
@@ -514,16 +514,26 @@ pub async fn clear(
 pub async fn context(
     State(state): State<AppState>,
     Path(params): Path<SessionParams>,
+    query: Result<Query<ContextQuery>, QueryRejection>,
 ) -> Result<Json<ContextResponse>, HttpError> {
+    let query = read_query(query)?;
     let runtime = state.runtime.as_ref();
     require_session(&runtime.store(), &params.key).await?;
 
     // The agent-resolution policy lives in the context module, so the chat
     // channels measure against the same agent this panel does.
-    build_context_response(runtime, &params.key)
+    let mut response = build_context_response(runtime, &params.key)
         .await?
-        .map(Json)
-        .ok_or_else(|| HttpError::not_found(format!("No session \"{}\"", params.key)))
+        .ok_or_else(|| HttpError::not_found(format!("No session \"{}\"", params.key)))?;
+    if query.summary {
+        // The figures are already worked out. What goes is the text they were
+        // worked out from, which is most of the response.
+        response.system_prompt.clear();
+        response.runtime_block.clear();
+        response.tools.clear();
+        response.messages.clear();
+    }
+    Ok(Json(response))
 }
 
 /// Forks a session at a point into a new one.

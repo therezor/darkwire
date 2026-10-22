@@ -53,6 +53,7 @@ use std::time::Duration;
 
 use darkwire_core::clock::Clock;
 use darkwire_core::cron::{next_cron_run, parse_cron};
+use darkwire_core::db::blocking;
 use darkwire_core::errors::{ErrorKind, Result, WireError};
 use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use darkwire_core::session_store::IdSource;
@@ -524,7 +525,40 @@ struct State {
     /// the boot sweep just settled.
     zoned_at: Option<String>,
     /// Job ids with a run in flight. What stops a job overlapping itself.
-    in_flight: HashMap<String, CancellationToken>,
+    in_flight: HashMap<String, Held>,
+    /// The last claim handed out, so each run's is its own.
+    claims: u64,
+}
+
+/// A run's entry in the in-flight table.
+struct Held {
+    claim: u64,
+    token: CancellationToken,
+}
+
+/// A run's hold on its job's slot.
+///
+/// Dropping it gives the slot back, so a start that fails part way cannot
+/// leave the job marked as running.
+struct Slot {
+    inner: Arc<Inner>,
+    job_id: String,
+    claim: u64,
+    token: CancellationToken,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut state = self.inner.state.lock();
+        // Only this run's own entry, never one a later run took.
+        if state
+            .in_flight
+            .get(&self.job_id)
+            .is_some_and(|held| held.claim == self.claim)
+        {
+            state.in_flight.remove(&self.job_id);
+        }
+    }
 }
 
 struct Inner {
@@ -643,7 +677,11 @@ impl Scheduler {
             let mut state = self.inner.state.lock();
             state.stopping = true;
             state.started = false;
-            state.in_flight.values().cloned().collect()
+            state
+                .in_flight
+                .values()
+                .map(|held| held.token.clone())
+                .collect()
         };
         for token in tokens {
             token.cancel();
@@ -670,9 +708,12 @@ impl Scheduler {
             if self.inner.state.lock().stopping {
                 return;
             }
+            // Store reads, so off the runtime's workers, as the tick below.
+            let engine = self.clone();
+            let next = blocking(move || Ok(engine.next_delay_ms())).await;
             // Nothing scheduled: an idle install should not be waking up to
             // discover that repeatedly, so it waits to be told.
-            let Some(delay) = self.next_delay_ms() else {
+            let Some(delay) = next.ok().flatten() else {
                 self.inner.wake.notified().await;
                 continue;
             };
@@ -683,10 +724,13 @@ impl Scheduler {
                     () = self.inner.wake.notified() => continue,
                 }
             }
-            let dispatched = self.tick().unwrap_or_else(|error| {
-                tracing::error!(err = %error.message, "automation drain failed");
-                0
-            });
+            let engine = self.clone();
+            let dispatched = blocking(move || engine.tick())
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::error!(err = %error.message, "automation drain failed");
+                    0
+                });
             if dispatched == 0 {
                 // Something is due that this pass could not start: it is
                 // already running, or every slot is taken. Without the floor
@@ -738,11 +782,9 @@ impl Scheduler {
         for job in self.inner.jobs.due_jobs(self.inner.clock.now_ms(), limit)? {
             // A job already running is left due rather than started twice. Its
             // own completion recomputes the next time and wakes the waiter.
-            if self.inner.state.lock().in_flight.contains_key(&job.id) {
-                continue;
+            if self.dispatch(&job, Vec::new())?.is_some() {
+                dispatched += 1;
             }
-            self.dispatch(&job, Vec::new())?;
-            dispatched += 1;
         }
         Ok(dispatched)
     }
@@ -827,6 +869,7 @@ impl Scheduler {
         for job in missed {
             if catch_up {
                 let scheduled = job.state.next_run_at_ms;
+                // One still running is left due, as a tick leaves it.
                 self.dispatch(
                     &job,
                     vec![format!(
@@ -870,13 +913,51 @@ impl Scheduler {
 
     // One run
 
-    /// Starts a run and returns its `pending` row.
+    /// Takes the job's slot, or `None` when a run of it is in flight.
+    ///
+    /// Checked and taken under one lock, before anything is written, so two
+    /// callers cannot both find it free.
+    fn claim(&self, job_id: &str) -> Option<Slot> {
+        let mut state = self.inner.state.lock();
+        if state.in_flight.contains_key(job_id) {
+            return None;
+        }
+        state.claims += 1;
+        let claim = state.claims;
+        let token = CancellationToken::new();
+        state.in_flight.insert(
+            job_id.to_owned(),
+            Held {
+                claim,
+                token: token.clone(),
+            },
+        );
+        Some(Slot {
+            inner: Arc::clone(&self.inner),
+            job_id: job_id.to_owned(),
+            claim,
+            token,
+        })
+    }
+
+    /// Starts a run and returns its `pending` row, or `None` when the job
+    /// already has a run in flight.
     ///
     /// The provisional next time is written **here**, before anything can fail,
     /// so a hard kill leaves the job scheduled at roughly the right moment
     /// rather than unscheduled forever. Completion corrects it.
-    fn dispatch(&self, job: &AutomationJob, warnings: Vec<String>) -> Result<AutomationRun> {
+    fn dispatch(
+        &self,
+        job: &AutomationJob,
+        warnings: Vec<String>,
+    ) -> Result<Option<AutomationRun>> {
+        let Some(slot) = self.claim(&job.id) else {
+            return Ok(None);
+        };
         let now = self.inner.clock.now_ms();
+        // Worked out before the run row is written, so a schedule that cannot
+        // be read leaves no row behind.
+        let next = self.next_run_for(job, now)?;
         let run = self.inner.jobs.start_run(
             &job.id,
             // A plain id. The job it belongs to is on this very row and the
@@ -898,33 +979,24 @@ impl Scheduler {
         // a "Next run" beside it — a contradiction an operator has to work out
         // for themselves, and a stale time the job would inherit whenever it
         // was next switched on.
-        self.inner
-            .jobs
-            .set_next_run(&job.id, self.next_run_for(job, now)?)?;
-
-        let token = CancellationToken::new();
-        self.inner
-            .state
-            .lock()
-            .in_flight
-            .insert(job.id.clone(), token.clone());
+        self.inner.jobs.set_next_run(&job.id, next)?;
 
         let engine = self.clone();
         let job = job.clone();
         let run_row = run.clone();
         tokio::spawn(async move {
-            if let Err(error) = engine.execute(&job, &run_row, &token, warnings).await {
+            if let Err(error) = engine.execute(&job, &run_row, &slot.token, warnings).await {
                 tracing::error!(
                     job_id = job.id,
                     err = %error.message,
                     "automation run failed unexpectedly"
                 );
             }
-            engine.inner.state.lock().in_flight.remove(&job.id);
+            drop(slot);
             engine.inner.wake.notify_one();
         });
 
-        Ok(run)
+        Ok(Some(run))
     }
 
     /// The whole of one run: decide, turn, evaluate, record, settle.
@@ -973,30 +1045,38 @@ impl Scheduler {
             }
         }
 
-        self.inner.jobs.finish_run(
-            &run.id,
-            &FinishRunInput {
-                status,
-                output: if output.is_empty() {
-                    None
-                } else {
-                    Some(output)
+        // Store writes, and settling writes too, so all of it runs off the
+        // runtime's workers.
+        let engine = self.clone();
+        let job = job.clone();
+        let run_id = run.id.clone();
+        let ran_at_ms = i64::try_from(run.started_at_ms).unwrap_or(0);
+        blocking(move || {
+            engine.inner.jobs.finish_run(
+                &run_id,
+                &FinishRunInput {
+                    status,
+                    output: if output.is_empty() {
+                        None
+                    } else {
+                        Some(output)
+                    },
+                    error: error.clone(),
+                    skip_reason,
+                    warnings,
                 },
-                error: error.clone(),
-                skip_reason,
-                warnings,
-            },
-        )?;
-        self.inner.jobs.record_outcome(
-            &job.id,
-            &RunOutcome {
-                ran_at_ms: i64::try_from(run.started_at_ms).unwrap_or(0),
-                status,
-                error: error.clone(),
-            },
-        )?;
-
-        self.settle(job, status, error.as_deref(), notify)
+            )?;
+            engine.inner.jobs.record_outcome(
+                &job.id,
+                &RunOutcome {
+                    ran_at_ms,
+                    status,
+                    error: error.clone(),
+                },
+            )?;
+            engine.settle(&job, status, error.as_deref(), notify)
+        })
+        .await
     }
 
     /// The body of a run, up to the point where an outcome is known.
@@ -1181,6 +1261,8 @@ impl Scheduler {
             content: message.to_owned(),
             attachments: Vec::new(),
             agent_id: payload_agent_id(&job.payload).cloned(),
+            // The job's workspace rode in on the connection.
+            workspace_id: None,
             // The run id, so a redelivery is acknowledged rather than run twice.
             client_message_id: Some(run.id.clone()),
         }));
@@ -1365,13 +1447,12 @@ impl SchedulerPort for Scheduler {
                 format!("No automation job with id \"{job_id}\"."),
             ));
         };
-        if self.inner.state.lock().in_flight.contains_key(job_id) {
-            return Err(WireError::new(
+        self.dispatch(&job, Vec::new())?.ok_or_else(|| {
+            WireError::new(
                 ErrorKind::Conflict,
                 format!("\"{}\" is already running.", job.name),
-            ));
-        }
-        self.dispatch(&job, Vec::new())
+            )
+        })
     }
 
     fn refresh(&self) {

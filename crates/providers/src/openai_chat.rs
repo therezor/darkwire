@@ -62,6 +62,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Bounded: an HTML error page from a proxy is not a useful log line, and the
 /// full body would be one megabyte of it.
 const ERROR_DETAIL_UNITS: usize = 500;
+/// How much of an error body is read at all. Far more than any error object
+/// needs, and the rest is never waited for.
+const ERROR_BODY_MAX_BYTES: usize = 64 * 1024;
+/// The largest model list read. A gateway listing every model it routes to
+/// runs to a few hundred kilobytes.
+const MODEL_LIST_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// Rejects a configuration that would put an API key on the wire in
 /// cleartext.
@@ -601,16 +607,68 @@ impl Inner {
             .into_wire()
     }
 
+    /// A stream that ended with neither a finish reason nor `[DONE]`. Retried
+    /// like any dropped connection, until output has reached the consumer.
+    fn cut_off(&self) -> WireError {
+        ProviderError::new(
+            ProviderErrorReason::Transport,
+            format!(
+                "The connection to {} closed before the answer finished",
+                self.spec.display_name
+            ),
+        )
+        .with_provider(self.spec.id.clone())
+        .into_wire()
+    }
+
+    /// Reads at most `limit` bytes of a body, giving up when `token` fires.
+    /// The flag says whether the body held more.
+    async fn read_capped(
+        &self,
+        mut response: Response,
+        limit: usize,
+        url: &str,
+        token: &CancellationToken,
+    ) -> Result<(Vec<u8>, bool)> {
+        let mut body = Vec::new();
+        loop {
+            let chunk = tokio::select! {
+                () = token.cancelled() => return Err(self.aborted()),
+                chunk = response.chunk() => chunk.map_err(|error| {
+                    to_provider_error(&error, &self.spec.id, &self.context(url)).into_wire()
+                })?,
+            };
+            let Some(chunk) = chunk else {
+                return Ok((body, false));
+            };
+            let room = limit.saturating_sub(body.len());
+            if chunk.len() > room {
+                body.extend_from_slice(&chunk[..room]);
+                return Ok((body, true));
+            }
+            body.extend_from_slice(&chunk);
+        }
+    }
+
     /// Turns a non-2xx into a typed error, reading the provider's own error
     /// object.
-    async fn failure(&self, response: Response, url: &str) -> WireError {
+    async fn failure(&self, response: Response, url: &str, token: &CancellationToken) -> WireError {
         let status = response.status().as_u16();
         let retry_after = response
             .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
-        let text = response.text().await.unwrap_or_default();
+        // A body cut at the cap no longer parses, and the detail falls back to
+        // its first few hundred characters, which is all a log line shows.
+        let text = match self
+            .read_capped(response, ERROR_BODY_MAX_BYTES, url, token)
+            .await
+        {
+            Ok((bytes, _)) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) if error.is_aborted() => return error,
+            Err(_) => String::new(),
+        };
         let parsed: Option<Value> = serde_json::from_str(&text).ok();
         let error = parsed
             .as_ref()
@@ -680,7 +738,7 @@ impl Inner {
             }
         };
         if !response.status().is_success() {
-            return Err(self.failure(response, &url).await);
+            return Err(self.failure(response, &url, token).await);
         }
         Ok((response, url))
     }
@@ -748,10 +806,22 @@ impl Inner {
 
     async fn list_models(&self, token: &CancellationToken) -> Result<Vec<ModelInfo>> {
         let (response, url) = self.send(Method::GET, "models", None, token).await?;
-        let text = response.text().await.map_err(|error| {
-            to_provider_error(&error, &self.spec.id, &self.context(&url)).into_wire()
-        })?;
-        let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        let (body, more) = self
+            .read_capped(response, MODEL_LIST_MAX_BYTES, &url, token)
+            .await?;
+        if more {
+            return Err(ProviderError::new(
+                ProviderErrorReason::Unknown,
+                format!(
+                    "{} sent a model list over {MODEL_LIST_MAX_BYTES} bytes",
+                    self.spec.id
+                ),
+            )
+            .with_provider(self.spec.id.clone())
+            .with_detail("url", url.as_str())
+            .into_wire());
+        }
+        let parsed: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
         Ok(parsed
             .get("data")
             .and_then(Value::as_array)
@@ -898,6 +968,19 @@ impl StreamState {
                 frame = events.next() => frame,
             };
             match frame {
+                // A clean end with no finish reason and no `[DONE]` is a dropped
+                // connection when a tool call was still arriving, or when
+                // nothing arrived at all: dispatching half an argument list is
+                // the harm, and both are retried. Text alone completes, as it
+                // always did, because a server that sends neither marker would
+                // otherwise fail every answer after showing it.
+                None if self.finish_reason.is_none()
+                    && (!self.partials.is_empty()
+                        || (self.text.is_empty() && self.reasoning.is_empty())) =>
+                {
+                    let cut = self.inner.cut_off();
+                    return Some(self.fail(cut));
+                }
                 None => self.complete(),
                 Some(Err(error)) => return Some(self.fail(error)),
                 Some(Ok(event)) if event.data == "[DONE]" => self.complete(),
@@ -1002,7 +1085,9 @@ impl StreamState {
         let Some(choice) = choice else {
             return Ok(());
         };
-        if let Some(reason) = str_field(Some(choice), "finish_reason") {
+        // An empty string is a server filling the field on every chunk, not a
+        // finish.
+        if let Some(reason) = str_field(Some(choice), "finish_reason").filter(|r| !r.is_empty()) {
             self.finish_reason = Some(reason.to_owned());
         }
 

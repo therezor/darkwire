@@ -5,6 +5,6 @@
     "code": "session_busy",
     "message": "a turn is running",
     "retryable": true,
-    "turnId": "t1"
+    "clientMessageId": "c1"
   }
 }

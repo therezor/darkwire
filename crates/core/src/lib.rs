@@ -8,6 +8,7 @@
 //! but only for paths DarkWire owns; nothing here resolves an agent-supplied path.
 #![forbid(unsafe_code)]
 
+pub mod capped_lines;
 pub mod clock;
 pub mod config;
 pub mod cron;
@@ -24,12 +25,14 @@ pub mod paths;
 pub mod session_store;
 pub mod session_title;
 pub mod sqlite_row;
+pub mod text;
 pub mod workspace_files;
 pub mod workspace_store;
 
 #[cfg(feature = "testkit")]
 pub mod testkit;
 
+pub use capped_lines::{CappedLine, CappedLines};
 pub use clock::{Clock, SystemClock, sleep};
 pub use config::{LoadConfigOptions, LoadedConfig, load_config, parse_config, save_config};
 pub use cron::{CronSpec, next_cron_run, parse_cron};

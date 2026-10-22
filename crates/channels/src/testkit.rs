@@ -557,6 +557,7 @@ async fn renders_an_error_rather_than_swallowing_it(options: &ChannelConformance
             retryable: true,
             turn_id: None,
             call_id: None,
+            client_message_id: None,
         }));
     flush().await;
     flush().await;

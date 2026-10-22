@@ -13,6 +13,10 @@
 //! the gate usable from a channel that renders an approval as two buttons in a
 //! chat app rather than as a card in a browser.
 //!
+//! A parked call is filed under its conversation as well as its `call_id`. The
+//! id is the model's, so two conversations can hold the same one, and an
+//! answer only reaches a call in the conversation it was sent from.
+//!
 //! The decisions that are not obvious:
 //!
 //!  - **A remembered answer is keyed by what the tool says makes two calls the
@@ -54,6 +58,9 @@ struct RememberedDecision {
     approved: bool,
     scope: ApprovalScope,
 }
+
+/// A conversation and a call id in it.
+type PendingKey = (String, String);
 
 /// A parked request and the channel that settles it.
 struct PendingApproval {
@@ -109,9 +116,9 @@ pub struct HubApprovalGateOptions {
 /// The parked decisions, the scope memory, and the deadline that bounds both.
 pub struct HubApprovalGate {
     clock: Arc<dyn Clock>,
-    /// Parked senders, keyed by the tool call the client will name in its
-    /// answer.
-    pending: Mutex<HashMap<String, PendingApproval>>,
+    /// Parked senders, keyed by conversation and the tool call the client will
+    /// name in its answer.
+    pending: Mutex<HashMap<PendingKey, PendingApproval>>,
     /// `session` scope: session key to memory key to decision.
     by_session: Mutex<HashMap<String, HashMap<String, RememberedDecision>>>,
     watchers: Option<WatcherCount>,
@@ -164,27 +171,48 @@ impl HubApprovalGate {
         }
     }
 
+    /// Where a request is parked: its conversation, for the reason above.
+    fn key_of(request: &ApprovalRequest) -> PendingKey {
+        (
+            HubApprovalGate::scope_of(request).to_owned(),
+            request.call_id.clone(),
+        )
+    }
+
     /// Calls waiting on an answer. A leak assertion, and a status field.
     pub fn pending_count(&self) -> usize {
         self.pending.lock().len()
     }
 
-    /// The request parked under `call_id`, if one still is.
-    pub fn pending(&self, call_id: &str) -> Option<ApprovalRequest> {
+    /// The request parked under `call_id` in the conversation `session_key`,
+    /// if one still is.
+    pub fn pending(&self, session_key: &str, call_id: &str) -> Option<ApprovalRequest> {
         self.pending
             .lock()
-            .get(call_id)
+            .get(&(session_key.to_owned(), call_id.to_owned()))
             .map(|entry| entry.request.clone())
     }
 
-    /// Answers a parked request. Returns whether anything was waiting.
+    /// Answers a call parked in the conversation `session_key`. Returns whether
+    /// anything was waiting.
     ///
-    /// A `false` is the normal two-tab race — the second answer arrives after
-    /// the first has already released the call — and is not an error. The caller
-    /// logs it and sends nothing back, because there is no client-visible
-    /// difference between "you were second" and "it worked".
-    pub fn resolve(&self, call_id: &str, approved: bool, scope: ApprovalScope) -> bool {
-        let Some(pending) = self.pending.lock().remove(call_id) else {
+    /// A `false` is the normal two-tab race (the second answer arrives after
+    /// the first has already released the call), or an answer naming a call
+    /// in another conversation. Neither is an error. The caller logs it and
+    /// sends nothing back, because there is no client-visible difference
+    /// between "you were second" and "it worked".
+    pub fn resolve(
+        &self,
+        session_key: &str,
+        call_id: &str,
+        approved: bool,
+        scope: ApprovalScope,
+    ) -> bool {
+        let Some(pending) = self
+            .pending
+            .lock()
+            .remove(&(session_key.to_owned(), call_id.to_owned()))
+        else {
             return false;
         };
 
@@ -221,14 +249,14 @@ impl HubApprovalGate {
         self.by_session.lock().remove(session_key);
         let settled: Vec<PendingApproval> = {
             let mut pending = self.pending.lock();
-            let doomed: Vec<String> = pending
-                .iter()
-                .filter(|(_, entry)| HubApprovalGate::scope_of(&entry.request) == session_key)
-                .map(|(call_id, _)| call_id.clone())
+            let doomed: Vec<PendingKey> = pending
+                .keys()
+                .filter(|(scope, _)| scope == session_key)
+                .cloned()
                 .collect();
             doomed
                 .into_iter()
-                .filter_map(|call_id| pending.remove(&call_id))
+                .filter_map(|key| pending.remove(&key))
                 .collect()
         };
         for entry in settled {
@@ -323,10 +351,11 @@ impl HubApprovalGate {
         }
 
         let (tx, rx) = oneshot::channel();
-        // A `call_id` is the model's, so a collision is not impossible. The
-        // older prompt is the one nothing will answer — its turn has moved on.
+        // A `call_id` is the model's, so a collision within one conversation is
+        // not impossible. The older prompt is the one nothing will answer: its
+        // turn has moved on.
         let superseded = self.pending.lock().insert(
-            request.call_id.clone(),
+            HubApprovalGate::key_of(request),
             PendingApproval {
                 request: request.clone(),
                 settle: tx,
@@ -357,7 +386,7 @@ impl HubApprovalGate {
             biased;
             answered = rx => Ok(answered.unwrap_or_else(|_| denial("the approval request was dropped"))),
             () = request.token.cancelled() => {
-                self.forget(&request.call_id);
+                self.forget(request);
                 Ok(denial("the turn was cancelled"))
             }
             () = tokio::time::sleep(Duration::from_millis(remaining)) => {
@@ -367,16 +396,18 @@ impl HubApprovalGate {
                     call_id = %request.call_id,
                     "approval request expired unanswered"
                 );
-                self.forget(&request.call_id);
+                self.forget(request);
                 Err(WireError::new(ErrorKind::Timeout, "the approval request expired"))
             }
         }
     }
 
-    /// Drops a parked entry without settling it — the caller already has the
+    /// Drops a parked entry without settling it. The caller already has the
     /// answer it is going to return.
-    fn forget(&self, call_id: &str) {
-        self.pending.lock().remove(call_id);
+    fn forget(&self, request: &ApprovalRequest) {
+        self.pending
+            .lock()
+            .remove(&HubApprovalGate::key_of(request));
     }
 }
 

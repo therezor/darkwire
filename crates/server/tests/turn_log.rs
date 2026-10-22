@@ -255,7 +255,7 @@ fn keeps_the_session_scoped_frames_out_so_a_replay_raises_no_second_toast() {
             session_key: SESSION.to_owned(),
             busy: true,
             queue_depth: 0,
-            workspace_id: "default".to_owned(),
+            workspace_id: Some("default".to_owned()),
             turn_id: Some(TURN.to_owned()),
         },
     }));

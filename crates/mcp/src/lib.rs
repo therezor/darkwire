@@ -66,7 +66,7 @@ pub use schema::{
 };
 pub use sdk_connector::{
     CLIENT_NAME, DEFAULT_INHERITED_ENV_VARS, HANDSHAKE_TIMEOUT, PipeFactory, STDERR_BUDGET_BYTES,
-    SdkConnector, SdkConnectorOptions, default_environment, http_client,
+    STDERR_LINE_BYTES, SdkConnector, SdkConnectorOptions, default_environment, http_client,
 };
 pub use session::{
     AuthorizationCodeWaiter, McpCallOptions, McpCallResult, McpConnectContext, McpConnector,

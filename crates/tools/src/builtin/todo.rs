@@ -23,7 +23,10 @@
 //! already bound to the turn's session, so a model cannot write its plan onto
 //! another conversation, and a subagent writes to its own.
 
+use std::sync::Arc;
+
 use darkwire_core::Result;
+use darkwire_core::db::blocking;
 use darkwire_protocol::tasks::{TaskItem, TaskStatus, task_counts};
 use darkwire_protocol::{ToolAnnotations, ToolRisk};
 use schemars::JsonSchema;
@@ -123,22 +126,22 @@ impl ToolHandler for Todo {
                 )));
             }
 
-            port.replace(&tasks)?;
+            // A store write, so off the runtime's workers.
+            let total = tasks.len();
+            let port = Arc::clone(port);
+            blocking(move || port.replace(&tasks)).await?;
 
             // One line, not the list. A tool result sits in the history for the
             // life of the session and is re-sent on every request after it,
             // while the list itself is already in the prompt on every
-            // iteration — echoing it here would pay for the same text twice.
-            let text = if tasks.is_empty() {
+            // iteration. Echoing it here would pay for the same text twice.
+            let text = if total == 0 {
                 "Task list cleared.".to_owned()
             } else {
-                format!(
-                    "{} tasks: {done} done, {doing} doing, {todo} to do.",
-                    tasks.len()
-                )
+                format!("{total} tasks: {done} done, {doing} doing, {todo} to do.")
             };
             Ok(ToolOutput::text(text)
-                .with_detail("count", tasks.len() as u64)
+                .with_detail("count", total as u64)
                 .with_detail("done", done as u64)
                 .with_detail("doing", doing as u64))
         })

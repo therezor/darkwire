@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use common::harness::{Behaviour, FakeTool, Harness, Setup, answer, events_of};
 use darkwire_agent::testkit::{ScriptedTurn, raw_tool_call, tool_call};
-use darkwire_agent::{AgentLoopOptions, LoopAgent, TurnInput};
+use darkwire_agent::{ACTIVATED_SESSIONS, AgentLoopOptions, LoopAgent, TurnInput};
 use darkwire_core::ErrorKind;
 use darkwire_protocol::{
     AgentSettings, ChatMessage, PromptMode, StopReason, ToolPermission, ToolRisk, Usage,
@@ -1835,6 +1835,57 @@ mod lazy_discovery {
         assert_eq!(
             names(&harness.agent_loop.tool_definitions("web:2")),
             vec!["tool_search"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_search_that_activates_nothing_remembers_nothing() {
+        let harness = Harness::build(setup(
+            vec![
+                ScriptedTurn::calls(vec![tool_call(
+                    "c1",
+                    "tool_search",
+                    &json!({"activate": ["ghost", "tool_search"]}),
+                )]),
+                ScriptedTurn::text("done"),
+            ],
+            &[],
+        ));
+        let _ = harness.say("web:1", "go").await;
+        assert_eq!(harness.agent_loop.activated_sessions(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_least_recently_activated_session_is_forgotten_past_the_cap() {
+        let sessions = ACTIVATED_SESSIONS + 1;
+        let turns = (0..sessions)
+            .flat_map(|_| {
+                [
+                    ScriptedTurn::calls(vec![tool_call(
+                        "c1",
+                        "tool_search",
+                        &json!({"activate": ["read"]}),
+                    )]),
+                    ScriptedTurn::text("done"),
+                ]
+            })
+            .collect();
+        let harness = Harness::build(setup(turns, &[]));
+        for session in 0..sessions {
+            let _ = harness.say(&format!("web:{session}"), "go").await;
+        }
+        assert_eq!(harness.agent_loop.activated_sessions(), ACTIVATED_SESSIONS);
+        assert_eq!(
+            names(&harness.agent_loop.tool_definitions("web:0")),
+            vec!["tool_search"]
+        );
+        assert_eq!(
+            names(
+                &harness
+                    .agent_loop
+                    .tool_definitions(&format!("web:{ACTIVATED_SESSIONS}"))
+            ),
+            vec!["tool_search", "read"]
         );
     }
 

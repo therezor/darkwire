@@ -19,6 +19,7 @@ mod drift;
 mod fixtures;
 mod ids;
 mod json;
+mod messages;
 mod rest;
 mod schemas;
 mod tasks;

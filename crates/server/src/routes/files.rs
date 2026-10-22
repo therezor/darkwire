@@ -40,7 +40,9 @@ use crate::queries::{DeleteQuery, OptionalPathQuery, PathQuery};
 use crate::routes::AppState;
 use crate::schema::{parse_body, validated};
 use crate::signing::{MEDIA_SECRET_NAME, MediaClaim, media_url, sign_media_token};
-use crate::workspace::{entry_at, inline_safe, list_directory, mime_type_for, read_text};
+use crate::workspace::{
+    entry_at, inline_safe, list_directory, mime_type_for, modified_at_ms, read_text,
+};
 
 /// The cap on one upload.
 ///
@@ -575,17 +577,6 @@ fn entry_of(jail: &WorkspaceJail, absolute: &Path) -> Result<FileEntry, HttpErro
 /// The workspace-relative form of a path the jail returned.
 fn relative(jail: &WorkspaceJail, absolute: &Path) -> Result<String, HttpError> {
     Ok(jail.relative(absolute)?)
-}
-
-/// Modification time in epoch milliseconds, floored.
-fn modified_at_ms(metadata: &std::fs::Metadata) -> u64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
 }
 
 /// A path the jail returned that no longer reads as inside it.

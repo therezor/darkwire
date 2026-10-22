@@ -154,6 +154,7 @@ pub fn approval_error(call_id: &str, message: &str) -> ServerMessage {
         retryable: false,
         turn_id: None,
         call_id: Some(call_id.to_owned()),
+        client_message_id: None,
     })
 }
 
@@ -206,6 +207,7 @@ pub fn error(message: &str, turn_id: Option<&str>) -> ServerMessage {
         retryable: true,
         turn_id: turn_id.map(str::to_owned),
         call_id: None,
+        client_message_id: None,
     })
 }
 
@@ -243,7 +245,7 @@ pub fn session_status(busy: bool) -> ServerMessage {
         session_key: SESSION.to_owned(),
         busy,
         queue_depth: 0,
-        workspace_id: "default".to_owned(),
+        workspace_id: Some("default".to_owned()),
         turn_id: busy.then(|| TURN.to_owned()),
     }))
 }

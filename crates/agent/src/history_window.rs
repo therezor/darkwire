@@ -43,6 +43,13 @@ pub const HISTORY_BUDGET_FACTOR: f64 = 0.9;
 /// says why. The meter still reports the provider's figure.
 pub const MIN_BUDGET_RATIO: f64 = 0.75;
 
+/// The widest ratio a count may show and still be believed.
+///
+/// A real tokenizer lands within about a factor of two of the estimate either
+/// way. Past four, the count is describing some other request: a server that
+/// reports only the tokens its cache missed, or one that truncated the prompt.
+pub const SAMPLE_RATIO_LIMIT: f64 = 4.0;
+
 /// What a request costs before any history is added.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FixedCost {
@@ -91,6 +98,9 @@ pub fn history_budget(cost: &FixedCost) -> Option<usize> {
 /// The newest only, and none when it ran on another model: a different
 /// tokenizer's ratio says nothing about this one, and the first request on the
 /// new model replaces it.
+///
+/// Clamped to the range a fresh sample must fall in. A stored row skipped that
+/// check, and an extreme ratio would overflow the scaled breakdown.
 pub fn calibration_of(records: &[StoredMessageRecord], model: &str) -> Option<f64> {
     let newest = records
         .iter()
@@ -99,7 +109,11 @@ pub fn calibration_of(records: &[StoredMessageRecord], model: &str) -> Option<f6
             ChatMessage::Assistant(assistant) => assistant.stats.as_ref()?.calibration.as_ref(),
             _ => None,
         })?;
-    (newest.model == model).then(|| newest.ratio())
+    (newest.model == model).then(|| {
+        newest
+            .ratio()
+            .clamp(1.0 / SAMPLE_RATIO_LIMIT, SAMPLE_RATIO_LIMIT)
+    })
 }
 
 /// Token estimates of stored rows, by row id.

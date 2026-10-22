@@ -25,7 +25,6 @@
           "maximum": 9007199254740991
         },
         "workspaceId": {
-          "default": "default",
           "type": "string",
           "minLength": 1
         }
@@ -89,6 +88,9 @@
           "type": "string"
         },
         "callId": {
+          "type": "string"
+        },
+        "clientMessageId": {
           "type": "string"
         }
       },
@@ -1241,6 +1243,9 @@
                 },
                 "callId": {
                   "type": "string"
+                },
+                "clientMessageId": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -1339,7 +1344,6 @@
           "maximum": 9007199254740991
         },
         "workspaceId": {
-          "default": "default",
           "type": "string",
           "minLength": 1
         },

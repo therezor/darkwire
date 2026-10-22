@@ -279,6 +279,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             retryable: false,
             turn_id: None,
             call_id: None,
+            client_message_id: None,
         }
         .into(),
         darkwire_protocol::SubagentEventBody {

@@ -44,6 +44,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use darkwire_core::frontmatter::parse_frontmatter;
+use darkwire_core::text::truncate_bytes;
 use darkwire_protocol::is_agent_id;
 use regex::Regex;
 
@@ -173,7 +174,7 @@ fn read_skill(dir: &Path, name: &str) -> Option<Skill> {
         agents: parse_skill_agents(parsed.fields.get("agents").map(String::as_str), name),
         name: name.to_owned(),
         description: truncate_chars(&description, MAX_DESCRIPTION_CHARS),
-        body: truncate_bytes(&parsed.body, SKILL_MAX_BYTES),
+        body: truncate_body(&parsed.body, SKILL_MAX_BYTES),
         // Built with `/` rather than the host separator, because this string is
         // handed to the model to pass back to `read`, which takes POSIX
         // separators on every host.
@@ -305,18 +306,12 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
-fn truncate_bytes(text: &str, max_bytes: usize) -> String {
+fn truncate_body(text: &str, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text.to_owned();
     }
-    // Cut on a character boundary rather than mid-sequence: the bytes are a
-    // budget, and a split multi-byte character would corrupt what follows.
-    let mut end = max_bytes;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
     format!(
         "{}\n\n[Truncated. Read {SKILL_FILENAME} for the rest.]",
-        &text[..end]
+        truncate_bytes(text, max_bytes)
     )
 }

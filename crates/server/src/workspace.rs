@@ -88,7 +88,7 @@ fn entry_for(
 /// A file whose timestamp predates the epoch, or whose filesystem has none,
 /// reports zero: the field exists so a client can sort and show "modified", and
 /// no answer it could give instead is more useful than the oldest one.
-fn modified_at_ms(metadata: &std::fs::Metadata) -> u64 {
+pub(crate) fn modified_at_ms(metadata: &std::fs::Metadata) -> u64 {
     metadata
         .modified()
         .ok()

@@ -24,7 +24,6 @@
       "maximum": 9007199254740991
     },
     "workspaceId": {
-      "default": "default",
       "type": "string",
       "minLength": 1
     },

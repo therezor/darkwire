@@ -8,7 +8,7 @@
 //! the same pair without a socket, and gets the same queueing, the same replay
 //! and the same approval gate.
 //!
-//! The four decisions worth stating:
+//! The five decisions worth stating:
 //!
 //!  - **A browser may only open it from the page this server served.** A
 //!    WebSocket is not subject to the same-origin policy, so without this any
@@ -32,6 +32,11 @@
 //!    once they pass [`MAX_BUFFERED_BYTES`]; without it, one tab that stopped
 //!    draining grows the process by the whole of a turn's output for as long as
 //!    it stays open.
+//!  - **A socket that sends faster than the hub runs frames stops being read.**
+//!    At most [`MAX_INBOUND_FRAMES`](crate::hub::MAX_INBOUND_FRAMES) wait for
+//!    the hub, each at most [`MAX_FRAME_BYTES`], and past that the read waits,
+//!    so TCP pushes back on the sender rather than this process holding what
+//!    it sent.
 
 use std::sync::Arc;
 
@@ -109,7 +114,11 @@ pub async fn connect(
         id: session.id,
         expires_at_ms: session.expires_at_ms,
     });
-    Ok(upgrade.on_upgrade(move |socket| serve(state, socket, query, login)))
+    Ok(upgrade
+        .max_message_size(MAX_FRAME_BYTES)
+        // Equal to the message cap: a browser sends a message as one frame.
+        .max_frame_size(MAX_FRAME_BYTES)
+        .on_upgrade(move |socket| serve(state, socket, query, login)))
 }
 
 /// Whether a request's `Origin` is one `server.allowedHosts` names.
@@ -206,6 +215,10 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
         return;
     }
 
+    // A frame read and waiting for the hub to have room. While one waits the
+    // socket is not read, so TCP pushes back on the peer, and writes to the
+    // peer carry on: a turn still streams while its tab waits.
+    let mut held: Option<Frame> = None;
     loop {
         tokio::select! {
             instruction = outbound.next() => match instruction {
@@ -228,14 +241,17 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
                 // The hub detached this connection.
                 None => break,
             },
-            frame = stream.next() => match frame {
+            room = client.room(), if held.is_some() => match (room, held.take()) {
+                (Some(room), Some(frame)) => client.receive_in(frame, room),
+                // The hub's side of the connection has gone.
+                _ => break,
+            },
+            frame = stream.next(), if held.is_none() => match frame {
                 // Raw frames: the hub decodes bytes, parses JSON and answers a
                 // bad frame with an `error` event on the socket that sent it,
                 // so nothing here can fail on input a client controls.
-                Some(Ok(Message::Text(text))) => client.receive(Frame::Text(text.to_string())),
-                Some(Ok(Message::Binary(bytes))) => {
-                    client.receive(Frame::Binary(bytes.to_vec()));
-                }
+                Some(Ok(Message::Text(text))) => held = Some(Frame::Text(text.to_string())),
+                Some(Ok(Message::Binary(bytes))) => held = Some(Frame::Binary(bytes.to_vec())),
                 // Ping and pong are answered by the transport itself.
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
                 Some(Ok(Message::Close(_))) | None => break,
@@ -260,6 +276,12 @@ fn close_reason(code: u16) -> &'static str {
         _ => "",
     }
 }
+
+/// The largest message a client may send, and the largest frame.
+///
+/// Files go over the upload route, so a frame only carries typed or pasted
+/// text: twice a million-token paste (about 4 MB), for JSON escaping.
+pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// How much a connection may have queued before it is dropped.
 ///

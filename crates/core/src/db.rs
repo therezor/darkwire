@@ -27,7 +27,8 @@ use crate::paths::ensure_dir;
 /// How many prepared statements the shared connection keeps.
 const STATEMENT_CACHE_CAPACITY: usize = 128;
 
-/// Runs synchronous store work on the blocking pool and waits for it.
+/// Runs synchronous store work, or a file read, on the blocking pool and waits
+/// for it.
 ///
 /// Every store is SQLite behind one shared lock. A call made on a runtime
 /// worker holds that worker for as long as the lock is contended, and the same
@@ -45,7 +46,7 @@ where
         .unwrap_or_else(|error| {
             Err(WireError::new(
                 ErrorKind::Internal,
-                format!("A store call did not finish: {error}"),
+                format!("A blocking call did not finish: {error}"),
             ))
         })
 }

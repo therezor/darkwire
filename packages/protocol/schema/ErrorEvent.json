@@ -32,6 +32,9 @@
     },
     "callId": {
       "type": "string"
+    },
+    "clientMessageId": {
+      "type": "string"
     }
   },
   "required": [

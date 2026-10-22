@@ -106,7 +106,7 @@ async fn parks_a_request_until_a_client_answers_it() {
     let pending = ask(&gate, approval_request(RequestOptions::default()));
     parked(&gate, 1).await;
 
-    assert!(gate.resolve("call-1", true, ApprovalScope::Once));
+    assert!(gate.resolve("web:1", "call-1", true, ApprovalScope::Once));
 
     let decision = pending.await.unwrap();
     assert!(decision.approved);
@@ -117,7 +117,12 @@ async fn parks_a_request_until_a_client_answers_it() {
 #[tokio::test]
 async fn answers_to_nobody_for_an_unknown_call_id() {
     let gate = gate_at(START_MS);
-    assert!(!gate.resolve("call-nobody-asked-about", true, ApprovalScope::Once));
+    assert!(!gate.resolve(
+        "web:1",
+        "call-nobody-asked-about",
+        true,
+        ApprovalScope::Once
+    ));
 }
 
 #[tokio::test]
@@ -132,7 +137,7 @@ async fn does_not_remember_an_answer_scoped_to_once() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Once);
+    gate.resolve("web:1", "a", true, ApprovalScope::Once);
     first.await.unwrap();
 
     let second = ask(
@@ -143,7 +148,7 @@ async fn does_not_remember_an_answer_scoped_to_once() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("b", true, ApprovalScope::Once);
+    gate.resolve("web:1", "b", true, ApprovalScope::Once);
     assert!(second.await.unwrap().approved);
 }
 
@@ -160,7 +165,7 @@ async fn remembers_a_session_scoped_answer_for_that_session_alone() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     first.await.unwrap();
 
     // Same session, same tool: answered without asking.
@@ -202,7 +207,7 @@ async fn reports_a_remembered_answer_without_parking_anything() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     first.await.unwrap();
 
     // The loop asks this before it emits `tool.approvalRequest`. An answer here
@@ -242,7 +247,7 @@ async fn remembers_a_refusal_exactly_like_an_approval() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", false, ApprovalScope::Session);
+    gate.resolve("web:1", "a", false, ApprovalScope::Session);
     let decision = first.await.unwrap();
     assert!(!decision.approved);
     assert_eq!(decision.scope, Some(ApprovalScope::Session));
@@ -273,7 +278,7 @@ async fn scopes_memory_by_tool_name_so_another_tool_still_asks() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     first.await.unwrap();
 
     let _second = ask(
@@ -299,7 +304,7 @@ async fn remembers_a_tool_without_a_policy_by_its_name() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     first.await.unwrap();
 
     // Same tool, different arguments. A tool that keys on its name approves
@@ -325,7 +330,7 @@ async fn remembers_a_command_by_its_key_and_asks_about_another() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     first.await.unwrap();
 
     let same = approval_request(RequestOptions {
@@ -342,7 +347,7 @@ async fn remembers_a_command_by_its_key_and_asks_about_another() {
         ..RequestOptions::default()
     });
     assert!(gate.remembered(&other).is_none());
-    assert!(gate.pending("c").is_none());
+    assert!(gate.pending("web:1", "c").is_none());
 }
 
 #[tokio::test]
@@ -356,11 +361,11 @@ async fn hands_back_the_request_still_parked_under_a_call() {
         }),
     );
     parked(&gate, 1).await;
-    assert_eq!(gate.pending("a").unwrap().call_id, "a");
-    assert!(gate.pending("b").is_none());
-    gate.resolve("a", false, ApprovalScope::Once);
+    assert_eq!(gate.pending("web:1", "a").unwrap().call_id, "a");
+    assert!(gate.pending("web:1", "b").is_none());
+    gate.resolve("web:1", "a", false, ApprovalScope::Once);
     pending.await.unwrap();
-    assert!(gate.pending("a").is_none());
+    assert!(gate.pending("web:1", "a").is_none());
 }
 
 // Deadlines and cancellation
@@ -466,8 +471,101 @@ async fn supersedes_an_earlier_prompt_that_reused_a_call_id() {
     assert!(!first.await.unwrap().approved);
     parked(&gate, 1).await;
 
-    gate.resolve("call-1", true, ApprovalScope::Once);
+    gate.resolve("web:1", "call-1", true, ApprovalScope::Once);
     assert!(second.await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn keeps_one_call_id_parked_in_two_sessions_apart() {
+    // Two conversations can each be handed the same id by their model. Neither
+    // supersedes the other, and an answer reaches only its own.
+    let gate = gate_at(START_MS);
+    let first = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    let second = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:2"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 2).await;
+
+    assert!(gate.resolve("web:1", "call-1", true, ApprovalScope::Once));
+    assert!(first.await.unwrap().approved);
+    assert_eq!(gate.pending_count(), 1);
+    assert!(gate.pending("web:2", "call-1").is_some());
+    assert!(!second.is_finished());
+
+    assert!(gate.resolve("web:2", "call-1", false, ApprovalScope::Once));
+    assert!(!second.await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn answers_nothing_for_a_call_parked_in_another_session() {
+    let gate = gate_at(START_MS);
+    let _pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+
+    assert!(gate.pending("web:2", "call-1").is_none());
+    assert!(!gate.resolve("web:2", "call-1", true, ApprovalScope::Once));
+    assert_eq!(gate.pending_count(), 1);
+}
+
+#[tokio::test]
+async fn files_a_subagent_prompt_under_the_conversation_that_answers_it() {
+    // The tab answering it is on the conversation, not on the subagent's
+    // short-lived session.
+    let gate = gate_at(START_MS);
+    let pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1:sub:1"),
+            root_session_key: Some("web:1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+
+    assert!(!gate.resolve("web:1:sub:1", "call-1", true, ApprovalScope::Once));
+    assert!(gate.resolve("web:1", "call-1", true, ApprovalScope::Once));
+    assert!(pending.await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn an_expired_prompt_leaves_the_same_call_id_in_another_session_parked() {
+    let gate = gate_at(START_MS);
+    let expiring = ask_until_expiry(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1"),
+            expires_at_ms: Some(u64::try_from(START_MS).unwrap() + SOON_MS),
+            ..RequestOptions::default()
+        }),
+    );
+    let _waiting = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:2"),
+            ..RequestOptions::default()
+        }),
+    );
+
+    assert!(expiring.await.unwrap().is_err());
+    assert_eq!(gate.pending_count(), 1);
+    assert!(gate.pending("web:2", "call-1").is_some());
 }
 
 #[tokio::test]
@@ -483,7 +581,7 @@ async fn settles_pending_prompts_and_forgets_memory_when_a_session_closes() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("web:1", "a", true, ApprovalScope::Session);
     remembered.await.unwrap();
 
     let pending = ask(
@@ -638,7 +736,7 @@ async fn does_not_raise_for_a_call_answered_from_memory_which_asks_nobody() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("a", true, ApprovalScope::Session);
+    gate.resolve("s", "a", true, ApprovalScope::Session);
     first.await.unwrap();
     raised.lock().clear();
 
@@ -720,7 +818,7 @@ async fn keeps_a_session_scoped_answer_to_that_session_whoever_runs_it() {
         }),
     );
     parked(&gate, 1).await;
-    gate.resolve("c1", true, ApprovalScope::Session);
+    gate.resolve("web:1", "c1", true, ApprovalScope::Session);
     first.await.unwrap();
 
     // A session is bound to one agent, so the session scope needs no agent

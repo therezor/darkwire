@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "default": false,
+      "type": "boolean"
+    }
+  }
+}

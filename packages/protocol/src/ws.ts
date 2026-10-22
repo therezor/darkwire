@@ -58,6 +58,13 @@ export const PROTOCOL_VERSION = 2 as const;
  */
 export const CLOSE_SIGNED_OUT = 4401;
 
+/**
+ * The largest frame the server reads, in bytes of UTF-8. A larger one closes
+ * the socket. The server's `MAX_FRAME_BYTES` in `routes/ws.rs` is the same
+ * number.
+ */
+export const MAX_CLIENT_FRAME_BYTES = 8 * 1024 * 1024;
+
 // Client → server
 
 /**
@@ -105,6 +112,11 @@ export const UserMessageRequestSchema = z.object({
   content: z.string(),
   attachments: AttachmentsSchema,
   agentId: z.string().optional(),
+  /**
+   * The workspace to create the session in, for a session that does not have
+   * one yet. A session that exists keeps its own.
+   */
+  workspaceId: z.string().min(1).optional(),
   /**
    * Client-generated idempotency key. Lets a retry after a dropped socket avoid
    * appending the same user turn twice.
@@ -269,9 +281,11 @@ export const ConnectedEventSchema = z.object({
    *
    * Here so a reconnecting tab — or one opening a link to someone else's
    * session — learns which workspace it is looking at without a REST round
-   * trip, and can move its own switcher to match.
+   * trip, and can move its own switcher to match. Absent for a session with no
+   * row yet: it is in no workspace until its first message, and the switcher
+   * keeps the user's own choice.
    */
-  workspaceId: z.string().min(1).default('default'),
+  workspaceId: z.string().min(1).optional(),
 });
 
 export const PongEventSchema = z.object({
@@ -314,6 +328,11 @@ export const ErrorEventSchema = z.object({
   turnId: z.string().optional(),
   /** Present when the error answers a `tool.approve` for this call. */
   callId: z.string().optional(),
+  /**
+   * Present when the error refuses a message this client sent, under the id it
+   * sent it with. The message was not taken, so nothing will ack it.
+   */
+  clientMessageId: z.string().optional(),
 });
 
 export const MessageAckEventSchema = z.object({
@@ -672,8 +691,8 @@ export const SessionStatusEventSchema = z.object({
   sessionKey: z.string().min(1),
   busy: z.boolean(),
   queueDepth: z.number().int().nonnegative().default(0),
-  /** The session's workspace, restated on every switch. */
-  workspaceId: z.string().min(1).default('default'),
+  /** The session's workspace, restated on every switch. Absent with no row. */
+  workspaceId: z.string().min(1).optional(),
   turnId: z.string().optional(),
 });
 

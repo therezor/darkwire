@@ -132,3 +132,31 @@ mod read {
         assert_eq!(error.kind, darkwire_core::ErrorKind::NotFound);
     }
 }
+
+mod read_bytes_within {
+    use super::*;
+    use darkwire_core::workspace_files::read_bytes_within;
+
+    #[test]
+    fn reads_a_file_at_or_under_the_cap_whole() {
+        let (_dir, path, _) = file(b"0123456789");
+        assert_eq!(
+            read_bytes_within(&path, 10).unwrap().as_deref(),
+            Some(&b"0123456789"[..])
+        );
+    }
+
+    #[test]
+    fn refuses_a_file_over_the_cap_whatever_a_stat_said_before() {
+        // The size a caller measured earlier is not an argument: a file that
+        // grew since is refused by the read itself.
+        let (_dir, path, _) = file(&[b'x'; 11]);
+        assert_eq!(read_bytes_within(&path, 10).unwrap(), None);
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_bytes_within(&dir.path().join("gone"), 10).is_err());
+    }
+}

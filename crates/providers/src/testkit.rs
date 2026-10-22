@@ -459,6 +459,13 @@ impl ScriptedResponse {
         }
     }
 
+    /// Answers with `status` instead: a chunked error body that trickles in.
+    #[must_use]
+    pub fn status(mut self, status: u16) -> ScriptedResponse {
+        self.status = status;
+        self
+    }
+
     /// Adds a response header.
     #[must_use]
     pub fn header(mut self, name: &str, value: &str) -> ScriptedResponse {

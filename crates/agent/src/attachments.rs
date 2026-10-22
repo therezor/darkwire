@@ -36,7 +36,9 @@ use std::sync::LazyLock;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use darkwire_core::messages::{ImageSource, image_part, text_part};
-use darkwire_core::workspace_files::{DEFAULT_MIME_TYPE, mime_type_for, read_text};
+use darkwire_core::workspace_files::{
+    DEFAULT_MIME_TYPE, mime_type_for, read_bytes_within, read_text,
+};
 use darkwire_protocol::{ChatMessage, ContentPart, FilePart};
 use darkwire_providers::IMAGE_TOKENS;
 use darkwire_security::{JailCheck, WorkspaceJail};
@@ -360,17 +362,22 @@ fn read_parts(
         }
         // `data`, never `url`: it works offline, works on every provider, needs
         // no second round trip out of our own network, and cannot expire.
-        return match fs::read(&found.absolute) {
-            Ok(bytes) => {
-                budget.remaining -= size_bytes;
+        // Bounded by the read, not the stat above: a file that grew in between
+        // is refused rather than read whole.
+        let within = options.max_image_bytes.min(budget.remaining);
+        return match read_bytes_within(Path::new(&found.absolute), within) {
+            Ok(Some(bytes)) => {
+                let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                budget.remaining -= read;
                 (
                     vec![
                         text_part(line),
                         image_part(mime_type, ImageSource::Data(BASE64.encode(bytes))),
                     ],
-                    size_bytes,
+                    read,
                 )
             }
+            Ok(None) => (not_inline(line), 0),
             Err(_) => (vec![text_part(format!("{line}. Could not be read"))], 0),
         };
     }

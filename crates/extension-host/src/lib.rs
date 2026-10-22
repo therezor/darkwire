@@ -33,6 +33,7 @@ pub use process::{
 pub use registration::{EXTENSION_TOOL_PREFIX, add_bridged_tool, add_provider};
 
 pub use rpc::{
-    DarkwireInit, InitializeResult, JSONRPC_VERSION, METHOD_NOT_FOUND, NoHostMethods,
-    OUTBOUND_QUEUE, PROTOCOL_VERSION, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure, RpcHandler,
+    DarkwireInit, INBOUND_REQUESTS, InitializeResult, JSONRPC_VERSION, MAX_LINE_BYTES,
+    METHOD_NOT_FOUND, NoHostMethods, OUTBOUND_QUEUE, PROTOCOL_VERSION, REQUEST_TIMEOUT, RpcClient,
+    RpcError, RpcFailure, RpcHandler,
 };

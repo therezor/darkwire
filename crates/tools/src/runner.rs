@@ -53,7 +53,10 @@ pub enum OutputStream {
 /// Receives every byte a command writes, before the output budget is applied.
 pub trait OutputTee: Send + Sync {
     /// One chunk from one pipe, in the order it arrived on that pipe.
-    fn write(&self, stream: OutputStream, chunk: &[u8]);
+    ///
+    /// Awaited before the pipe is read again, so a tee that writes to disk
+    /// keeps the order and does not block a runtime worker.
+    fn write<'a>(&'a self, stream: OutputStream, chunk: &'a [u8]) -> BoxFuture<'a, ()>;
 }
 
 /// One command to run.
@@ -233,7 +236,7 @@ async fn drain(
         };
         let chunk = &buffer[..read];
         if let Some(tee) = tee {
-            tee.write(stream, chunk);
+            tee.write(stream, chunk).await;
         }
         if !cap.push(chunk) && tee.is_none() {
             break;

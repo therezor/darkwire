@@ -1,5 +1,6 @@
 //! Fitting the history to the context window by estimated tokens.
 
+use darkwire_agent::ContextBreakdown;
 use darkwire_agent::history_window::{
     FixedCost, RowPrices, calibration_of, history_budget, token_window_start,
 };
@@ -125,11 +126,15 @@ fn a_count_far_below_the_estimate_cannot_grow_the_budget_past_the_floor() {
 }
 
 fn answered_on(seq: i64, model: &str, reported: u64) -> StoredMessageRecord {
+    counted(seq, model, reported, 100)
+}
+
+fn counted(seq: i64, model: &str, reported: u64, estimated: u64) -> StoredMessageRecord {
     let mut message = assistant_message("answer", AssistantOptions::default());
     message.stats = Some(Box::new(StepStats {
         calibration: Some(Calibration {
             reported_tokens: reported,
-            estimated_tokens: 100,
+            estimated_tokens: estimated,
             model: model.to_owned(),
         }),
         ..StepStats::default()
@@ -152,6 +157,29 @@ fn the_newest_count_decides_and_only_for_its_own_model() {
     let moved = [records.clone(), vec![answered_on(6, "large", 90)]].concat();
     assert_eq!(calibration_of(&moved, "small"), None);
     assert_eq!(calibration_of(&records[..1], "small"), None);
+}
+
+#[test]
+fn a_stored_count_out_of_range_is_clamped_and_scales_without_overflow() {
+    // A row read back from storage skipped the guard a fresh sample passes, so
+    // a zero estimate or a wild count can still be there.
+    let breakdown = ContextBreakdown {
+        system_prompt: 1_000,
+        tools: 2_000,
+        messages: 3_000,
+        runtime_block: 400,
+    };
+    for (reported, estimated, expected) in [
+        (500, 0, 4.0),
+        (0, 0, 0.25),
+        (9_007_199_254_740_991, 1, 4.0),
+        (1, 1_000_000, 0.25),
+    ] {
+        let records = vec![counted(1, "small", reported, estimated)];
+        let ratio = calibration_of(&records, "small").unwrap();
+        assert!((ratio - expected).abs() < f64::EPSILON, "{ratio}");
+        assert!(breakdown.scaled(ratio).total() <= breakdown.total() * 4);
+    }
 }
 
 fn attached(seq: i64, mime_type: &str, path: &str, size_bytes: u64) -> StoredMessageRecord {

@@ -59,6 +59,10 @@
         "agentId": {
           "type": "string"
         },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
         "clientMessageId": {
           "type": "string"
         }

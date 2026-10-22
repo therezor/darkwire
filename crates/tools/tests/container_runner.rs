@@ -623,8 +623,8 @@ impl CommandRunner for FakeInner {
     fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
         Box::pin(async move {
             if let Some(tee) = &request.tee {
-                tee.write(OutputStream::Stdout, b"scan line one\n");
-                tee.write(OutputStream::Stderr, b"a warning\n");
+                tee.write(OutputStream::Stdout, b"scan line one\n").await;
+                tee.write(OutputStream::Stderr, b"a warning\n").await;
             }
             let first = self.calls.lock().is_empty();
             self.calls.lock().push(request);
@@ -704,8 +704,9 @@ async fn writes_the_full_transcript_and_reports_where_it_is() {
 struct Recorder(Mutex<Vec<u8>>);
 
 impl OutputTee for Recorder {
-    fn write(&self, _stream: OutputStream, chunk: &[u8]) {
+    fn write<'a>(&'a self, _stream: OutputStream, chunk: &'a [u8]) -> BoxFuture<'a, ()> {
         self.0.lock().extend_from_slice(chunk);
+        Box::pin(std::future::ready(()))
     }
 }
 
@@ -762,16 +763,16 @@ async fn hands_passed_through_values_to_the_client_in_its_environment() {
     assert!(!calls[0].plan.args.join(" ").contains("en_GB.UTF-8"));
 }
 
-#[test]
-fn a_transcript_keeps_its_cap_and_says_where_it_was_cut() {
+#[tokio::test]
+async fn a_transcript_keeps_its_cap_and_says_where_it_was_cut() {
     let dir = tempfile::tempdir().unwrap();
-    let transcript = Transcript::open(dir.path(), "c", "r1").unwrap();
+    let transcript = Transcript::open(dir.path(), "c", "r1").await.unwrap();
     let chunk = vec![b'x'; 1024 * 1024];
     for _ in 0..6 {
-        transcript.write(OutputStream::Stdout, &chunk);
+        transcript.write(OutputStream::Stdout, &chunk).await;
     }
-    transcript.write(OutputStream::Stderr, b"short\n");
-    transcript.close();
+    transcript.write(OutputStream::Stderr, b"short\n").await;
+    transcript.close().await;
     let stdout = std::fs::read(transcript.host_dir().join("stdout.log")).unwrap();
     let cap = usize::try_from(TRANSCRIPT_MAX_BYTES).unwrap();
     assert!(stdout[..cap].iter().all(|byte| *byte == b'x'));
@@ -841,12 +842,14 @@ async fn escalates_to_a_second_harder_signal_when_the_run_failed() {
     assert_eq!(signals[1..], ["TERM", "KILL"]);
 }
 
-#[test]
-fn a_transcript_is_created_on_the_host_before_the_container_writes() {
+#[tokio::test]
+async fn a_transcript_is_created_on_the_host_before_the_container_writes() {
     let dir = tempfile::tempdir().unwrap();
-    let transcript = Transcript::open(dir.path(), "dw-sbx-1", "r9").unwrap();
-    transcript.write(OutputStream::Stdout, b"hello\n");
-    transcript.close();
+    let transcript = Transcript::open(dir.path(), "dw-sbx-1", "r9")
+        .await
+        .unwrap();
+    transcript.write(OutputStream::Stdout, b"hello\n").await;
+    transcript.close().await;
     assert_eq!(
         transcript.host_dir(),
         dir.path().join("dw-sbx-1").join("r9")
@@ -859,20 +862,23 @@ fn a_transcript_is_created_on_the_host_before_the_container_writes() {
     assert!(format!("{transcript:?}").contains("r9"));
 }
 
-#[test]
-fn a_transcript_survives_a_workspace_that_disappears_mid_run() {
+#[tokio::test]
+async fn a_transcript_survives_a_workspace_that_disappears_mid_run() {
     let dir = tempfile::tempdir().unwrap();
-    let transcript = Transcript::open(dir.path(), "c", "gone").unwrap();
+    let transcript = Transcript::open(dir.path(), "c", "gone").await.unwrap();
     drop(dir);
-    transcript.write(OutputStream::Stdout, b"into the void\n");
-    transcript.write(OutputStream::Stderr, b"and more\n");
-    transcript.close();
-    transcript.close();
+    transcript
+        .write(OutputStream::Stdout, b"into the void\n")
+        .await;
+    transcript.write(OutputStream::Stderr, b"and more\n").await;
+    transcript.close().await;
+    transcript.close().await;
 }
 
-#[test]
-fn a_transcript_root_that_cannot_be_created_is_a_storage_error() {
+#[tokio::test]
+async fn a_transcript_root_that_cannot_be_created_is_a_storage_error() {
     let error = Transcript::open(std::path::Path::new("/dev/null/nope"), "c", "r")
+        .await
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Storage);

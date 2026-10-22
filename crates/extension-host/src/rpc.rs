@@ -37,15 +37,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_core::{CappedLines, ErrorKind, Result, WireError};
 use darkwire_protocol::json::Object;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -75,6 +75,19 @@ pub const OUTBOUND_QUEUE: usize = 256;
 
 /// The MCP revision the host announces.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// The longest line read from an extension.
+///
+/// Above the largest legitimate frame: a tool result carrying a 4 MiB image is
+/// about 5.6 MB once base64'd. A longer line is dropped, like one that is not
+/// JSON, and only its first bytes are ever held.
+pub const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// How many of the extension's own requests are answered at once.
+///
+/// Past it the reader waits, so a child that floods requests is slowed down
+/// rather than given a task per line.
+pub const INBOUND_REQUESTS: usize = 32;
 
 /// What the host tells an extension about itself, under `params._meta.darkwire`.
 #[derive(Debug, Clone, Serialize)]
@@ -365,8 +378,9 @@ impl RpcClient {
 
         let reading = Arc::clone(&client);
         let read_token = token.clone();
+        let permits = Arc::new(Semaphore::new(INBOUND_REQUESTS));
         tokio::spawn(async move {
-            let mut lines = BufReader::new(reader).lines();
+            let mut lines = CappedLines::new(BufReader::new(reader), MAX_LINE_BYTES);
             loop {
                 let line = tokio::select! {
                     () = read_token.cancelled() => break,
@@ -375,7 +389,23 @@ impl RpcClient {
                         Ok(None) | Err(_) => break,
                     },
                 };
-                reading.dispatch(&line, &handler);
+                if line.truncated {
+                    tracing::warn!(
+                        target: "extension",
+                        max_bytes = MAX_LINE_BYTES,
+                        "ignoring a line longer than any frame"
+                    );
+                    // An answer this long still names its call near the start,
+                    // and that call fails now rather than at its timeout.
+                    if let Some(id) = leading_id(&line.text) {
+                        reading.fail_one(id);
+                    }
+                    continue;
+                }
+                tokio::select! {
+                    () = read_token.cancelled() => break,
+                    () = reading.dispatch(&line.text, &handler, &permits) => {}
+                }
             }
             // The peer is gone. Cancelling first is what makes a *later* call
             // fail at once rather than join a queue nothing will ever answer:
@@ -393,7 +423,12 @@ impl RpcClient {
     /// lenient: a child that printed a banner to stdout has broken the wire,
     /// and taking the connection down for it would turn a cosmetic bug into an
     /// unloadable extension. What it cannot do is be mistaken for a frame.
-    fn dispatch(self: &Arc<Self>, line: &str, handler: &Arc<dyn RpcHandler>) {
+    async fn dispatch(
+        self: &Arc<Self>,
+        line: &str,
+        handler: &Arc<dyn RpcHandler>,
+        permits: &Arc<Semaphore>,
+    ) {
         let Ok(Value::Object(frame)) = serde_json::from_str::<Value>(line) else {
             tracing::debug!(target: "extension", line, "ignoring a line that is not a JSON-RPC frame");
             return;
@@ -410,11 +445,23 @@ impl RpcClient {
 
         match (method, id) {
             (Some(method), Some(id)) => {
+                // Waiting here stalls the reader, which is safe only while no
+                // host method waits on the extension: the reader is what would
+                // deliver that answer.
+                let Ok(permit) = Arc::clone(permits).acquire_owned().await else {
+                    return;
+                };
                 let handler = Arc::clone(handler);
                 let client = Arc::clone(self);
                 tokio::spawn(async move {
-                    let answer = handler.request(method, params).await;
-                    client.respond(&id, answer).await;
+                    let _permit = permit;
+                    tokio::select! {
+                        () = client.token.cancelled() => {}
+                        () = async {
+                            let answer = handler.request(method, params).await;
+                            client.respond(&id, answer).await;
+                        } => {}
+                    }
                 });
             }
             (Some(method), None) => handler.notify(method, params),
@@ -443,6 +490,16 @@ impl RpcClient {
             Err(error) => json!({"jsonrpc": JSONRPC_VERSION, "id": id, "error": error}),
         };
         self.send(&frame).await;
+    }
+
+    fn fail_one(&self, id: i64) {
+        let waiting = self.pending.lock().remove(&id);
+        if let Some(waiting) = waiting {
+            let _ = waiting.send(Err(RpcError::new(
+                0,
+                format!("The extension's answer was larger than {MAX_LINE_BYTES} bytes."),
+            )));
+        }
     }
 
     fn fail_everything(&self) {
@@ -717,4 +774,17 @@ impl RpcClient {
             None => std::future::pending().await,
         }
     }
+}
+
+/// The numeric `id` of a JSON-RPC frame, read off the first bytes of a line too
+/// long to parse whole. Every id this side mints is a number, and serialisers
+/// put it before the result.
+fn leading_id(prefix: &str) -> Option<i64> {
+    let head = prefix.get(..prefix.len().min(256)).unwrap_or(prefix);
+    let after = &head[head.find("\"id\"")? + 4..];
+    let digits = after.trim_start().strip_prefix(':')?.trim_start();
+    let end = digits
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(digits.len());
+    digits[..end].parse().ok()
 }

@@ -19,8 +19,9 @@ use darkwire_core::Database;
 use darkwire_core::session_store::IdSource;
 use darkwire_core::testkit::ManualClock;
 use darkwire_protocol::automation::{
-    AtKind, AtSchedule, AutomationPayload, AutomationSchedule, CronKind, CronSchedule, EveryKind,
-    EverySchedule, HeartbeatKind, HeartbeatPayload, RunStatus, ScheduledKind, ScheduledPayload,
+    AtKind, AtSchedule, AutomationPayload, AutomationRun, AutomationSchedule, CronKind,
+    CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, RunStatus,
+    ScheduledKind, ScheduledPayload,
 };
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{AssistantMessage, AssistantRole, StopReason, ToolCall, Usage};
@@ -211,6 +212,7 @@ fn failure(turn_id: Option<&str>, message: &str) -> ServerMessage {
         retryable: false,
         turn_id: turn_id.map(str::to_owned),
         call_id: None,
+        client_message_id: None,
     })
 }
 
@@ -431,7 +433,13 @@ struct Harness {
     deleted_sessions: Arc<Mutex<Vec<String>>>,
     /// Every read of the settings tree, which every pass of the loop makes.
     config_reads: Arc<AtomicUsize>,
+    /// Runs once, inside the next read of the settings tree. A dispatch reads
+    /// it after taking the job's slot and before the run starts, which is where
+    /// a second caller would land.
+    during_config_read: ConfigHook,
 }
+
+type ConfigHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 
 fn harness(silent: bool) -> Harness {
     harness_with(silent, None, None)
@@ -454,6 +462,8 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
     let config_for_port = Arc::clone(&config);
     let config_reads = Arc::new(AtomicUsize::new(0));
     let reads_for_port = Arc::clone(&config_reads);
+    let during_config_read: ConfigHook = Arc::new(Mutex::new(None));
+    let hook_for_port = Arc::clone(&during_config_read);
     let broadcasts_for_port = Arc::clone(&broadcasts);
     let frames_for_port = Arc::clone(&frames);
     let deleted_for_port = Arc::clone(&deleted);
@@ -463,6 +473,10 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         jobs: Arc::clone(&jobs),
         config: Arc::new(move || {
             reads_for_port.fetch_add(1, Ordering::SeqCst);
+            let hook = hook_for_port.lock().take();
+            if let Some(hook) = hook {
+                hook();
+            }
             Arc::new(config_for_port.lock().clone())
         }),
         connect: Arc::new(move |options: SchedulerConnectOptions| {
@@ -497,6 +511,7 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         frames,
         deleted_sessions: deleted,
         config_reads,
+        during_config_read,
     }
 }
 
@@ -724,6 +739,83 @@ async fn running_a_job_out_of_band_answers_the_pending_row() {
     // A second one while the first is in flight is a conflict.
     let again = h.scheduler.run_now(&created.id).unwrap_err();
     assert_eq!(again.kind, darkwire_core::ErrorKind::Conflict);
+
+    h.scheduler.stop();
+    settle(&h).await;
+}
+
+#[tokio::test]
+async fn a_second_start_inside_the_first_ones_window_is_a_conflict() {
+    // The slot is taken before anything is written. Checked first and taken
+    // after the writes, a caller landing in between started a second run.
+    let h = harness(true);
+    let created = h
+        .jobs
+        .create_job(&job("manual", every(86_400_000), 0))
+        .unwrap();
+    h.scheduler.start().unwrap();
+
+    let second: Arc<Mutex<Option<darkwire_core::Result<AutomationRun>>>> =
+        Arc::new(Mutex::new(None));
+    let seen = Arc::clone(&second);
+    let scheduler = h.scheduler.clone();
+    let id = created.id.clone();
+    *h.during_config_read.lock() = Some(Box::new(move || {
+        *seen.lock() = Some(scheduler.run_now(&id));
+    }));
+
+    h.scheduler.run_now(&created.id).unwrap();
+    let second = second.lock().take().expect("the second caller ran");
+    assert_eq!(second.unwrap_err().kind, darkwire_core::ErrorKind::Conflict);
+    assert_eq!(h.jobs.count_runs(&created.id).unwrap(), 1);
+    assert_eq!(h.scheduler.in_flight(), 1);
+
+    h.scheduler.stop();
+    settle(&h).await;
+}
+
+#[tokio::test]
+async fn a_restart_while_a_run_is_in_flight_does_not_start_it_again() {
+    // Catch-up dispatches every job whose time passed. One still running is
+    // left due, as a tick leaves it, rather than started beside itself.
+    let h = harness(true);
+    let created = h
+        .jobs
+        .create_job(&job("slow", every(1_000), NOW - 1))
+        .unwrap();
+    h.scheduler.start().unwrap();
+    assert_eq!(h.scheduler.in_flight(), 1);
+
+    h.scheduler.stop();
+    h.clock.advance(Duration::from_secs(2));
+    // Before the first run has had a chance to wind down.
+    h.scheduler.start().unwrap();
+
+    assert_eq!(h.jobs.count_runs(&created.id).unwrap(), 1);
+    assert_eq!(h.scheduler.in_flight(), 1);
+
+    h.scheduler.stop();
+    settle(&h).await;
+}
+
+#[tokio::test]
+async fn a_start_that_fails_gives_the_slot_back() {
+    let h = harness(true);
+    let created = h
+        .jobs
+        .create_job(&job("nightly", cron("0 9 * * *"), 0))
+        .unwrap();
+    h.scheduler.start().unwrap();
+
+    // The next run cannot be worked out, so the run never starts.
+    h.config.lock().ui.timezone = "Not/A_Zone".to_owned();
+    assert!(h.scheduler.run_now(&created.id).is_err());
+    assert_eq!(h.scheduler.in_flight(), 0);
+    assert_eq!(h.jobs.count_runs(&created.id).unwrap(), 0);
+
+    h.config.lock().ui.timezone = "UTC".to_owned();
+    h.scheduler.run_now(&created.id).unwrap();
+    assert_eq!(h.scheduler.in_flight(), 1);
 
     h.scheduler.stop();
     settle(&h).await;
@@ -1567,6 +1659,13 @@ async fn the_wait_loop_fires_a_job_whose_time_arrives() {
     let loop_task = tokio::spawn(async move { engine.run().await });
 
     h.clock.advance(Duration::from_millis(10));
+    // The loop ticks on the blocking pool, so the run lands in its own time.
+    for _ in 0..500 {
+        if h.jobs.count_runs(&created.id).unwrap() > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
     settle(&h).await;
 
     assert_eq!(h.jobs.count_runs(&created.id).unwrap(), 1);

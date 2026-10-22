@@ -92,8 +92,8 @@ use crate::dispatch::{
 };
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
 use crate::history_window::{
-    FixedCost, MIN_BUDGET_RATIO, RowPrices, calibration_of, history_budget, read_history,
-    window_records,
+    FixedCost, MIN_BUDGET_RATIO, RowPrices, SAMPLE_RATIO_LIMIT, calibration_of, history_budget,
+    read_history, window_records,
 };
 use crate::length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 use crate::prompt::{
@@ -784,13 +784,6 @@ struct Built {
     estimated_tokens: usize,
 }
 
-/// The widest ratio a sample may show and still be believed.
-///
-/// A real tokenizer lands within about a factor of two of the estimate either
-/// way. Past four, the count is describing some other request: a server that
-/// reports only the tokens its cache missed, or one that truncated the prompt.
-const SAMPLE_RATIO_LIMIT: f64 = 4.0;
-
 /// The provider's count of one request beside the estimate of it, when the
 /// count can be believed.
 ///
@@ -896,7 +889,9 @@ struct LoopInner {
     /// serves every session on an agent, so nothing session-shaped may sit on
     /// the instance unkeyed. In memory only; a rebuilt loop starts empty, and
     /// the model gets a tool back by calling it, which re-activates it.
-    activated: Mutex<HashMap<String, Activated>>,
+    ///
+    /// Least recently activated first, and held to [`ACTIVATED_SESSIONS`].
+    activated: Mutex<IndexMap<String, Activated>>,
     /// [`AgentLoop::permitted_definitions`], memoised on the scope's list it
     /// was derived from. The scope hands back the same `Arc` until the registry
     /// moves, and the permitted list is read several times an iteration.
@@ -905,6 +900,13 @@ struct LoopInner {
 
 /// The scope's list, and the permitted list derived from it.
 type PermittedMemo = (Arc<[ToolDefinition]>, Arc<[ToolDefinition]>);
+
+/// How many sessions' activations one loop remembers.
+///
+/// The loop never hears that a session ended: deletion happens in the server,
+/// and every automation run opens a session of its own. Losing an entry costs
+/// one re-activation, since a tool called by name activates itself again.
+pub const ACTIVATED_SESSIONS: usize = 256;
 
 /// One session's activations under lazy discovery.
 #[derive(Debug, Default)]
@@ -1045,7 +1047,7 @@ impl AgentLoop {
                 env: options.env,
                 host: options.host,
                 dispatcher,
-                activated: Mutex::new(HashMap::new()),
+                activated: Mutex::new(IndexMap::new()),
                 permitted: Mutex::new(None),
             }),
         })
@@ -1242,21 +1244,43 @@ impl AgentLoop {
             .map(|tool| tool.name)
             .collect();
         let mut outcome = Activation::default();
-        let mut activated = self.inner.activated.lock();
-        let session = activated.entry(session_key.to_owned()).or_default();
         for name in names {
             if name == TOOL_SEARCH_NAME || visible.contains(name) {
                 outcome.already_visible.push(name.clone());
             } else if full.iter().any(|tool| tool.name == *name) {
-                if session.names.insert(name.clone()) {
-                    session.revision += 1;
-                }
                 outcome.activated.push(name.clone());
             } else {
                 outcome.unknown.push(name.clone());
             }
         }
+        if outcome.activated.is_empty() {
+            return outcome;
+        }
+
+        let mut activated = self.inner.activated.lock();
+        // Moved to the back, so the front is always the least recently used.
+        let mut session = activated.shift_remove(session_key).unwrap_or_default();
+        for name in &outcome.activated {
+            if session.names.insert(name.clone()) {
+                session.revision += 1;
+            }
+        }
+        activated.insert(session_key.to_owned(), session);
+        while activated.len() > ACTIVATED_SESSIONS {
+            activated.shift_remove_index(0);
+        }
         outcome
+    }
+
+    /// Drops what `session_key` activated, for a session that has ended.
+    pub fn forget_session(&self, session_key: &str) {
+        self.inner.activated.lock().shift_remove(session_key);
+    }
+
+    /// How many sessions have activations remembered.
+    #[cfg(feature = "testkit")]
+    pub fn activated_sessions(&self) -> usize {
+        self.inner.activated.lock().len()
     }
 
     /// Where `session_key`'s activations stand. Compared across a batch of tool
@@ -1496,7 +1520,10 @@ impl AgentLoop {
         // The stored session decides, exactly as it does in `run`. A preview
         // that reported the default workspace's root for a session bound to
         // another one would describe a prompt no turn on it will ever carry.
-        let stored = inner.store.get_session(&input.session_key)?;
+        let key = input.session_key.clone();
+        let stored = self
+            .with_store(move |store| store.get_session(&key))
+            .await?;
         let workspace_id = stored.as_ref().map_or_else(
             || DEFAULT_WORKSPACE_ID.to_owned(),
             |s| s.workspace_id.clone(),
@@ -1609,7 +1636,7 @@ impl AgentLoop {
     /// Every fallible step that must happen *after* `turn.start` is emitted
     /// lives in `run_turn`; this is what has to happen before there is a turn
     /// to report at all.
-    fn open_turn(&self, input: &TurnInput, token: &CancellationToken) -> Result<TurnContext> {
+    async fn open_turn(&self, input: &TurnInput, token: &CancellationToken) -> Result<TurnContext> {
         let inner = &self.inner;
         let turn_id = input.turn_id.clone().unwrap_or_else(|| (inner.new_id)());
         let channel = input.channel.clone().unwrap_or_else(|| "cli".to_owned());
@@ -1621,15 +1648,16 @@ impl AgentLoop {
         // what makes switching workspaces in the UI safe while a turn is
         // running, and what stops a crafted frame from pointing an existing
         // session's tools at another workspace's files.
-        let session = inner.store.ensure_session(
-            &input.session_key,
-            CreateSession {
-                origin: Some(channel.clone()),
-                workspace_id: input.workspace_id.clone(),
-                agent_id: input.agent_id.clone(),
-                ..CreateSession::default()
-            },
-        )?;
+        let key = input.session_key.clone();
+        let create = CreateSession {
+            origin: Some(channel.clone()),
+            workspace_id: input.workspace_id.clone(),
+            agent_id: input.agent_id.clone(),
+            ..CreateSession::default()
+        };
+        let session = self
+            .with_store(move |store| store.ensure_session(&key, create))
+            .await?;
         // Captured once, for the life of the turn: every tool call below closes
         // over this jail, so a workspace switch mid-turn cannot move it.
         let jail = inner.jails.for_workspace(&session.workspace_id);
@@ -1758,7 +1786,7 @@ impl AgentLoop {
     /// Here rather than in a transport because the web is one door of several.
     /// The terminal and every channel run this same loop, and a title derived
     /// in one of them is a title all of them show.
-    fn name_the_session(&self, session: &SessionRecord, opening: &ChatMessage) -> Result<()> {
+    async fn name_the_session(&self, session: &SessionRecord, opening: &ChatMessage) -> Result<()> {
         if !session.title.is_empty() {
             return Ok(());
         }
@@ -1766,13 +1794,13 @@ impl AgentLoop {
         if title.is_empty() {
             return Ok(());
         }
-        self.inner.store.update_session(
-            &session.key,
-            UpdateSession {
-                title: Some(title),
-                ..UpdateSession::default()
-            },
-        )?;
+        let key = session.key.clone();
+        let update = UpdateSession {
+            title: Some(title),
+            ..UpdateSession::default()
+        };
+        self.with_store(move |store| store.update_session(&key, update))
+            .await?;
         Ok(())
     }
 
@@ -1784,15 +1812,31 @@ impl AgentLoop {
     /// here would take down a turn that has already completed and already been
     /// persisted, which is strictly worse than a conversation with one gap in
     /// its accounting.
-    fn record_stats(&self, stats: &TurnStatsRecord) {
-        if let Err(error) = self.inner.store.record_turn_stats(stats) {
+    async fn record_stats(&self, stats: TurnStatsRecord) {
+        let session_key = stats.session_key.clone();
+        let turn_id = stats.turn_id.clone();
+        let recorded = self
+            .with_store(move |store| store.record_turn_stats(&stats))
+            .await;
+        if let Err(error) = recorded {
             tracing::warn!(
                 err = %error.message,
-                session_key = %stats.session_key,
-                turn_id = %stats.turn_id,
+                session_key = %session_key,
+                turn_id = %turn_id,
                 "failed to record turn stats"
             );
         }
+    }
+
+    /// Runs `work` against the store on the blocking pool. Awaited in place, so
+    /// a write lands before the step after it reads.
+    async fn with_store<T, F>(&self, work: F) -> Result<T>
+    where
+        F: FnOnce(&SessionStore) -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let store = Arc::clone(&self.inner.store);
+        blocking(move || work(&store)).await
     }
 
     /// The whole turn, from the opening append to the closing event.
@@ -1804,20 +1848,22 @@ impl AgentLoop {
     ) -> Result<TurnResult> {
         let inner = &self.inner;
 
-        let mut turn = self.open_turn(&input, token)?;
+        let mut turn = self.open_turn(&input, token).await?;
         // A continuation answers a question already in history, so it writes
         // none. Its window is still anchored on that question.
         let (first_seq, last_seq) = if let Some(question) = input.continue_from {
-            (question, self.last_row_seq(&turn.scope.session_key)?)
+            (question, self.last_row_seq(&turn.scope.session_key).await?)
         } else {
-            let opening = inner.store.append(
-                &turn.scope.session_key,
-                ChatMessage::User(user_message(input.content.clone())),
-                &AppendOptions {
-                    turn_id: Some(turn.turn_id.clone()),
-                },
-            )?;
-            self.name_the_session(&turn.session, &opening.message)?;
+            let key = turn.scope.session_key.clone();
+            let message = ChatMessage::User(user_message(input.content.clone()));
+            let options = AppendOptions {
+                turn_id: Some(turn.turn_id.clone()),
+            };
+            let opening = self
+                .with_store(move |store| store.append(&key, message, &options))
+                .await?;
+            self.name_the_session(&turn.session, &opening.message)
+                .await?;
             (opening.seq, opening.seq)
         };
 
@@ -1924,13 +1970,14 @@ impl AgentLoop {
         sink: &EventSink,
     ) -> Result<()> {
         for message in self.inner.steering.drain(&turn.scope.session_key) {
-            let written = self.inner.store.append(
-                &turn.scope.session_key,
-                ChatMessage::User(user_message(steering_text(&message))),
-                &AppendOptions {
-                    turn_id: Some(turn.turn_id.clone()),
-                },
-            )?;
+            let key = turn.scope.session_key.clone();
+            let steer = ChatMessage::User(user_message(steering_text(&message)));
+            let options = AppendOptions {
+                turn_id: Some(turn.turn_id.clone()),
+            };
+            let written = self
+                .with_store(move |store| store.append(&key, steer, &options))
+                .await?;
             state.last_seq = written.seq;
             sink.emit(Steer {
                 tag: SteerEventTag,
@@ -1945,15 +1992,16 @@ impl AgentLoop {
     }
 
     /// The `seq` of the session's newest row, or 0 for an empty one.
-    fn last_row_seq(&self, session_key: &str) -> Result<i64> {
-        let rows = self.inner.store.messages(
-            session_key,
-            &darkwire_core::session_store::ReadMessages {
-                limit: Some(1),
-                from_end: true,
-                ..darkwire_core::session_store::ReadMessages::default()
-            },
-        )?;
+    async fn last_row_seq(&self, session_key: &str) -> Result<i64> {
+        let key = session_key.to_owned();
+        let read = darkwire_core::session_store::ReadMessages {
+            limit: Some(1),
+            from_end: true,
+            ..darkwire_core::session_store::ReadMessages::default()
+        };
+        let rows = self
+            .with_store(move |store| store.messages(&key, &read))
+            .await?;
         Ok(rows.last().map_or(0, |row| row.seq))
     }
 }
@@ -2208,22 +2256,28 @@ impl AgentLoop {
         let history = windowed.into_messages();
         // Attachments become readable here and nowhere else. Storage holds a
         // path; a provider needs bytes or characters, and only this scope has
-        // the jail that resolves one to the other. Doing it before the provider
-        // — which is already wrapped in resilience — is also what keeps the
+        // the jail that resolves one to the other. Doing it before the provider,
+        // which is already wrapped in resilience, is also what keeps the
         // degradation ladder looking at real image parts rather than at
         // references it would strip without reading.
-        let history = materialise_attachments(
-            history,
-            &turn.scope.tool_context.jail,
-            MaterialiseOptions {
-                // Constant for the life of the turn, which is what makes it
-                // safe against the cache beside it: that key is path, size and
-                // mtime, and does not know about this.
-                images: inner.config.vision_enabled,
-                ..MaterialiseOptions::default()
-            },
-            Some(attachments),
-        );
+        //
+        // On the blocking pool: it stats and reads files, up to megabytes of
+        // image. The cache goes with it and comes back.
+        let jail = turn.scope.tool_context.jail.clone();
+        let options = MaterialiseOptions {
+            // Constant for the life of the turn, which is what makes it safe
+            // against the cache beside it: that key is path, size and mtime,
+            // and does not know about this.
+            images: inner.config.vision_enabled,
+            ..MaterialiseOptions::default()
+        };
+        let mut cache = std::mem::take(attachments);
+        let (history, cache) = blocking(move || {
+            let history = materialise_attachments(history, &jail, options, Some(&mut cache));
+            Ok((history, cache))
+        })
+        .await?;
+        *attachments = cache;
 
         let mut messages = Vec::with_capacity(history.len() + 2);
         messages.push(system);
@@ -2332,6 +2386,7 @@ impl AgentLoop {
                         retryable: error.retryable,
                         turn_id: Some(turn.turn_id.clone()),
                         call_id: None,
+                        client_message_id: None,
                     })
                     .await;
                     return Streamed::Failed(error.message);
@@ -2352,6 +2407,7 @@ impl AgentLoop {
                     retryable: true,
                     turn_id: Some(turn.turn_id.clone()),
                     call_id: None,
+                    client_message_id: None,
                 })
                 .await;
                 return Streamed::Failed(message);
@@ -2395,13 +2451,13 @@ impl AgentLoop {
         {
             message.stats = Some(Box::new(figures.clone()));
         }
-        let written = self.inner.store.append_many(
-            &turn.scope.session_key,
-            rows,
-            &AppendOptions {
-                turn_id: Some(turn.turn_id.clone()),
-            },
-        )?;
+        let key = turn.scope.session_key.clone();
+        let options = AppendOptions {
+            turn_id: Some(turn.turn_id.clone()),
+        };
+        let written = self
+            .with_store(move |store| store.append_many(&key, rows, &options))
+            .await?;
         let (Some(first), Some(last)) = (written.first(), written.last()) else {
             return Ok(written);
         };
@@ -2660,7 +2716,7 @@ impl AgentLoop {
 
         let ended_at_ms = inner.clock.now_ms();
         let timings = state.timings();
-        self.record_stats(&TurnStatsRecord {
+        self.record_stats(TurnStatsRecord {
             turn_id: turn.turn_id.clone(),
             session_key: turn.scope.session_key.clone(),
             agent_id: turn.session.agent_id.clone().unwrap_or_default(),
@@ -2680,7 +2736,8 @@ impl AgentLoop {
             generation_tokens: timings.generation_tokens.map(to_i64),
             first_token_ms: timings.first_token_ms.map(to_i64),
             error: state.error_message.clone(),
-        });
+        })
+        .await;
 
         sink.emit(darkwire_protocol::TurnEnd {
             tag: darkwire_protocol::TurnEndTag,
@@ -2808,7 +2865,8 @@ impl AgentLoop {
 
         let depth = turn.chain.len() + 1;
         let session_key = (inner.new_id)();
-        self.open_subagent_session(&session_key, binding, turn, call, depth)?;
+        self.open_subagent_session(&session_key, binding, turn, call, depth)
+            .await?;
 
         let started = inner.clock.monotonic();
         // The cap's token is a child of the turn's, so cancelling it stops the
@@ -2858,6 +2916,8 @@ impl AgentLoop {
         if let Some(timer) = timer {
             timer.abort();
         }
+        // A delegation's session ends with its one turn.
+        child.forget_session(&session_key);
 
         let duration_ms =
             u64::try_from(inner.clock.monotonic().saturating_sub(started).as_millis())
@@ -2873,7 +2933,7 @@ impl AgentLoop {
     }
 
     /// Creates the child's session and points the parent at it.
-    fn open_subagent_session(
+    async fn open_subagent_session(
         &self,
         session_key: &str,
         binding: &SubagentBinding,
@@ -2881,7 +2941,6 @@ impl AgentLoop {
         call: &darkwire_protocol::ToolCall,
         depth: usize,
     ) -> Result<()> {
-        let inner = &self.inner;
         let lineage = SubagentLineage {
             parent_session_key: turn.session_key.clone(),
             parent_turn_id: turn.turn_id.clone(),
@@ -2894,20 +2953,13 @@ impl AgentLoop {
             SUBAGENT_METADATA_KEY.to_owned(),
             serde_json::to_value(&lineage).unwrap_or(serde_json::Value::Null),
         );
-        inner.store.ensure_session(
-            session_key,
-            CreateSession {
-                origin: Some(SUBAGENT_ORIGIN.to_owned()),
-                workspace_id: Some(turn.workspace_id.clone()),
-                agent_id: Some(binding.agent_id.clone()),
-                metadata: Some(metadata),
-                ..CreateSession::default()
-            },
-        )?;
-
-        // Defensive for the same reason the stats row is, and no more: this is
-        // how a reloaded transcript finds the run again, which is worth a write
-        // and is not worth failing a turn that has otherwise worked.
+        let create = CreateSession {
+            origin: Some(SUBAGENT_ORIGIN.to_owned()),
+            workspace_id: Some(turn.workspace_id.clone()),
+            agent_id: Some(binding.agent_id.clone()),
+            metadata: Some(metadata),
+            ..CreateSession::default()
+        };
         let run = SubagentRunRef {
             session_key: session_key.to_owned(),
             agent_id: binding.agent_id.clone(),
@@ -2915,35 +2967,51 @@ impl AgentLoop {
             // the fetch that fills it in resolves.
             label: binding.label.clone(),
         };
-        match inner.store.get_session(&turn.session_key) {
-            Ok(Some(parent)) => {
-                if let Err(error) = inner.store.update_session(
-                    &turn.session_key,
-                    UpdateSession {
-                        metadata: Some(from_object(with_subagent_run(
-                            &to_object(&parent.metadata),
-                            &call.id,
-                            &run,
-                        ))),
-                        ..UpdateSession::default()
-                    },
-                ) {
-                    tracing::warn!(
-                        err = %error.message,
-                        session_key = %turn.session_key,
-                        call_id = %call.id,
-                        "failed to record the subagent session pointer"
-                    );
-                }
+        let child_key = session_key.to_owned();
+        let parent_key = turn.session_key.clone();
+        let call_id = call.id.clone();
+        self.with_store(move |store| {
+            store.ensure_session(&child_key, create)?;
+            point_parent_at(store, &parent_key, &call_id, &run);
+            Ok(())
+        })
+        .await
+    }
+}
+
+/// Records the child's session on the parent's row.
+///
+/// Defensive for the same reason the stats row is, and no more: this is how a
+/// reloaded transcript finds the run again, which is worth a write and is not
+/// worth failing a turn that has otherwise worked.
+fn point_parent_at(store: &SessionStore, parent_key: &str, call_id: &str, run: &SubagentRunRef) {
+    match store.get_session(parent_key) {
+        Ok(Some(parent)) => {
+            if let Err(error) = store.update_session(
+                parent_key,
+                UpdateSession {
+                    metadata: Some(from_object(with_subagent_run(
+                        &to_object(&parent.metadata),
+                        call_id,
+                        run,
+                    ))),
+                    ..UpdateSession::default()
+                },
+            ) {
+                tracing::warn!(
+                    err = %error.message,
+                    session_key = %parent_key,
+                    call_id = %call_id,
+                    "failed to record the subagent session pointer"
+                );
             }
-            Ok(None) => {}
-            Err(error) => tracing::warn!(
-                err = %error.message,
-                session_key = %turn.session_key,
-                "failed to read the parent session"
-            ),
         }
-        Ok(())
+        Ok(None) => {}
+        Err(error) => tracing::warn!(
+            err = %error.message,
+            session_key = %parent_key,
+            "failed to read the parent session"
+        ),
     }
 }
 

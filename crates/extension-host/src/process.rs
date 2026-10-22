@@ -42,9 +42,10 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_core::{CappedLines, ErrorKind, Result, WireError};
+use darkwire_mcp::STDERR_LINE_BYTES;
 use darkwire_protocol::DEFAULT_EXTENSION_ENV;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -431,10 +432,11 @@ fn exited(status: std::io::Result<std::process::ExitStatus>) -> String {
 /// Reads stderr to the end, logging what fits in the budget.
 fn drain_stderr(id: String, stderr: tokio::process::ChildStderr) {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
+        let mut lines = CappedLines::new(BufReader::new(stderr), STDERR_LINE_BYTES);
         let mut spent = 0usize;
         let mut warned = false;
         while let Ok(Some(line)) = lines.next_line().await {
+            let line = line.text;
             spent = spent.saturating_add(line.len());
             if spent <= STDERR_BUDGET_BYTES {
                 // One target for every extension, with the id as a field: a

@@ -40,8 +40,6 @@
 //! every flag that can never appear is asserted by test — and a typed daemon
 //! API would rewrite them.
 
-use std::fs::File;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -51,8 +49,10 @@ use darkwire_protocol::environment::{ContainerRuntime, EnvironmentDefinition, Se
 use darkwire_protocol::{EnvironmentNetwork, NetworkMode};
 use darkwire_security::{ExecPlan, egress::PROXY_PORT};
 use indexmap::IndexMap;
-use parking_lot::Mutex;
 use regex::Regex;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt as _;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::runner::{CommandRunner, LocalRunner, OutputStream, OutputTee, RunOutcome, RunRequest};
@@ -79,9 +79,11 @@ struct TranscriptAndProgress {
     progress: Arc<dyn OutputTee>,
 }
 impl OutputTee for TranscriptAndProgress {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) {
-        self.transcript.write(stream, bytes);
-        self.progress.write(stream, bytes);
+    fn write<'a>(&'a self, stream: OutputStream, bytes: &'a [u8]) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.transcript.write(stream, bytes).await;
+            self.progress.write(stream, bytes).await;
+        })
     }
 }
 
@@ -561,14 +563,14 @@ impl TranscriptFile {
         }
     }
 
-    fn write(&mut self, chunk: &[u8]) {
+    async fn write(&mut self, chunk: &[u8]) {
         let Some(handle) = self.file.as_mut() else {
             return;
         };
         let room = TRANSCRIPT_MAX_BYTES.saturating_sub(self.written);
         let take = usize::try_from(room).unwrap_or(usize::MAX).min(chunk.len());
         if take > 0 {
-            let _ = handle.write_all(&chunk[..take]);
+            let _ = handle.write_all(&chunk[..take]).await;
         }
         let take = u64::try_from(take).unwrap_or(u64::MAX);
         let length = u64::try_from(chunk.len()).unwrap_or(u64::MAX);
@@ -576,16 +578,18 @@ impl TranscriptFile {
         self.dropped = self.dropped.saturating_add(length - take);
     }
 
-    fn close(&mut self) {
+    async fn close(&mut self) {
         if let Some(mut handle) = self.file.take() {
             if self.dropped > 0 {
-                let _ = write!(
-                    handle,
+                let note = format!(
                     "\n[darkwire: transcript cut at {TRANSCRIPT_MAX_BYTES} bytes; {} more bytes were not kept.]\n",
                     self.dropped
                 );
+                let _ = handle.write_all(note.as_bytes()).await;
             }
-            let _ = handle.flush();
+            // Waits for the writes still in flight, which is what makes the
+            // file safe to read once `close` returns.
+            let _ = handle.flush().await;
         }
     }
 }
@@ -601,23 +605,30 @@ impl std::fmt::Debug for Transcript {
 
 impl Transcript {
     /// Opens a run's transcript under `runs_root/<container>/<run>`.
-    pub fn open(runs_root: &Path, container_name: &str, run_id: &str) -> Result<Transcript> {
+    ///
+    /// # Errors
+    ///
+    /// A storage error when the directory cannot be created.
+    pub async fn open(runs_root: &Path, container_name: &str, run_id: &str) -> Result<Transcript> {
         let host_dir = runs_root.join(container_name).join(run_id);
-        std::fs::create_dir_all(&host_dir).map_err(|error| {
-            WireError::new(
-                ErrorKind::Storage,
-                format!(
-                    "Could not create the transcript directory {}",
-                    host_dir.display()
-                ),
-            )
-            .with_source(error)
-        })?;
+        tokio::fs::create_dir_all(&host_dir)
+            .await
+            .map_err(|error| {
+                WireError::new(
+                    ErrorKind::Storage,
+                    format!(
+                        "Could not create the transcript directory {}",
+                        host_dir.display()
+                    ),
+                )
+                .with_source(error)
+            })?;
         // Files that cannot be opened are simply not written; see the type docs.
-        let open = |name: &str| File::create(host_dir.join(name)).ok();
+        let stdout = File::create(host_dir.join("stdout.log")).await.ok();
+        let stderr = File::create(host_dir.join("stderr.log")).await.ok();
         Ok(Transcript {
-            stdout: Mutex::new(TranscriptFile::new(open("stdout.log"))),
-            stderr: Mutex::new(TranscriptFile::new(open("stderr.log"))),
+            stdout: Mutex::new(TranscriptFile::new(stdout)),
+            stderr: Mutex::new(TranscriptFile::new(stderr)),
             container_dir: container_run_dir(container_name, run_id),
             host_dir,
         })
@@ -635,20 +646,22 @@ impl Transcript {
 
     /// Flushes and closes both files, noting any cut. After this they are safe
     /// to read.
-    pub fn close(&self) {
+    pub async fn close(&self) {
         for file in [&self.stdout, &self.stderr] {
-            file.lock().close();
+            file.lock().await.close().await;
         }
     }
 }
 
 impl OutputTee for Transcript {
-    fn write(&self, stream: OutputStream, chunk: &[u8]) {
-        let file = match stream {
-            OutputStream::Stdout => &self.stdout,
-            OutputStream::Stderr => &self.stderr,
-        };
-        file.lock().write(chunk);
+    fn write<'a>(&'a self, stream: OutputStream, chunk: &'a [u8]) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let file = match stream {
+                OutputStream::Stdout => &self.stdout,
+                OutputStream::Stderr => &self.stderr,
+            };
+            file.lock().await.write(chunk).await;
+        })
     }
 }
 
@@ -821,11 +834,8 @@ impl CommandRunner for ContainerRunner {
     fn run(&self, request: RunRequest) -> BoxFuture<'_, Result<RunOutcome>> {
         Box::pin(async move {
             let run_id = (self.next_run_id)();
-            let transcript = Arc::new(Transcript::open(
-                &self.runs_root,
-                &self.container_name,
-                &run_id,
-            )?);
+            let transcript =
+                Arc::new(Transcript::open(&self.runs_root, &self.container_name, &run_id).await?);
             let exec = ContainerExecOptions {
                 plan: &request.plan,
                 container: &self.container,
@@ -851,7 +861,7 @@ impl CommandRunner for ContainerRunner {
             let outcome = self.inner.run(client).await;
             // Closed before the caller hands the model this path: a half-written
             // file is worse than none.
-            transcript.close();
+            transcript.close().await;
             match outcome {
                 Ok(outcome) => {
                     // The client returning is not the process ending when the

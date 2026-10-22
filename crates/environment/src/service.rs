@@ -203,10 +203,11 @@ pub struct SandboxClient {
 
 struct Progress(tokio::sync::mpsc::Sender<Value>);
 impl OutputTee for Progress {
-    fn write(&self, stream: OutputStream, chunk: &[u8]) {
+    fn write<'a>(&'a self, stream: OutputStream, chunk: &'a [u8]) -> BoxFuture<'a, ()> {
         for chunk in chunk.chunks(4096) {
             let _ = self.0.try_send(json!({"event":"output", "stream": if stream == OutputStream::Stdout { "stdout" } else { "stderr" }, "text":String::from_utf8_lossy(chunk)}));
         }
+        Box::pin(std::future::ready(()))
     }
 }
 /// Where the service listens, given the environment and the install's paths.

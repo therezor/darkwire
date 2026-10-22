@@ -47,6 +47,8 @@ pub enum QueryShape {
     DeleteQuery,
     /// The turn listing's bound.
     TurnsQuery,
+    /// Whether the context comes with its text or as totals only.
+    ContextQuery,
 }
 
 /// A path-parameter shape one route accepts.
@@ -445,7 +447,7 @@ pub static ROUTE_DOCS: &[RouteDoc] = &[
         id: RouteId::SessionsContext,
         summary: "What the agent would send to the model for this session",
         body: None,
-        query: None,
+        query: Some(QueryShape::ContextQuery),
         params: Some(PathShape::SessionParams),
         responses: &[(200, "ContextResponse")],
     },
@@ -807,6 +809,9 @@ fn query_schema(shape: QueryShape) -> Value {
     let mut generator = darkwire_protocol::schemas::protocol_generator();
     match shape {
         QueryShape::PageQuery => schema_of::<PageQuery>(&mut generator),
+        QueryShape::ContextQuery => {
+            schema_of::<darkwire_protocol::rest::ContextQuery>(&mut generator)
+        }
         QueryShape::SessionListQuery => schema_of::<SessionListQuery>(&mut generator),
         QueryShape::NotificationListQuery => schema_of::<NotificationListQuery>(&mut generator),
         QueryShape::WsQuery => schema_of::<WsQuery>(&mut generator),

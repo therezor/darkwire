@@ -288,6 +288,57 @@ async fn it_runs_the_subagent_and_returns_its_answer_as_the_tool_result() {
 }
 
 #[tokio::test]
+async fn what_a_child_activated_ends_with_its_delegation() {
+    let resolver = MapResolver::new();
+    let parent = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![tool_call(
+                "c1",
+                "ask_researcher",
+                &json!({"task": "read it"}),
+            )]),
+            ScriptedTurn::text("Done."),
+        ],
+        subagents: vec![binding("researcher")],
+        resolve_loop: Some(resolver.clone()),
+        ..Setup::default()
+    });
+    let child = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![tool_call(
+                "s1",
+                "tool_search",
+                &json!({"activate": ["read"]}),
+            )]),
+            ScriptedTurn::text("Read."),
+        ],
+        tools: vec![
+            FakeTool::reading("read", "x"),
+            darkwire_tools::tool_search_tool(),
+        ],
+        config: AgentSettings {
+            lazy_discovery: true,
+            ..Setup::default().config
+        },
+        ..Setup::default()
+    });
+    resolver.insert("researcher", child.agent_loop.clone());
+
+    let (_, result) = parent.say("web:1", "delegate").await;
+
+    assert_eq!(result.expect("a turn").text, "Done.");
+    assert_eq!(
+        child.provider.requests()[1]
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tool_search", "read"]
+    );
+    assert_eq!(child.agent_loop.activated_sessions(), 0);
+}
+
+#[tokio::test]
 async fn the_childs_events_stream_addressed_to_the_delegating_call() {
     let (parent, _resolver) = delegating(
         vec![ScriptedTurn::text("Found it.")],

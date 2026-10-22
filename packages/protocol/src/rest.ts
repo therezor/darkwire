@@ -498,6 +498,19 @@ export const UpdateSessionRequestSchema = z.object({
 export type UpdateSessionRequest = z.infer<typeof UpdateSessionRequestSchema>;
 
 /**
+ * `GET /api/sessions/:key/context`.
+ *
+ * `summary` answers with the totals and leaves the system prompt, the tool
+ * definitions and the messages empty. The strip under the composer shows three
+ * numbers and asks on every conversation it opens; the inspector asks for the
+ * rest when someone looks.
+ */
+export const ContextQuerySchema = z.object({
+  summary: z.boolean().default(false),
+});
+export type ContextQuery = z.infer<typeof ContextQuerySchema>;
+
+/**
  * What the agent would actually send to the model, for the context inspector.
  * The panel that makes the token budget legible rather than a mystery.
  */

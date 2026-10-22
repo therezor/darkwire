@@ -1216,7 +1216,7 @@ const SERVER_FRAMES: readonly Json[] = [
     code: 'session_busy',
     message: 'a turn is running',
     retryable: true,
-    turnId: 't1',
+    clientMessageId: 'c1',
   },
   {
     type: 'message.ack',

@@ -15,7 +15,7 @@ use std::time::Duration;
 use darkwire_core::{ErrorKind, SystemClock};
 use darkwire_security::ExecPlan;
 use darkwire_tools::{
-    CommandRunner, KILL_GRACE_MS, LocalRunner, OutputStream, OutputTee, RunRequest,
+    BoxFuture, CommandRunner, KILL_GRACE_MS, LocalRunner, OutputStream, OutputTee, RunRequest,
 };
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -52,11 +52,12 @@ struct Recorder {
 }
 
 impl OutputTee for Recorder {
-    fn write(&self, stream: OutputStream, chunk: &[u8]) {
+    fn write<'a>(&'a self, stream: OutputStream, chunk: &'a [u8]) -> BoxFuture<'a, ()> {
         match stream {
             OutputStream::Stdout => self.stdout.lock().extend_from_slice(chunk),
             OutputStream::Stderr => self.stderr.lock().extend_from_slice(chunk),
         }
+        Box::pin(std::future::ready(()))
     }
 }
 

@@ -1006,6 +1006,36 @@ async fn the_context_route_reports_the_prompt_and_the_window() {
 }
 
 #[tokio::test]
+async fn the_context_route_answers_totals_alone_when_asked() {
+    let test = start_test_server(TestServerOptions {
+        runtime: FakeRuntimeOptions {
+            system_prompt: Some("# DarkWire\n\nSession: {session}".to_owned()),
+            runtime_block: Some("## Live state".to_owned()),
+            ..FakeRuntimeOptions::default()
+        },
+        ..TestServerOptions::default()
+    })
+    .expect("a test server");
+    seed_session(&test, "s-1", "Planning", 2);
+
+    let full = get(&test, "/api/sessions/s-1/context").await;
+    let full = full.json();
+    let summary = get(&test, "/api/sessions/s-1/context?summary=true").await;
+    assert_eq!(summary.status, StatusCode::OK);
+    let summary = summary.json();
+
+    // The figures the strip shows are the full answer's.
+    assert_eq!(summary["estimatedTokens"], full["estimatedTokens"]);
+    assert_eq!(summary["breakdown"], full["breakdown"]);
+    // And the text they were measured from stays behind.
+    assert_eq!(summary["systemPrompt"], "");
+    assert_eq!(summary["runtimeBlock"], "");
+    assert_eq!(summary["messages"], json!([]));
+    assert_eq!(summary["tools"], json!([]));
+    assert!(!full["messages"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn the_context_route_sends_no_reasoning_while_the_transcript_still_does() {
     let test = server();
     let store = store(&test);

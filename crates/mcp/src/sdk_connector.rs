@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use darkwire_core::{ErrorKind, Result, WireError};
+use darkwire_core::{CappedLines, ErrorKind, Result, WireError};
 use darkwire_protocol::json::Object;
 use darkwire_protocol::{McpTransport, ToolAnnotations};
 use futures::future::BoxFuture;
@@ -61,7 +61,7 @@ use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig, StreamableHttpError,
 };
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::process::ChildStderr;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -78,6 +78,10 @@ pub const CLIENT_NAME: &str = "darkwire";
 /// Beyond this many stderr bytes per server, logging stops. The stream is
 /// still drained so the child never blocks on a full pipe.
 pub const STDERR_BUDGET_BYTES: usize = 64 * 1024;
+
+/// The most of one stderr line that is kept. A progress bar redrawn with `\r`
+/// never ends its line, and the rest of it is read and dropped.
+pub const STDERR_LINE_BYTES: usize = 8 * 1024;
 
 /// How long the initialise handshake may take. Generous because a stdio server
 /// started through `npx` can be downloading its package on first run. A server
@@ -366,14 +370,14 @@ fn service_error(error: ServiceError) -> WireError {
 /// somebody else's diagnostics; a server that crashes writes its reason there
 /// and it is the only place that reason exists.
 async fn pump_stderr(stderr: ChildStderr, sink: ServerLogSink) {
-    let mut lines = BufReader::new(stderr).lines();
+    let mut lines = CappedLines::new(BufReader::new(stderr), STDERR_LINE_BYTES);
     let mut spent = 0usize;
     while let Ok(Some(line)) = lines.next_line().await {
         if spent >= STDERR_BUDGET_BYTES {
             continue;
         }
-        spent += line.len();
-        let trimmed = line.trim();
+        spent += line.text.len();
+        let trimmed = line.text.trim();
         if !trimmed.is_empty() {
             sink(trimmed);
         }

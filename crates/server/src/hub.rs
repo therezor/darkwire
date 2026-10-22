@@ -43,7 +43,6 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
-use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{FileDetails, file_part, text_part};
 use darkwire_core::session_store::{
@@ -67,7 +66,7 @@ use darkwire_security::random::{OsRandom, RandomSource};
 use indexmap::IndexMap;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_binding::agent_for_turn;
@@ -86,6 +85,14 @@ use darkwire_core::db::blocking;
 /// `session_busy` — the one error code in the protocol that exists for exactly
 /// this, and the one honest answer to "I cannot hold any more of these".
 pub const DEFAULT_MAX_QUEUE_DEPTH: usize = 8;
+
+/// How many frames from one socket may be queued or running before the socket
+/// stops being read.
+///
+/// Times the largest frame, this is what one connection can make the process
+/// hold. A tab sends a handful at a time, so it only ever waits on a peer that
+/// floods.
+pub const MAX_INBOUND_FRAMES: usize = 16;
 
 /// How many sessions keep their replay ring in memory.
 ///
@@ -469,6 +476,17 @@ struct SessionState {
     rewinding: bool,
 }
 
+impl SessionState {
+    /// Messages waiting to run: the queue, and each steer the running turn
+    /// has not read, since an unread one runs as a turn of its own.
+    fn waiting(&self) -> usize {
+        self.queue.len()
+            + self.running.as_ref().map_or(0, |running| {
+                running.steers.len() + running.early_steers.len()
+            })
+    }
+}
+
 /// Everything the hub mutates, behind one lock.
 struct HubInner {
     sessions: LruCache<String, SessionState>,
@@ -601,10 +619,16 @@ struct ExpiryWatch {
     started: AtomicBool,
 }
 
+/// Room for one frame from a socket, held until the hub has run it.
+#[derive(Debug)]
+pub struct InboundRoom(OwnedSemaphorePermit);
+
 /// One inbound instruction, for the task that runs a connection's frames in
 /// order.
 enum Inbound {
-    Frame(Frame),
+    /// A frame, and the room it holds when a socket sent it. The room is given
+    /// back once the frame has run, not when it is taken off the queue.
+    Frame(Frame, Option<OwnedSemaphorePermit>),
     /// Queued behind the frames sent before it, so they still run as this
     /// connection.
     Close,
@@ -633,6 +657,8 @@ pub struct HubClient {
     id: String,
     session_key: Arc<Mutex<String>>,
     inbound: mpsc::UnboundedSender<Inbound>,
+    /// Room for frames from a socket that the hub has not run yet.
+    room: Arc<Semaphore>,
 }
 
 impl std::fmt::Debug for HubClient {
@@ -660,8 +686,43 @@ impl HubClient {
     ///
     /// Frames run in the order they were queued, on the connection's own task,
     /// because answering some of them reads the store.
+    ///
+    /// Never waits, so it is for an in-process sender whose own pace bounds
+    /// what it sends. A socket uses [`Self::receive_paced`].
     pub fn receive(&self, frame: Frame) {
-        let _ = self.inbound.send(Inbound::Frame(frame));
+        let _ = self.inbound.send(Inbound::Frame(frame, None));
+    }
+
+    /// [`Self::receive`] for a peer that can send faster than the hub runs
+    /// frames.
+    ///
+    /// Waits while [`MAX_INBOUND_FRAMES`] of this connection's frames are
+    /// queued or running, so a socket that floods stops being read and TCP
+    /// pushes back on the sender. Same queue, so the order and the close
+    /// rules are the same.
+    pub async fn receive_paced(&self, frame: Frame) {
+        if let Some(room) = self.room().await {
+            self.receive_in(frame, room);
+        }
+    }
+
+    /// Waits for room for one more frame. `None` once the connection's task
+    /// has gone and nothing would run it.
+    ///
+    /// The two halves of [`Self::receive_paced`], for a caller that has other
+    /// work to do while it waits: a socket keeps writing to its peer.
+    pub async fn room(&self) -> Option<InboundRoom> {
+        Arc::clone(&self.room)
+            .acquire_owned()
+            .await
+            .ok()
+            .map(InboundRoom)
+    }
+
+    /// Queues a frame into room [`Self::room`] gave. The room is given back
+    /// once the frame has run.
+    pub fn receive_in(&self, frame: Frame, room: InboundRoom) {
+        let _ = self.inbound.send(Inbound::Frame(frame, Some(room.0)));
     }
 
     /// Detaches. Idempotent, so a socket's close and error can both call it.
@@ -825,6 +886,7 @@ impl SessionHub {
     pub fn connect(self: &Arc<Self>, options: ConnectOptions) -> (HubClient, OutboundStream) {
         let (tx, rx) = mpsc::unbounded_channel();
         let (inbound, frames) = mpsc::unbounded_channel();
+        let room = Arc::new(Semaphore::new(MAX_INBOUND_FRAMES));
         let buffered = Arc::new(AtomicUsize::new(0));
         let replayed = Arc::new(AtomicUsize::new(0));
         let id = (self.new_id)();
@@ -868,7 +930,8 @@ impl SessionHub {
 
         let hub = Arc::clone(self);
         let task_id = id.clone();
-        tokio::spawn(async move { hub.serve_connection(task_id, frames).await });
+        let task_room = Arc::clone(&room);
+        tokio::spawn(async move { hub.serve_connection(task_id, frames, task_room).await });
 
         (
             HubClient {
@@ -876,6 +939,7 @@ impl SessionHub {
                 id,
                 session_key,
                 inbound,
+                room,
             },
             OutboundStream {
                 rx,
@@ -890,16 +954,20 @@ impl SessionHub {
         self: Arc<Self>,
         id: String,
         mut frames: mpsc::UnboundedReceiver<Inbound>,
+        room: Arc<Semaphore>,
     ) {
         self.greet(&id).await;
-        while let Some(Inbound::Frame(frame)) = frames.recv().await {
+        while let Some(Inbound::Frame(frame, permit)) = frames.recv().await {
             // Revoked, expired or hung up on while this frame waited: nothing
             // it asks for runs.
             if !self.inner.lock().connections.contains_key(&id) {
                 break;
             }
             self.receive(&id, frame).await;
+            drop(permit);
         }
+        // A socket waiting for room would otherwise wait for good.
+        room.close();
         self.disconnect(&id);
     }
 
@@ -921,9 +989,9 @@ impl SessionHub {
         let Some(connection) = inner.connections.get(id).filter(|c| !c.closing) else {
             return;
         };
-        let workspace_id = stored
-            .or_else(|| connection.workspace_id.clone())
-            .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned());
+        // Nothing to report for a session with no row and no workspace asked
+        // for: the switcher keeps the user's own choice until there is one.
+        let workspace_id = stored.or_else(|| connection.workspace_id.clone());
         self.session(&mut inner, &key);
         let last_seq = match inner.sessions.get_mut(&key) {
             Some(state) => {
@@ -933,6 +1001,16 @@ impl SessionHub {
             None => 0,
         };
         tracing::debug!(connection_id = %id, session_key = %key, "hub connection greeted");
+        // A turn already running is the one thing the handshake cannot say. A
+        // tab that opens now never sees it start, so without this it offers no
+        // Stop and reads the turn's stored messages as a finished turn.
+        // Stamped with the current seq, like a replay: a number only this tab
+        // received would leave a gap in every other tab's next resume.
+        let running = inner
+            .sessions
+            .peek(&key)
+            .filter(|state| state.running.is_some())
+            .map(|state| status_event(state, workspace_id.clone()).sequenced(last_seq));
         inner.deliver(
             id,
             &ServerMessage::Connected(ConnectedEvent {
@@ -944,6 +1022,9 @@ impl SessionHub {
                 workspace_id,
             }),
         );
+        if let Some(status) = running {
+            inner.deliver(id, &status);
+        }
     }
 
     /// Stops every turn and drops every session.
@@ -1192,18 +1273,33 @@ impl SessionHub {
                     .await;
             }
             ClientMessage::ToolApprove(message) => {
+                // The frame names no session, so the sender's own decides
+                // which conversation's call it answers.
+                let Some(session_key) = self
+                    .inner
+                    .lock()
+                    .connections
+                    .get(connection_id)
+                    .map(Connection::session_key)
+                else {
+                    return;
+                };
                 if let Some(rule) = &message.rule
-                    && let Err(error) = self.save_rule(&message.call_id, message.approved, rule)
+                    && let Err(error) =
+                        self.save_rule(&session_key, &message.call_id, message.approved, rule)
                 {
                     self.error_for_call(connection_id, &message.call_id, &error);
                     return;
                 }
-                let answered =
-                    self.approvals
-                        .resolve(&message.call_id, message.approved, message.scope);
-                // An unanswered `call_id` is the normal two-tab race, or an
-                // answer to a call whose turn was stopped. Neither is worth an
-                // error frame.
+                let answered = self.approvals.resolve(
+                    &session_key,
+                    &message.call_id,
+                    message.approved,
+                    message.scope,
+                );
+                // An unanswered `call_id` is the normal two-tab race, an
+                // answer to a call whose turn was stopped, or a call in another
+                // conversation. None is worth an error frame.
                 if !answered {
                     tracing::debug!(call_id = %message.call_id, "approval answered too late");
                 }
@@ -1263,6 +1359,15 @@ impl SessionHub {
             return;
         }
 
+        // The same re-pointing a `session.new` does, for a tab that never sent
+        // one: it is what decides where a session with no row is created, and
+        // a session that has one ignores it.
+        if let Some(workspace_id) = &message.workspace_id
+            && let Some(connection) = self.inner.lock().connections.get_mut(connection_id)
+        {
+            connection.workspace_id = Some(workspace_id.clone());
+        }
+
         self.enqueue(
             connection_id,
             &message.session_key,
@@ -1275,11 +1380,11 @@ impl SessionHub {
 
     /// The queue rules, in the one place that has them.
     ///
-    /// Submit, regenerate and edit all end here. Three callers is exactly why
-    /// this is one method: the depth cap, the ack and the drain-or-queue
-    /// decision are the contract a client renders against, and three copies of
-    /// it would be three chances for a retry path to behave unlike the path it
-    /// retries.
+    /// Submit, regenerate, edit and a steer no turn reads all end here. That
+    /// is exactly why this is one method: the depth cap, the ack and the
+    /// drain-or-queue decision are the contract a client renders against, and
+    /// a copy each would be a chance for a retry path to behave unlike the
+    /// path it retries.
     async fn enqueue(
         self: &Arc<Self>,
         connection_id: &str,
@@ -1294,12 +1399,12 @@ impl SessionHub {
             content,
             client_message_id,
             agent_id,
-            Enqueue::default(),
+            None,
         )
         .await;
     }
 
-    /// [`Self::enqueue`], with the two things only a rewind or a steer asks for.
+    /// [`Self::enqueue`], with the continuation only a regenerate asks for.
     async fn enqueue_turn(
         self: &Arc<Self>,
         connection_id: &str,
@@ -1307,7 +1412,7 @@ impl SessionHub {
         content: Content,
         client_message_id: Option<String>,
         agent_id: Option<String>,
-        options: Enqueue,
+        continuation: Option<Continuation>,
     ) {
         let queued = {
             let mut inner = self.inner.lock();
@@ -1315,80 +1420,21 @@ impl SessionHub {
             let depth = inner
                 .sessions
                 .peek(session_key)
-                .map_or(0, |state| state.queue.len());
-            if depth >= self.max_queue_depth && !options.unbounded {
+                .map_or(0, SessionState::waiting);
+            if depth >= self.max_queue_depth {
                 drop(inner);
-                self.error(
-                    connection_id,
-                    ErrorCode::SessionBusy,
-                    &format!("This session already has {depth} messages waiting. Let it catch up."),
-                    true,
-                );
+                self.refuse_full(connection_id, depth, client_message_id);
                 return;
             }
-
-            let id = (self.new_id)();
-            let (channel, connection_agent, workspace_id) =
-                inner.connections.get(connection_id).map_or_else(
-                    || ("web".to_owned(), None, None),
-                    |connection| {
-                        (
-                            connection.channel.clone(),
-                            connection.agent_id.clone(),
-                            connection.workspace_id.clone(),
-                        )
-                    },
-                );
-
-            if let Some(state) = inner.sessions.get_mut(session_key) {
-                if let Some(client_message_id) = client_message_id.as_ref() {
-                    state.acked.insert(client_message_id.clone(), id.clone());
-                    while state.acked.len() > MAX_TRACKED_CLIENT_MESSAGE_IDS {
-                        state.acked.shift_remove_index(0);
-                    }
-                }
-                state.queue.push_back(QueuedTurn {
-                    id: id.clone(),
-                    content,
-                    agent_id: agent_id.or(connection_agent),
-                    channel,
-                    workspace_id,
-                    connection_id: connection_id.to_owned(),
-                    continuation: options.continuation,
-                });
-            }
-
-            inner.emit(
+            self.push_turn(
+                &mut inner,
+                connection_id,
                 session_key,
-                HubEvent::MessageAck(MessageAck {
-                    tag: MessageAckTag,
-                    session_key: session_key.to_owned(),
-                    message_id: id,
-                    client_message_id,
-                }),
-            );
-
-            let running = inner
-                .sessions
-                .peek(session_key)
-                .is_some_and(|state| state.running.is_some());
-            if running {
-                let depth = inner
-                    .sessions
-                    .peek(session_key)
-                    .map_or(0, |state| state.queue.len());
-                inner.emit(
-                    session_key,
-                    HubEvent::MessageQueued(MessageQueued {
-                        tag: MessageQueuedTag,
-                        session_key: session_key.to_owned(),
-                        queue_depth: depth as u64,
-                    }),
-                );
-                true
-            } else {
-                false
-            }
+                content,
+                client_message_id,
+                agent_id,
+                continuation,
+            )
         };
 
         if queued {
@@ -1396,6 +1442,99 @@ impl SessionHub {
         } else {
             self.drain(session_key);
         }
+    }
+
+    /// Answers a message or steer the session has no room for, naming it so
+    /// the sender's bubble stops waiting for an ack that will not come.
+    fn refuse_full(&self, connection_id: &str, depth: usize, client_message_id: Option<String>) {
+        self.inner.lock().deliver(
+            connection_id,
+            &ServerMessage::Error(ErrorEvent {
+                tag: ErrorTag,
+                code: ErrorCode::SessionBusy,
+                message: format!(
+                    "This session already has {depth} messages waiting. Let it catch up."
+                ),
+                retryable: true,
+                turn_id: None,
+                call_id: None,
+                client_message_id,
+            }),
+        );
+    }
+
+    /// Queues a turn and acks it, under the caller's lock. Says whether a turn
+    /// is running, in which case the new one waits behind it.
+    fn push_turn(
+        &self,
+        inner: &mut HubInner,
+        connection_id: &str,
+        session_key: &str,
+        content: Content,
+        client_message_id: Option<String>,
+        agent_id: Option<String>,
+        continuation: Option<Continuation>,
+    ) -> bool {
+        let id = (self.new_id)();
+        let (channel, connection_agent, workspace_id) =
+            inner.connections.get(connection_id).map_or_else(
+                || ("web".to_owned(), None, None),
+                |connection| {
+                    (
+                        connection.channel.clone(),
+                        connection.agent_id.clone(),
+                        connection.workspace_id.clone(),
+                    )
+                },
+            );
+
+        if let Some(state) = inner.sessions.get_mut(session_key) {
+            if let Some(client_message_id) = client_message_id.as_ref() {
+                state.acked.insert(client_message_id.clone(), id.clone());
+                while state.acked.len() > MAX_TRACKED_CLIENT_MESSAGE_IDS {
+                    state.acked.shift_remove_index(0);
+                }
+            }
+            state.queue.push_back(QueuedTurn {
+                id: id.clone(),
+                content,
+                agent_id: agent_id.or(connection_agent),
+                channel,
+                workspace_id,
+                connection_id: connection_id.to_owned(),
+                continuation,
+            });
+        }
+
+        inner.emit(
+            session_key,
+            HubEvent::MessageAck(MessageAck {
+                tag: MessageAckTag,
+                session_key: session_key.to_owned(),
+                message_id: id,
+                client_message_id,
+            }),
+        );
+
+        let running = inner
+            .sessions
+            .peek(session_key)
+            .is_some_and(|state| state.running.is_some());
+        if running {
+            let depth = inner
+                .sessions
+                .peek(session_key)
+                .map_or(0, |state| state.queue.len());
+            inner.emit(
+                session_key,
+                HubEvent::MessageQueued(MessageQueued {
+                    tag: MessageQueuedTag,
+                    session_key: session_key.to_owned(),
+                    queue_depth: depth as u64,
+                }),
+            );
+        }
+        running
     }
 
     /// Re-runs a turn, discarding the answer it produced.
@@ -1489,20 +1628,18 @@ impl SessionHub {
             // to claim it.
             message.client_message_id.clone(),
             None,
-            Enqueue {
-                continuation,
-                ..Enqueue::default()
-            },
+            continuation,
         )
         .await;
     }
 
     /// Hands a correction to the running turn, or runs it as the next one.
     ///
-    /// Never dropped. With no turn to read it, or a loop that refuses it, it is
-    /// an ordinary message under the same `clientMessageId`. Accepted, it is
-    /// tracked until the loop's `steer` frame names it, and a turn that ends
-    /// first hands it back to the queue.
+    /// Never silently dropped. With no turn to read it, or a loop that refuses
+    /// it, it is an ordinary message under the same `clientMessageId`.
+    /// Accepted, it is tracked until the loop's `steer` frame names it, and a
+    /// turn that ends first hands it back to the queue. So it counts against
+    /// the queue bound from the start, and past it is refused as a message is.
     async fn steer(self: &Arc<Self>, connection_id: &str, message: SteerMessage) {
         let held = HeldSteer {
             id: message
@@ -1518,10 +1655,14 @@ impl SessionHub {
         // cannot arrive ahead of the record it clears.
         let runner = {
             let mut inner = self.inner.lock();
-            let running = inner
-                .sessions
-                .get_mut(&key)
-                .and_then(|state| state.running.as_mut());
+            let state = inner.sessions.get_mut(&key);
+            let depth = state.as_deref().map_or(0, SessionState::waiting);
+            let running = state.and_then(|state| state.running.as_mut());
+            if running.is_some() && depth >= self.max_queue_depth {
+                drop(inner);
+                self.refuse_full(connection_id, depth, message.client_message_id);
+                return;
+            }
             match running {
                 None => None,
                 Some(running) => match running.runner.clone() {
@@ -1550,7 +1691,14 @@ impl SessionHub {
                 return;
             }
         }
-        self.requeue_steers(&key, vec![held], false).await;
+        self.enqueue(
+            &held.connection_id,
+            &key,
+            Content::Text(held.content),
+            Some(held.id),
+            None,
+        )
+        .await;
     }
 
     /// Stops tracking a steer. `false` when it was no longer tracked, because
@@ -1567,32 +1715,6 @@ impl SessionHub {
         let before = running.steers.len();
         running.steers.retain(|steer| steer.id != id);
         running.steers.len() != before
-    }
-
-    /// Runs steers the loop did not read as turns of their own.
-    ///
-    /// `unbounded` for the ones a turn already accepted: the queue bound is for
-    /// what a client may add, and refusing these would lose them.
-    async fn requeue_steers(
-        self: &Arc<Self>,
-        session_key: &str,
-        steers: Vec<HeldSteer>,
-        unbounded: bool,
-    ) {
-        for steer in steers {
-            self.enqueue_turn(
-                &steer.connection_id,
-                session_key,
-                Content::Text(steer.content),
-                Some(steer.id),
-                None,
-                Enqueue {
-                    unbounded,
-                    ..Enqueue::default()
-                },
-            )
-            .await;
-        }
     }
 
     /// Replaces a message and re-runs from it. Same guards as a regenerate.
@@ -1832,12 +1954,17 @@ impl SessionHub {
         token: CancellationToken,
     ) {
         let outcome = self.open_turn(&session_key, &turn, &token).await;
+        // Closed before anything below acks a steer, so a client sees the turn
+        // end first.
+        if let Err(failure) = outcome {
+            self.fail_turn(&session_key, &turn.id, &failure);
+        }
 
-        let unread = {
+        {
             let mut inner = self.inner.lock();
             // Only this turn's own marker. A close may have taken it already,
             // and whatever holds the slot now is somebody else's.
-            match inner.sessions.get_mut(&session_key) {
+            let unread = match inner.sessions.get_mut(&session_key) {
                 Some(state)
                     if state
                         .running
@@ -1855,14 +1982,23 @@ impl SessionHub {
                         .unwrap_or_default()
                 }
                 _ => Vec::new(),
+            };
+            // Whatever the turn ended on, a steer it never read is still owed
+            // an answer, so it runs next rather than vanishing with the turn.
+            // Under the lock that took them, so the room each was counted
+            // against when it was accepted cannot be taken in between.
+            for steer in unread {
+                self.push_turn(
+                    &mut inner,
+                    &steer.connection_id,
+                    &session_key,
+                    Content::Text(steer.content),
+                    Some(steer.id),
+                    None,
+                    None,
+                );
             }
-        };
-        if let Err(failure) = outcome {
-            self.fail_turn(&session_key, &turn.id, &failure);
         }
-        // Whatever the turn ended on, a steer it never read is still owed an
-        // answer, so it runs next rather than vanishing with the turn.
-        self.requeue_steers(&session_key, unread, true).await;
         // The next turn's own `turn.start` and status say the session is busy
         // again; announcing idle first would make a queue look like a gap.
         if !self.drain(&session_key) {
@@ -1926,6 +2062,7 @@ impl SessionHub {
                         retryable: false,
                         turn_id: Some(turn.id.clone()),
                         call_id: None,
+                        client_message_id: None,
                     }),
                 );
                 return Ok(());
@@ -2102,6 +2239,7 @@ impl SessionHub {
                 retryable,
                 turn_id: Some(turn_id.to_owned()),
                 call_id: None,
+                client_message_id: None,
             }),
         );
         self.inner.lock().emit(
@@ -2376,6 +2514,7 @@ impl SessionHub {
                 retryable,
                 turn_id: None,
                 call_id: None,
+                client_message_id: None,
             }),
         );
     }
@@ -2384,15 +2523,22 @@ impl SessionHub {
     /// call.
     ///
     /// A call no longer parked is the two-tab race, and saves nothing: the
-    /// rule was chosen for a prompt that has gone.
-    fn save_rule(&self, call_id: &str, approved: bool, rule: &ExecRule) -> Result<()> {
+    /// rule was chosen for a prompt that has gone. So is a call parked in
+    /// another conversation than `session_key`.
+    fn save_rule(
+        &self,
+        session_key: &str,
+        call_id: &str,
+        approved: bool,
+        rule: &ExecRule,
+    ) -> Result<()> {
         if !approved {
             return Err(WireError::new(
                 ErrorKind::InvalidInput,
                 "A rule can only be saved with an approval.",
             ));
         }
-        let Some(request) = self.approvals.pending(call_id) else {
+        let Some(request) = self.approvals.pending(session_key, call_id) else {
             return Ok(());
         };
         let Some(command) = &request.command else {
@@ -2430,6 +2576,7 @@ impl SessionHub {
                 retryable: false,
                 turn_id: None,
                 call_id: Some(call_id.to_owned()),
+                client_message_id: None,
             }),
         );
     }
@@ -2638,7 +2785,7 @@ fn status_event(state: &SessionState, workspace_id: Option<String>) -> HubEvent 
         session_key: state.key.clone(),
         busy: state.running.is_some(),
         queue_depth: state.queue.len() as u64,
-        workspace_id: workspace_id.unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_owned()),
+        workspace_id,
         turn_id: state
             .running
             .as_ref()
@@ -2717,14 +2864,6 @@ enum Rerun {
     Ask(Vec<ContentPart>),
     /// The loop carries on from history, answering the question at this seq.
     Continue { question_seq: i64 },
-}
-
-/// The parts of a queued turn only a rewind or a steer sets.
-#[derive(Debug, Clone, Copy, Default)]
-struct Enqueue {
-    continuation: Option<Continuation>,
-    /// Past the queue bound: for what a turn already accepted.
-    unbounded: bool,
 }
 
 /// The question that started the most recent turn.

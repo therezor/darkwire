@@ -22,8 +22,9 @@ use darkwire_providers::testkit::{
 };
 use darkwire_providers::{
     ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, OpenAiChatProvider,
-    ProviderError, ProviderErrorReason, ProviderSpec, ToolChoice, WireAdapterOptions, WireProtocol,
-    assert_usable_api_base, create_openai_chat_provider, tool_call_id,
+    ProviderError, ProviderErrorReason, ProviderSpec, ResilienceOptions, ToolChoice,
+    WireAdapterOptions, WireProtocol, assert_usable_api_base, create_openai_chat_provider,
+    tool_call_id, with_resilience,
 };
 use darkwire_security::testkit::FixedRandom;
 use futures::StreamExt;
@@ -494,14 +495,90 @@ async fn rejects_a_truncated_stream_and_an_empty_one() {
         ProviderErrorReason::StreamParse
     );
 
-    // No body at all: the stream ends before saying anything, which is a
-    // complete, empty answer rather than a parse failure.
+    // No body at all: the stream ends before saying anything. Nothing says
+    // the answer is complete, so it is a dropped connection, not an empty one.
     let server = ScriptedServer::start().await;
     server.push(ScriptedResponse::empty(200));
+    let error = collect(provider_on(&server, "ollama", None).stream(base(), token()))
+        .await
+        .unwrap_err();
+    let error = ProviderError::of(&error);
+    assert_eq!(error.reason, ProviderErrorReason::Transport);
+    assert!(error.retryable);
+}
+
+#[tokio::test]
+async fn a_clean_end_after_text_alone_keeps_the_text() {
+    // A server that sends neither a finish reason nor `[DONE]` still answers.
+    // Failing here would throw away text the reader has already seen.
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::sse(&[text_chunk("Hel")], false));
     let collected = collect(provider_on(&server, "ollama", None).stream(base(), token()))
         .await
         .unwrap();
-    assert!(collected.done.unwrap().message.content.is_empty());
+    assert_eq!(collected.text, vec!["Hel"]);
+    assert!(collected.done.unwrap().message.tool_calls.is_empty());
+}
+
+#[tokio::test]
+async fn an_empty_finish_reason_does_not_finish_a_tool_call() {
+    // A server that fills `finish_reason` with "" on every chunk has not said
+    // the call is whole.
+    let server = ScriptedServer::start().await;
+    let mut chunk = tool_call_chunk(0, Some("c1"), Some("read"), Some("{\"pa"));
+    chunk["choices"][0]["finish_reason"] = Value::String(String::new());
+    server.push(ScriptedResponse::sse(&[chunk], false));
+    let error = collect(provider_on(&server, "ollama", None).stream(base(), token()))
+        .await
+        .unwrap_err();
+    let error = ProviderError::of(&error);
+    assert_eq!(error.reason, ProviderErrorReason::Transport);
+    assert!(error.retryable);
+}
+
+#[tokio::test]
+async fn a_cut_off_tool_call_is_retried_rather_than_dispatched() {
+    // A tool call's arguments stream without a visible delta, so nothing has
+    // reached the consumer and the resilience layer may try again.
+    let server = ScriptedServer::start().await;
+    server
+        .push(ScriptedResponse::sse(
+            &[tool_call_chunk(0, Some("c1"), Some("read"), Some("{\"pa"))],
+            false,
+        ))
+        .push(ScriptedResponse::sse(
+            &[text_chunk("whole"), finish_chunk("stop")],
+            true,
+        ));
+    let provider = with_resilience(
+        provider_on(&server, "ollama", None),
+        ResilienceOptions {
+            jitter: Some(Arc::new(|| 1.0)),
+            base_delay_ms: Some(1),
+            max_delay_ms: Some(10),
+            ..ResilienceOptions::default()
+        },
+    );
+    let collected = collect(provider.stream(base(), token())).await.unwrap();
+    let done = collected.done.unwrap();
+    assert!(done.message.tool_calls.is_empty());
+    assert_eq!(collected.text, vec!["whole"]);
+    assert_eq!(server.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn a_finish_reason_without_done_still_completes() {
+    // Some local servers never send `[DONE]`. The finish reason is enough.
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::sse(
+        &[text_chunk("ok"), finish_chunk("stop")],
+        false,
+    ));
+    let collected = collect(provider_on(&server, "ollama", None).stream(base(), token()))
+        .await
+        .unwrap();
+    assert_eq!(collected.text, vec!["ok"]);
+    assert_eq!(collected.done.unwrap().finish_reason, FinishReason::Stop);
 }
 
 #[tokio::test]
@@ -563,6 +640,86 @@ async fn a_request_that_is_already_cancelled_never_leaves() {
     assert!(error.is_aborted());
     assert_eq!(ProviderError::of(&error).provider_id, "ollama");
     assert!(server.calls().is_empty());
+}
+
+/// Bounds a call that would otherwise wait out the two-minute idle timeout.
+async fn promptly<T>(work: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(10), work)
+        .await
+        .expect("returned well before the idle timeout")
+}
+
+fn cancel_soon() -> CancellationToken {
+    let token = CancellationToken::new();
+    let later = token.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        later.cancel();
+    });
+    token
+}
+
+#[tokio::test]
+async fn a_stop_while_an_error_body_trickles_in_returns_at_once() {
+    let server = ScriptedServer::start().await;
+    server.push(
+        ScriptedResponse::streaming(vec!["{\"error\": ".to_owned()], Ending::Hang).status(500),
+    );
+    let provider = provider_on(&server, "ollama", None);
+    let error = promptly(provider.chat(&base(), &cancel_soon()))
+        .await
+        .unwrap_err();
+    assert!(error.is_aborted());
+}
+
+#[tokio::test]
+async fn an_error_body_is_read_no_further_than_its_cap() {
+    // More than any error object needs, then nothing: a reader without a cap
+    // would sit here until the idle timeout.
+    let server = ScriptedServer::start().await;
+    server
+        .push(ScriptedResponse::streaming(vec!["x".repeat(1024 * 1024)], Ending::Hang).status(500));
+    let provider = provider_on(&server, "ollama", None);
+    let error = promptly(provider.chat(&base(), &token()))
+        .await
+        .unwrap_err();
+    let error = ProviderError::of(&error);
+    assert_eq!(error.reason, ProviderErrorReason::Server);
+    assert_eq!(error.status, Some(500));
+    assert!(error.message.len() < 4 * 1024, "{}", error.message.len());
+}
+
+#[tokio::test]
+async fn a_stop_while_the_model_list_trickles_in_returns_at_once() {
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::streaming(
+        vec!["{\"data\": [".to_owned()],
+        Ending::Hang,
+    ));
+    let provider = provider_on(&server, "ollama", None);
+    let error = promptly(provider.list_models(&cancel_soon()))
+        .await
+        .unwrap_err();
+    assert!(error.is_aborted());
+}
+
+#[tokio::test]
+async fn a_model_list_past_its_cap_is_refused_rather_than_cut() {
+    // Cut JSON would parse as no models at all, which reads as a working
+    // endpoint that serves nothing.
+    let server = ScriptedServer::start().await;
+    server.push(ScriptedResponse::streaming(
+        vec!["x".repeat(1024 * 1024); 17],
+        Ending::Finish,
+    ));
+    let error = provider_on(&server, "ollama", None)
+        .list_models(&token())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ProviderError::reason_of(&error),
+        ProviderErrorReason::Unknown
+    );
 }
 
 #[tokio::test]

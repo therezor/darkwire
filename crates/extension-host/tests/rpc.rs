@@ -12,11 +12,12 @@
 )]
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use darkwire_core::ErrorKind;
 use darkwire_extension_host::{
-    DarkwireInit, NoHostMethods, OUTBOUND_QUEUE, REQUEST_TIMEOUT, RpcClient, RpcError, RpcFailure,
-    RpcHandler,
+    DarkwireInit, INBOUND_REQUESTS, MAX_LINE_BYTES, NoHostMethods, OUTBOUND_QUEUE, REQUEST_TIMEOUT,
+    RpcClient, RpcError, RpcFailure, RpcHandler,
 };
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
@@ -479,4 +480,103 @@ async fn a_connection_closed_for_any_other_reason_is_not_reported_as_hung() {
     client.close();
     let reason = tokio::time::timeout(REQUEST_TIMEOUT, client.stalled()).await;
     assert!(reason.is_err(), "a close is not a stall");
+}
+
+#[tokio::test]
+async fn an_answer_longer_than_any_frame_fails_its_call_and_the_next_one_lands() {
+    let (client, mut peer, _token) = connect(Arc::new(NoHostMethods));
+    let call = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.request("one", json!({})).await })
+    };
+    let frame = peer.next_request().await;
+
+    // Valid JSON and an answer to the call, but past the cap: it is never held
+    // whole, so the call fails now rather than at its timeout.
+    peer.reply(&frame["id"], json!("x".repeat(MAX_LINE_BYTES)))
+        .await;
+    let failure = call.await.unwrap().unwrap_err();
+    assert!(
+        failure.message().contains("larger than"),
+        "the call failed for another reason"
+    );
+
+    // The connection itself is fine.
+    let call = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.request("two", json!({})).await })
+    };
+    let frame = peer.next_request().await;
+    peer.reply(&frame["id"], json!("small")).await;
+    // Not `assert_eq!`: a failure would print sixteen megabytes.
+    let answer = call.await.unwrap().unwrap();
+    assert!(answer == json!("small"), "the second call did not land");
+}
+
+/// Counts drops, so a test can see a handler's future go away.
+struct Dropped(Arc<AtomicUsize>);
+
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// A host whose every answer waits forever.
+#[derive(Default)]
+struct StuckHost {
+    started: Arc<AtomicUsize>,
+    dropped: Arc<AtomicUsize>,
+}
+
+impl RpcHandler for StuckHost {
+    fn request(
+        &self,
+        _method: String,
+        _params: Value,
+    ) -> BoxFuture<'_, std::result::Result<Value, RpcError>> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        let dropped = Dropped(Arc::clone(&self.dropped));
+        Box::pin(async move {
+            let _dropped = dropped;
+            std::future::pending().await
+        })
+    }
+
+    fn notify(&self, _method: String, _params: Value) {}
+}
+
+#[tokio::test]
+async fn the_extensions_own_requests_are_bounded_and_end_with_the_connection() {
+    let host = Arc::new(StuckHost::default());
+    let started = Arc::clone(&host.started);
+    let dropped = Arc::clone(&host.dropped);
+    let (client, mut peer, _token) = connect(host);
+
+    let flood = INBOUND_REQUESTS + 8;
+    for id in 0..flood {
+        peer.write(&json!({"jsonrpc": "2.0", "id": id, "method": "darkwire/secret"}))
+            .await;
+    }
+    let settled = async {
+        while started.load(Ordering::SeqCst) < INBOUND_REQUESTS {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), settled)
+        .await
+        .unwrap();
+    // Time for any request past the bound to start, were it allowed to.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(started.load(Ordering::SeqCst), INBOUND_REQUESTS);
+
+    client.close();
+    let ended = async {
+        while dropped.load(Ordering::SeqCst) < INBOUND_REQUESTS {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), ended)
+        .await
+        .unwrap();
 }

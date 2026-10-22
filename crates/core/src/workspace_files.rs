@@ -79,6 +79,21 @@ pub struct WorkspaceText {
     pub truncated: bool,
 }
 
+/// A whole file of at most `max_bytes`, or `None` when it holds more.
+///
+/// The read itself is the bound, not an earlier `stat`: a file that grew after
+/// it was measured is refused rather than read whole.
+pub fn read_bytes_within(absolute_path: &Path, max_bytes: u64) -> Result<Option<Vec<u8>>> {
+    let mut bytes = Vec::new();
+    File::open(absolute_path)?
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max_bytes {
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
+
 /// One file as text, or `None` when the bytes are not text.
 ///
 /// "Not text" is a NUL byte in the prefix: the same heuristic `git` uses, and
