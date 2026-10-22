@@ -60,13 +60,14 @@ use darkwire_core::{
     Clock, ErrorKind, Result, SessionRecord, SessionStore, StoredMessageRecord, SystemClock,
     TurnStatsRecord, WireError, text_of,
 };
-use darkwire_protocol::json::Object;
+use darkwire_protocol::json::{MAX_SAFE_INTEGER, Object};
 use darkwire_protocol::tasks::TaskItem;
 use darkwire_protocol::{
     AgentEnvironment, AgentSettings, AssistantDelta, ChatMessage, DEFAULT_AGENT_ID,
     DEFAULT_WORKSPACE_ID, ErrorCode, ErrorEvent, NoticeKind, ReasoningDelta, SUBAGENT_METADATA_KEY,
-    SUBAGENT_ORIGIN, StopReason, SubagentLineage, SubagentRunRef, ToolDefinition,
-    ToolPromptOverrides, Usage, apply_tool_prompts, with_subagent_run,
+    SUBAGENT_ORIGIN, Steer, SteerEventTag, StepEnd, StepEndTag, StepStats, StopReason,
+    SubagentLineage, SubagentRunRef, ToolDefinition, ToolPromptOverrides, Usage,
+    apply_tool_prompts, with_subagent_run,
 };
 use darkwire_providers::{
     ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, empty_usage,
@@ -97,7 +98,7 @@ use crate::prompt::{
     PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt, build_runtime_block,
     build_static_prompt, contributor_sections, runtime_reminder,
 };
-use crate::steering::{SteeringQueue, steering_text};
+use crate::steering::{SteeringMessage, SteeringQueue, steering_text};
 use crate::subagent::{
     DelegationRefusal, SubagentBinding, parse_task, refuse_delegation, refused_execution,
     subagent_definition, subagent_result,
@@ -109,8 +110,8 @@ const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = darkwire_core::history::DEFAULT_MAX
 
 fn max_iterations_text(max_iterations: u64) -> String {
     format!(
-        "I stopped after {max_iterations} tool iterations without finishing. Tell me which part \
-         to focus on, or break the task into smaller steps."
+        "I stopped after {max_iterations} messages without finishing. Tell me which part to focus \
+         on, or break the task into smaller pieces."
     )
 }
 
@@ -394,6 +395,12 @@ pub struct TurnInput {
     /// caller, which is the top of a chain. What the turn does with it is the
     /// agent's own `alwaysUseOwn`.
     pub inherited_environment: Option<AgentEnvironment>,
+    /// Carry on from the history as it stands, answering the question at this
+    /// seq, instead of asking `content`.
+    ///
+    /// What regenerating one assistant message runs: the rows from it on are
+    /// already gone, and the turn writes no new question. `content` is unused.
+    pub continue_from: Option<i64>,
 }
 
 impl TurnInput {
@@ -409,6 +416,7 @@ impl TurnInput {
             chain: Vec::new(),
             root_session_key: None,
             inherited_environment: None,
+            continue_from: None,
         }
     }
 }
@@ -541,10 +549,12 @@ impl Stream for Turn {
     }
 }
 
-/// Clears the session's steering queue however the turn ended.
+/// Closes the session's steering queue however the turn ended.
 ///
 /// A guard rather than a line at each exit, because "however it ended" includes
-/// the early return a vanished consumer takes.
+/// the early return a vanished consumer takes. What no iteration read is not
+/// this crate's to deliver: the transport that accepted it knows it was never
+/// echoed, and runs it as the next turn.
 struct SteeringGuard {
     steering: Arc<SteeringQueue>,
     session_key: String,
@@ -552,7 +562,7 @@ struct SteeringGuard {
 
 impl Drop for SteeringGuard {
     fn drop(&mut self) {
-        self.steering.clear(&self.session_key);
+        self.steering.close(&self.session_key);
     }
 }
 
@@ -622,6 +632,21 @@ struct TurnState {
     prices: RowPrices,
     first_seq: i64,
     last_seq: i64,
+    started_at: Duration,
+    /// The step whose figures have not reached a row yet.
+    pending_step: Option<PendingStep>,
+    /// A continuation, which answers a question it did not write.
+    continued: bool,
+}
+
+/// A step's figures, held until the rows they describe are written.
+///
+/// More than one call can land here: a call that wrote nothing leaves its
+/// figures for the next row, or the steps of a turn would not sum to it.
+#[derive(Debug)]
+struct PendingStep {
+    requested_at: Duration,
+    stats: StepStats,
 }
 
 /// The turn's rounded timings, shared by the stats row and the end event.
@@ -642,6 +667,15 @@ struct Timings {
 }
 
 impl TurnState {
+    /// The question this turn wrote, for the events that name it. A
+    /// continuation wrote none: its `first_seq` only anchors the window.
+    fn question_seq(&self) -> Option<u64> {
+        if self.continued {
+            return None;
+        }
+        u64::try_from(self.first_seq).ok()
+    }
+
     fn timings(&self) -> Timings {
         Timings {
             generation_ms: (self.generation_ms > 0.0).then(|| round_ms(self.generation_ms)),
@@ -649,6 +683,70 @@ impl TurnState {
             first_token_ms: self.first_token_ms.map(round_ms),
         }
     }
+
+    /// Folds one call's figures into the step that has not been written yet.
+    fn note_step(&mut self, requested_at: Duration, result: &ChatResult) {
+        let window = result.generation_ms.filter(|ms| *ms > 0.0);
+        let call = StepStats {
+            usage: result.usage,
+            model: Some(result.model.clone()),
+            elapsed_ms: 0,
+            generation_ms: window.map(round_ms),
+            generation_tokens: window.map(|_| result.usage.completion_tokens),
+            first_token_ms: result.first_token_ms.map(round_ms),
+        };
+        let Some(mut pending) = self.pending_step.take() else {
+            self.pending_step = Some(PendingStep {
+                requested_at,
+                stats: call,
+            });
+            return;
+        };
+        let stats = &mut pending.stats;
+        stats.usage = accumulate_usage(&stats.usage, &call.usage);
+        stats.model = call.model;
+        stats.generation_ms = sum_optional(stats.generation_ms, call.generation_ms);
+        stats.generation_tokens = sum_optional(stats.generation_tokens, call.generation_tokens);
+        if stats.first_token_ms.is_none() {
+            // Rebased onto the step, the way the turn's figure is rebased onto
+            // the turn: the earlier call's whole wait came first.
+            let waited = millis(requested_at.saturating_sub(pending.requested_at));
+            stats.first_token_ms = call.first_token_ms.map(|ms| waited.saturating_add(ms));
+        }
+        self.pending_step = Some(pending);
+    }
+
+    /// The figures for the rows about to be written, closed at `now`.
+    ///
+    /// Clamped to what the wire can carry, because the row they ride on is
+    /// validated on the way in: a provider reporting a count past 2^53 would
+    /// otherwise fail the write and the turn with it.
+    fn take_step(&mut self, now: Duration) -> Option<StepStats> {
+        let pending = self.pending_step.take()?;
+        let usage = pending.stats.usage;
+        Some(StepStats {
+            usage: Usage {
+                prompt_tokens: safe(usage.prompt_tokens),
+                completion_tokens: safe(usage.completion_tokens),
+                total_tokens: safe(usage.total_tokens),
+                cached_tokens: usage.cached_tokens.map(safe),
+                reasoning_tokens: usage.reasoning_tokens.map(safe),
+            },
+            elapsed_ms: safe(millis(now.saturating_sub(pending.requested_at))),
+            generation_ms: pending.stats.generation_ms.map(safe),
+            generation_tokens: pending.stats.generation_tokens.map(safe),
+            first_token_ms: pending.stats.first_token_ms.map(safe),
+            ..pending.stats
+        })
+    }
+}
+
+fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn safe(value: u64) -> u64 {
+    value.min(MAX_SAFE_INTEGER)
 }
 
 /// The session metadata bag, as the protocol's helpers take it.
@@ -900,10 +998,18 @@ impl AgentLoop {
     }
 
     /// Queues a correction for the turn currently running on `session_key`.
-    pub fn steer(&self, session_key: &str, content: impl Into<String>) {
-        self.inner
-            .steering
-            .push(session_key, content, self.inner.clock.now_ms());
+    ///
+    /// `false` when no turn there can read it, or its queue is full. The
+    /// caller delivers it some other way.
+    pub fn steer(&self, session_key: &str, id: &str, content: impl Into<String>) -> bool {
+        self.inner.steering.push(
+            session_key,
+            SteeringMessage {
+                id: id.to_owned(),
+                content: content.into(),
+                received_at_ms: self.inner.clock.now_ms(),
+            },
+        )
     }
 
     /// The tool registry entries a turn on this loop would send.
@@ -1384,11 +1490,25 @@ impl AgentLoop {
         let (events_tx, events_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let (result_tx, result_rx) = oneshot::channel();
 
+        // Open before the task exists, so a steer sent the moment this returns
+        // is accepted rather than refused for a turn that has not started yet.
+        // The guard goes with the task and closes it however the turn ends.
+        self.inner.steering.open(&input.session_key);
+        let steering = SteeringGuard {
+            steering: Arc::clone(&self.inner.steering),
+            session_key: input.session_key.clone(),
+        };
+
         let loop_handle = self.clone();
         let task_token = token.clone();
         tokio::spawn(async move {
             let sink = EventSink::new(events_tx);
             let outcome = loop_handle.run_turn(input, &task_token, &sink).await;
+            // Closed before anyone can learn the turn ended. A transport that
+            // starts the next turn on the result would otherwise open its queue
+            // first and have this close take it away.
+            drop(steering);
+            drop(sink);
             let _ = result_tx.send(outcome);
         });
 
@@ -1599,28 +1719,22 @@ impl AgentLoop {
         sink: &EventSink,
     ) -> Result<TurnResult> {
         let inner = &self.inner;
-        // Clears whatever ended the turn — completion, a cap, an abandoned
-        // consumer — so nothing queued for it leaks into the next one.
-        let _steering = SteeringGuard {
-            steering: Arc::clone(&inner.steering),
-            session_key: input.session_key.clone(),
-        };
 
         let mut turn = self.open_turn(&input, token)?;
-        let opening = inner.store.append(
-            &turn.scope.session_key,
-            ChatMessage::User(user_message(input.content.clone())),
-            &AppendOptions {
-                turn_id: Some(turn.turn_id.clone()),
-            },
-        )?;
-        self.name_the_session(&turn.session, &opening.message)?;
-
-        let mut state = TurnState {
-            first_seq: opening.seq,
-            last_seq: opening.seq,
-            usage: empty_usage(),
-            ..TurnState::default()
+        // A continuation answers a question already in history, so it writes
+        // none. Its window is still anchored on that question.
+        let (first_seq, last_seq) = if let Some(question) = input.continue_from {
+            (question, self.last_row_seq(&turn.scope.session_key)?)
+        } else {
+            let opening = inner.store.append(
+                &turn.scope.session_key,
+                ChatMessage::User(user_message(input.content.clone())),
+                &AppendOptions {
+                    turn_id: Some(turn.turn_id.clone()),
+                },
+            )?;
+            self.name_the_session(&turn.session, &opening.message)?;
+            (opening.seq, opening.seq)
         };
 
         let started_at = inner.clock.monotonic();
@@ -1630,6 +1744,15 @@ impl AgentLoop {
         // human reads, and is only ever subtracted from another reading of
         // itself.
         let started_at_ms = inner.clock.now_ms();
+
+        let mut state = TurnState {
+            first_seq,
+            last_seq,
+            continued: input.continue_from.is_some(),
+            usage: empty_usage(),
+            started_at,
+            ..TurnState::default()
+        };
 
         // Emitted before every fallible step below. Building the preamble
         // awaits and resolving the sandbox reaches a container daemon that may
@@ -1642,7 +1765,7 @@ impl AgentLoop {
             tag: darkwire_protocol::TurnStartTag,
             session_key: turn.scope.session_key.clone(),
             turn_id: turn.turn_id.clone(),
-            first_seq: u64::try_from(state.first_seq).ok(),
+            first_seq: state.question_seq(),
             agent_id: inner.agent_id.clone(),
             model: inner.model_id.clone(),
             provider: inner.provider.id().to_owned(),
@@ -1657,8 +1780,6 @@ impl AgentLoop {
         let mut attachments: AttachmentCache = AttachmentCache::new();
 
         while state.iteration < inner.config.max_tool_iterations {
-            self.drain_steering(&turn, &mut state)?;
-
             if token.is_cancelled() {
                 state.stop_reason = Some(StopReason::Aborted);
                 break;
@@ -1685,6 +1806,11 @@ impl AgentLoop {
                 break;
             }
 
+            // After the stop checks, so a turn that is ending never writes a
+            // steer it will not answer. One left unread goes back to the hub,
+            // which runs it as the next turn.
+            self.drain_steering(&turn, &mut state, sink).await?;
+
             state.iteration += 1;
             let flow = self
                 .one_iteration(
@@ -1704,8 +1830,14 @@ impl AgentLoop {
         self.close_turn(&turn, state, started_at_ms, sink).await
     }
 
-    /// Appends whatever was steered before this iteration built its request.
-    fn drain_steering(&self, turn: &TurnContext, state: &mut TurnState) -> Result<()> {
+    /// Appends whatever was steered before this iteration built its request,
+    /// and says so once each is written: the frame is where a reader sees it.
+    async fn drain_steering(
+        &self,
+        turn: &TurnContext,
+        state: &mut TurnState,
+        sink: &EventSink,
+    ) -> Result<()> {
         for message in self.inner.steering.drain(&turn.scope.session_key) {
             let written = self.inner.store.append(
                 &turn.scope.session_key,
@@ -1715,8 +1847,29 @@ impl AgentLoop {
                 },
             )?;
             state.last_seq = written.seq;
+            sink.emit(Steer {
+                tag: SteerEventTag,
+                session_key: turn.scope.session_key.clone(),
+                turn_id: turn.turn_id.clone(),
+                content: message.content,
+                client_message_id: Some(message.id),
+            })
+            .await;
         }
         Ok(())
+    }
+
+    /// The `seq` of the session's newest row, or 0 for an empty one.
+    fn last_row_seq(&self, session_key: &str) -> Result<i64> {
+        let rows = self.inner.store.messages(
+            session_key,
+            &darkwire_core::session_store::ReadMessages {
+                limit: Some(1),
+                from_end: true,
+                ..darkwire_core::session_store::ReadMessages::default()
+            },
+        )?;
+        Ok(rows.last().map_or(0, |row| row.seq))
     }
 }
 
@@ -1799,6 +1952,7 @@ impl AgentLoop {
         };
 
         state.usage = accumulate_usage(&state.usage, &result.usage);
+        state.note_step(requested_at, &result);
         // Beside the usage it was measured against, and only ever from a
         // result. Both sides together, and only when there is a window to speak
         // of: a request whose content arrived in one frame measured a real
@@ -1878,14 +2032,7 @@ impl AgentLoop {
         }
         let message = ChatMessage::Assistant(result.message);
         if !text_of(&message).is_empty() {
-            let written = inner.store.append(
-                &turn.scope.session_key,
-                message,
-                &AppendOptions {
-                    turn_id: Some(turn.turn_id.clone()),
-                },
-            )?;
-            state.last_seq = written.seq;
+            self.write_step(turn, vec![message], state, sink).await?;
         }
         Ok(Flow::Continue)
     }
@@ -2088,6 +2235,49 @@ impl AgentLoop {
         .unwrap_or(u64::MAX)
     }
 
+    /// Writes one step's rows in one transaction and reports the step.
+    ///
+    /// The step's figures go on its assistant row, which is always the first.
+    /// `step.end` follows the write, so its seqs are rows a branch can copy.
+    async fn write_step(
+        &self,
+        turn: &TurnContext,
+        mut rows: Vec<ChatMessage>,
+        state: &mut TurnState,
+        sink: &EventSink,
+    ) -> Result<Vec<StoredMessageRecord>> {
+        let figures = state.take_step(self.inner.clock.monotonic());
+        if let (Some(figures), Some(ChatMessage::Assistant(message))) = (&figures, rows.first_mut())
+        {
+            message.stats = Some(Box::new(figures.clone()));
+        }
+        let written = self.inner.store.append_many(
+            &turn.scope.session_key,
+            rows,
+            &AppendOptions {
+                turn_id: Some(turn.turn_id.clone()),
+            },
+        )?;
+        let (Some(first), Some(last)) = (written.first(), written.last()) else {
+            return Ok(written);
+        };
+        state.last_seq = last.seq;
+        if let (Some(stats), Ok(first_seq), Ok(last_seq)) =
+            (figures, u64::try_from(first.seq), u64::try_from(last.seq))
+        {
+            sink.emit(StepEnd {
+                tag: StepEndTag,
+                turn_id: turn.turn_id.clone(),
+                first_seq,
+                last_seq,
+                stats,
+                turn_elapsed_ms: self.since(state.started_at),
+            })
+            .await;
+        }
+        Ok(written)
+    }
+
     /// The model answered without calling a tool.
     async fn finish_answer(
         &self,
@@ -2097,15 +2287,18 @@ impl AgentLoop {
         sink: &EventSink,
     ) -> Result<Flow> {
         let inner = &self.inner;
-        let written = inner.store.append(
-            &turn.scope.session_key,
-            ChatMessage::Assistant(result.message.clone()),
-            &AppendOptions {
-                turn_id: Some(turn.turn_id.clone()),
-            },
-        )?;
-        state.last_seq = written.seq;
-        state.final_text = text_of(&written.message);
+        let written = self
+            .write_step(
+                turn,
+                vec![ChatMessage::Assistant(result.message.clone())],
+                state,
+                sink,
+            )
+            .await?;
+        state.final_text = written
+            .last()
+            .map(|row| text_of(&row.message))
+            .unwrap_or_default();
 
         // A call the model wrote out instead of making. Left alone, this ends
         // the turn complete with a JSON blob as the answer and no sign anywhere
@@ -2172,13 +2365,12 @@ impl AgentLoop {
         // The correction arrived while this answer was being composed. Keep
         // going so it is answered, rather than ending a turn the user has
         // already asked to change. With no iteration left, the answer stands
-        // and the correction is written to history, where the next turn reads
-        // it, rather than cleared with the queue.
-        if inner.steering.has_pending(&turn.scope.session_key) {
-            if state.iteration < inner.config.max_tool_iterations {
-                return Ok(Flow::Continue);
-            }
-            self.drain_steering(turn, state)?;
+        // and the correction stays unread: the hub runs it as the next turn,
+        // where it gets an answer of its own.
+        if inner.steering.has_pending(&turn.scope.session_key)
+            && state.iteration < inner.config.max_tool_iterations
+        {
+            return Ok(Flow::Continue);
         }
         state.stop_reason = Some(StopReason::Complete);
         Ok(Flow::Stop)
@@ -2225,14 +2417,7 @@ impl AgentLoop {
         // One transaction, and the store stays the turn's to write. A partial
         // write is exactly the orphaned tool result the history walker then has
         // to repair on every later request.
-        let written = inner.store.append_many(
-            &turn.scope.session_key,
-            outcome.pending,
-            &AppendOptions {
-                turn_id: Some(turn.turn_id.clone()),
-            },
-        )?;
-        state.last_seq = written.last().map_or(0, |record| record.seq);
+        self.write_step(turn, outcome.pending, state, sink).await?;
 
         // The history just grew, which is the only thing that moves the number.
         // Emitted here rather than at the end because a turn that calls twenty
@@ -2309,17 +2494,14 @@ impl AgentLoop {
             } else {
                 wall_timeout_text(state.elapsed_ms, inner.config.loop_wall_timeout_ms)
             };
-            let written = inner.store.append(
-                &turn.scope.session_key,
-                ChatMessage::Assistant(assistant_message(
-                    state.final_text.as_str(),
-                    AssistantOptions::default(),
-                )),
-                &AppendOptions {
-                    turn_id: Some(turn.turn_id.clone()),
-                },
-            )?;
-            state.last_seq = written.seq;
+            // Through the step writer, so a call that wrote nothing before the
+            // cap still lands its figures somewhere the turn can sum them.
+            let message = ChatMessage::Assistant(assistant_message(
+                state.final_text.as_str(),
+                AssistantOptions::default(),
+            ));
+            self.write_step(turn, vec![message], &mut state, sink)
+                .await?;
             sink.emit(AssistantDelta {
                 tag: darkwire_protocol::AssistantDeltaTag,
                 turn_id: turn.turn_id.clone(),
@@ -2362,7 +2544,7 @@ impl AgentLoop {
             generation_ms: timings.generation_ms,
             generation_tokens: timings.generation_tokens,
             first_token_ms: timings.first_token_ms,
-            first_seq: u64::try_from(state.first_seq).ok(),
+            first_seq: state.question_seq(),
             last_seq: u64::try_from(state.last_seq).ok(),
         })
         .await;
@@ -2511,6 +2693,7 @@ impl AgentLoop {
                 // nothing. Whether the child takes it is the child's own
                 // `alwaysUseOwn`, read where its turn opens.
                 inherited_environment: Some(turn.environment.clone()),
+                continue_from: None,
                 ..TurnInput::new(session_key.clone(), task)
             },
             &cap,
@@ -2631,6 +2814,10 @@ impl AgentLoop {
 /// unreachable; it exists because `ContextUsage` sits outside
 /// `NestedAgentEvent`, which is what turns "a subagent must not report context"
 /// from a convention into something the compiler checks here.
+///
+/// A step boundary is dropped too, and this one is reached: a child's loop
+/// writes rows and ends steps like any other. Its seqs address the child's
+/// session, so on the parent's transcript they would point at the wrong rows.
 fn wrap_subagent_event(
     turn: &TurnScope,
     call_id: &str,
@@ -2644,7 +2831,7 @@ fn wrap_subagent_event(
             body.turn_id.clone_from(&turn.turn_id);
             Some(AgentEvent::Subagent(body))
         }
-        AgentEvent::ContextUsage(_) => None,
+        AgentEvent::ContextUsage(_) | AgentEvent::StepEnd(_) | AgentEvent::Steer(_) => None,
         AgentEvent::Nested(inner) => {
             Some(AgentEvent::Subagent(darkwire_protocol::SubagentEventBody {
                 tag: darkwire_protocol::SubagentEventTag,

@@ -125,7 +125,7 @@ describe('the context inspector', () => {
     expect(screen.getByText('4,880 free')).toBeInTheDocument();
     // The figure the two halves exist to move, beside the total rather than
     // buried in the table: what one more step of this turn costs.
-    expect(screen.getByText('120 per step')).toBeInTheDocument();
+    expect(screen.getByText('120 per message')).toBeInTheDocument();
   });
 
   it('breaks the total down by section, in a table and not only in a bar', async () => {

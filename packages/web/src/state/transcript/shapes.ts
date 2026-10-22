@@ -11,13 +11,17 @@
  * The model is:
  *
  *  - A **transcript** is a flat list of items in arrival order: what the user
- *    said, what a turn produced, a mid-turn steer, a notice that belongs to no
- *    turn.
+ *    said, what a turn produced, a notice that belongs to no turn.
  *  - A **turn** is a list of parts, also in arrival order: text, reasoning, a
  *    tool call, a notice. Parts are ordered because they interleave — a model
  *    that writes a sentence, calls a tool, and writes another sentence must
  *    render in that order, and a shape with `text` and `tools[]` as separate
  *    fields cannot express it.
+ *  - A **message** of a turn ends with a step part: a boundary in that same
+ *    list, after one model call and the tools it asked for. A boundary rather
+ *    than a nesting, so a live turn only ever appends.
+ *  - A **steer** is a part too, at the point the loop read it, so it sits
+ *    between the messages it came between rather than after the whole turn.
  *  - A **delegating tool call carries a list of parts of its own** — a
  *    subagent's turn, rendered inside the card that started it. It is the same
  *    `TurnPart[]`, reduced by the same `applyPartEvent`, which is what makes a
@@ -30,9 +34,9 @@ import type {
   CommandPolicy,
   NestedAgentEvent,
   NoticeKind,
+  StepStats,
   StopReason,
   ToolRisk,
-  Usage,
 } from '@darkwire/protocol';
 
 // Shapes
@@ -72,6 +76,11 @@ export interface UserItem {
   readonly attachments: readonly Attachment[];
   /** True until the ack lands — the bubble that has not been accepted yet. */
   readonly pending: boolean;
+  /**
+   * Sent to the running turn rather than as a turn of its own. It goes when
+   * the loop reads it, or becomes an ordinary message if the turn ends first.
+   */
+  readonly steering: boolean;
 }
 
 export interface TextPart {
@@ -119,7 +128,11 @@ export interface ToolPart {
   readonly id: string;
   readonly name: string;
   readonly args: unknown;
-  readonly risk: ToolRisk;
+  /**
+   * The band the registry gave the call. Absent on a call read back from
+   * storage, which never held it: a guess would label an `exec` as a read.
+   */
+  readonly risk: ToolRisk | undefined;
   readonly status: ToolStatus;
   /** Last figure from `tool.progress`; the card ticks past it locally. */
   readonly elapsedMs: number;
@@ -170,10 +183,6 @@ export interface SubagentPart {
   readonly sessionKey: string;
   readonly parts: readonly TurnPart[];
   readonly model: string;
-  readonly stopReason: StopReason | undefined;
-  readonly usage: Usage | undefined;
-  readonly iterations: number;
-  readonly elapsedMs: number | undefined;
   readonly done: boolean;
   /**
    * Whether `parts` is the whole run.
@@ -202,7 +211,29 @@ export interface SubagentPart {
   readonly partial: boolean;
 }
 
-export type TurnPart = TextPart | ReasoningPart | NoticePart | ToolPart;
+/**
+ * The end of one step, once its rows are written.
+ *
+ * The seqs are what Branch names from here, and they exist before the turn
+ * ends: everything up to `lastSeq` is committed while the turn goes on.
+ */
+export interface StepPart {
+  readonly kind: 'step';
+  readonly id: string;
+  readonly stats: StepStats;
+  readonly firstSeq: number;
+  readonly lastSeq: number;
+}
+
+/** What the user said to the running turn, where the loop read it. */
+export interface SteerPart {
+  readonly kind: 'steer';
+  readonly id: string;
+  readonly text: string;
+}
+
+export type TurnPart =
+  TextPart | ReasoningPart | NoticePart | ToolPart | StepPart | SteerPart;
 
 /**
  * Why a turn failed.
@@ -230,25 +261,8 @@ export interface TurnItem {
    * contain a nested call anyway.
    */
   readonly sessionKey: string;
-  readonly model: string;
-  readonly provider: string;
   readonly parts: readonly TurnPart[];
   readonly stopReason: StopReason | undefined;
-  readonly usage: Usage | undefined;
-  readonly iterations: number;
-  /** Wall time for the whole turn, load and tools and approvals included. */
-  readonly elapsedMs: number | undefined;
-  /**
-   * Time the model spent emitting tokens, and how long it waited to start.
-   *
-   * `generationMs` is the divisor behind the tokens/s figure — `elapsedMs` was,
-   * and reported a cold local model at a fraction of its real speed because the
-   * weight load sat in it. Both undefined on a turn nothing could measure.
-   */
-  readonly generationMs: number | undefined;
-  /** The tokens produced inside `generationMs`, and only those. */
-  readonly generationTokens: number | undefined;
-  readonly firstTokenMs: number | undefined;
   /**
    * The seqs this turn spans: the user message that started it, and the last
    * message it wrote. `firstSeq` is what Regenerate re-runs from and what
@@ -280,12 +294,6 @@ export interface TurnItem {
   readonly authoritative: boolean;
 }
 
-export interface SteerItem {
-  readonly kind: 'steer';
-  readonly id: string;
-  readonly text: string;
-}
-
 export interface NoticeItem {
   readonly kind: 'notice';
   readonly id: string;
@@ -293,7 +301,7 @@ export interface NoticeItem {
   readonly message: string;
 }
 
-export type TranscriptItem = UserItem | TurnItem | SteerItem | NoticeItem;
+export type TranscriptItem = UserItem | TurnItem | NoticeItem;
 
 export type Transcript = readonly TranscriptItem[];
 

@@ -6,7 +6,7 @@
 )]
 
 use darkwire::history_cell::{
-    AssistantCell, DividerCell, FoldedCell, NoticeCell, SessionHeaderCell, TurnStatsCell, UserCell,
+    AssistantCell, DividerCell, FoldedCell, NoticeCell, SessionHeaderCell, StatsCell, UserCell,
 };
 use darkwire_tui::{HistoryCell, PLAIN_THEME, styled_line};
 use ratatui::text::Line;
@@ -86,7 +86,7 @@ fn a_notice_is_one_row() {
 
 #[test]
 fn a_hidden_cost_writes_nothing_and_stays_in_the_transcript() {
-    let cell = TurnStatsCell::new("1.2k tokens", false);
+    let cell = StatsCell::new("1.2k tokens", false);
 
     assert!(cell.display_lines(40).is_empty());
     assert_eq!(cell.desired_height(40), 0);
@@ -95,7 +95,7 @@ fn a_hidden_cost_writes_nothing_and_stays_in_the_transcript() {
 
 #[test]
 fn a_shown_cost_writes_its_row() {
-    let cell = TurnStatsCell::new("1.2k tokens", true);
+    let cell = StatsCell::new("1.2k tokens", true);
     assert_eq!(texts(&cell.display_lines(40)), vec!["1.2k tokens"]);
 }
 

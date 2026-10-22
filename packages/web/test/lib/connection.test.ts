@@ -30,7 +30,6 @@ import {
   openConnection,
   resumeConnection,
   sendUserMessage,
-  steerTurn,
   stopTurn,
   switchSession,
 } from '@/lib/connection.js';
@@ -349,22 +348,60 @@ describe('speaking', () => {
 
     expect(sendUserMessage('hello')).toBe(false);
     stopTurn();
-    steerTurn('be brief');
 
     expect(socket().sent).toEqual([]);
     expect(useTurnStore.getState().transcript).toEqual([]);
   });
 
-  it('stops and steers the running turn', () => {
+  it('stops the running turn', () => {
     open('web:1');
 
     stopTurn();
-    steerTurn('be brief');
 
-    expect(socket().sent).toEqual([
-      { type: 'turn.stop', sessionKey: 'web:1' },
-      { type: 'turn.steer', sessionKey: 'web:1', content: 'be brief' },
+    expect(socket().sent).toEqual([{ type: 'turn.stop', sessionKey: 'web:1' }]);
+  });
+
+  it('sends what is typed during a run to that run', () => {
+    open('web:1');
+    deliver({
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: 'web:1',
+      busy: true,
+      queueDepth: 0,
+    });
+
+    expect(sendUserMessage('be brief')).toBe(true);
+
+    expect(socket().sent.at(-1)).toEqual({
+      type: 'turn.steer',
+      sessionKey: 'web:1',
+      content: 'be brief',
+      clientMessageId: expect.any(String),
+    });
+    // A bubble that says it is waiting on the turn, not on a send.
+    expect(useTurnStore.getState().transcript.at(-1)).toMatchObject({
+      kind: 'user',
+      pending: true,
+      steering: true,
+    });
+  });
+
+  it('queues a message with a file during a run, since a steer carries none', () => {
+    open('web:1');
+    deliver({
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: 'web:1',
+      busy: true,
+      queueDepth: 0,
+    });
+
+    sendUserMessage('look at this', [
+      { mimeType: 'image/png', path: 'uploads/a.png', name: 'a.png' },
     ]);
+
+    expect(socket().sent.at(-1)).toMatchObject({ type: 'user.message' });
   });
 
   it('names the turn it stops once it has seen that turn start', () => {

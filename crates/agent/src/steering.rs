@@ -21,18 +21,17 @@
 //! The queue is keyed by session because one loop serves every session on the
 //! instance, and a correction typed into one conversation must not surface in
 //! another.
+//!
+//! A session's queue is **open** only while a turn on it can still read it.
+//! A push the queue refuses, because no turn is open or the queue is full, is
+//! the caller's to deliver some other way, which is what keeps a steer from
+//! being lost: the hub runs it as the next turn instead.
 
 use std::collections::{HashMap, VecDeque};
 
 use parking_lot::Mutex;
 
-/// Marks the message as an interruption rather than the next thing the user
-/// said.
-///
-/// Without it the model reads a mid-task user turn as a new request and
-/// frequently abandons what it was doing; with it, the common case — "no, the
-/// other directory" — is understood as a correction to the task in flight.
-pub const STEERING_PREFIX: &str = "[Steering: sent by the user while this task was running]";
+pub use darkwire_core::messages::STEERING_PREFIX;
 
 /// How many pending messages one session may hold.
 ///
@@ -44,6 +43,8 @@ pub const MAX_PENDING_STEER: usize = 16;
 /// One correction, waiting for the next iteration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SteeringMessage {
+    /// The sender's id for it, echoed when the loop reads it.
+    pub id: String,
     /// What the user typed.
     pub content: String,
     /// Wall-clock epoch milliseconds, from the caller's clock.
@@ -53,7 +54,8 @@ pub struct SteeringMessage {
 /// Corrections waiting for the turns they belong to.
 ///
 /// Shared behind an `Arc` by a loop and whatever transport pushes into it, so
-/// the interior mutability is the type's rather than every caller's.
+/// the interior mutability is the type's rather than every caller's. A key is
+/// present exactly while its session is open.
 #[derive(Debug)]
 pub struct SteeringQueue {
     queues: Mutex<HashMap<String, VecDeque<SteeringMessage>>>,
@@ -80,26 +82,45 @@ impl SteeringQueue {
         }
     }
 
+    /// Starts accepting steering for `session_key`. A turn calls this before
+    /// anything can steer it.
+    pub fn open(&self, session_key: &str) {
+        self.queues
+            .lock()
+            .entry(session_key.to_owned())
+            .or_default();
+    }
+
+    /// Stops accepting steering for `session_key`, and hands back what no
+    /// iteration read.
+    pub fn close(&self, session_key: &str) -> Vec<SteeringMessage> {
+        self.queues
+            .lock()
+            .remove(session_key)
+            .map(Vec::from)
+            .unwrap_or_default()
+    }
+
     /// Queues a message for the next iteration of `session_key`'s turn.
     ///
-    /// Overflow drops the *oldest* pending message. The newest correction is
-    /// the one the user is waiting on; discarding it to preserve a stale one
-    /// inverts the point of steering.
-    pub fn push(&self, session_key: &str, content: impl Into<String>, received_at_ms: i64) {
+    /// `false` when no turn is open to read it, or when the queue is full. The
+    /// newest correction is the one the user is waiting on, so nothing already
+    /// queued is dropped to make room: the refusal goes back to the sender.
+    pub fn push(&self, session_key: &str, message: SteeringMessage) -> bool {
         let mut queues = self.queues.lock();
-        let queue = queues.entry(session_key.to_owned()).or_default();
-        queue.push_back(SteeringMessage {
-            content: content.into(),
-            received_at_ms,
-        });
-        while queue.len() > self.max_pending {
-            queue.pop_front();
+        let Some(queue) = queues.get_mut(session_key) else {
+            return false;
+        };
+        if queue.len() >= self.max_pending {
             tracing::warn!(
                 session_key,
                 max_pending = self.max_pending,
-                "steering queue full, dropped oldest message"
+                "steering queue full, refused a message"
             );
+            return false;
         }
+        queue.push_back(message);
+        true
     }
 
     /// Whether anything is waiting. Checked before the loop ends a turn.
@@ -110,30 +131,21 @@ impl SteeringQueue {
             .is_some_and(|queue| !queue.is_empty())
     }
 
-    /// Takes everything queued for the session and empties it.
+    /// Takes everything queued for the session. The session stays open.
     pub fn drain(&self, session_key: &str) -> Vec<SteeringMessage> {
-        let mut queues = self.queues.lock();
-        match queues.get(session_key) {
-            None => Vec::new(),
-            Some(queue) if queue.is_empty() => Vec::new(),
-            Some(_) => queues
-                .remove(session_key)
-                .map(Vec::from)
-                .unwrap_or_default(),
-        }
+        self.queues
+            .lock()
+            .get_mut(session_key)
+            .map(|queue| queue.drain(..).collect())
+            .unwrap_or_default()
     }
 
-    /// Forgets a session's queue. The loop calls this when a turn ends.
-    pub fn clear(&self, session_key: &str) {
-        self.queues.lock().remove(session_key);
-    }
-
-    /// Sessions currently holding pending messages.
+    /// Sessions currently open.
     pub fn len(&self) -> usize {
         self.queues.lock().len()
     }
 
-    /// Whether no session is holding anything.
+    /// Whether no session is open.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

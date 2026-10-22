@@ -46,7 +46,8 @@ use darkwire_core::message_bus::{
 use darkwire_core::messages::text_part;
 use darkwire_core::{ErrorKind, Result, WireError};
 use darkwire_protocol::{
-    Attachment, ClientMessage, ContentPart, ServerMessage, UserMessageRequest, UserMessageTag,
+    Attachment, ClientMessage, ContentPart, ServerMessage, SteerMessage, SteerTag,
+    UserMessageRequest, UserMessageTag,
 };
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -391,6 +392,24 @@ impl Bridge {
         self.retarget(&message.channel_id, &session_key, target);
 
         let (content, attachments) = to_frame_content(&message.content);
+        // Said while a turn runs, it goes to that turn, as typing does in the
+        // browser. A flag that is a moment stale costs nothing: the hub runs a
+        // steer no turn reads as the next turn, under the same id. A steer
+        // carries no files, so a message with any waits its turn as before.
+        let busy = self
+            .table
+            .lock()
+            .get(&Bridge::key(&message.channel_id, &session_key))
+            .is_some_and(|bridged| bridged.busy);
+        if busy && attachments.is_empty() && !content.is_empty() {
+            connection.receive(ClientMessage::Steer(SteerMessage {
+                tag: SteerTag,
+                session_key,
+                content,
+                client_message_id: Some(message.id.clone()),
+            }));
+            return;
+        }
         connection.receive(ClientMessage::UserMessage(UserMessageRequest {
             tag: UserMessageTag,
             session_key,

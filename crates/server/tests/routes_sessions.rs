@@ -521,6 +521,27 @@ async fn a_transcript_is_not_cleared_under_a_running_turn() {
 }
 
 #[tokio::test]
+async fn a_running_session_branches_from_what_is_already_final() {
+    let (test, client, _stream) = server_mid_turn("s-1").await;
+    // `turn.start` sets the boundary, and it can trail `busy` by a moment.
+    for _ in 0..500 {
+        if test.hub.can_branch_at("s-1", 1) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    let answer = post(&test, "/api/sessions/s-1/branch", json!({"seq": 1})).await;
+    assert_eq!(answer.status, StatusCode::CREATED);
+    assert_eq!(answer.json()["messageCount"], 1);
+
+    // Seq 2 is the running turn's question, and its answer is not written.
+    let answer = post(&test, "/api/sessions/s-1/branch", json!({"seq": 2})).await;
+    assert_eq!(answer.status, StatusCode::CONFLICT);
+    client.close();
+}
+
+#[tokio::test]
 async fn clearing_a_session_that_is_not_there_is_a_not_found() {
     let test = server();
     assert_eq!(

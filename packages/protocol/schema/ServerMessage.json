@@ -628,6 +628,113 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "step.end"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "turnId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "firstSeq": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lastSeq": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "usage": {
+              "type": "object",
+              "properties": {
+                "promptTokens": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "completionTokens": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "totalTokens": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cachedTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reasoningTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "model": {
+              "type": "string"
+            },
+            "elapsedMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "generationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "generationTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "firstTokenMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "usage",
+            "elapsedMs"
+          ]
+        },
+        "turnElapsedMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "turnId",
+        "firstSeq",
+        "lastSeq",
+        "stats",
+        "turnElapsedMs"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "subagent.event"
         },
         "seq": {
@@ -1507,6 +1614,71 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 9007199254740991
+                      },
+                      "stats": {
+                        "type": "object",
+                        "properties": {
+                          "usage": {
+                            "type": "object",
+                            "properties": {
+                              "promptTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "completionTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "totalTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "cachedTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "reasoningTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "elapsedMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "generationMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "generationTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "firstTokenMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "usage",
+                          "elapsedMs"
+                        ]
                       }
                     },
                     "required": [
@@ -1850,6 +2022,71 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 9007199254740991
+                      },
+                      "stats": {
+                        "type": "object",
+                        "properties": {
+                          "usage": {
+                            "type": "object",
+                            "properties": {
+                              "promptTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "completionTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "totalTokens": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "cachedTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "reasoningTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "elapsedMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "generationMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "generationTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "firstTokenMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "usage",
+                          "elapsedMs"
+                        ]
                       }
                     },
                     "required": [
@@ -2071,7 +2308,14 @@
           "type": "string",
           "minLength": 1
         },
+        "turnId": {
+          "type": "string",
+          "minLength": 1
+        },
         "content": {
+          "type": "string"
+        },
+        "clientMessageId": {
           "type": "string"
         }
       },
@@ -2079,6 +2323,7 @@
         "type",
         "seq",
         "sessionKey",
+        "turnId",
         "content"
       ]
     }

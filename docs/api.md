@@ -90,7 +90,7 @@ the schema, and changing either revokes every other session.
 | GET                  | `/api/sessions/:key/context`  | `required` | What would be sent to the model, and the token breakdown.                                   |
 | GET                  | `/api/sessions/:key/turns`    | `required` | Per-turn stats: model, provider, iterations, stop reason, tokens.                           |
 | GET / DELETE         | `/api/sessions/:key/tasks`    | `required` | The plan the session is running on, as the `todo` tool left it. `DELETE` empties it.        |
-| POST                 | `/api/sessions/:key/branch`   | `required` | Forks the session at a message.                                                             |
+| POST                 | `/api/sessions/:key/branch`   | `required` | Forks the session at a message. While a turn runs, only up to its last finished step.       |
 
 ### Agents, tools, environments
 
@@ -195,24 +195,32 @@ parameters `?session=` and `?agent=`.
 
 ### Client → server
 
-| Type              | Does                                                                          |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `ping`            | Answered with `pong`.                                                         |
-| `user.message`    | Starts a turn. Content may be text or parts, for images.                      |
-| `turn.steer`      | Injects guidance into a running turn.                                         |
-| `turn.stop`       | Aborts. With `turnId`, only that turn, and withdrawn if still queued.         |
-| `turn.regenerate` | Drops the last answer and re-runs.                                            |
-| `user.edit`       | Rewrites a user message and re-runs from it.                                  |
-| `session.new`     | Starts a session.                                                             |
-| `session.switch`  | Rebinds this socket.                                                          |
-| `session.resume`  | `{ lastSeq }`: replays what was missed.                                       |
-| `tool.approve`    | Answers an approval prompt, with a scope and an optional `exec` rule to save. |
+| Type              | Does                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `ping`            | Answered with `pong`.                                                                                      |
+| `user.message`    | Starts a turn. Content may be text or parts, for images.                                                   |
+| `turn.steer`      | Guidance for the running turn. Runs as the next turn if that one never reads it.                           |
+| `turn.stop`       | Aborts. With `turnId`, only that turn, and withdrawn if still queued.                                      |
+| `turn.regenerate` | Re-runs from `seq`: a question is asked again; an answer is dropped and the turn continues from before it. |
+| `user.edit`       | Rewrites a user message and re-runs from it.                                                               |
+| `session.new`     | Starts a session.                                                                                          |
+| `session.switch`  | Rebinds this socket.                                                                                       |
+| `session.resume`  | `{ lastSeq }`: replays what was missed.                                                                    |
+| `tool.approve`    | Answers an approval prompt, with a scope and an optional `exec` rule to save.                              |
 
 ### Server → client
 
 Turn events: `turn.start` · `assistant.delta` · `reasoning.delta` · `tool.call` ·
-`tool.progress` · `tool.result` · `tool.approvalRequest` · `notice` · `turn.end` ·
-`subagent.event`
+`tool.progress` · `tool.result` · `tool.approvalRequest` · `notice` · `step.end` ·
+`turn.end` · `subagent.event`
+
+`step.end` closes one step: a model call and the tools it asked for. It goes out once the
+step's rows are written, with their `firstSeq` and `lastSeq`, the step's `stats` (usage,
+model, elapsed, generation time, first token) and `turnElapsedMs`. The same `stats` are
+stored on the step's assistant row, so a reloaded transcript reads the same figures. A
+call that wrote no row carries its figures onto the next one, so the steps of a turn
+always add up to the turn. Only the root loop's steps reach the socket: a subagent's
+seqs address its own session.
 
 `tool.approvalRequest` carries `command` for a call to `exec`: the argv, whether it is a
 shell, and the rule that decided it. A
@@ -224,6 +232,11 @@ Session and connection: `connected` · `pong` · `error` · `message.ack` ·
 `message.queued` · `context.usage` · `session.status` · `session.reset` ·
 `session.replay` · `session.truncated` · `notification` ·
 `tools.changed` · `steer`
+
+`steer` comes from the loop, once it has written the guidance into the turn, so it
+carries the `turnId` that read it and the sender's `clientMessageId`. A `turn.steer` the
+running turn never reads is not echoed at all: it is acked as an ordinary message under
+the same `clientMessageId` and runs as the next turn.
 
 `context.usage` is filed here rather than with the turn events on purpose. It is emitted
 at the end of every tool iteration and reports what the _next_ request would cost —

@@ -171,6 +171,16 @@ export const ROUTES: readonly Route[] = [
     ],
   },
   {
+    // One finished step, then a step that holds until Stop: the shortest
+    // turn with a step boundary to branch from while it is still running.
+    match: /\bsurvey\b/i,
+    turns: [
+      { toolCalls: [toolCall('call-survey', 'ls', { path: '.' })] },
+      { toolCalls: [toolCall('call-survey-wait', 'e2e_wait', { ms: 60_000 })] },
+      { text: 'The survey finished.' },
+    ],
+  },
+  {
     // No tool at all — the turn stalls in the provider itself, which is the
     // shortest path to "a turn is running" for a spec that only needs the
     // composer to be showing Stop.

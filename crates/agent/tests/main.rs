@@ -26,6 +26,7 @@ mod prompt;
 mod skills;
 mod skills_contributor;
 mod steering;
+mod steps;
 mod subagent;
 mod tasks_contributor;
 mod text_tool_call;

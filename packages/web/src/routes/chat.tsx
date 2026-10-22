@@ -217,7 +217,6 @@ export function ChatRoute(): JSX.Element {
       ) : (
         <LiveTranscript
           busy={busy}
-          sessionKey={sessionKey}
           onApprove={approveTool}
           onAction={runAction}
         />

@@ -21,17 +21,16 @@
 //! The bodies are the protocol's own structs rather than local copies, so a
 //! field added to `tool.call` is a field this carries with no second edit.
 //!
-//! One member is not forwardable, which is a different claim from not being a
-//! `ServerMessage`. [`ContextUsage`] is one — but it sits outside
-//! [`NestedAgentEvent`], so a subagent cannot wrap one and the loop's
-//! forwarding drops it. Measuring a child's window would be reporting the
-//! wrong conversation: the child runs in a session of its own, and its figure
-//! describes a history nobody is reading.
+//! Three members are not forwardable, which is a different claim from not
+//! being a `ServerMessage`. [`ContextUsage`], [`StepEnd`] and [`Steer`] sit
+//! outside [`NestedAgentEvent`], so a subagent cannot wrap one and the loop's
+//! forwarding drops it. Each would describe the wrong conversation: the child
+//! runs in a session of its own, which nobody is reading or steering.
 
 use darkwire_protocol::{
     AssistantDelta, ContextUsage, ErrorEvent, NestedAgentEvent, Notice, ReasoningDelta, Sequenced,
-    ServerMessage, SubagentEventBody, ToolApprovalRequest, ToolCallStarted, ToolProgress,
-    ToolResult, TurnEnd, TurnStart,
+    ServerMessage, Steer, StepEnd, SubagentEventBody, ToolApprovalRequest, ToolCallStarted,
+    ToolProgress, ToolResult, TurnEnd, TurnStart,
 };
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -49,6 +48,10 @@ pub enum AgentEvent {
     Subagent(SubagentEventBody),
     /// How much of the window the next request would use. Root loop only.
     ContextUsage(ContextUsage),
+    /// A step of the turn was written.
+    StepEnd(StepEnd),
+    /// Steering was written into the turn.
+    Steer(Steer),
 }
 
 impl AgentEvent {
@@ -58,6 +61,8 @@ impl AgentEvent {
             AgentEvent::Nested(event) => event.tag(),
             AgentEvent::Subagent(_) => "subagent.event",
             AgentEvent::ContextUsage(_) => "context.usage",
+            AgentEvent::StepEnd(_) => "step.end",
+            AgentEvent::Steer(_) => "steer",
         }
     }
 
@@ -73,6 +78,8 @@ impl Serialize for AgentEvent {
             AgentEvent::Nested(event) => event.serialize(serializer),
             AgentEvent::Subagent(event) => event.serialize(serializer),
             AgentEvent::ContextUsage(event) => event.serialize(serializer),
+            AgentEvent::StepEnd(event) => event.serialize(serializer),
+            AgentEvent::Steer(event) => event.serialize(serializer),
         }
     }
 }
@@ -90,6 +97,12 @@ impl<'de> Deserialize<'de> for AgentEvent {
                 .map_err(D::Error::custom),
             "context.usage" => ContextUsage::deserialize(value)
                 .map(AgentEvent::ContextUsage)
+                .map_err(D::Error::custom),
+            "step.end" => StepEnd::deserialize(value)
+                .map(AgentEvent::StepEnd)
+                .map_err(D::Error::custom),
+            "steer" => Steer::deserialize(value)
+                .map(AgentEvent::Steer)
                 .map_err(D::Error::custom),
             _ => NestedAgentEvent::deserialize(value)
                 .map(AgentEvent::Nested)
@@ -162,6 +175,8 @@ impl From<Stamped> for ServerMessage {
             AgentEvent::ContextUsage(body) => {
                 ServerMessage::ContextUsage(Sequenced { seq, event: body })
             }
+            AgentEvent::StepEnd(body) => ServerMessage::StepEnd(Sequenced { seq, event: body }),
+            AgentEvent::Steer(body) => ServerMessage::Steer(Sequenced { seq, event: body }),
         }
     }
 }
@@ -181,6 +196,18 @@ impl From<SubagentEventBody> for AgentEvent {
 impl From<ContextUsage> for AgentEvent {
     fn from(event: ContextUsage) -> AgentEvent {
         AgentEvent::ContextUsage(event)
+    }
+}
+
+impl From<StepEnd> for AgentEvent {
+    fn from(event: StepEnd) -> AgentEvent {
+        AgentEvent::StepEnd(event)
+    }
+}
+
+impl From<Steer> for AgentEvent {
+    fn from(event: Steer) -> AgentEvent {
+        AgentEvent::Steer(event)
     }
 }
 

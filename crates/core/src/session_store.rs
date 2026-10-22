@@ -1387,6 +1387,15 @@ impl SessionStore {
             }
 
             let cut = self.legal_seq(session_key, seq)?.max(0);
+            // A turn that loses rows loses its stats row with them: it described
+            // the whole run, and what is left is less than that. The figures
+            // stay on the rows that survive, which is where a reader sums them.
+            conn.prepare_cached(
+                "DELETE FROM turn_stats WHERE turn_id IN (
+                   SELECT DISTINCT turn_id FROM messages
+                    WHERE session_key = ? AND seq > ? AND turn_id IS NOT NULL)",
+            )?
+            .execute(params![session_key, cut])?;
             let deleted = conn
                 .prepare_cached("DELETE FROM messages WHERE session_key = ? AND seq > ?")?
                 .execute(params![session_key, cut])?;
@@ -1623,23 +1632,28 @@ impl SessionStore {
     /// The question that started the session's latest turn: that turn's
     /// earliest user row.
     ///
-    /// The earliest, not the latest, because steering appends user rows
-    /// mid-turn under the same turn id. Found through `messages_turn`, so a turn
-    /// longer than any fixed tail still has its question.
+    /// The newest user row that is not a steer, whichever turn it is in. A
+    /// steer is a correction to the answer rather than the question that asked
+    /// for it, and a regenerated message runs as a turn of its own with no
+    /// question, so neither "the latest turn" nor "the latest user row" finds it.
+    /// Read newest first and stopped at the first match, so only the steers
+    /// after it are parsed.
     pub fn last_turn_question(&self, session_key: &str) -> Result<Option<StoredMessageRecord>> {
         let guard = self.db.lock();
         let mut statement = guard.prepare_cached(
             "SELECT * FROM messages
               WHERE session_key = ?1 AND role = 'user'
-                AND turn_id = (SELECT turn_id FROM messages
-                                WHERE session_key = ?1
-                                ORDER BY seq DESC LIMIT 1)
-              ORDER BY seq ASC
-              LIMIT 1",
+              ORDER BY seq DESC",
         )?;
-        let mut rows = statement
+        let rows = statement
             .query_and_then(params![session_key], |row| row_to_message(session_key, row))?;
-        rows.next().transpose()
+        for row in rows {
+            let row = row?;
+            if !crate::messages::is_steer(&row.message) {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
     }
 
     /// Why each failed turn of a session failed, as `(turn_id, error)`.

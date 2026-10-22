@@ -3,6 +3,7 @@
   "frame": {
     "type": "turn.steer",
     "sessionKey": "web:abc",
-    "content": "shorter"
+    "content": "shorter",
+    "clientMessageId": "c-steer"
   }
 }

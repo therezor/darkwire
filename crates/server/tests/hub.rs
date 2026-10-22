@@ -26,8 +26,8 @@ use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
 use darkwire_protocol::tools::{ApprovalScope, CommandPolicy, ToolRisk};
 use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ErrorCode, ErrorEvent, ErrorTag, NoticeKind, NoticeTag,
-    NotificationTag, PROTOCOL_VERSION, ServerMessage, ToolApprovalRequest, ToolApprovalRequestTag,
-    TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    NotificationTag, PROTOCOL_VERSION, ServerMessage, Steer, SteerEventTag, StepEnd, StepEndTag,
+    ToolApprovalRequest, ToolApprovalRequestTag, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
@@ -157,7 +157,10 @@ impl TurnHandle for ScriptedHandle {
 #[derive(Default)]
 struct ScriptedRunner {
     turns: Mutex<Vec<Arc<TurnControl>>>,
-    steers: Mutex<Vec<(String, String)>>,
+    /// Every steer handed over, as `(session, id, content)`.
+    steers: Mutex<Vec<(String, String, String)>>,
+    /// Refuse every steer, as a loop whose turn has already ended does.
+    refuse_steers: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptedRunner {
@@ -192,10 +195,14 @@ impl TurnRunner for ScriptedRunner {
         })
     }
 
-    fn steer(&self, session_key: &str, content: &str) {
+    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
+        if self.refuse_steers.load(Ordering::SeqCst) {
+            return false;
+        }
         self.steers
             .lock()
-            .push((session_key.to_owned(), content.to_owned()));
+            .push((session_key.to_owned(), id.to_owned(), content.to_owned()));
+        true
     }
 }
 
@@ -990,6 +997,85 @@ async fn a_message_queued_behind_a_failed_rewind_still_runs() {
 }
 
 #[tokio::test]
+async fn regenerating_an_answer_mid_turn_continues_from_before_it() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    let turn = |id: &str| AppendOptions {
+        turn_id: Some(id.to_owned()),
+    };
+    h.store
+        .ensure_session(
+            SESSION,
+            darkwire_core::session_store::CreateSession::default(),
+        )
+        .unwrap();
+    let question = h
+        .store
+        .append(
+            SESSION,
+            ChatMessage::User(user_message("read it")),
+            &turn("t1"),
+        )
+        .unwrap();
+    h.store
+        .append(
+            SESSION,
+            ChatMessage::Assistant(assistant_message("step one", AssistantOptions::default())),
+            &turn("t1"),
+        )
+        .unwrap();
+    let second = h
+        .store
+        .append(
+            SESSION,
+            ChatMessage::Assistant(assistant_message("step two", AssistantOptions::default())),
+            &turn("t1"),
+        )
+        .unwrap();
+
+    client.reset();
+    client.send(json!({ "type": "turn.regenerate", "sessionKey": SESSION, "seq": second.seq }));
+    until_turns(&h, 1).await;
+
+    // The answer and what follows it are gone, the question and the first
+    // step stay, and the turn asks nothing new: it carries on from there.
+    let left: Vec<String> = h
+        .store
+        .messages(
+            SESSION,
+            &darkwire_core::session_store::ReadMessages::default(),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|row| darkwire_core::text_of(&row.message))
+        .collect();
+    assert_eq!(left, vec!["read it".to_owned(), "step one".to_owned()]);
+    assert_eq!(h.runner.turn(0).input.continue_from, Some(question.seq));
+    client.until_seen("session.truncated").await;
+
+    // Everything the cut left is final, so a branch there works at once.
+    let kept = u64::try_from(second.seq - 1).unwrap();
+    assert!(h.hub.can_branch_at(SESSION, kept));
+    assert!(!h.hub.can_branch_at(SESSION, kept + 1));
+    // Its start names no question, and that must not move the boundary.
+    let started = h.runner.turn(0);
+    started.emit(TurnStart {
+        tag: TurnStartTag,
+        session_key: SESSION.to_owned(),
+        turn_id: started.turn_id(),
+        first_seq: None,
+        agent_id: "default".to_owned(),
+        model: "test-model".to_owned(),
+        provider: "test".to_owned(),
+    });
+    client.until_seen("turn.start").await;
+    assert!(h.hub.can_branch_at(SESSION, kept));
+    started.end();
+}
+
+#[tokio::test]
 async fn a_switch_queued_before_a_close_does_not_attach_it_again() {
     let h = harness(&HarnessOptions::default());
     let leaving = h.plain();
@@ -1234,6 +1320,66 @@ async fn aborts_the_running_turn_on_turn_stop_and_ignores_a_stop_with_nothing_ru
     turn.end_with(StopReason::Aborted);
     client.until_seen("turn.end").await;
     assert!(!h.hub.busy(SESSION), "the session is usable again");
+}
+
+#[tokio::test]
+async fn a_branch_may_copy_what_a_running_turn_has_finished_and_nothing_after() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    assert!(
+        h.hub.can_branch_at(SESSION, 99),
+        "an idle session branches anywhere"
+    );
+
+    client.send(user(SESSION, "go"));
+    until_turns(&h, 1).await;
+    let turn = h.runner.turn(0);
+    assert!(
+        !h.hub.can_branch_at(SESSION, 1),
+        "nothing is known before turn.start"
+    );
+
+    turn.emit(TurnStart {
+        tag: TurnStartTag,
+        session_key: SESSION.to_owned(),
+        turn_id: turn.turn_id(),
+        first_seq: Some(5),
+        agent_id: "default".to_owned(),
+        model: "test-model".to_owned(),
+        provider: "test".to_owned(),
+    });
+    client.until_seen("turn.start").await;
+    assert!(
+        h.hub.can_branch_at(SESSION, 4),
+        "the turns before this one are final"
+    );
+    assert!(
+        !h.hub.can_branch_at(SESSION, 5),
+        "its question has no answer yet"
+    );
+
+    turn.emit(StepEnd {
+        tag: StepEndTag,
+        turn_id: turn.turn_id(),
+        first_seq: 6,
+        last_seq: 7,
+        stats: darkwire_protocol::StepStats::default(),
+        turn_elapsed_ms: 10,
+    });
+    client.until_seen("step.end").await;
+    assert!(h.hub.can_branch_at(SESSION, 7), "a finished step is final");
+    assert!(!h.hub.can_branch_at(SESSION, 8), "the step after it is not");
+
+    turn.end();
+    client.until_seen("session.status").await;
+    for _ in 0..500 {
+        if !h.hub.busy(SESSION) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(h.hub.can_branch_at(SESSION, 99), "idle again");
 }
 
 /// Waits until the runner has been asked for `count` turns.
@@ -2239,8 +2385,26 @@ async fn evicts_an_idle_session_once_the_cap_is_exceeded() {
 
 // Steering and approvals
 
+/// Waits for the first turn, and opens it.
+async fn started(h: &Harness, client: &TestClient) -> Arc<TurnControl> {
+    until_turns(h, 1).await;
+    let turn = h.runner.turn(0);
+    turn.start();
+    client.until_seen("turn.start").await;
+    turn
+}
+
+fn steer(content: &str, id: &str) -> serde_json::Value {
+    json!({
+        "type": "turn.steer",
+        "sessionKey": SESSION,
+        "content": content,
+        "clientMessageId": id,
+    })
+}
+
 #[tokio::test]
-async fn steers_the_loop_the_turn_is_running_on_and_echoes_it_to_every_tab() {
+async fn steers_the_loop_the_turn_is_running_on_and_leaves_the_echo_to_it() {
     let h = harness(&HarnessOptions::default());
     let one = h.plain();
     let two = h.plain();
@@ -2248,41 +2412,135 @@ async fn steers_the_loop_the_turn_is_running_on_and_echoes_it_to_every_tab() {
     two.until_seen("connected").await;
 
     one.send(user(SESSION, "hello"));
+    let turn = started(&h, &one).await;
+    one.reset();
+    two.reset();
+
+    one.send(steer("be brief", "s1"));
     for _ in 0..500 {
-        if h.runner.count() == 1 {
+        if !h.runner.steers.lock().is_empty() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
-    h.runner.turn(0).start();
-    one.until_seen("turn.start").await;
-    one.reset();
-    two.reset();
-
-    one.send(json!({ "type": "turn.steer", "sessionKey": SESSION, "content": "be brief" }));
-    one.until_seen("steer").await;
-    two.until_seen("steer").await;
     assert_eq!(
         *h.runner.steers.lock(),
-        vec![(SESSION.to_owned(), "be brief".to_owned())]
+        vec![(SESSION.to_owned(), "s1".to_owned(), "be brief".to_owned())]
     );
-    h.runner.turn(0).end();
+    // Not echoed on receipt: the loop says so once it has written it, which
+    // is where it belongs in the transcript.
+    assert!(one.of("steer").is_empty());
+
+    turn.emit(Steer {
+        tag: SteerEventTag,
+        session_key: SESSION.to_owned(),
+        turn_id: turn.turn_id(),
+        content: "be brief".to_owned(),
+        client_message_id: Some("s1".to_owned()),
+    });
+    one.until_seen("steer").await;
+    two.until_seen("steer").await;
+    turn.end();
+
+    // Read, so it is not run again.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(h.runner.count(), 1);
 }
 
 #[tokio::test]
-async fn refuses_a_steer_when_no_turn_is_running() {
+async fn a_steer_with_no_turn_to_read_it_runs_as_the_next_turn() {
     let h = harness(&HarnessOptions::default());
     let client = h.plain();
     client.until_seen("connected").await;
     client.reset();
 
-    client.send(json!({ "type": "turn.steer", "sessionKey": SESSION, "content": "hi" }));
-    client.until_seen("error").await;
-    let ServerMessage::Error(error) = &client.of("error")[0] else {
-        panic!("expected an error frame");
+    client.send(steer("hi", "s1"));
+    client.until_seen("message.ack").await;
+    let ServerMessage::MessageAck(ack) = &client.of("message.ack")[0] else {
+        panic!("expected an ack");
     };
-    assert_eq!(error.code, ErrorCode::BadRequest);
+    // The sender's bubble is claimed by the ack, as any message's is.
+    assert_eq!(ack.event.client_message_id.as_deref(), Some("s1"));
+    until_turns(&h, 1).await;
+    assert!(client.of("error").is_empty());
     assert!(h.runner.steers.lock().is_empty());
+}
+
+#[tokio::test]
+async fn a_steer_the_loop_refuses_runs_as_the_next_turn() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    h.runner.refuse_steers.store(true, Ordering::SeqCst);
+
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.reset();
+    client.send(steer("and then this", "s1"));
+    client.until_seen("message.queued").await;
+    turn.end();
+
+    until_turns(&h, 2).await;
+    assert_eq!(
+        darkwire_core::text_of(&darkwire_protocol::ChatMessage::User(
+            darkwire_core::user_message(h.runner.turn(1).input.content.clone())
+        )),
+        "and then this"
+    );
+}
+
+#[tokio::test]
+async fn a_steer_the_turn_never_read_runs_after_it() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.send(steer("one more thing", "s1"));
+    for _ in 0..500 {
+        if !h.runner.steers.lock().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    client.reset();
+    // The turn ends without the loop ever writing it.
+    turn.end();
+
+    until_turns(&h, 2).await;
+    client.until_seen("message.ack").await;
+    let ServerMessage::MessageAck(ack) = &client.of("message.ack")[0] else {
+        panic!("expected an ack");
+    };
+    assert_eq!(ack.event.client_message_id.as_deref(), Some("s1"));
+    assert_eq!(
+        darkwire_core::text_of(&darkwire_protocol::ChatMessage::User(
+            darkwire_core::user_message(h.runner.turn(1).input.content.clone())
+        )),
+        "one more thing"
+    );
+}
+
+#[tokio::test]
+async fn a_steer_sent_as_the_turn_is_handed_to_its_loop_still_arrives() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    // Sent the moment the turn exists, before the hub has its loop: held, and
+    // handed over once it has.
+    client.send(user(SESSION, "hello"));
+    until_turns(&h, 1).await;
+    client.send(steer("early", "s1"));
+    for _ in 0..500 {
+        if !h.runner.steers.lock().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(h.runner.steers.lock()[0].2, "early");
+    h.runner.turn(0).end();
 }
 
 #[tokio::test]

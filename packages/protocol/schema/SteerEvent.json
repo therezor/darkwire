@@ -14,7 +14,14 @@
       "type": "string",
       "minLength": 1
     },
+    "turnId": {
+      "type": "string",
+      "minLength": 1
+    },
     "content": {
+      "type": "string"
+    },
+    "clientMessageId": {
       "type": "string"
     }
   },
@@ -22,6 +29,7 @@
     "type",
     "seq",
     "sessionKey",
+    "turnId",
     "content"
   ]
 }

@@ -24,10 +24,6 @@ const RUN: SubagentPart = {
   sessionKey: 'sub-1',
   parts: [],
   model: 'qwen3:8b',
-  stopReason: undefined,
-  usage: undefined,
-  iterations: 0,
-  elapsedMs: undefined,
   done: false,
   loaded: true,
   partial: false,
@@ -180,7 +176,7 @@ describe('a card that delegated', () => {
     await open();
 
     expect(
-      screen.getByText('The subagent produced no steps.'),
+      screen.getByText('The subagent produced no messages.'),
     ).toBeInTheDocument();
   });
 
@@ -313,10 +309,10 @@ describe('a card that delegated', () => {
     await open();
 
     expect(await screen.findByText(/no longer stored/)).toBeInTheDocument();
-    // Never "produced no steps": that is a claim about the subagent, and this
+    // Never "produced no messages": that is a claim about the subagent, and this
     // is a fact about the database.
     expect(
-      screen.queryByText('The subagent produced no steps.'),
+      screen.queryByText('The subagent produced no messages.'),
     ).not.toBeInTheDocument();
   });
 

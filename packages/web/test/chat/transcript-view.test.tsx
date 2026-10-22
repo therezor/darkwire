@@ -74,7 +74,6 @@ function Subject(): JSX.Element {
     <TranscriptView
       transcript={transcript}
       busy
-      sessionKey="web:1"
       onApprove={onApprove}
       onAction={onAction}
     />

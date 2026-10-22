@@ -37,8 +37,6 @@ const PIN_THRESHOLD = 48;
 export interface TranscriptViewProps {
   readonly transcript: Transcript;
   readonly busy: boolean;
-  /** Which conversation this is, for the turn-details lookup. */
-  readonly sessionKey: string | undefined;
   readonly onApprove: (
     callId: string,
     approved: boolean,
@@ -51,7 +49,6 @@ export interface TranscriptViewProps {
 export function TranscriptView({
   transcript,
   busy,
-  sessionKey,
   onApprove,
   onAction,
 }: TranscriptViewProps): JSX.Element {
@@ -104,7 +101,6 @@ export function TranscriptView({
                 item={item}
                 streaming={busy && item === lastTurn}
                 busy={busy}
-                sessionKey={sessionKey}
                 onApprove={onApprove}
                 onAction={onAction}
               />

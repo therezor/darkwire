@@ -212,6 +212,15 @@ pub struct AssistantMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub reasoning_ms: Option<u64>,
+    /// What the model call behind this message cost, written with it.
+    ///
+    /// On the row rather than in a table beside it, so a fork copies it and a
+    /// rewind drops it with the message it describes. Absent on a row no model
+    /// call produced. Boxed, because every request result carries this message
+    /// and most of them never fill it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub stats: Option<Box<StepStats>>,
 }
 
 /// A tool's answer to one call.
@@ -318,6 +327,39 @@ pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub reasoning_tokens: Option<u64>,
+}
+
+/// One step of a turn: a model call and the tools it asked for.
+///
+/// The timings mean what the turn's do, scoped to the step. A call that wrote
+/// no row has its figures carried onto the next row written, so the steps of a
+/// turn always sum to the turn.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct StepStats {
+    /// What the provider charged for the step's calls.
+    #[garde(dive)]
+    pub usage: Usage,
+    /// As the provider reported it, which may differ from what was requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The step's first request to its rows being written, tools and approval
+    /// waits included.
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub elapsed_ms: u64,
+    /// Time the model spent emitting tokens. Absent when nothing measured it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub generation_ms: Option<u64>,
+    /// The completion tokens produced inside `generation_ms`, and only those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub generation_tokens: Option<u64>,
+    /// The step's first request to its first token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub first_token_ms: Option<u64>,
 }
 
 /// Completion tokens per second, or `None` when the figure would be a lie.

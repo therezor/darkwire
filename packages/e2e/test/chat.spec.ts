@@ -85,7 +85,7 @@ test.describe('a turn', () => {
     await expect(card.getByLabel('Running')).toHaveCount(0);
   });
 
-  test('a queued message says so rather than disabling the composer', async ({
+  test('a message typed during a turn says where it went, rather than disabling the composer', async ({
     app,
   }) => {
     await app.getByRole('textbox', { name: 'Message' }).fill('stall here');
@@ -94,17 +94,141 @@ test.describe('a turn', () => {
       app.getByRole('button', { name: 'Stop the current turn' }),
     ).toBeVisible();
 
-    // Enter still sends while a turn runs: the hub queues it. A composer that
+    // Enter still sends while a turn runs, to that turn. A composer that
     // disabled itself would lose whatever the user was mid-way through typing.
     const message = app.getByRole('textbox', { name: 'Message' });
     await expect(message).toBeEditable();
-    await message.fill('stall again');
+    await message.fill('and keep it short');
     await message.press('Enter');
 
+    // The turn is held in the provider, so it never reaches a step to read
+    // this at, and the bubble says so for as long as that lasts.
     await expect(
-      app.getByText(/message waiting|messages waiting/),
+      app.getByText('The running task reads this before its next message.'),
     ).toBeVisible();
     await app.getByRole('button', { name: 'Stop the current turn' }).click();
+  });
+});
+
+/**
+ * What is typed while a turn runs reaches that turn.
+ *
+ * Both cases end on a state the transcript settles into: the steer in the turn
+ * with the answer after it, or the steer run as a turn of its own. The words
+ * typed contain no route word, so the scripted model answers them with its
+ * fallback.
+ */
+test.describe('typing while a turn runs', () => {
+  test('reaches the running turn, which reads it and answers', async ({
+    app,
+  }) => {
+    const message = app.getByRole('textbox', { name: 'Message' });
+    const transcript = app.getByTestId('transcript');
+    await message.fill('run the version command');
+    await message.press('Enter');
+
+    // The approval holds the turn still, however slow the machine.
+    const card = app.getByRole('region', { name: 'Tool call: exec' });
+    await expect(card.getByRole('button', { name: /Once/ })).toBeVisible();
+    await message.fill('and keep it short');
+    await message.press('Enter');
+    await card.getByRole('button', { name: 'Once', exact: true }).click();
+
+    await expect(transcript.getByText('Ready.', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+    // Inside the turn, after the call it interrupted and before the answer
+    // to it, and never as a turn of its own.
+    const text = await transcript.innerText();
+    const steered = text.indexOf('Steered mid-turn: and keep it short');
+    expect(steered).toBeGreaterThan(text.indexOf('exec'));
+    expect(steered).toBeLessThan(text.indexOf('Ready.'));
+    await expect(transcript.getByText('run the version command')).toHaveCount(
+      1,
+    );
+  });
+
+  test('runs as the next turn when the turn ends before reading it', async ({
+    app,
+  }) => {
+    const message = app.getByRole('textbox', { name: 'Message' });
+    const transcript = app.getByTestId('transcript');
+    await message.fill('survey the workspace and pause');
+    await message.press('Enter');
+    await expect(
+      app.getByRole('region', { name: 'Tool call: e2e_wait' }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // The second step holds until Stop, so the loop never gets to read it.
+    await message.fill('and keep it short');
+    await message.press('Enter');
+    await app.getByRole('button', { name: 'Stop the current turn' }).click();
+
+    await expect(transcript.getByText('Ready.', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+    await expect(transcript.getByText('Steered mid-turn')).toHaveCount(0);
+    await expect(
+      transcript.getByText('and keep it short', { exact: true }),
+    ).toBeVisible();
+  });
+});
+
+test.describe('one message of a turn', () => {
+  test('regenerates alone, keeping the question it answers', async ({
+    app,
+  }) => {
+    const message = app.getByRole('textbox', { name: 'Message' });
+    const transcript = app.getByTestId('transcript');
+    await message.fill('list the workspace');
+    await message.press('Enter');
+    await expect(transcript.getByText('The workspace holds')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+
+    await transcript
+      .getByRole('button', { name: 'Regenerate message 1' })
+      .click();
+
+    // The turn carries on from the question: the call is made again and
+    // answered again, and nothing is asked twice.
+    await expect(transcript.getByText('The workspace holds')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+    await expect(
+      transcript.getByRole('region', { name: 'Tool call: ls' }),
+    ).toHaveCount(1);
+    await expect(transcript.getByText('list the workspace')).toHaveCount(1);
+  });
+
+  test('keeps its bar inside a phone-width column', async ({ app }) => {
+    await app.setViewportSize({ width: 360, height: 760 });
+    const message = app.getByRole('textbox', { name: 'Message' });
+    const transcript = app.getByTestId('transcript');
+    await message.fill('list the workspace');
+    await message.press('Enter');
+    await expect(transcript.getByText('The workspace holds')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const bar = await transcript
+      .locator('.turn__line-actions')
+      .first()
+      .boundingBox();
+    const column = await transcript.boundingBox();
+    expect(bar).not.toBeNull();
+    expect(column).not.toBeNull();
+    if (bar !== null && column !== null) {
+      expect(bar.x + bar.width).toBeLessThanOrEqual(column.x + column.width);
+    }
+    const overflow = await app.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow).toBe(false);
   });
 });
 
@@ -207,7 +331,7 @@ test.describe('reworking a turn', () => {
       .getByText('stream a long answer');
     await expect(question).toHaveCount(1);
 
-    await app.getByRole('button', { name: 'Regenerate the answer' }).click();
+    await app.getByRole('button', { name: 'Regenerate message 1' }).click();
 
     // Still exactly one. The scripted provider says the same thing again, so a
     // second copy would be the transcript growing rather than being rebuilt.
@@ -224,7 +348,7 @@ test.describe('reworking a turn', () => {
     await expect(question).toHaveCount(1);
   });
 
-  test('the info button opens what the turn cost', async ({ app }) => {
+  test('the info button opens what a message cost', async ({ app }) => {
     await app
       .getByRole('textbox', { name: 'Message' })
       .fill('stream a long answer');
@@ -235,10 +359,10 @@ test.describe('reworking a turn', () => {
       timeout: 15_000,
     });
 
-    await app.getByRole('button', { name: 'Turn details' }).click();
+    await app.getByRole('button', { name: 'Message 1 details' }).click();
 
     // The scripted provider reports this usage, so the figure proves the panel
-    // is reading the turn rather than rendering an empty shell.
+    // is reading the message rather than rendering an empty shell.
     const details = app.getByRole('dialog');
     await expect(details.getByText('412')).toBeVisible();
     await expect(details.getByText('Model')).toBeVisible();

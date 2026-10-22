@@ -222,6 +222,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<messages::Usage>,
     },
     RegisteredSchema {
+        name: "StepStats",
+        schema: schema_for::<messages::StepStats>,
+    },
+    RegisteredSchema {
         name: "StopReason",
         schema: schema_for::<messages::StopReason>,
     },
@@ -610,6 +614,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "TurnEndEvent",
         schema: schema_for::<ws::TurnEndEvent>,
+    },
+    RegisteredSchema {
+        name: "StepEndEvent",
+        schema: schema_for::<ws::StepEndEvent>,
     },
     RegisteredSchema {
         name: "NestedAgentEvent",

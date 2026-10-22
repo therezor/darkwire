@@ -183,6 +183,54 @@ test.describe('sessions', () => {
       timeout: 15_000,
     });
   });
+
+  test('branches after a finished message while the turn is still running', async ({
+    app,
+  }) => {
+    const sidebar = app.getByRole('complementary', { name: 'Sidebar' });
+    const message = app.getByRole('textbox', { name: 'Message' });
+    const transcript = app.getByTestId('transcript');
+
+    await sidebar.getByRole('button', { name: 'New session' }).click();
+    await message.fill('survey the workspace and pause');
+    await message.press('Enter');
+
+    // The second step holds until Stop, so the first is finished and the turn
+    // is not, for as long as this test needs.
+    await expect(
+      app.getByRole('region', { name: 'Tool call: e2e_wait' }),
+    ).toBeVisible({ timeout: 15_000 });
+    const source = app.url();
+
+    await transcript
+      .getByRole('button', { name: 'Branch after message 1' })
+      .click();
+    await expect(app).not.toHaveURL(source, { timeout: 15_000 });
+
+    // The fork ends where the step did: the `ls` card, and nothing after it.
+    await expect(
+      transcript.getByRole('region', { name: 'Tool call: ls' }),
+    ).toBeVisible();
+    await expect(
+      transcript.getByRole('region', { name: 'Tool call: e2e_wait' }),
+    ).toHaveCount(0);
+
+    // And it is a conversation of its own, not a copy of one.
+    await message.fill('hello again');
+    await message.press('Enter');
+    await expect(transcript.getByText('Ready.', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The run it was taken from carried on. Back through the sidebar, as a
+    // reader goes: both rows carry the same title, so the link is picked by
+    // where it goes.
+    await sidebar.locator(`a[href="${new URL(source).pathname}"]`).click();
+    const stop = app.getByRole('button', { name: 'Stop the current turn' });
+    await expect(stop).toBeVisible({ timeout: 15_000 });
+    await stop.click();
+    await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
+  });
 });
 
 /**

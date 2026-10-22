@@ -18,6 +18,7 @@ import {
   formatRelativeTime,
   formatTokens,
   summariseArgs,
+  summariseCall,
 } from '@/lib/format.js';
 
 /**
@@ -110,6 +111,43 @@ describe('tool arguments', () => {
     cycle.self = cycle;
 
     expect(formatArgs(cycle)).toBe('[unserialisable]');
+  });
+});
+
+describe('a call on its row', () => {
+  it('shows the file, the command or the search, not their JSON', () => {
+    expect(summariseCall({ path: 'README.md' })).toBe('README.md');
+    expect(summariseCall({ argv: ['python3', 'sys_check.py', '--json'] })).toBe(
+      'python3 sys_check.py --json',
+    );
+    expect(summariseCall({ url: 'https://example.com', format: 'text' })).toBe(
+      'https://example.com',
+    );
+    expect(summariseCall({ path: 'a.py', content: 'x'.repeat(500) })).toBe(
+      'a.py',
+    );
+  });
+
+  it('puts a search before the folder it searched', () => {
+    expect(summariseCall({ pattern: 'TODO', path: 'src' })).toBe('TODO · src');
+    // The workspace root is where every call starts, so it says nothing.
+    expect(summariseCall({ pattern: 'TODO', path: '.' })).toBe('TODO');
+    expect(summariseCall({ path: '.', recursive: true })).toBe('.');
+  });
+
+  it('keeps the JSON for a shape it does not know', () => {
+    expect(summariseCall({ tasks: [] })).toBe('{"tasks":[]}');
+    expect(summariseCall({ argv: [1, 2] })).toBe('{"argv":[1,2]}');
+    expect(summariseCall({ path: '' })).toBe('{"path":""}');
+    expect(summariseCall('not json')).toBe('not json');
+    expect(summariseCall(undefined)).toBe('');
+  });
+
+  it('truncates a long command like any preview', () => {
+    const long = summariseCall({ argv: ['echo', 'x'.repeat(200)] }, 20);
+
+    expect(long).toHaveLength(20);
+    expect(long.endsWith('…')).toBe(true);
   });
 });
 

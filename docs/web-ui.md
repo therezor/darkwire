@@ -60,8 +60,19 @@ never drops a running turn.
   and in the gap between one tool finishing and the next thing starting. On an agent that
   runs forty tools that gap is most of the turn, and it used to show a finished card and
   a Stop button and nothing else.
-- **Tool cards** — one per call, with the risk badge, running/succeeded/failed status,
-  progress ticks for slow calls, and a flag when output was truncated. A running call
+- **Messages.** A turn is one or more messages: a model call and the tool cards it asked
+  for. Every message ends in the same short line, the last one included: how long it
+  took, what it wrote and how fast (`3.1s · 171 out · 78 tok/s`). Nothing is added up
+  for the turn. Hovering the line shows Copy, Regenerate, Branch and Info for that
+  message alone. On a touch screen it shows one menu button instead. When a turn stops
+  short, the reason leads its last line (`Stopped by you · 1.2s · 40 out · 33 tok/s`). A
+  message that ended without its figures, or a turn that failed before it wrote
+  anything, still gets a line with its actions.
+- **Tool cards.** The calls a message made back to back share one list, a row each. A row
+  shows the file, command or search rather than the arguments' JSON, with
+  running/succeeded/failed status, progress ticks for slow calls, and a flag when output
+  was truncated. Calls that write, run a command or reach the network carry a risk
+  badge. A call read back from history has none, since history does not store it. A running call
   says so on the card itself rather than behind the disclosure, and shows the server's
   own sentence when a heartbeat carried one, so a call that has been going for a
   minute is not a one-line strip you have to click to learn anything about.
@@ -75,17 +86,17 @@ never drops a running turn.
   _during_ the delegation with everything the subagent had already written. The replay
   ring cannot do that on its own — it holds 512 frames and a subagent emits one per token
   — so the server keeps the running turn whole beside it and replays that instead,
-  including every nested step; see [API](api.md#sequencing-and-replay). The bound is
+  including every nested message; see [API](api.md#sequencing-and-replay). The bound is
   `server.turnLogMaxBytes`, and a turn that outgrows it falls back to picking the run up
   from the moment the tab reattaches. A second tab, which has no cursor and so asks for no
   replay at all, does that too, and fills in the rest when the turn ends.
 - **Notices** badge prompt injection, degraded requests, provider fallback, truncated
   history, a denied approval, a fallback to another agent, and a turn that ran with tools
   switched off.
-- **Turn info** — tokens in and out, cached tokens, elapsed, time to first token,
-  tokens per second, model, provider, step count, stop reason. Elapsed covers the
-  whole turn; first token is what a cold model load looks like; the rate divides by
-  generation time alone, so it stays steady across a cold and a warm run.
+- **Message info**: the model the provider reported, tokens in, cached tokens and time
+  to first token. First token is what a cold model load looks like. The rate on the
+  line divides by generation time alone, so it stays steady across a cold and a warm
+  run.
 - Markdown with highlighted code blocks.
 
 A tool card, expanded to show what the call returned:
@@ -106,9 +117,14 @@ run yet:
 ### Composer
 
 - Auto-growing textarea measured with a mirror element, so it holds up under browser zoom.
-- **Send ⇄ Stop follows the session status.** Enter still queues while a turn is running,
-  and the composer says the message is queued rather than going grey.
-- **Steering** — what you type mid-turn reaches the running turn, not the next one.
+- **Send ⇄ Stop follows the session status.** The composer stays usable while a turn
+  runs rather than going grey.
+- **Typing during a run reaches that run.** Enter sends the words to the running turn,
+  which reads them before its next message. They appear in the transcript at that
+  point, between the messages they came between. If the turn ends first, by finishing,
+  hitting a cap, or being stopped, the words run as the next turn instead, so nothing
+  is lost. A message with a file attached is queued as the next turn, since a steer
+  carries none.
 - **Attachments upload when you pick them**, not on send, so a large file is already there
   when you hit Enter.
 - An agent picker, and a context budget strip.
@@ -162,12 +178,17 @@ message carrying an attachment is never a command either.
 
 ### Message actions
 
-**Edit** a user message and re-run from the new wording. **Regenerate** an answer.
-**Branch** either into a new session, leaving the original intact. **Info** for the
-turn's cost. **Copy**.
+**Edit** a user message and re-run from the new wording. **Regenerate** any message the
+model wrote: it and everything after it go, and the turn carries on from the history
+before it, keeping the earlier tool results and asking nothing again. To redo a whole
+turn, regenerate its first message or edit the question. **Branch** after any message
+into a new session, leaving the original intact. **Info** for what a message cost.
+**Copy** takes one message's text.
 
-Destructive actions are disabled mid-turn, and anything needing a sequence number stays
-disabled until the message has landed.
+Edit and Regenerate are disabled mid-turn. Branch is not: it copies into a new session,
+the running turn carries on, and the server only accepts a point the turn has already
+finished, so a finished message can be branched from while the next one runs. Anything
+needing a sequence number stays disabled until the message has landed.
 
 ### Task panel
 
@@ -205,7 +226,7 @@ move four integers is not a trade worth making. Opening the panel re-measures, b
 that is the moment anyone reads the lists rather than the total.
 
 This is the screen that answers "why did it forget what I said", and it used to answer it
-one turn late: a twenty-step turn appends most of a window before it ends, which is
+one turn late: a twenty-message turn appends most of a window before it ends, which is
 exactly when the question gets asked.
 
 **It shows what is sent, and counts what is sent.** The panel prices every section as
@@ -267,7 +288,7 @@ details popover, because a conversation that has been moved spans more than one.
 ## Agents
 
 Create, rename, enable, delete. Per agent: the model, provider, reasoning effort and
-temperature; limits (output tokens, context window, tool iterations, tool timeout, turn
+temperature; limits (output tokens, context window, messages per turn, tool timeout, turn
 timeout); the **system prompt** on the screen and the other seven templates behind an
 **Advanced prompt settings** disclosure, each with a warning for stray placeholders; the
 **per-tool permission map**; the **container** selection, which decides where `exec` runs

@@ -31,6 +31,7 @@ import {
   type TurnPart,
 } from './shapes.js';
 import { findTool, orphanTurn, seedTool, upsertTool } from './parts.js';
+import { stepPart } from './steps.js';
 import { fromStoredMessages } from './stored.js';
 
 /**
@@ -46,6 +47,7 @@ export function appendPendingUserMessage(
     readonly clientMessageId: string;
     readonly text: string;
     readonly attachments?: readonly Attachment[];
+    readonly steering?: boolean;
   },
 ): Transcript {
   return [
@@ -59,6 +61,7 @@ export function appendPendingUserMessage(
       text: input.text,
       attachments: input.attachments ?? [],
       pending: true,
+      steering: input.steering ?? false,
     },
   ];
 }
@@ -99,14 +102,11 @@ export function applyServerMessage(
         items.some((item) => item.kind === 'turn' && item.id === message.turnId)
       ) {
         const filled = updateTurn(items, message.turnId, (turn) =>
-          turn.sessionKey === '' || turn.model === '' || turn.provider === ''
+          turn.sessionKey === '' || turn.firstSeq === undefined
             ? {
                 ...turn,
                 sessionKey:
                   turn.sessionKey === '' ? message.sessionKey : turn.sessionKey,
-                model: turn.model === '' ? message.model : turn.model,
-                provider:
-                  turn.provider === '' ? message.provider : turn.provider,
                 firstSeq: turn.firstSeq ?? message.firstSeq,
               }
             : turn,
@@ -123,16 +123,8 @@ export function applyServerMessage(
           kind: 'turn',
           id: message.turnId,
           sessionKey: message.sessionKey,
-          model: message.model,
-          provider: message.provider,
           parts: [],
           stopReason: undefined,
-          usage: undefined,
-          iterations: 0,
-          elapsedMs: undefined,
-          generationMs: undefined,
-          generationTokens: undefined,
-          firstTokenMs: undefined,
           // From `turn.start`, not only from `turn.end`: a turn that fails
           // never reaches its end, and without an address here the failure
           // could offer nothing to re-run.
@@ -162,6 +154,15 @@ export function applyServerMessage(
     case 'notice':
       return applyNotice(items, message);
 
+    case 'step.end':
+      return updateTurn(items, message.turnId, (turn) => {
+        const step = stepPart(message.stats, message.firstSeq, message.lastSeq);
+        // A replayed frame names a step already here: the ids are seqs.
+        return turn.parts.some((part) => part.id === step.id)
+          ? turn
+          : { ...turn, parts: [...turn.parts, step] };
+      });
+
     case 'subagent.event':
       return applySubagentEvent(items, message);
 
@@ -170,12 +171,6 @@ export function applyServerMessage(
         ...turn,
         done: true,
         stopReason: message.stopReason,
-        usage: message.usage,
-        iterations: message.iterations,
-        elapsedMs: message.elapsedMs,
-        generationMs: message.generationMs,
-        generationTokens: message.generationTokens,
-        firstTokenMs: message.firstTokenMs,
         // Kept if the end does not restate it. `turn.start` already carried it,
         // and overwriting with `undefined` would take the address back off a
         // turn that had one — which is the whole thing this is here to preserve.
@@ -203,15 +198,34 @@ export function applyServerMessage(
             failure: { message: message.message, retryable: message.retryable },
           }));
 
-    case 'steer':
-      return [
-        ...items,
-        {
-          kind: 'steer',
-          id: `steer:${String(message.seq)}`,
-          text: message.content,
-        },
-      ];
+    // Sent by the loop once it has written the steer, so it goes where the
+    // model read it. The sender's bubble goes with it: it was a promise that
+    // the turn would read this, and now it has.
+    case 'steer': {
+      const read = updateTurn(items, message.turnId, (turn) => {
+        const id = `steer:${String(message.seq)}`;
+        return turn.parts.some((part) => part.id === id)
+          ? turn
+          : {
+              ...turn,
+              parts: [
+                ...turn.parts,
+                { kind: 'steer', id, text: message.content },
+              ],
+            };
+      });
+      const sent = message.clientMessageId;
+      return sent === undefined
+        ? read
+        : read.filter(
+            (item) =>
+              !(
+                item.kind === 'user' &&
+                item.pending &&
+                item.clientMessageId === sent
+              ),
+          );
+    }
 
     case 'session.reset':
       return EMPTY_TRANSCRIPT;
@@ -357,6 +371,8 @@ const GROWTH_EVENTS: ReadonlySet<string> = new Set([
   'tool.approvalRequest',
   'tool.result',
   'notice',
+  'step.end',
+  'steer',
   // A delegation's events grow the turn they hang off, so a replayed one has to
   // be dropped for the same reason: a finished turn's nested cards are already
   // whatever the run made them.
@@ -388,9 +404,13 @@ function isFinished(items: Transcript, turnId: string): boolean {
  * stored tail a few milliseconds later; without this, the answer being
  * discarded stays on screen until it does.
  *
- * Items with no seq — an optimistic bubble, a steer, a connection notice — are
- * kept only while they precede the cut, because an item that has no address
- * cannot be shown to be on the surviving side of one.
+ * Items with no seq (an optimistic bubble, a connection notice) are kept only
+ * while they precede the cut, because an item that has no address cannot be
+ * shown to be on the surviving side of one.
+ *
+ * A turn the cut falls inside keeps the steps that end at or before it, so
+ * regenerating one step takes it and the ones after it off at once. A turn
+ * left with none goes too: storage holds no turn for a question with no answer.
  */
 export function truncateTranscriptAfter(
   items: Transcript,
@@ -403,13 +423,37 @@ export function truncateTranscriptAfter(
       item.kind === 'user'
         ? item.seq
         : item.kind === 'turn'
-          ? item.firstSeq
+          ? (item.firstSeq ?? firstStepSeq(item))
           : undefined;
     if (address !== undefined && address > seq) break;
-    kept.push(item);
+    if (item.kind !== 'turn') {
+      kept.push(item);
+      continue;
+    }
+    const trimmed = trimTurn(item, seq);
+    if (trimmed !== undefined) kept.push(trimmed);
   }
 
   return kept;
+}
+
+/** The seq a turn that wrote no question is addressed by: its first message. */
+function firstStepSeq(turn: TurnItem): number | undefined {
+  const step = turn.parts.find((part) => part.kind === 'step');
+  return step?.kind === 'step' ? step.firstSeq : undefined;
+}
+
+/** A turn with only the messages that end at or before `seq`. */
+function trimTurn(turn: TurnItem, seq: number): TurnItem | undefined {
+  const cut = turn.parts.some(
+    (part) => part.kind === 'step' && part.lastSeq > seq,
+  );
+  if (!cut) return turn;
+  const end = turn.parts.findLastIndex(
+    (part) => part.kind === 'step' && part.lastSeq <= seq,
+  );
+  if (end === -1) return undefined;
+  return { ...turn, parts: turn.parts.slice(0, end + 1) };
 }
 
 /**
@@ -451,7 +495,14 @@ function acknowledge(
   if (item?.kind !== 'user') return items;
   // The id is left alone: it is a React key, and the turn id already belongs to
   // the turn item this message started. Only the turn id and `pending` are news.
-  copy[pending] = { ...item, turnId: messageId, pending: false };
+  // A steer the turn did not read is acked as an ordinary message: it runs
+  // next, and stops saying it is waiting on the turn before it.
+  copy[pending] = {
+    ...item,
+    turnId: messageId,
+    pending: false,
+    steering: false,
+  };
   return copy;
 }
 
@@ -548,10 +599,6 @@ function seedSubagent(
     sessionKey: message.sessionKey,
     parts: [],
     model: '',
-    stopReason: undefined,
-    usage: undefined,
-    iterations: 0,
-    elapsedMs: undefined,
     done: false,
     // Live events *are* the whole run, so nothing needs fetching.
     loaded: true,
@@ -571,14 +618,7 @@ function applySubagentPart(
       return { ...subagent, model: event.model };
 
     case 'turn.end':
-      return {
-        ...subagent,
-        done: true,
-        stopReason: event.stopReason,
-        usage: event.usage,
-        iterations: event.iterations,
-        elapsedMs: event.elapsedMs,
-      };
+      return { ...subagent, done: true };
 
     case 'error':
       // A subagent that failed is a finished subagent. Its message reaches the

@@ -4,6 +4,8 @@
     "type": "steer",
     "seq": 61,
     "sessionKey": "web:abc",
-    "content": "shorter"
+    "turnId": "t1",
+    "content": "shorter",
+    "clientMessageId": "c-steer"
   }
 }

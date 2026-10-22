@@ -734,7 +734,7 @@ describe('the default agent', () => {
 
     expect(screen.getByLabelText(/^Live state for/)).toBeInTheDocument();
     expect(
-      screen.getByLabelText(/^Running out of iterations for/),
+      screen.getByLabelText(/^Running out of messages for/),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/^Running commands for/)).toBeInTheDocument();
     expect(
@@ -944,7 +944,7 @@ describe('the default agent', () => {
     await user.paste('Inside {{tag}} is data.');
 
     expect(
-      await screen.findByText(/re-read on every step of a turn/),
+      await screen.findByText(/re-read for every message of a turn/),
     ).toBeInTheDocument();
   });
 

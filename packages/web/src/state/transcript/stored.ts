@@ -12,7 +12,11 @@
  * be showing them the machinery.
  */
 
-import type { StoredMessage, SubagentRunRef } from '@darkwire/protocol';
+import type {
+  StepStats,
+  StoredMessage,
+  SubagentRunRef,
+} from '@darkwire/protocol';
 
 import {
   type ToolPart,
@@ -31,6 +35,7 @@ import {
   unloadedSubagent,
   unwrapToolOutput,
 } from './parts.js';
+import { stepPart } from './steps.js';
 
 /**
  * A fetched history under whatever the socket has already built on top of it.
@@ -69,26 +74,9 @@ export function mergeStoredHistory(
     ),
   );
 
-  // A third key, for steers. The live item is named after its frame and the
-  // stored one after its row, so the words are all the two have in common.
-  // Counted, so a steer sent twice with the same words still shows twice.
-  const steers = new Map<string, number>();
-  for (const item of base) {
-    if (item.kind === 'steer') {
-      steers.set(item.text, (steers.get(item.text) ?? 0) + 1);
-    }
-  }
-
   const merged: TranscriptItem[] = [...base];
   for (const item of existing) {
     if (ids.has(item.id)) continue;
-    if (item.kind === 'steer') {
-      const stored = steers.get(item.text) ?? 0;
-      if (stored > 0) {
-        steers.set(item.text, stored - 1);
-        continue;
-      }
-    }
     if (
       item.kind === 'user' &&
       item.turnId !== undefined &&
@@ -135,7 +123,7 @@ export function mergeStoredHistory(
  * until something makes it reload.
  *
  * So a stored rebuild that knows *less* about a turn than the socket does never
- * replaces it. Counting parts is the whole test, and it is the right one in
+ * replaces it, and one that wins never ends a turn the socket says is running. Counting parts is the whole test, and it is the right one in
  * both directions: storage catching up produces at least as many, at which
  * point it wins and `withLiveRiskBands` restores the detail rows cannot carry.
  *
@@ -166,7 +154,12 @@ function withAuthoritativeTurns(
     if (watched?.kind !== 'turn') return item;
     const outranks =
       watched.authoritative || watched.parts.length > item.parts.length;
-    return outranks ? watched : item;
+    if (outranks) return watched;
+    // Storage knows what was written, not whether the turn is over: every turn
+    // it rebuilds is finished by construction. A turn this tab is watching run
+    // keeps running, or every frame after this fetch is dropped as growth on a
+    // finished turn, and the screen stops at whatever the fetch held.
+    return watched.done ? item : { ...watched, parts: item.parts };
   });
 }
 
@@ -178,10 +171,9 @@ function withAuthoritativeTurns(
  * something it was already showing:
  *
  *  - **The risk band.** It was a property of the registry at call time; the row
- *    holds the model's arguments and the result. `fromStoredMessages` fills in
- *    `safe`, which is honest for a conversation loaded fresh and wrong for one
- *    being watched — an `exec` the user was asked to approve would be
- *    relabelled `read` the instant its turn landed in the database.
+ *    holds the model's arguments and the result. `fromStoredMessages` leaves it
+ *    unknown, so an `exec` the user was asked to approve would lose its badge
+ *    the instant its turn landed in the database.
  *  - **The subagent's run.** A delegation's nested transcript lives in the
  *    child's own session, not in the parent's history, so a rebuild would drop
  *    it — and the history query is invalidated on `turn.end`, which means the
@@ -269,8 +261,39 @@ export function fromStoredMessages(
     if (stored.message.role === 'assistant') answered.add(key);
   }
 
+  // The step still collecting its tool rows. Its figures came on the assistant
+  // row, and its boundary goes after the last result, where the live frame
+  // puts it.
+  let step:
+    | {
+        readonly turnIndex: number;
+        readonly stats: StepStats;
+        readonly firstSeq: number;
+        lastSeq: number;
+      }
+    | undefined;
+  const closeStep = (): void => {
+    if (step === undefined) return;
+    const turn = items[step.turnIndex];
+    if (turn?.kind === 'turn') {
+      items[step.turnIndex] = {
+        ...turn,
+        parts: [
+          ...turn.parts,
+          stepPart(step.stats, step.firstSeq, step.lastSeq),
+        ],
+      };
+    }
+    step = undefined;
+  };
+
   for (const stored of messages) {
     const { message } = stored;
+    if (message.role === 'tool') {
+      if (step !== undefined) step.lastSeq = stored.seq;
+    } else {
+      closeStep();
+    }
 
     switch (message.role) {
       // Never rendered. It is the agent's instructions, not the conversation.
@@ -278,15 +301,24 @@ export function fromStoredMessages(
         continue;
 
       case 'user': {
-        // A steer is stored as a user row under the turn it corrected. Shown
-        // as the live path shows it, so the turn stays one item and the
-        // answer after the steer keeps growing it.
+        // A steer is stored as a user row under the turn it corrected. A part
+        // of that turn, where the loop read it, as the live path puts it.
         const steer =
           stored.turnId === undefined
             ? undefined
             : steerText(textOf(message.content));
-        if (steer !== undefined) {
-          items.push({ kind: 'steer', id: stored.id, text: steer });
+        if (steer !== undefined && stored.turnId !== undefined) {
+          const index = openTurn(items, stored.turnId);
+          const turn = items[index];
+          if (turn?.kind === 'turn') {
+            items[index] = {
+              ...turn,
+              parts: [
+                ...turn.parts,
+                { kind: 'steer', id: stored.id, text: steer },
+              ],
+            };
+          }
           continue;
         }
         items.push({
@@ -298,6 +330,7 @@ export function fromStoredMessages(
           text: textOf(message.content),
           attachments: attachmentsOf(message.content),
           pending: false,
+          steering: false,
         });
         // A turn that failed appended no answer, so nothing below would ever
         // open one — and the failure would have nowhere to render. Opened here,
@@ -350,10 +383,9 @@ export function fromStoredMessages(
               // The stored form is the verbatim string the model emitted, which
               // is not always JSON. The card renders whichever it turns out to be.
               parseArgs(call.argumentsJson),
-              // Stored history does not carry the risk band — it was a property
-              // of the registry at call time. `safe` is the honest answer, and
-              // the result beside it is what the reader is actually looking at.
-              'safe',
+              // Stored history does not carry the risk band. It was a property
+              // of the registry at call time, so it stays unknown.
+              undefined,
               'running',
               run === undefined ? undefined : unloadedSubagent(run),
             ),
@@ -361,6 +393,14 @@ export function fromStoredMessages(
         }
 
         items[index] = { ...turn, parts, done: true };
+        if (message.stats !== undefined) {
+          step = {
+            turnIndex: index,
+            stats: message.stats,
+            firstSeq: stored.seq,
+            lastSeq: stored.seq,
+          };
+        }
         continue;
       }
 
@@ -398,6 +438,7 @@ export function fromStoredMessages(
       }
     }
   }
+  closeStep();
 
   return items.map((item) => {
     if (item.kind !== 'turn') return item;

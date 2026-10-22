@@ -165,12 +165,12 @@
   },
   "render": {
     "awaitingApproval": "{{tool}} is waiting for approval",
-    "steps_one": "{{count}} step",
-    "steps_other": "{{count}} steps",
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
     "stopReasons": {
       "aborted": "interrupted",
       "error": "failed",
-      "max_iterations": "stopped at the tool-iteration cap",
+      "max_iterations": "stopped at the message limit",
       "wall_timeout": "stopped at the turn time cap"
     },
     "subagent": {
@@ -334,7 +334,7 @@
     "tabs": {
       "commands": "commands",
       "index": "index",
-      "live": "live, rebuilt every step",
+      "live": "live, rebuilt every message",
       "memories": "memories",
       "messages": "messages",
       "setup": "setup",

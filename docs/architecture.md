@@ -82,12 +82,13 @@ filling memory behind it. There is no `on_token` callback anywhere.
 
 Per iteration, up to `maxToolIterations` (default 40):
 
-1. **Drain the steering queue.** Anything the operator typed while the turn was running
-   is appended as a user message, prefixed so the model can tell it apart from the
-   original request. Capped at 16 pending.
-2. **Check the cancellation token, then the wall clock.** `loopWallTimeoutMs` is checked
-   at the _top_ of the iteration — a turn should not discover it is out of time halfway
+1. **Check the cancellation token, then the wall clock.** `loopWallTimeoutMs` is checked
+   at the _top_ of the iteration: a turn should not discover it is out of time halfway
    through a provider call.
+2. **Drain the steering queue.** Anything the operator typed while the turn was running
+   is appended as a user message, prefixed so the model can tell it apart from the
+   original request, and reported with a `steer` frame once written. After the stop
+   checks, so a turn that is ending never writes a correction it will not answer.
 3. **Rebuild the runtime half of the prompt** and assemble the request as
    `[system] + history(sessionKey)`.
 4. **Stream from the provider.** `assistant.delta` and `reasoning.delta` go out as they
@@ -98,6 +99,32 @@ Per iteration, up to `maxToolIterations` (default 40):
    result in one transaction.
 
 `stopReason` is one of `complete`, `aborted`, `wall_timeout`, `max_iterations`, `error`.
+
+**Steering is never lost.** A session's queue is open only while a turn on it can read
+it: the loop opens it before the turn's task exists and closes it however the turn ends.
+A push the queue refuses (no open turn, or 16 already waiting) goes back to the hub,
+which runs the words as the next turn under the sender's `clientMessageId`. The hub also
+tracks every steer it handed over until the loop's `steer` frame names it, and runs any
+the turn ended without reading as the next turn too, past the queue bound, because they
+were already accepted. A steer that arrives on the last allowed iteration is left for
+the next turn rather than written into one that will not answer it.
+
+**A continuation turn** is what regenerating one assistant message runs. The hub drops
+that message and everything after it, then queues a turn carrying `continue_from`: the
+seq of the question it answers. The loop writes no opening row, anchors its history
+window on that question, and reports no `firstSeq`, because it asked nothing. It runs
+under a new turn id, so it is a turn of its own in storage and on screen. Truncation
+deletes the `turn_stats` row of every turn it took rows from: that row described the
+whole run, and what is left is less than that.
+
+An iteration that writes rows is a **step**. Its assistant row stores what that model
+call cost (`stats`), written with the row rather than after it, so history stays
+append-only and a fork copies the figures with the message. Once the rows are committed,
+`step.end` reports their seqs. That is what makes a step addressable before its turn
+ends: everything up to the last finished step is final, so a branch can be taken there
+while the turn goes on. A call that wrote nothing (a tool call cut at the token limit,
+with no text beside it) carries its figures onto the next row, so the steps always add
+up to the turn.
 
 ### Invariants
 
@@ -126,8 +153,12 @@ Every event the loop yields is a server message minus its sequence number — th
 stamps a counter, and a test asserts that property rather than trusting it.
 
 `turn.start` · `assistant.delta` · `reasoning.delta` · `tool.call` · `tool.progress` ·
-`tool.approvalRequest` · `tool.result` · `notice` · `error` · `turn.end` ·
+`tool.approvalRequest` · `tool.result` · `notice` · `error` · `step.end` · `turn.end` ·
 `subagent.event` · `context.usage`
+
+`step.end` and `steer` sit outside `NestedAgentEvent` with `context.usage`. A
+subagent's loop ends steps like any other, but its seqs address the child's session, so
+the forwarding drops them. Nothing steers a subagent.
 
 `tool.progress` is emitted on a fixed 15-second heartbeat while a tool runs, so a slow
 command looks alive rather than hung.

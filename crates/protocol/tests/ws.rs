@@ -92,6 +92,6 @@ fn the_unsequenced_set_is_exactly_the_connection_level_events() {
     for value in ServerMessage::VALUES {
         assert!(!value.is_empty());
     }
-    assert_eq!(ServerMessage::VALUES.len(), 23);
+    assert_eq!(ServerMessage::VALUES.len(), 24);
     assert_eq!(ClientMessage::VALUES.len(), 10);
 }

@@ -1143,9 +1143,9 @@ fn format_context(report: &darkwire_agent::ContextReport, locale: &str) -> Strin
             n(breakdown.messages)
         ),
         // Last because it is last in the request, and called out because it is
-        // the only one of the four paid again on every step of a turn.
+        // the only one of the four paid again on every message of a turn.
         format!(
-            "  {}{} (per step)",
+            "  {}{} (per message)",
             pad_to_width("live", CONTEXT_LABEL_COLUMN),
             n(breakdown.runtime_block)
         ),

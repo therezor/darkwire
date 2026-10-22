@@ -39,6 +39,7 @@ export const PROTOCOL_SCHEMAS = {
   ChatMessage: messages.ChatMessageSchema,
   StoredMessage: messages.StoredMessageSchema,
   Usage: messages.UsageSchema,
+  StepStats: messages.StepStatsSchema,
   StopReason: messages.StopReasonSchema,
 
   // tools
@@ -151,6 +152,7 @@ export const PROTOCOL_SCHEMAS = {
   NoticeKind: ws.NoticeKindSchema,
   NoticeEvent: ws.NoticeEventSchema,
   TurnEndEvent: ws.TurnEndEventSchema,
+  StepEndEvent: ws.StepEndEventSchema,
   NestedAgentEvent: ws.NestedAgentEventSchema,
   SubagentEvent: ws.SubagentEventSchema,
   ContextUsageEvent: ws.ContextUsageEventSchema,

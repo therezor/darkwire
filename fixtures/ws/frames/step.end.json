@@ -1,0 +1,25 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "step.end",
+    "seq": 56,
+    "turnId": "t1",
+    "firstSeq": 8,
+    "lastSeq": 9,
+    "stats": {
+      "usage": {
+        "promptTokens": 60,
+        "completionTokens": 40,
+        "totalTokens": 100,
+        "cachedTokens": 50,
+        "reasoningTokens": 5
+      },
+      "model": "qwen3:8b",
+      "elapsedMs": 4200,
+      "generationMs": 800,
+      "generationTokens": 40,
+      "firstTokenMs": 300
+    },
+    "turnElapsedMs": 6100
+  }
+}

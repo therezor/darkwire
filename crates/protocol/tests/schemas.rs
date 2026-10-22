@@ -38,6 +38,7 @@ const UNREGISTERED: &[&str] = &[
     "ToolApprovalRequest",
     "Notice",
     "TurnEnd",
+    "StepEnd",
     "SubagentEventBody",
     "ContextUsage",
     "SessionStatus",

@@ -30,6 +30,7 @@ import {
   type ServerMessage,
 } from '@darkwire/protocol';
 
+import type { Transcript } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
 import { toast } from '@/components/ui/toast.js';
 import { readCursor, writeCursor } from './cursor.js';
@@ -303,6 +304,12 @@ export function startFreshSession(
  * Sends a message, and says which agent it should run on. Returns whether it
  * went, so the composer keeps the text when there was nothing to send it on.
  *
+ * While a turn runs, words with nothing attached go to that turn instead: the
+ * loop reads them at the start of its next step. If it ends first, the server
+ * runs them as the next turn under the same `clientMessageId`, and the ack
+ * turns the bubble into an ordinary one. A steer carries no attachments, so a
+ * message with any is queued as before.
+ *
  * The agent is carried on every message rather than only on the first, because
  * the socket may have minted this session key without a `session.new` frame —
  * a fresh tab attaches and the user simply types. Sending it always is safe:
@@ -322,6 +329,17 @@ export function sendUserMessage(
   // `socket.ts` makes routine — is acked with the id the first attempt got,
   // and no second turn is queued.
   const clientMessageId = newUuid();
+
+  if (store.busy && attachments.length === 0) {
+    store.appendPending({ clientMessageId, text, steering: true });
+    socket.send({
+      type: 'turn.steer',
+      sessionKey,
+      content: text,
+      clientMessageId,
+    });
+    return true;
+  }
 
   store.appendPending({ clientMessageId, text, attachments });
   socket.send({
@@ -352,14 +370,13 @@ export function stopTurn(): void {
   });
 }
 
-export function steerTurn(content: string): void {
-  const sessionKey = useTurnStore.getState().sessionKey;
-  if (sessionKey === undefined) return;
-  socket?.send({ type: 'turn.steer', sessionKey, content });
-}
-
 /**
- * Re-runs a turn, discarding the answer it produced.
+ * Re-runs from a point, discarding what came after it.
+ *
+ * A `seq` naming one message of a turn re-runs that message alone: everything
+ * from it on goes, and the server continues from the history before it with
+ * no new question, so there is no bubble to put up. A `seq` naming a question
+ * re-asks it, as below.
  *
  * Cuts *below* the question and re-adds it as a pending bubble, which is the
  * same shape as `editMessage` and for the same reason. The server deletes that
@@ -394,6 +411,8 @@ export function regenerateTurn(seq?: number): void {
       text: question.text,
       attachments: question.attachments,
     });
+  } else if (seq !== undefined && startsMessage(store.transcript, seq)) {
+    store.truncateAfter(seq - 1);
   }
 
   socket.send({
@@ -402,6 +421,15 @@ export function regenerateTurn(seq?: number): void {
     ...(seq === undefined ? {} : { seq }),
     ...(question === undefined ? {} : { clientMessageId }),
   });
+}
+
+/** Whether `seq` is where one message of a turn begins. */
+function startsMessage(transcript: Transcript, seq: number): boolean {
+  return transcript.some(
+    (item) =>
+      item.kind === 'turn' &&
+      item.parts.some((part) => part.kind === 'step' && part.firstSeq === seq),
+  );
 }
 
 /** Replaces a message and re-runs from it. */

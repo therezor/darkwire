@@ -13,7 +13,7 @@ use common::{
     SESSION, TURN, approval_error, approval_request, context_usage, delta, denied, error,
     exec_approval_request, nested_approval_request, nested_delta, nested_denied,
     nested_tool_result, nested_turn_end, nested_turn_start, notice, queued, reasoning,
-    session_status, subagent, tool_call, tool_result, turn_end, turn_start,
+    session_status, step_end, subagent, tool_call, tool_result, turn_end, turn_start,
 };
 use darkwire_channels::projection::{
     APPROVAL_ERROR_METADATA_KEY, APPROVAL_METADATA_KEY, APPROVAL_SETTLED_METADATA_KEY,
@@ -71,6 +71,56 @@ fn emits_one_reply_carrying_the_whole_answer() {
     assert_eq!(kinds(&drafts), vec![OutboundKind::Reply]);
     assert_eq!(texts(&drafts), vec!["Hello, world"]);
     assert_eq!(drafts[0].turn_id.as_deref(), Some(TURN));
+}
+
+#[test]
+fn posts_each_message_the_moment_it_ends() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let first = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            delta("Let me look."),
+            tool_call("c1", "read"),
+            tool_result("c1", true),
+            step_end(),
+        ],
+    );
+    // Posted before the turn ends, as its own chat message.
+    assert_eq!(kinds(&first), vec![OutboundKind::Reply]);
+    assert_eq!(texts(&first), vec!["Let me look."]);
+
+    let rest = project_all(
+        &mut projection,
+        &[
+            delta("It says hello."),
+            step_end(),
+            turn_end(StopReason::Complete),
+        ],
+    );
+    assert_eq!(texts(&rest), vec!["It says hello."]);
+}
+
+#[test]
+fn posts_nothing_for_a_message_that_only_called_tools() {
+    let mut projection = TurnProjection::new(quiet());
+
+    let drafts = project_all(
+        &mut projection,
+        &[
+            turn_start(),
+            tool_call("c1", "read"),
+            tool_result("c1", true),
+            step_end(),
+            delta("Done."),
+            step_end(),
+            turn_end(StopReason::Complete),
+        ],
+    );
+
+    // And a turn whose answer went out already is not called answerless.
+    assert_eq!(texts(&drafts), vec!["Done."]);
 }
 
 #[test]
@@ -552,7 +602,7 @@ fn reports_the_iteration_cap_which_a_partial_answer_otherwise_hides() {
         texts(&drafts),
         vec![
             "half an answer",
-            "Stopped: the turn reached its tool-iteration limit."
+            "Stopped: the turn reached its message limit."
         ]
     );
 }

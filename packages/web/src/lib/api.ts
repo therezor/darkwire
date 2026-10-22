@@ -48,7 +48,6 @@ import {
   SessionListResponseSchema,
   SessionMessagesResponseSchema,
   SessionSummarySchema,
-  TurnStatsResponseSchema,
   TasksResponseSchema,
   SettingsResponseSchema,
   SetupStatusResponseSchema,
@@ -88,7 +87,6 @@ import {
   type SessionListResponse,
   type SessionMessagesResponse,
   type SessionSummary,
-  type TurnStatsResponse,
   type TasksResponse,
   type SetCredentialRequest,
   type SettingsResponse,
@@ -394,22 +392,6 @@ export const api = {
       {
         method: 'POST',
         body: { seq, ...(title === undefined ? {} : { title }) },
-      },
-    ),
-
-  /**
-   * What each turn in a conversation cost.
-   *
-   * For turns nobody watched happen: a live turn carries its own numbers on
-   * `turn.end`, and asking the server for figures the client just measured
-   * would be a round trip to learn what it already knows.
-   */
-  turns: (key: string, signal?: AbortSignal): Promise<TurnStatsResponse> =>
-    request(
-      `/api/sessions/${encodeURIComponent(key)}/turns`,
-      TurnStatsResponseSchema,
-      {
-        ...(signal ? { signal } : {}),
       },
     ),
 

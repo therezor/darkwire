@@ -18,7 +18,8 @@ export {
   type NoticeItem,
   type NoticePart,
   type ReasoningPart,
-  type SteerItem,
+  type SteerPart,
+  type StepPart,
   type SubagentPart,
   type TextPart,
   type ToolApprovalState,
@@ -33,6 +34,8 @@ export {
 } from './transcript/shapes.js';
 
 export { unwrapToolOutput } from './transcript/parts.js';
+
+export { messagesOf, type TurnPiece } from './transcript/steps.js';
 
 export {
   appendPendingUserMessage,

@@ -144,7 +144,7 @@ describe('accumulating a turn', () => {
     expect(turnOf(items).parts).toHaveLength(1);
   });
 
-  it('closes the turn with its stop reason and usage', () => {
+  it('closes the turn with its stop reason', () => {
     const items = play(START, {
       type: 'turn.end',
       turnId: 't1',
@@ -156,7 +156,6 @@ describe('accumulating a turn', () => {
     expect(turnOf(items)).toMatchObject({
       done: true,
       stopReason: 'aborted',
-      iterations: 2,
     });
   });
 
@@ -532,17 +531,68 @@ describe('session frames', () => {
     expect(items).toEqual([]);
   });
 
-  it('records a steer so every tab sees what was injected', () => {
-    const items = play(START, {
+  it('puts a steer inside the turn that read it, where it read it', () => {
+    const items = play(
+      START,
+      { type: 'assistant.delta', turnId: 't1', text: 'looking' },
+      {
+        type: 'steer',
+        sessionKey: 'web:1',
+        turnId: 't1',
+        content: 'be brief',
+      },
+    );
+
+    expect(items).toHaveLength(1);
+    expect(turnOf(items).parts.at(-1)).toEqual({
+      kind: 'steer',
+      id: 'steer:3',
+      text: 'be brief',
+    });
+  });
+
+  it("takes the sender's bubble down once the turn has read the steer", () => {
+    let items = appendPendingUserMessage(play(START), {
+      clientMessageId: 'c-steer',
+      text: 'be brief',
+      steering: true,
+    });
+    expect(items.at(-1)).toMatchObject({ pending: true, steering: true });
+
+    items = applyServerMessage(items, {
       type: 'steer',
+      seq: 9,
       sessionKey: 'web:1',
+      turnId: 't1',
       content: 'be brief',
+      clientMessageId: 'c-steer',
     });
 
-    expect(items.at(-1)).toEqual({
-      kind: 'steer',
-      id: 'steer:2',
-      text: 'be brief',
+    expect(items.some((item) => item.kind === 'user')).toBe(false);
+    expect(turnOf(items).parts.at(-1)).toMatchObject({ kind: 'steer' });
+  });
+
+  it('makes a steer the turn never read an ordinary message once it is acked', () => {
+    const items = applyServerMessage(
+      appendPendingUserMessage(play(START), {
+        clientMessageId: 'c-steer',
+        text: 'be brief',
+        steering: true,
+      }),
+      {
+        type: 'message.ack',
+        seq: 9,
+        sessionKey: 'web:1',
+        messageId: 't2',
+        clientMessageId: 'c-steer',
+      },
+    );
+
+    expect(items.at(-1)).toMatchObject({
+      kind: 'user',
+      turnId: 't2',
+      pending: false,
+      steering: false,
     });
   });
 
@@ -825,8 +875,6 @@ describe('session frames', () => {
     expect(turnOf(rebuilt)).toMatchObject({
       id: 't1',
       // The replayed start fills in what the seat could not know.
-      model: 'm',
-      provider: 'p',
       sessionKey: 'web:1',
       authoritative: true,
       parts: [{ kind: 'text', text: 'the whole answer' }],
@@ -1171,6 +1219,59 @@ describe('a stored history', () => {
   });
 });
 
+describe('a fetch that lands while a turn runs', () => {
+  it('takes what storage holds without ending the turn', () => {
+    const live = play(
+      { ...START, firstSeq: 1 },
+      {
+        type: 'tool.call',
+        turnId: 't1',
+        callId: 'c1',
+        name: 'ls',
+        args: {},
+        risk: 'safe',
+      },
+    );
+    // The first message is written; the fetch holds it and nothing after.
+    const history = [
+      stored(
+        'm1',
+        't1',
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'list it' }],
+        },
+        1,
+      ),
+      stored(
+        'm2',
+        't1',
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ id: 'c1', name: 'ls', argumentsJson: '{}' }],
+        },
+        2,
+      ),
+    ];
+
+    const merged = mergeStoredHistory(live, history);
+    expect(turnOf(merged).done).toBe(false);
+
+    // So the answer that follows still lands.
+    const answered = applyServerMessage(merged, {
+      type: 'assistant.delta',
+      seq: 9,
+      turnId: 't1',
+      text: 'It holds notes.md.',
+    });
+    expect(turnOf(answered).parts.at(-1)).toMatchObject({
+      kind: 'text',
+      text: 'It holds notes.md.',
+    });
+  });
+});
+
 describe('a steer in stored history', () => {
   // The agent's own prefix, pinned here because the browser restates it.
   const steerRow = (id: string, words: string): StoredMessage =>
@@ -1202,45 +1303,40 @@ describe('a steer in stored history', () => {
     }),
   ];
 
-  it('keeps one turn and shows the steer without its prefix', () => {
+  it('keeps one turn and shows the steer inside it, without its prefix', () => {
     const items = fromStoredMessages(rows());
 
-    expect(items.map((item) => item.kind)).toEqual(['user', 'turn', 'steer']);
-    expect(items[2]).toMatchObject({ text: 'the other directory' });
+    expect(items.map((item) => item.kind)).toEqual(['user', 'turn']);
     expect(turnOf(items).parts.map((part) => part.kind)).toEqual([
       'text',
+      'steer',
       'text',
     ]);
+    expect(turnOf(items).parts[1]).toMatchObject({
+      text: 'the other directory',
+    });
   });
 
-  it('does not show the steer twice when merged under the live one', () => {
+  it('builds the same parts from storage as the live frames did', () => {
     const live = play(
       START,
       { type: 'assistant.delta', turnId: 't1', text: 'looking in src' },
-      { type: 'steer', sessionKey: 'web:1', content: 'the other directory' },
+      {
+        type: 'steer',
+        sessionKey: 'web:1',
+        turnId: 't1',
+        content: 'the other directory',
+      },
       { type: 'assistant.delta', turnId: 't1', text: 'looking in lib' },
     );
+    const kinds = (items: Transcript): unknown =>
+      turnOf(items).parts.map((part) =>
+        part.kind === 'steer' || part.kind === 'text'
+          ? [part.kind, part.text]
+          : part.kind,
+      );
 
-    const history = rows();
-    const merged = mergeStoredHistory(live, history);
-
-    expect(merged.map((item) => item.kind)).toEqual(['user', 'turn', 'steer']);
-    expect(mergeStoredHistory(merged, history)).toEqual(merged);
-  });
-
-  it('keeps a live steer storage has not written yet', () => {
-    const live = play(START, {
-      type: 'steer',
-      sessionKey: 'web:1',
-      content: 'stop after this',
-    });
-
-    const merged = mergeStoredHistory(live, rows());
-
-    expect(merged.filter((item) => item.kind === 'steer')).toMatchObject([
-      { text: 'the other directory' },
-      { text: 'stop after this' },
-    ]);
+    expect(kinds(fromStoredMessages(rows()))).toEqual(kinds(live));
   });
 });
 
@@ -1700,7 +1796,7 @@ describe('truncateTranscriptAfter', () => {
 });
 
 describe('turn.end reporting', () => {
-  it('records the timing and the seqs the turn spanned', () => {
+  it('records the seqs the turn spanned', () => {
     const started = applyServerMessage([], {
       type: 'turn.start',
       agentId: 'default',
@@ -1724,7 +1820,6 @@ describe('turn.end reporting', () => {
 
     expect(turn).toMatchObject({
       kind: 'turn',
-      elapsedMs: 1200,
       firstSeq: 3,
       lastSeq: 6,
     });
@@ -1927,7 +2022,7 @@ describe('subagents', () => {
     });
   });
 
-  it('closes the run on turn.end, and keeps what it cost', () => {
+  it('closes the run on turn.end', () => {
     const items = play(
       START,
       DELEGATE,
@@ -1942,12 +2037,7 @@ describe('subagents', () => {
       }),
     );
 
-    expect(toolsOf(items)[0]?.subagent).toMatchObject({
-      done: true,
-      stopReason: 'complete',
-      iterations: 3,
-      elapsedMs: 4100,
-    });
+    expect(toolsOf(items)[0]?.subagent).toMatchObject({ done: true });
   });
 
   it('keeps a parent and a subagent call with the same id apart', () => {

@@ -82,6 +82,7 @@ fn every_frame() -> Vec<ChannelControlFrame> {
             tag: SteerTag,
             session_key: "bare:1".to_owned(),
             content: "try the other file".to_owned(),
+            client_message_id: None,
         }),
         ChannelControlFrame::Regenerate(RegenerateMessage {
             tag: RegenerateTag,

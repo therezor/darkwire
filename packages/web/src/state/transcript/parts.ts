@@ -76,10 +76,6 @@ export function unloadedSubagent(run: SubagentRunRef): SubagentPart {
     sessionKey: run.sessionKey,
     parts: [],
     model: '',
-    stopReason: undefined,
-    usage: undefined,
-    iterations: 0,
-    elapsedMs: undefined,
     done: true,
     loaded: false,
     // Nothing is being shown, so there is no half of anything on screen. The
@@ -92,7 +88,7 @@ export function seedTool(
   callId: string,
   name: string,
   args: unknown,
-  risk: ToolRisk,
+  risk: ToolRisk | undefined,
   status: ToolStatus = 'running',
   subagent?: SubagentPart,
 ): ToolPart {
@@ -150,16 +146,8 @@ export function orphanTurn(turnId: string): TurnItem {
     kind: 'turn',
     id: turnId,
     sessionKey: '',
-    model: '',
-    provider: '',
     parts: [],
     stopReason: undefined,
-    usage: undefined,
-    iterations: 0,
-    elapsedMs: undefined,
-    generationMs: undefined,
-    generationTokens: undefined,
-    firstTokenMs: undefined,
     firstSeq: undefined,
     lastSeq: undefined,
     done: false,
@@ -171,14 +159,9 @@ export function orphanTurn(turnId: string): TurnItem {
 /**
  * The index of the turn `turnId` when it is the one still open at the end, or
  * of a new one pushed for it.
- *
- * Trailing steers are looked past: the answer after a steer belongs to the turn
- * the steer corrected, and a second item with the same id is a duplicate React
- * key.
  */
 export function openTurn(items: TranscriptItem[], turnId: string): number {
-  let index = items.length - 1;
-  while (items[index]?.kind === 'steer') index -= 1;
+  const index = items.length - 1;
   const last = items[index];
   if (last?.kind === 'turn' && last.id === turnId) return index;
 

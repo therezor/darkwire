@@ -42,19 +42,11 @@ function turn(parts: readonly TurnPart[]): TurnItem {
     id: 'turn-1',
     sessionKey: 'cli:default',
     parts,
-    model: 'qwen3:8b',
-    provider: 'ollama',
     stopReason: undefined,
-    usage: undefined,
-    iterations: 1,
     done: false,
     failure: undefined,
     firstSeq: undefined,
     lastSeq: undefined,
-    elapsedMs: undefined,
-    generationMs: undefined,
-    generationTokens: undefined,
-    firstTokenMs: undefined,
     authoritative: true,
   };
 }
@@ -65,7 +57,6 @@ function show(item: TurnItem): void {
       item={item}
       streaming
       busy
-      sessionKey="cli:default"
       onApprove={vi.fn()}
       onAction={vi.fn()}
     />,

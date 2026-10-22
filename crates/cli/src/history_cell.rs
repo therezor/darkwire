@@ -180,17 +180,17 @@ impl HistoryCell for NoticeCell {
     }
 }
 
-/// What the turn cost, shown or not.
+/// What a message cost, shown or not.
 ///
 /// Hidden means nothing goes to the scrollback at all, which is different from
 /// a folded cell: there is no summary worth a row. The transcript still has it,
 /// because "what did that cost" is a question asked after the fact.
-pub struct TurnStatsCell {
+pub struct StatsCell {
     line: Line<'static>,
     shown: bool,
 }
 
-impl TurnStatsCell {
+impl StatsCell {
     /// The row, and whether it goes out.
     #[must_use]
     pub fn new(text: &str, shown: bool) -> Self {
@@ -201,7 +201,7 @@ impl TurnStatsCell {
     }
 }
 
-impl HistoryCell for TurnStatsCell {
+impl HistoryCell for StatsCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
         if self.shown {
             vec![self.line.clone()]

@@ -460,7 +460,7 @@ fn ctrl_o_decides_how_the_next_tool_arrives_not_the_last_one() {
 #[test]
 fn what_a_turn_cost_is_hidden_by_default_and_kept_for_the_transcript() {
     let mut widget = widget();
-    widget.handle_event(&TranscriptEvent::TurnStats {
+    widget.handle_event(&TranscriptEvent::Stats {
         line: "1.2k tokens".to_owned(),
         shown: false,
     });
@@ -474,7 +474,7 @@ fn ctrl_y_decides_whether_the_next_cost_is_written() {
     let mut widget = widget();
     assert_eq!(widget.handle_key(&key("\u{19}")), Typed::ToggleStats);
 
-    widget.handle_event(&TranscriptEvent::TurnStats {
+    widget.handle_event(&TranscriptEvent::Stats {
         line: "1.2k tokens".to_owned(),
         shown: true,
     });

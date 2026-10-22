@@ -428,7 +428,7 @@ impl TurnCollector {
                         // would notify the operator that a job broke when what
                         // actually happened is that it was busy.
                         StopReason::MaxIterations => inner.warnings.push(
-                            "The turn hit its tool-iteration cap; the answer may be incomplete."
+                            "The turn hit its message limit; the answer may be incomplete."
                                 .to_owned(),
                         ),
                         StopReason::Complete => {}
@@ -458,6 +458,7 @@ impl TurnCollector {
                 | ServerMessage::ToolApprovalRequest(_)
                 | ServerMessage::Subagent(_)
                 | ServerMessage::ContextUsage(_)
+                | ServerMessage::StepEnd(_)
                 | ServerMessage::SessionStatus(_)
                 | ServerMessage::SessionReset(_)
                 | ServerMessage::SessionReplay(_)

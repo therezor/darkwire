@@ -584,6 +584,37 @@ async fn reuses_the_connection_for_a_session_it_has_already_seen() {
 }
 
 #[tokio::test]
+async fn a_message_said_while_a_turn_runs_steers_it() {
+    let hub = ScriptedHub::silent();
+    let built = build(Spec::default());
+    let channel = Arc::clone(&built.channel);
+    let manager = ChannelManager::new(ChannelManagerOptions {
+        factories: vec![built.factory],
+        ..options(Arc::clone(&hub))
+    })
+    .expect("the manager takes the factory");
+    manager.start().await.expect("the channel starts");
+
+    channel.publish("chat", "list the files");
+    flush().await;
+    hub.connections()[0].emit(session_status(true));
+    flush().await;
+    channel.publish("chat", "only the src folder");
+    flush().await;
+
+    // The same rule as typing in the browser: to the running turn, which the
+    // hub turns into the next one if it ends first.
+    let tags: Vec<&str> = hub.connections()[0]
+        .frames()
+        .iter()
+        .map(|frame| frame.tag)
+        .collect();
+    assert_eq!(tags, vec!["user.message", "turn.steer"]);
+
+    manager.stop().await;
+}
+
+#[tokio::test]
 async fn evicts_the_least_recently_used_session_and_never_a_busy_one() {
     let hub = ScriptedHub::silent();
     let built = build(Spec::default());

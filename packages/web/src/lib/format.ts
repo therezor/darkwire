@@ -180,6 +180,58 @@ export function summariseArgs(args: unknown, maxChars = 80): string {
     : `${oneLine.slice(0, maxChars - 1)}…`;
 }
 
+/**
+ * The arguments a reader scans a call for, in the order they are looked for.
+ *
+ * A command, a search, an address, a file. A pattern ranks above the path it
+ * searches, because the path is usually the workspace root.
+ */
+const TARGET_KEYS = [
+  'argv',
+  'pattern',
+  'query',
+  'url',
+  'path',
+  'action',
+  'key',
+  'name',
+] as const;
+
+/**
+ * A call as its row shows it: `sys_check.py`, not `{"path":"sys_check.py"}`.
+ *
+ * Built-in tools name their target with one of the keys above, and a JSON
+ * spelling buries it. A call with none of them, such as an MCP tool's own
+ * shape, keeps the JSON preview.
+ */
+export function summariseCall(args: unknown, maxChars = 80): string {
+  if (!isRecord(args)) return summariseArgs(args, maxChars);
+
+  const values = TARGET_KEYS.flatMap((key) => {
+    const value = args[key];
+    if (typeof value === 'string' && value !== '') return [value];
+    if (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((word) => typeof word === 'string')
+    ) {
+      return [value.join(' ')];
+    }
+    return [];
+  });
+  const [first, second] = values;
+  if (first === undefined) return summariseArgs(args, maxChars);
+
+  // `.` beside a pattern says "the workspace", which every call already means.
+  const shown =
+    second === undefined || second === '.' ? [first] : [first, second];
+  return summariseArgs(shown.join(' · '), maxChars);
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Pretty JSON when it is JSON, and the string itself when it never was. */
 export function formatArgs(args: unknown): string {
   if (typeof args === 'string') return args;

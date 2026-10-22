@@ -31,8 +31,8 @@ use ratatui::text::Line;
 use crate::bottom_pane::BottomPane;
 use crate::header::HeaderView;
 use crate::history_cell::{
-    AssistantCell, DividerCell, FoldLabels, FoldedCell, NoticeCell, SessionHeaderCell,
-    TurnStatsCell, UserCell,
+    AssistantCell, DividerCell, FoldLabels, FoldedCell, NoticeCell, SessionHeaderCell, StatsCell,
+    UserCell,
 };
 use crate::pickers::palette::CommandChoice;
 use crate::render::{LineKind, TranscriptEvent};
@@ -395,9 +395,9 @@ impl ChatWidget {
             // The plan lives above the composer, so the card never reaches
             // here: `ChunkSink` drops it at the source.
             TranscriptEvent::TasksCard { .. } => {}
-            TranscriptEvent::TurnStats { line, .. } => {
+            TranscriptEvent::Stats { line, .. } => {
                 self.finish_active();
-                self.commit(Box::new(TurnStatsCell::new(line, !self.defaults.stats)));
+                self.commit(Box::new(StatsCell::new(line, !self.defaults.stats)));
             }
             // `/output reasoning off` and `ui.reasoning: hidden` are the same
             // state reached two ways.

@@ -11,11 +11,11 @@
 //!
 //! The rules:
 //!
-//!  - **The server never keeps the answer for the client's benefit — except
-//!    here.** A channel has no accumulator: it posts a message. So this holds
-//!    the deltas for the length of a turn and emits one `reply` at `turn.end`.
-//!    That is a per-session buffer bounded by one turn's output, which is the
-//!    one place the protocol's "the client accumulates" rule cannot apply.
+//!  - **One chat message per message the model wrote.** A channel has no
+//!    accumulator: it posts. So this holds the deltas of the message being
+//!    written and emits them as a `reply` when its `step.end` arrives, which is
+//!    the one place the protocol's "the client accumulates" rule cannot apply.
+//!    A message that only called tools posts nothing.
 //!  - **`progress` carries the answer so far; `reply` carries the whole
 //!    answer.** They overlap on purpose — a transport that edits in place wants
 //!    exactly that — which is why a channel opts into `progress` by declaring it
@@ -124,7 +124,7 @@ fn stop_notice(stop_reason: StopReason, has_answer: bool) -> Option<&'static str
         // looks from a chat app exactly like a bot that ignored the message.
         StopReason::Complete => (!has_answer).then_some("The turn finished without an answer."),
         StopReason::Aborted => Some("Stopped."),
-        StopReason::MaxIterations => Some("Stopped: the turn reached its tool-iteration limit."),
+        StopReason::MaxIterations => Some("Stopped: the turn reached its message limit."),
         StopReason::WallTimeout => Some("Stopped: the turn reached its time limit."),
         // The hub broadcast an `error` event before this; that one carries what
         // actually went wrong, and this one would only carry that it did.
@@ -140,8 +140,11 @@ fn stop_notice(stop_reason: StopReason, has_answer: bool) -> Option<&'static str
 #[derive(Debug)]
 pub struct TurnProjection {
     options: TurnProjectionOptions,
-    /// The answer as it stands. Reset at each `turn.start`.
+    /// The text of the message being written. Posted and reset at each
+    /// `step.end`.
     answer: String,
+    /// Whether this turn has posted any of its messages yet.
+    replied: bool,
     turn_id: Option<String>,
     /// `call_id` → tool name, so a failed result can be named.
     tools: HashMap<String, String>,
@@ -155,13 +158,14 @@ impl TurnProjection {
         TurnProjection {
             options,
             answer: String::new(),
+            replied: false,
             turn_id: None,
             tools: HashMap::new(),
             open_approvals: HashSet::new(),
         }
     }
 
-    /// The text accumulated for the running turn. Exposed for assertions.
+    /// The text of the message being written. Exposed for assertions.
     pub fn answer(&self) -> &str {
         &self.answer
     }
@@ -179,6 +183,7 @@ impl TurnProjection {
         match message {
             ServerMessage::TurnStart(event) => {
                 self.answer.clear();
+                self.replied = false;
                 self.turn_id = Some(event.event.turn_id.clone());
                 self.tools.clear();
                 self.open_approvals.clear();
@@ -301,9 +306,28 @@ impl TurnProjection {
                     .unwrap_or_default(),
             }],
 
+            // A message is whole once its rows are written, so it goes now
+            // rather than at the end of a turn that may run for minutes more.
+            ServerMessage::StepEnd(event) => {
+                let answer = std::mem::take(&mut self.answer);
+                if answer.is_empty() {
+                    return Vec::new();
+                }
+                self.replied = true;
+                vec![OutboundDraft {
+                    kind: OutboundKind::Reply,
+                    text: answer,
+                    turn_id: Some(event.event.turn_id.clone()),
+                    metadata: Map::new(),
+                }]
+            }
+
             ServerMessage::TurnEnd(event) => {
                 let end = &event.event;
+                // Whatever no message ended on: a limit's own sentence, or a
+                // message that ended without figures.
                 let answer = std::mem::take(&mut self.answer);
+                let replied = std::mem::take(&mut self.replied) || !answer.is_empty();
                 let mut open: Vec<String> = self.open_approvals.drain().collect();
                 open.sort();
                 let mut drafts: Vec<OutboundDraft> = open
@@ -323,7 +347,7 @@ impl TurnProjection {
                         metadata: Map::new(),
                     });
                 }
-                if let Some(notice) = stop_notice(end.stop_reason, !answer.is_empty()) {
+                if let Some(notice) = stop_notice(end.stop_reason, replied) {
                     drafts.push(OutboundDraft {
                         kind: OutboundKind::Notice,
                         text: notice.to_owned(),
@@ -349,7 +373,7 @@ impl TurnProjection {
             // `context.usage` joins them: it exists to move a bar, and a chat
             // app has no bar. Posting the figure as a line instead would be a
             // token count arriving in someone's chat between two answers,
-            // unasked.
+            // unasked. `steer` is the user's own words, already in their chat.
             ServerMessage::ReasoningDelta(_)
             | ServerMessage::ContextUsage(_)
             | ServerMessage::Connected(_)

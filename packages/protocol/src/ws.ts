@@ -41,6 +41,7 @@ import {
 import {
   FilePartSchema,
   ImagePartSchema,
+  StepStatsSchema,
   StopReasonSchema,
   StoredMessageSchema,
   UsageSchema,
@@ -176,14 +177,19 @@ export const ToolApproveMessageSchema = z.object({
 });
 
 /**
- * Mid-turn steering. The loop drains the steer queue and *continues* rather
- * than breaking, so guidance that arrives while the model is composing its
- * final answer still lands on the next iteration instead of being dropped.
+ * Mid-turn steering. The loop reads it at the start of its next step and
+ * *continues* rather than breaking, so guidance that arrives while the model is
+ * composing its final answer still lands instead of being dropped.
+ *
+ * Never lost: a steer the running turn does not read, or one sent when no turn
+ * is running, becomes the next turn instead, acked under `clientMessageId`.
  */
 export const SteerMessageSchema = z.object({
   type: z.literal('turn.steer'),
   sessionKey: z.string().min(1),
   content: z.string().min(1),
+  /** Echoed on the `steer` frame, or on the `message.ack` if it is queued. */
+  clientMessageId: z.string().optional(),
 });
 
 /**
@@ -198,7 +204,12 @@ export const SteerMessageSchema = z.object({
 export const RegenerateMessageSchema = z.object({
   type: z.literal('turn.regenerate'),
   sessionKey: z.string().min(1),
-  /** The user message to re-run from. Absent means the most recent turn. */
+  /**
+   * Where to re-run from. A user message is asked again. An assistant message
+   * is dropped with everything after it, and the loop continues from the
+   * history before it with no new question. Absent means the most recent
+   * question.
+   */
   seq: z.number().int().positive().optional(),
   /**
    * Here for the same reason it is on `user.edit`: re-running deletes the
@@ -520,6 +531,27 @@ export const TurnEndEventSchema = z.object({
 });
 
 /**
+ * One step of a turn was written: a model call and the tools it asked for.
+ *
+ * The seqs are what make a step addressable before its turn ends. Every row
+ * up to `lastSeq` is committed, so a branch can be taken there while the turn
+ * goes on. Emitted only after rows are written, so both are always present.
+ * Absent from `NestedAgentEventSchema`: a subagent's steps belong to a session
+ * nobody is reading, and its rows carry their stats regardless.
+ */
+export const StepEndEventSchema = z.object({
+  type: z.literal('step.end'),
+  seq,
+  turnId: z.string().min(1),
+  firstSeq: z.number().int().positive(),
+  lastSeq: z.number().int().positive(),
+  /** What the step cost. The same figures its assistant row stores. */
+  stats: StepStatsSchema,
+  /** Turn start to now, so a clock that was not running can catch up. */
+  turnElapsedMs: z.number().int().nonnegative(),
+});
+
+/**
  * Everything a turn emits, minus the `seq` the transport owns.
  *
  * Built by omitting `seq` from the schemas above rather than by restating them,
@@ -715,11 +747,19 @@ export const ToolsChangedEventSchema = z.object({
 });
 
 /** Mid-turn steering echoed back so every tab shows what was injected. */
+/**
+ * Steering, the moment the loop writes it into the turn. Sent by the loop
+ * rather than on receipt, so it lands in the transcript where the model read
+ * it.
+ */
 export const SteerEventSchema = z.object({
   type: z.literal('steer'),
   seq,
   sessionKey: z.string().min(1),
+  turnId: z.string().min(1),
   content: z.string(),
+  /** The `turn.steer` that sent it, so the sender's pending bubble can go. */
+  clientMessageId: z.string().optional(),
 });
 
 export const ServerMessageSchema = z.discriminatedUnion('type', [
@@ -737,6 +777,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   ToolApprovalRequestEventSchema,
   NoticeEventSchema,
   TurnEndEventSchema,
+  StepEndEventSchema,
   SubagentEventSchema,
   ContextUsageEventSchema,
   SessionStatusEventSchema,

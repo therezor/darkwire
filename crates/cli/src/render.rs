@@ -42,8 +42,8 @@ use darkwire_core::session_store::StoredMessageRecord;
 use darkwire_i18n::{args, keys};
 use darkwire_protocol::tasks::TaskStatus;
 use darkwire_protocol::{
-    ChatMessage, ErrorCode, NestedAgentEvent, StopReason, SubagentEventBody, ToolRisk, TurnTiming,
-    Usage, turn_rate,
+    ChatMessage, ErrorCode, NestedAgentEvent, StepStats, StopReason, SubagentEventBody, ToolRisk,
+    TurnTiming, Usage, turn_rate,
 };
 use darkwire_tui::{Palette, Style, palette_for, strip_ansi};
 use serde_json::Value;
@@ -118,12 +118,12 @@ pub enum TranscriptEvent {
     /// surface that painted its plan from the announcement would show a plan
     /// nothing is running.
     Tasks(Vec<(TaskStatus, String)>),
-    /// What the turn cost, as the row that says so.
+    /// What one message cost, as the row that says so.
     ///
     /// Built whatever the switch says. A surface that can fold keeps the row
     /// and hides it; one that only writes bytes reads `shown` and drops it. A
     /// row that was never built is a row no key can reveal.
-    TurnStats {
+    Stats {
         /// The row itself.
         line: String,
         /// Whether a target that only writes bytes prints it.
@@ -257,7 +257,7 @@ impl PlainPrinter {
             }
             TranscriptEvent::ToolBodyStart { summary } => self.whole(summary),
             TranscriptEvent::TasksCard { card } => self.whole(card),
-            TranscriptEvent::TurnStats { line, shown } => {
+            TranscriptEvent::Stats { line, shown } => {
                 if *shown {
                     self.whole(&format!("{line}\n"))
                 } else {
@@ -827,7 +827,11 @@ impl TurnRenderer {
             // is that the header redraws the whole prompt line, and doing that
             // mid-stream is the thing `darkwire-tui` was written to make safe
             // rather than something to bolt on here.
-            AgentEvent::ContextUsage(_) => {}
+            //
+            // The terminal never steers, so there is no steering of its own to
+            // show.
+            AgentEvent::ContextUsage(_) | AgentEvent::Steer(_) => {}
+            AgentEvent::StepEnd(end) => self.message_end(&end.stats),
             AgentEvent::Nested(nested) => {
                 let session_key = self.session_key.clone();
                 self.render(nested, &session_key);
@@ -902,16 +906,7 @@ impl TurnRenderer {
             NestedAgentEvent::Error(error) => {
                 self.error(error_code(error.code), &error.message, error.retryable);
             }
-            NestedAgentEvent::TurnEnd(end) => {
-                // The event itself is the timing bag, so there is nothing to
-                // assemble beyond widening the integers it carries.
-                let timing = TurnTiming {
-                    generation_ms: end.generation_ms.map(to_ms),
-                    generation_tokens: end.generation_tokens.map(to_ms),
-                    elapsed_ms: end.elapsed_ms.map(to_ms),
-                };
-                self.turn_end(end.stop_reason, end.iterations, end.usage.as_ref(), &timing);
-            }
+            NestedAgentEvent::TurnEnd(end) => self.turn_end(end.stop_reason),
         }
     }
 
@@ -1078,7 +1073,7 @@ impl TurnRenderer {
                     row.model.clone()
                 },
                 self.t
-                    .tr(keys::render::STEPS, args!["count" => row.iterations]),
+                    .tr(keys::render::MESSAGES, args!["count" => row.iterations]),
                 format_usage(&row.usage),
                 format_duration(elapsed),
             ];
@@ -1345,13 +1340,7 @@ impl TurnRenderer {
         self.line(LineKind::Notice, &text);
     }
 
-    fn turn_end(
-        &mut self,
-        stop_reason: StopReason,
-        iterations: u64,
-        usage: Option<&Usage>,
-        timing: &TurnTiming,
-    ) {
+    fn turn_end(&mut self, stop_reason: StopReason) {
         self.set_mode(Mode::Idle);
 
         // `complete` has no key, so a turn that finished normally prints
@@ -1360,22 +1349,32 @@ impl TurnRenderer {
             let text = self.colors.yellow.apply(&format!("  {}", self.t.t(key)));
             self.line(LineKind::Notice, &text);
         }
-        let steps = i64::try_from(iterations).unwrap_or(i64::MAX);
-        let mut parts = vec![self.t.tr(keys::render::STEPS, args!["count" => steps])];
-        if let Some(usage) = usage.filter(|usage| usage.total_tokens > 0) {
-            parts.push(format_usage(usage));
-        }
-        if let Some(elapsed) = timing.elapsed_ms {
-            parts.push(format_duration(elapsed));
-        }
-        if let Some(rate) = usage.and_then(|usage| format_rate(usage, timing)) {
-            parts.push(rate);
+    }
+
+    /// The line after one message: how long it took, what it wrote and how
+    /// fast. The same line after every message, and nothing added up for the
+    /// turn.
+    fn message_end(&mut self, stats: &StepStats) {
+        self.set_mode(Mode::Idle);
+
+        let elapsed = to_ms(stats.elapsed_ms);
+        let timing = TurnTiming {
+            generation_ms: stats.generation_ms.map(to_ms),
+            generation_tokens: stats.generation_tokens.map(to_ms),
+            elapsed_ms: Some(elapsed),
+        };
+        let mut parts = vec![
+            format_duration(elapsed),
+            format!("{} out", format_count(stats.usage.completion_tokens)),
+        ];
+        if let Some(rate) = turn_rate(&stats.usage, &timing) {
+            parts.push(format!("{rate:.0} tok/s"));
         }
         // Built whatever the switch says, and handed over with it. A surface
         // that can fold keeps the row and hides it; one that only writes bytes
         // drops it. A line that was never built is a line no key can reveal.
         let line = self.indent_line(&self.colors.dim.apply(&format!("  · {}", parts.join(" · "))));
-        self.out.emit(TranscriptEvent::TurnStats {
+        self.out.emit(TranscriptEvent::Stats {
             line,
             shown: self.show_stats,
         });

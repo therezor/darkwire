@@ -65,6 +65,7 @@ pub fn assistant_message(text: &str, tool_calls: Vec<ToolCall>) -> ChatMessage {
         tool_calls,
         reasoning: None,
         reasoning_ms: None,
+        stats: None,
     })
 }
 

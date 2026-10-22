@@ -30,7 +30,7 @@ import { resetConnection } from '@/lib/connection.js';
 import { writeCursor } from '@/lib/cursor.js';
 import { useTurnStore } from '@/state/turn.js';
 import { createQueryClient } from '@/lib/query.js';
-import { stubFetch, testQueryClient } from '@testkit/render.js';
+import { stubApi, stubFetch, testQueryClient } from '@testkit/render.js';
 import { AGENTS, STATUS, UNCONFIGURED_STATUS } from '@testkit/fixtures.js';
 
 /** Distributes over the union, which a bare `Omit` would collapse. */
@@ -267,8 +267,12 @@ describe('a turn with tool calls', () => {
     expect(screen.getByLabelText('Succeeded')).toBeInTheDocument();
     expect(screen.getByLabelText('Failed')).toBeInTheDocument();
 
-    // The footer only appears when there is something to say.
-    expect(screen.getByText(/100 in · 20 out/)).toBeInTheDocument();
+    // Nothing is added up for the turn. Its one message ended without a
+    // `step.end`, so its line carries the actions and no figures.
+    expect(screen.queryByText(/100 in/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copy message 1' }),
+    ).toBeInTheDocument();
   });
 
   it('shows a tool result only once the card is opened', async () => {
@@ -424,6 +428,470 @@ describe('a turn with tool calls', () => {
  * a collapsed strip above a footer — a message that looks empty, with no reason
  * given for it.
  */
+describe('a turn of several messages', () => {
+  const busy = {
+    type: 'session.status',
+    workspaceId: 'default',
+    sessionKey: SESSION,
+    busy: true,
+    queueDepth: 0,
+    turnId: 't1',
+  } as const;
+
+  const stepStats = (prompt: number, completion: number) => ({
+    usage: {
+      promptTokens: prompt,
+      completionTokens: completion,
+      totalTokens: prompt + completion,
+    },
+    model: 'test-model',
+    elapsedMs: 4000,
+  });
+
+  /** One finished step that read a file, with the turn still running. */
+  const FIRST_STEP: ReadonlyArray<Unsequenced<ServerMessage>> = [
+    { ...START, firstSeq: 1 },
+    busy,
+    { type: 'assistant.delta', turnId: 't1', text: 'Let me look.' },
+    {
+      type: 'tool.call',
+      turnId: 't1',
+      callId: 'c1',
+      name: 'read',
+      args: { path: 'a.txt' },
+      risk: 'safe',
+    },
+    {
+      type: 'tool.result',
+      turnId: 't1',
+      callId: 'c1',
+      ok: true,
+      content: 'contents of a',
+      truncated: false,
+      durationMs: 12,
+    },
+    {
+      type: 'step.end',
+      turnId: 't1',
+      firstSeq: 2,
+      lastSeq: 3,
+      stats: stepStats(2100, 80),
+      turnElapsedMs: 4200,
+    },
+  ];
+
+  /** The two messages of a finished turn: the read, then the answer. */
+  const FINISHED: ReadonlyArray<Unsequenced<ServerMessage>> = [
+    ...FIRST_STEP,
+    { type: 'assistant.delta', turnId: 't1', text: 'It says a.' },
+    {
+      type: 'step.end',
+      turnId: 't1',
+      firstSeq: 4,
+      lastSeq: 4,
+      stats: stepStats(2200, 30),
+      turnElapsedMs: 6000,
+    },
+    {
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 2,
+      usage: { promptTokens: 4300, completionTokens: 110, totalTokens: 4410 },
+      firstSeq: 1,
+      lastSeq: 4,
+    },
+    { ...busy, busy: false, turnId: undefined },
+  ];
+
+  it('gives each finished message a line of its own', async () => {
+    mount();
+    await connect();
+    deliver(...FIRST_STEP);
+
+    expect(
+      await screen.findByRole('button', { name: 'Copy message 1' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Message 1 details' }),
+    ).toBeInTheDocument();
+    // Branch copies only what is final, so it works while the turn runs.
+    // Regenerate would start a second turn beside it, so it waits.
+    expect(
+      screen.getByRole('button', { name: 'Branch after message 1' }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Regenerate message 1' }),
+    ).toBeDisabled();
+    // Under the message: how long it took, what it wrote, and how fast.
+    expect(screen.getByText('4.0s · 80 out · 20 tok/s')).toBeInTheDocument();
+    // Nothing is added up for the turn.
+    expect(screen.queryByText(/2,100 in/)).not.toBeInTheDocument();
+    // The model is starting the next message, and nothing on screen is moving.
+    expect(screen.getByText('Thinking…')).toBeInTheDocument();
+  });
+
+  it('gives a touch screen one menu per message, with the figures behind Details', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+    deliver(...FIRST_STEP);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Message 1 actions' }),
+    );
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Branch from here' }),
+    ).not.toHaveAttribute('aria-disabled');
+    // The turn is running, so this message cannot start a second one.
+    expect(
+      screen.getByRole('menuitem', { name: 'Regenerate' }),
+    ).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(screen.getByRole('menuitem', { name: 'Details' }));
+    // Still open once the menu has handed focus back.
+    expect(await screen.findByText('test-model')).toBeVisible();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('draws the calls a message made back to back as one list', async () => {
+    mount();
+    await connect();
+    deliver(
+      { ...START, firstSeq: 1 },
+      busy,
+      ...['a.txt', 'b.txt'].map((path, index) => ({
+        type: 'tool.call' as const,
+        turnId: 't1',
+        callId: `c${String(index)}`,
+        name: 'read',
+        args: { path },
+        risk: 'safe' as const,
+      })),
+    );
+
+    const calls = await screen.findAllByRole('region', {
+      name: 'Tool call: read',
+    });
+    expect(calls).toHaveLength(2);
+    const [a, b] = calls;
+    expect(a?.parentElement).toHaveClass('tool-list');
+    expect(b?.parentElement).toBe(a?.parentElement);
+    // The row names the file. A read is most calls, so it carries no badge.
+    expect(screen.getByText('a.txt')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Risk: read')).not.toBeInTheDocument();
+  });
+
+  it('branches after a finished message while the turn runs', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...BASE_ROUTES,
+      'POST /api/sessions/web%3A1/branch': [
+        409,
+        { error: { kind: 'conflict', message: 'busy' } },
+      ],
+    });
+    mount();
+    await connect();
+    deliver(...FIRST_STEP);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Branch after message 1' }),
+    );
+
+    await waitFor(() => {
+      expect(calls.find((call) => call.path.endsWith('/branch'))?.body).toEqual(
+        { seq: 3 },
+      );
+    });
+  });
+
+  it('gives the last message the same line as the others', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+    deliver(...FINISHED);
+
+    expect(await screen.findByText('It says a.')).toBeInTheDocument();
+    expect(screen.getByText('4.0s · 80 out · 20 tok/s')).toBeInTheDocument();
+    expect(screen.getByText('4.0s · 30 out · 8 tok/s')).toBeInTheDocument();
+    // No total under the turn, and no count of its messages.
+    expect(screen.queryByText(/4,300 in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 messages/)).not.toBeInTheDocument();
+
+    // Its Regenerate re-runs that last message alone.
+    await user.click(
+      screen.getByRole('button', { name: 'Regenerate message 2' }),
+    );
+    expect(framesOf('turn.regenerate')).toEqual([
+      { type: 'turn.regenerate', sessionKey: SESSION, seq: 4 },
+    ]);
+  });
+
+  it('regenerates one message, taking it and what followed off at once', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+    deliver(...FINISHED);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Regenerate message 1' }),
+    );
+
+    expect(framesOf('turn.regenerate')).toEqual([
+      { type: 'turn.regenerate', sessionKey: SESSION, seq: 2 },
+    ]);
+    // No bubble: no question is asked again, the turn carries on.
+    expect(screen.queryByText('Let me look.')).not.toBeInTheDocument();
+    expect(screen.queryByText('It says a.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sending…')).not.toBeInTheDocument();
+  });
+
+  it('reads the lines of a stored turn off the figures on its rows', async () => {
+    const row = (seq: number, message: unknown) => ({
+      id: `m${String(seq)}`,
+      sessionKey: SESSION,
+      seq,
+      createdAtMs: 0,
+      turnId: 't1',
+      message,
+    });
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [
+        200,
+        {
+          sessionKey: SESSION,
+          messages: [
+            row(1, { role: 'user', content: [{ type: 'text', text: 'go' }] }),
+            row(2, {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Let me look.' }],
+              toolCalls: [
+                { id: 'c1', name: 'read', argumentsJson: '{"path":"a.txt"}' },
+              ],
+              stats: stepStats(2100, 80),
+            }),
+            row(3, {
+              role: 'tool',
+              toolCallId: 'c1',
+              name: 'read',
+              content: 'contents of a',
+              isError: false,
+              truncated: false,
+            }),
+            row(4, {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'It says a.' }],
+              toolCalls: [],
+              stats: stepStats(2200, 30),
+            }),
+          ],
+        },
+      ],
+    });
+    mount();
+    await connect();
+
+    expect(await screen.findByText('It says a.')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copy message 1' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('4.0s · 80 out · 20 tok/s')).toBeInTheDocument();
+    expect(screen.getByText('4.0s · 30 out · 8 tok/s')).toBeInTheDocument();
+    // The model is in each message's Info, not on its line.
+    expect(screen.queryByText(/test-model/)).not.toBeInTheDocument();
+    // The row never held the band, so the card does not guess one.
+    const call = screen.getByRole('region', { name: 'Tool call: read' });
+    expect(within(call).queryByLabelText(/^Risk:/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A finished turn always ends in a line that can re-run it, including the three
+ * shapes no `step.end` reached: a call that failed before it wrote anything,
+ * a turn stopped before its message ended, and rows stored before they carried
+ * their figures.
+ */
+describe('a turn that ended without figures', () => {
+  const idle = {
+    type: 'session.status',
+    workspaceId: 'default',
+    sessionKey: SESSION,
+    busy: false,
+    queueDepth: 0,
+  } as const;
+
+  it('still offers a re-run when its first call failed', async () => {
+    mount();
+    await connect();
+    deliver(
+      { ...START, firstSeq: 1 },
+      {
+        type: 'error',
+        code: 'provider_error',
+        message: 'upstream said no',
+        retryable: true,
+        turnId: 't1',
+      },
+      idle,
+    );
+
+    expect(await screen.findByText(/upstream said no/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Regenerate message 1' }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Message 1 details' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('starts the last line with why the turn stopped', async () => {
+    mount();
+    await connect();
+    deliver(
+      { ...START, firstSeq: 1 },
+      { type: 'assistant.delta', turnId: 't1', text: 'half an answer' },
+      {
+        type: 'turn.end',
+        turnId: 't1',
+        stopReason: 'aborted',
+        iterations: 1,
+        firstSeq: 1,
+        lastSeq: 2,
+      },
+      idle,
+    );
+
+    const reason = await screen.findByText('Stopped by you');
+    expect(reason).toHaveClass('turn__stop-reason');
+    expect(
+      screen.getByRole('button', { name: 'Regenerate message 1' }),
+    ).toBeEnabled();
+  });
+
+  it('puts the reason before the figures when the message has them', async () => {
+    mount();
+    await connect();
+    deliver(
+      { ...START, firstSeq: 1 },
+      { type: 'assistant.delta', turnId: 't1', text: 'a short answer' },
+      {
+        type: 'step.end',
+        turnId: 't1',
+        firstSeq: 2,
+        lastSeq: 2,
+        stats: {
+          usage: { promptTokens: 300, completionTokens: 40, totalTokens: 340 },
+          elapsedMs: 1200,
+        },
+        turnElapsedMs: 1200,
+      },
+      {
+        type: 'turn.end',
+        turnId: 't1',
+        stopReason: 'aborted',
+        iterations: 1,
+        firstSeq: 1,
+        lastSeq: 2,
+      },
+      idle,
+    );
+
+    const reason = await screen.findByText('Stopped by you');
+    expect(reason.parentElement).toHaveTextContent(
+      'Stopped by you · 1.2s · 40 out · 33 tok/s',
+    );
+  });
+
+  it('re-runs a stored turn whose rows carry no figures', async () => {
+    const user = userEvent.setup();
+    const row = (seq: number, message: unknown) => ({
+      id: `m${String(seq)}`,
+      sessionKey: SESSION,
+      seq,
+      createdAtMs: 0,
+      turnId: 't1',
+      message,
+    });
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [
+        200,
+        {
+          sessionKey: SESSION,
+          messages: [
+            row(1, { role: 'user', content: [{ type: 'text', text: 'go' }] }),
+            row(2, {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'an old answer' }],
+              toolCalls: [],
+            }),
+          ],
+        },
+      ],
+    });
+    mount();
+    await connect();
+
+    expect(await screen.findByText('an old answer')).toBeInTheDocument();
+    expect(screen.queryByText(/ out · /)).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Regenerate message 1' }),
+    );
+    // From its question, since no message in it has an address of its own.
+    expect(framesOf('turn.regenerate')).toMatchObject([
+      { type: 'turn.regenerate', sessionKey: SESSION, seq: 1 },
+    ]);
+  });
+});
+
+describe('typing while a turn runs', () => {
+  it('sends it to the running turn, and shows it where the turn read it', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+    deliver(START, {
+      type: 'session.status',
+      workspaceId: 'default',
+      sessionKey: SESSION,
+      busy: true,
+      queueDepth: 0,
+      turnId: 't1',
+    });
+
+    const box = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(box, 'the other folder{Enter}');
+
+    await waitFor(() => {
+      expect(framesOf('turn.steer')).toHaveLength(1);
+    });
+    const sent = framesOf('turn.steer')[0] as { clientMessageId: string };
+    expect(framesOf('user.message')).toEqual([]);
+    expect(
+      screen.getByText('The running task reads this before its next message.'),
+    ).toBeInTheDocument();
+
+    deliver({
+      type: 'steer',
+      sessionKey: SESSION,
+      turnId: 't1',
+      content: 'the other folder',
+      clientMessageId: sent.clientMessageId,
+    });
+
+    expect(
+      await screen.findByText('Steered mid-turn: the other folder'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'The running task reads this before its next message.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('an install with no model yet', () => {
   it('says so, and points at the provider settings', async () => {
     // Untestable until now, and not because nobody wrote the test: the status
@@ -506,9 +974,9 @@ describe('a turn that produced no answer', () => {
   });
 
   it('says nothing about a turn the user stopped', async () => {
-    // The answer is missing because it was asked to be, and the footer already
-    // says "Stopped." — a second line would be the app explaining a decision
-    // back to the person who made it.
+    // The answer is missing because it was asked to be, and the last line
+    // already says "Stopped by you". A second line would be the app explaining
+    // a decision back to the person who made it.
     mount();
     await connect();
 
@@ -518,7 +986,7 @@ describe('a turn that produced no answer', () => {
       { type: 'turn.end', turnId: 't1', stopReason: 'aborted', iterations: 1 },
     );
 
-    expect(await screen.findByText('Stopped.')).toBeInTheDocument();
+    expect(await screen.findByText('Stopped by you')).toBeInTheDocument();
     expect(
       screen.queryByText(/without writing an answer/),
     ).not.toBeInTheDocument();
@@ -911,7 +1379,7 @@ describe('stopping', () => {
     );
 
     // A turn that stopped short says so; a turn that finished does not need to.
-    expect(await screen.findByText('Stopped.')).toBeInTheDocument();
+    expect(await screen.findByText('Stopped by you')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 
@@ -1217,12 +1685,17 @@ describe('reworking a session', () => {
     await screen.findByText('the first answer');
   }
 
-  it('regenerates the answer under a turn', async () => {
+  it('regenerates a message that ended without its figures', async () => {
     const user = userEvent.setup();
     await seeded();
 
+    // No `step.end`, so the line has no figures and no Info, and acts on the
+    // turn's own seqs.
+    expect(
+      screen.queryByRole('button', { name: 'Message 1 details' }),
+    ).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole('button', { name: 'Regenerate the answer' }),
+      screen.getByRole('button', { name: 'Regenerate message 1' }),
     );
 
     // `firstSeq` is what makes this addressable without a refetch.
@@ -1231,7 +1704,7 @@ describe('reworking a session', () => {
     ]);
   });
 
-  it('opens the turn details, with what the turn cost', async () => {
+  it("opens a message's details, with what it cost", async () => {
     const user = userEvent.setup();
     mount();
     await connect();
@@ -1239,12 +1712,26 @@ describe('reworking a session', () => {
       START,
       { type: 'assistant.delta', turnId: 't1', text: 'the first answer' },
       {
+        type: 'step.end',
+        turnId: 't1',
+        firstSeq: 2,
+        lastSeq: 2,
+        stats: {
+          usage: {
+            promptTokens: 1284,
+            completionTokens: 412,
+            totalTokens: 1696,
+          },
+          model: 'test-model',
+          elapsedMs: 10_800,
+        },
+        turnElapsedMs: 10_800,
+      },
+      {
         type: 'turn.end',
         turnId: 't1',
         stopReason: 'complete',
-        iterations: 2,
-        usage: { promptTokens: 1284, completionTokens: 412, totalTokens: 1696 },
-        elapsedMs: 10_800,
+        iterations: 1,
         firstSeq: 1,
         lastSeq: 2,
       },
@@ -1257,19 +1744,15 @@ describe('reworking a session', () => {
       },
     );
     await screen.findByText('the first answer');
+    expect(screen.getByText('10s · 412 out · 38 tok/s')).toBeInTheDocument();
 
     // The regression this exists for: the trigger was a component that took no
     // props, so `PopoverTrigger asChild` cloned it and every injected handler
     // went nowhere. It rendered perfectly and opened nothing.
-    await user.click(screen.getByRole('button', { name: 'Turn details' }));
+    await user.click(screen.getByRole('button', { name: 'Message 1 details' }));
 
-    // Scoped to the popover: the turn's own footer names the model too, and an
-    // unscoped query would pass whether or not this opened.
     const details = await screen.findByRole('dialog');
     expect(within(details).getByText('1,284')).toBeInTheDocument();
-    // Reported by the turn itself, so no request is made for numbers this tab
-    // just watched being measured.
-    expect(within(details).getByText('38.1 tok/s')).toBeInTheDocument();
     expect(within(details).getByText('test-model')).toBeInTheDocument();
   });
 

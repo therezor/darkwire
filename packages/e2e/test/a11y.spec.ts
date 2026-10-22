@@ -470,8 +470,8 @@ test.describe('keyboard', () => {
     // keyboard user can reach them at all.
     for (const name of [
       'Copy message',
-      'Regenerate the answer',
-      'Turn details',
+      'Regenerate message 1',
+      'Message 1 details',
     ]) {
       const action = app.getByRole('button', { name }).first();
       await expect(action).toBeVisible();

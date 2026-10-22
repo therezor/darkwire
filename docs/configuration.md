@@ -538,6 +538,13 @@ block, so installing a channel does not require a schema change here. Both keys 
 read once when the channel manager is built, so they are install-wide rather than per
 conversation.
 
+Every channel posts each message the model writes as a chat message of its own, the
+moment that message is finished, so a long run arrives as it goes rather than all at the
+end. A message that only called tools posts nothing. `sendProgress` fills the message
+being written in place before then, where the channel can edit. A message sent while a
+turn runs goes to that turn, which reads it before its next message. If the turn ends
+first, it runs as the next turn, and so does any message with a file attached.
+
 ### `channels.telegram`
 
 | Key              | Type       | Default                                      |

@@ -38,7 +38,10 @@ pub use errors::{ErrorKind, Result, WireError};
 pub use history::{HistoryOptions, history_for_llm};
 pub use logger::{JsonLayer, LogLevel, LogSink, LoggerOptions, create_logger, silent_logger};
 pub use message_bus::{MessageBus, MessageBusOptions, PublishResult, RateLimiter};
-pub use messages::{assistant_message, system_message, text_of, tool_message, user_message};
+pub use messages::{
+    STEERING_PREFIX, assistant_message, is_steer, system_message, text_of, tool_message,
+    user_message,
+};
 pub use paths::{
     HOME_ENV_VAR, ResolveWirePaths, WORKSPACES_ENV_VAR, WirePaths, ensure_dir, expand_home,
     extension_data_dir_for, extension_dir_for, resolve_path, shared_dir_for, workspace_dir_for,

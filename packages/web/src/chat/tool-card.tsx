@@ -59,7 +59,13 @@ import type {
 
 import { cn } from '@/lib/cn.js';
 import { api } from '@/lib/api.js';
-import { formatArgs, formatDuration, summariseArgs } from '@/lib/format.js';
+import {
+  formatArgs,
+  formatDuration,
+  summariseArgs,
+  summariseCall,
+} from '@/lib/format.js';
+import { useElapsed } from '@/lib/use-elapsed.js';
 import { queryKeys } from '@/lib/query.js';
 import { Badge, type BadgeProps } from '@/components/ui/badge.js';
 import {
@@ -77,14 +83,14 @@ import { ReasoningBlock } from './reasoning.js';
  * How loud each risk band is.
  *
  * `exec` and `network` are the two an operator of a self-hosted agent actually
- * wants to see before they happen — which is also why they are the two whose
- * default policy is `ask` — so they get the two loudest tones.
+ * wants to see before they happen, which is also why their default policy is
+ * `ask`. So they get the two loudest tones. A read gets no badge: it is most
+ * calls, and a pill on every row is a pill nobody reads.
  */
 const RISK: Record<
-  ToolRisk,
+  Exclude<ToolRisk, 'safe'>,
   { readonly label: string; readonly tone: BadgeProps['tone'] }
 > = {
-  safe: { label: 'read', tone: 'neutral' },
   write: { label: 'write', tone: 'info' },
   exec: { label: 'exec', tone: 'danger' },
   network: { label: 'network', tone: 'warning' },
@@ -128,9 +134,13 @@ function ToolCardItem({ tool, onApprove }: ToolCardProps): JSX.Element {
   }, [live]);
   const bodyId = useId();
   const elapsedMs = useElapsed(tool.status === 'running', tool.elapsedMs);
-  const risk = RISK[tool.risk];
+  const risk =
+    tool.risk === undefined || tool.risk === 'safe'
+      ? undefined
+      : RISK[tool.risk];
 
   const summary = useMemo(() => summariseArgs(tool.args), [tool.args]);
+  const target = useMemo(() => summariseCall(tool.args), [tool.args]);
 
   return (
     <section
@@ -161,14 +171,16 @@ function ToolCardItem({ tool, onApprove }: ToolCardProps): JSX.Element {
           />
           <StatusIcon status={tool.status} />
           <span className="tool-card__name">{tool.name}</span>
-          {/* Labelled, because a pill reading `exec` is cryptic on its own —
+          {/* Labelled, because a pill reading `exec` is cryptic on its own,
               and because the band and the tool are often the same word. */}
-          <Badge tone={risk.tone} aria-label={`Risk: ${risk.label}`}>
-            {risk.label}
-          </Badge>
+          {risk !== undefined && (
+            <Badge tone={risk.tone} aria-label={`Risk: ${risk.label}`}>
+              {risk.label}
+            </Badge>
+          )}
 
-          {summary !== '' && (
-            <span className="tool-card__summary truncate">{summary}</span>
+          {target !== '' && (
+            <span className="tool-card__summary truncate">{target}</span>
           )}
 
           <span className="tool-card__timing">
@@ -349,6 +361,9 @@ function partsOf(
  * One implementation for a turn and for a delegation, which is what makes a
  * nested `exec` card identical to a top-level one — including its approval
  * prompt, which is answered by the same frame wherever it is drawn.
+ *
+ * Calls made back to back share one list, a row each. A message that reads
+ * five files is one block, not five boxes.
  */
 export function TurnParts({
   parts,
@@ -367,7 +382,7 @@ export function TurnParts({
 
   return (
     <>
-      {parts.map((part) => {
+      {runsOf(parts).map((part) => {
         const live = streaming && part === last;
 
         switch (part.kind) {
@@ -384,17 +399,57 @@ export function TurnParts({
               />
             );
 
-          case 'tool':
-            return <ToolCard key={part.id} tool={part} onApprove={onApprove} />;
+          case 'tools':
+            return (
+              <div key={part.tools[0]?.id} className="tool-list">
+                {part.tools.map((tool) => (
+                  <ToolCard key={tool.id} tool={tool} onApprove={onApprove} />
+                ))}
+              </div>
+            );
 
           case 'notice':
             return (
               <Notice key={part.id} kind={part.notice} message={part.message} />
             );
+
+          // A message's end is the turn's to draw, with the bar under it.
+          case 'step':
+            return null;
+
+          case 'steer':
+            return <SteerNote key={part.id} text={part.text} />;
         }
       })}
     </>
   );
+}
+
+/** Calls made back to back, drawn as one list. */
+interface ToolRun {
+  readonly kind: 'tools';
+  readonly tools: readonly ToolPart[];
+}
+
+/** The parts, with each run of consecutive calls gathered into one. */
+type Run = Exclude<TurnPart, ToolPart> | ToolRun;
+
+function runsOf(parts: readonly TurnPart[]): readonly Run[] {
+  const runs: Run[] = [];
+  for (const part of parts) {
+    const open = runs.at(-1);
+    if (part.kind !== 'tool') runs.push(part);
+    else if (open?.kind === 'tools') {
+      runs[runs.length - 1] = { kind: 'tools', tools: [...open.tools, part] };
+    } else runs.push({ kind: 'tools', tools: [part] });
+  }
+  return runs;
+}
+
+/** What the user said to the running turn, at the point the loop read it. */
+function SteerNote({ text }: { readonly text: string }): JSX.Element {
+  const { t } = useTranslation();
+  return <p className="steer">{t('chat.steeredMidTurn', { text })}</p>;
 }
 
 function Labelled({
@@ -474,28 +529,4 @@ function StatusIcon({
     default:
       return <Wrench className="tool-card__status" />;
   }
-}
-
-/**
- * Elapsed milliseconds, ticking while `active`.
- *
- * `floorMs` is the server's last heartbeat, and it wins whenever it is ahead —
- * a tab that was backgrounded had its timers throttled, and the server's figure
- * is the true one.
- */
-function useElapsed(active: boolean, floorMs: number): number {
-  const [startedAtMs] = useState(() => Date.now());
-  const [nowMs, setNowMs] = useState(startedAtMs);
-
-  useEffect(() => {
-    if (!active) return undefined;
-    const timer = setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [active]);
-
-  return Math.max(nowMs - startedAtMs, floorMs);
 }

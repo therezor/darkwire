@@ -49,7 +49,7 @@ use darkwire_core::messages::{FileDetails, file_part, text_part};
 use darkwire_core::session_store::{
     ReadMessages, StoredMessageRecord, TruncateResult, to_stored_message,
 };
-use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError};
+use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, is_steer};
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason, StoredMessage};
 use darkwire_protocol::tools::ExecRule;
@@ -59,8 +59,8 @@ use darkwire_protocol::ws::{
     ErrorTag, MessageAck, MessageAckTag, MessageQueued, MessageQueuedTag, Notice, NoticeKind,
     NoticeTag, NotificationBody, PongEvent, PongTag, ProtocolVersion, RegenerateMessage, Sequenced,
     ServerMessage, SessionReplay, SessionReplayTag, SessionReset, SessionResetTag, SessionStatus,
-    SessionStatusTag, SessionTruncated, SessionTruncatedTag, Steer, SteerEventTag, ToolsChanged,
-    TurnEnd, TurnEndTag, UserMessageRequest,
+    SessionStatusTag, SessionTruncated, SessionTruncatedTag, SteerMessage, ToolsChanged, TurnEnd,
+    TurnEndTag, UserMessageRequest,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_security::random::{OsRandom, RandomSource};
@@ -175,7 +175,10 @@ pub trait TurnRunner: Send + Sync {
     /// the one `turn.stop` fires.
     fn run(&self, input: TurnInput, parent: &CancellationToken) -> Box<dyn TurnHandle>;
     /// Adds a message to the running turn without starting another.
-    fn steer(&self, session_key: &str, content: &str);
+    ///
+    /// `false` when the turn can no longer read it. `id` comes back on the
+    /// `steer` frame the loop emits once it has written it.
+    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool;
 }
 
 /// Why an id did not name an agent that could run.
@@ -318,8 +321,6 @@ pub enum HubEvent {
     Notification(NotificationBody),
     /// The tool list changed.
     ToolsChanged(ToolsChanged),
-    /// Steering, echoed to every tab.
-    Steer(Steer),
 }
 
 impl HubEvent {
@@ -346,7 +347,6 @@ impl HubEvent {
             }
             HubEvent::Notification(event) => ServerMessage::Notification(Sequenced { seq, event }),
             HubEvent::ToolsChanged(event) => ServerMessage::ToolsChanged(Sequenced { seq, event }),
-            HubEvent::Steer(event) => ServerMessage::Steer(Sequenced { seq, event }),
         }
     }
 }
@@ -398,6 +398,30 @@ struct QueuedTurn {
     workspace_id: Option<String>,
     /// The connection that asked, so an unattended stop reaches only its own.
     connection_id: String,
+    /// A regenerated assistant message: carry on from the history before it,
+    /// answering an existing question, instead of asking `content`.
+    continuation: Option<Continuation>,
+}
+
+/// Where a continuation picks up.
+#[derive(Debug, Clone, Copy)]
+struct Continuation {
+    /// The question it answers, which stays in history.
+    question_seq: i64,
+    /// The last row the cut left. Everything up to it is final from the start.
+    after_seq: i64,
+}
+
+/// A steer this hub accepted and the loop has not written yet.
+///
+/// Held here rather than trusted to the loop's queue, because only the hub
+/// can deliver it another way: a turn that ends without reading it runs it as
+/// the next turn, for the connection that sent it.
+#[derive(Debug, Clone)]
+struct HeldSteer {
+    id: String,
+    content: String,
+    connection_id: String,
 }
 
 /// The turn that is running, and how to stop it.
@@ -412,6 +436,14 @@ struct RunningTurn {
     runner: Option<Arc<dyn TurnRunner>>,
     /// The connection that submitted it.
     connection_id: String,
+    /// The last row a branch may copy while this turn runs: everything the
+    /// turn's finished steps wrote, or everything before it until one has.
+    /// `None` until the turn has started.
+    committed: Option<u64>,
+    /// Handed to the loop, and not yet seen on a `steer` frame.
+    steers: Vec<HeldSteer>,
+    /// Sent before the loop was resolved. Handed over once it is.
+    early_steers: Vec<HeldSteer>,
 }
 
 struct SessionState {
@@ -703,6 +735,20 @@ impl SessionHub {
             .sessions
             .peek(session_key)
             .is_some_and(|state| state.running.is_some())
+    }
+
+    /// Whether a branch at `seq` copies only rows that are already final.
+    ///
+    /// Always, on an idle session. While a turn runs, up to the end of its last
+    /// finished step: those rows are committed and append-only, so a copy taken
+    /// now is the copy it would be after the turn ends.
+    pub fn can_branch_at(&self, session_key: &str, seq: u64) -> bool {
+        self.inner
+            .lock()
+            .sessions
+            .peek(session_key)
+            .and_then(|state| state.running.as_ref())
+            .is_none_or(|running| running.committed.is_some_and(|committed| seq <= committed))
     }
 
     /// How many clients are looking at this session right now.
@@ -1111,37 +1157,7 @@ impl SessionHub {
                 )
                 .await;
             }
-            ClientMessage::Steer(message) => {
-                let runner = {
-                    let mut inner = self.inner.lock();
-                    inner
-                        .sessions
-                        .get_mut(&message.session_key)
-                        .and_then(|state| state.running.as_ref())
-                        .and_then(|running| running.runner.clone())
-                };
-                let Some(runner) = runner else {
-                    self.error(
-                        connection_id,
-                        ErrorCode::BadRequest,
-                        "No turn is running on this session to steer",
-                        false,
-                    );
-                    return;
-                };
-                // The loop the turn started on, not the current one: after a
-                // reconfigure those differ, and the queue the running loop
-                // drains is the only one it will ever read.
-                runner.steer(&message.session_key, &message.content);
-                self.inner.lock().emit(
-                    &message.session_key,
-                    HubEvent::Steer(Steer {
-                        tag: SteerEventTag,
-                        session_key: message.session_key.clone(),
-                        content: message.content,
-                    }),
-                );
-            }
+            ClientMessage::Steer(message) => self.steer(connection_id, message).await,
             ClientMessage::NewSession(message) => {
                 {
                     let mut inner = self.inner.lock();
@@ -1272,6 +1288,27 @@ impl SessionHub {
         client_message_id: Option<String>,
         agent_id: Option<String>,
     ) {
+        self.enqueue_turn(
+            connection_id,
+            session_key,
+            content,
+            client_message_id,
+            agent_id,
+            Enqueue::default(),
+        )
+        .await;
+    }
+
+    /// [`Self::enqueue`], with the two things only a rewind or a steer asks for.
+    async fn enqueue_turn(
+        self: &Arc<Self>,
+        connection_id: &str,
+        session_key: &str,
+        content: Content,
+        client_message_id: Option<String>,
+        agent_id: Option<String>,
+        options: Enqueue,
+    ) {
         let queued = {
             let mut inner = self.inner.lock();
             self.session(&mut inner, session_key);
@@ -1279,7 +1316,7 @@ impl SessionHub {
                 .sessions
                 .peek(session_key)
                 .map_or(0, |state| state.queue.len());
-            if depth >= self.max_queue_depth {
+            if depth >= self.max_queue_depth && !options.unbounded {
                 drop(inner);
                 self.error(
                     connection_id,
@@ -1317,6 +1354,7 @@ impl SessionHub {
                     channel,
                     workspace_id,
                     connection_id: connection_id.to_owned(),
+                    continuation: options.continuation,
                 });
             }
 
@@ -1394,16 +1432,21 @@ impl SessionHub {
         let found = blocking(move || {
             let target = match seq {
                 None => last_question(&store, &key),
-                Some(seq) => user_message_at(&store, &key, seq),
+                Some(seq) => message_at(&store, &key, seq),
             };
-            Ok(target.map(|target| {
+            Ok(target.and_then(|target| {
                 // Read before the delete, because the delete is what removes
                 // it.
-                let content = match &target.message {
-                    ChatMessage::User(user) => user.content.clone(),
-                    _ => Vec::new(),
+                let rerun = match &target.message {
+                    ChatMessage::User(user) => Rerun::Ask(user.content.clone()),
+                    // One answer, not the whole turn: what came before it
+                    // stays, and the loop carries on from there.
+                    ChatMessage::Assistant(_) => Rerun::Continue {
+                        question_seq: question_before(&store, &key, target.seq)?,
+                    },
+                    _ => return None,
                 };
-                (content, truncated(&store, &key, target.seq))
+                Some((rerun, truncated(&store, &key, target.seq)))
             }))
         })
         .await
@@ -1411,7 +1454,7 @@ impl SessionHub {
         .flatten();
         self.end_rewind(&message.session_key);
 
-        let Some((content, cut)) = found else {
+        let Some((rerun, cut)) = found else {
             self.error(
                 connection_id,
                 ErrorCode::BadRequest,
@@ -1422,21 +1465,134 @@ impl SessionHub {
             self.drain(&message.session_key);
             return;
         };
+        let after_seq = cut.as_ref().map(|(result, _)| result.seq);
         if let Some((result, tail)) = cut {
             self.announce_truncation(&message.session_key, result, tail);
         }
-        self.enqueue(
+        let (content, continuation) = match rerun {
+            Rerun::Ask(content) => (Content::Parts(content), None),
+            Rerun::Continue { question_seq } => (
+                Content::Parts(Vec::new()),
+                Some(Continuation {
+                    question_seq,
+                    after_seq: after_seq.unwrap_or(question_seq),
+                }),
+            ),
+        };
+        self.enqueue_turn(
             connection_id,
             &message.session_key,
-            Content::Parts(content),
+            content,
             // Forwarded exactly as an edit does. The rewind above deletes the
             // question and the loop appends it again, so the asking client is
             // showing an optimistic bubble in the gap; this is what the ack uses
             // to claim it.
             message.client_message_id.clone(),
             None,
+            Enqueue {
+                continuation,
+                ..Enqueue::default()
+            },
         )
         .await;
+    }
+
+    /// Hands a correction to the running turn, or runs it as the next one.
+    ///
+    /// Never dropped. With no turn to read it, or a loop that refuses it, it is
+    /// an ordinary message under the same `clientMessageId`. Accepted, it is
+    /// tracked until the loop's `steer` frame names it, and a turn that ends
+    /// first hands it back to the queue.
+    async fn steer(self: &Arc<Self>, connection_id: &str, message: SteerMessage) {
+        let held = HeldSteer {
+            id: message
+                .client_message_id
+                .clone()
+                .unwrap_or_else(|| (self.new_id)()),
+            content: message.content,
+            connection_id: connection_id.to_owned(),
+        };
+        let key = message.session_key;
+
+        // Tracked before it is handed over, so the frame that marks it read
+        // cannot arrive ahead of the record it clears.
+        let runner = {
+            let mut inner = self.inner.lock();
+            let running = inner
+                .sessions
+                .get_mut(&key)
+                .and_then(|state| state.running.as_mut());
+            match running {
+                None => None,
+                Some(running) => match running.runner.clone() {
+                    None => {
+                        running.early_steers.push(held);
+                        return;
+                    }
+                    Some(runner) => {
+                        running.steers.push(held.clone());
+                        Some(runner)
+                    }
+                },
+            }
+        };
+
+        // The loop the turn started on, not the current one: after a
+        // reconfigure those differ, and the queue the running loop drains is
+        // the only one it will ever read.
+        if let Some(runner) = runner {
+            if runner.steer(&key, &held.id, &held.content) {
+                return;
+            }
+            // Refused because the turn ended in between, and the turn's end
+            // has already run it as the next turn: only one of the two may.
+            if !self.untrack_steer(&key, &held.id) {
+                return;
+            }
+        }
+        self.requeue_steers(&key, vec![held], false).await;
+    }
+
+    /// Stops tracking a steer. `false` when it was no longer tracked, because
+    /// the turn ending took it.
+    fn untrack_steer(&self, session_key: &str, id: &str) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(running) = inner
+            .sessions
+            .get_mut(session_key)
+            .and_then(|state| state.running.as_mut())
+        else {
+            return false;
+        };
+        let before = running.steers.len();
+        running.steers.retain(|steer| steer.id != id);
+        running.steers.len() != before
+    }
+
+    /// Runs steers the loop did not read as turns of their own.
+    ///
+    /// `unbounded` for the ones a turn already accepted: the queue bound is for
+    /// what a client may add, and refusing these would lose them.
+    async fn requeue_steers(
+        self: &Arc<Self>,
+        session_key: &str,
+        steers: Vec<HeldSteer>,
+        unbounded: bool,
+    ) {
+        for steer in steers {
+            self.enqueue_turn(
+                &steer.connection_id,
+                session_key,
+                Content::Text(steer.content),
+                Some(steer.id),
+                None,
+                Enqueue {
+                    unbounded,
+                    ..Enqueue::default()
+                },
+            )
+            .await;
+        }
     }
 
     /// Replaces a message and re-runs from it. Same guards as a regenerate.
@@ -1594,6 +1750,13 @@ impl SessionHub {
                 token: token.clone(),
                 runner: None,
                 connection_id: next.connection_id.clone(),
+                // A continuation writes no question, so what the cut left is
+                // final before its first step.
+                committed: next
+                    .continuation
+                    .and_then(|continuation| u64::try_from(continuation.after_seq).ok()),
+                steers: Vec::new(),
+                early_steers: Vec::new(),
             });
             (next, token)
         };
@@ -1670,22 +1833,36 @@ impl SessionHub {
     ) {
         let outcome = self.open_turn(&session_key, &turn, &token).await;
 
-        {
+        let unread = {
             let mut inner = self.inner.lock();
             // Only this turn's own marker. A close may have taken it already,
             // and whatever holds the slot now is somebody else's.
-            if let Some(state) = inner.sessions.get_mut(&session_key)
-                && state
-                    .running
-                    .as_ref()
-                    .is_some_and(|running| running.turn_id == turn.id)
-            {
-                state.running = None;
+            match inner.sessions.get_mut(&session_key) {
+                Some(state)
+                    if state
+                        .running
+                        .as_ref()
+                        .is_some_and(|running| running.turn_id == turn.id) =>
+                {
+                    state
+                        .running
+                        .take()
+                        .map(|running| {
+                            let mut unread = running.early_steers;
+                            unread.extend(running.steers);
+                            unread
+                        })
+                        .unwrap_or_default()
+                }
+                _ => Vec::new(),
             }
-        }
+        };
         if let Err(failure) = outcome {
             self.fail_turn(&session_key, &turn.id, &failure);
         }
+        // Whatever the turn ended on, a steer it never read is still owed an
+        // answer, so it runs next rather than vanishing with the turn.
+        self.requeue_steers(&session_key, unread, true).await;
         // The next turn's own `turn.start` and status say the session is busy
         // again; announcing idle first would make a queue look like a gap.
         if !self.drain(&session_key) {
@@ -1778,6 +1955,9 @@ impl SessionHub {
                 root_session_key: None,
                 // A turn a person started has no caller to inherit from.
                 inherited_environment: None,
+                continue_from: turn
+                    .continuation
+                    .map(|continuation| continuation.question_seq),
             },
             token,
         );
@@ -1795,6 +1975,13 @@ impl SessionHub {
                 // free to hand back one that is not a child of it.
                 running.token = running_turn.token().clone();
                 running.runner = Some(Arc::clone(&runner));
+                // The loop opened its queue before `run` returned, so these
+                // are accepted. One that is not stays tracked, and is run as
+                // the next turn when this one ends.
+                for steer in std::mem::take(&mut running.early_steers) {
+                    runner.steer(session_key, &steer.id, &steer.content);
+                    running.steers.push(steer);
+                }
             }
             let status = inner
                 .sessions
@@ -2287,6 +2474,26 @@ impl HubInner {
         state.seq += 1;
         let message = event.sequenced(state.seq);
         state.turn_log.push(&message);
+        if let Some(running) = state.running.as_mut() {
+            match &message {
+                // Only a turn that wrote a question moves the boundary here. A
+                // continuation has none, and its boundary was set at the pop.
+                ServerMessage::TurnStart(start) if start.event.turn_id == running.turn_id => {
+                    if let Some(seq) = start.event.first_seq {
+                        running.committed = Some(seq.saturating_sub(1));
+                    }
+                }
+                ServerMessage::StepEnd(step) if step.event.turn_id == running.turn_id => {
+                    running.committed = Some(step.event.last_seq);
+                }
+                ServerMessage::Steer(steer) if steer.event.turn_id == running.turn_id => {
+                    if let Some(id) = steer.event.client_message_id.as_deref() {
+                        running.steers.retain(|held| held.id != id);
+                    }
+                }
+                _ => {}
+            }
+        }
         let Some(text) = encode(&message) else {
             return;
         };
@@ -2467,6 +2674,57 @@ fn user_message_at(
         .into_iter()
         .next()
         .filter(|record| matches!(record.message, ChatMessage::User(_)))
+}
+
+/// The stored row at `seq`, whoever wrote it.
+fn message_at(store: &SessionStore, session_key: &str, seq: u64) -> Option<StoredMessageRecord> {
+    let seq = i64::try_from(seq).unwrap_or(i64::MAX);
+    store
+        .messages(
+            session_key,
+            &ReadMessages {
+                after_seq: Some(seq - 1),
+                before_seq: Some(seq + 1),
+                ..ReadMessages::default()
+            },
+        )
+        .ok()?
+        .into_iter()
+        .next()
+}
+
+/// The question an assistant row at `seq` answers: the newest user row before
+/// it that is not a steer.
+fn question_before(store: &SessionStore, session_key: &str, seq: i64) -> Option<i64> {
+    store
+        .messages(
+            session_key,
+            &ReadMessages {
+                before_seq: Some(seq),
+                ..ReadMessages::default()
+            },
+        )
+        .ok()?
+        .into_iter()
+        .rev()
+        .find(|record| matches!(record.message, ChatMessage::User(_)) && !is_steer(&record.message))
+        .map(|record| record.seq)
+}
+
+/// What a regenerate runs once the cut is made.
+enum Rerun {
+    /// The question again, which the loop writes back.
+    Ask(Vec<ContentPart>),
+    /// The loop carries on from history, answering the question at this seq.
+    Continue { question_seq: i64 },
+}
+
+/// The parts of a queued turn only a rewind or a steer sets.
+#[derive(Debug, Clone, Copy, Default)]
+struct Enqueue {
+    continuation: Option<Continuation>,
+    /// Past the queue bound: for what a turn already accepted.
+    unbounded: bool,
 }
 
 /// The question that started the most recent turn.

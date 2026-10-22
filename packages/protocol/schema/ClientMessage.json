@@ -307,6 +307,9 @@
         "content": {
           "type": "string",
           "minLength": 1
+        },
+        "clientMessageId": {
+          "type": "string"
         }
       },
       "required": [

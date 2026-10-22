@@ -16,9 +16,9 @@ use darkwire_protocol::{
     AssistantDelta, AssistantDeltaTag, CommandPolicy, ContextUsage, ContextUsageTag, ErrorCode,
     ErrorEvent, ErrorTag, MessageQueued, MessageQueuedTag, NestedAgentEvent, Notice, NoticeKind,
     NoticeTag, ReasoningDelta, ReasoningDeltaTag, Sequenced, ServerMessage, SessionStatus,
-    SessionStatusTag, StopReason, SubagentEventBody, SubagentEventTag, ToolApprovalRequest,
-    ToolApprovalRequestTag, ToolCallStarted, ToolCallTag, ToolResult, ToolResultTag, ToolRisk,
-    TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    SessionStatusTag, StepEnd, StepEndTag, StepStats, StopReason, SubagentEventBody,
+    SubagentEventTag, ToolApprovalRequest, ToolApprovalRequestTag, ToolCallStarted, ToolCallTag,
+    ToolResult, ToolResultTag, ToolRisk, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -222,6 +222,18 @@ pub fn turn_end(stop_reason: StopReason) -> ServerMessage {
         first_token_ms: None,
         first_seq: None,
         last_seq: None,
+    }))
+}
+
+/// The end of one message the model wrote.
+pub fn step_end() -> ServerMessage {
+    ServerMessage::StepEnd(sequenced!(StepEnd {
+        tag: StepEndTag,
+        turn_id: TURN.to_owned(),
+        first_seq: 2,
+        last_seq: 3,
+        stats: StepStats::default(),
+        turn_elapsed_ms: 0,
     }))
 }
 

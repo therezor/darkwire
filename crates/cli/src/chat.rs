@@ -149,6 +149,7 @@ pub async fn run_turn(deps: RunTurnDeps<'_>, content: Content) -> Result<TurnOut
             chain: Vec::new(),
             root_session_key: None,
             inherited_environment: None,
+            continue_from: None,
         },
         &token,
     );

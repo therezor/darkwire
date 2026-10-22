@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::json::{MAX_SAFE_INTEGER, literal, positive, tagged_union};
-use crate::messages::{StopReason, StoredMessage, Usage};
+use crate::messages::{StepStats, StopReason, StoredMessage, Usage};
 use crate::tools::{ApprovalScope, CommandPolicy, ExecRule, ToolDefinition, ToolRisk};
 
 /// Version of the wire protocol. Bumped on any breaking envelope change.
@@ -303,9 +303,13 @@ pub struct ToolApproveMessage {
     pub rule: Option<ExecRule>,
 }
 
-/// Mid-turn steering. The loop drains the steer queue and *continues* rather
-/// than breaking, so guidance that arrives while the model is composing its
-/// final answer still lands on the next iteration instead of being dropped.
+/// Mid-turn steering. The loop reads it at the start of its next step and
+/// *continues* rather than breaking, so guidance that arrives while the model
+/// is composing its final answer still lands instead of being dropped.
+///
+/// Never lost: a steer the running turn does not read, or one sent when no
+/// turn is running, becomes the next turn instead, acked under
+/// `client_message_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -319,6 +323,9 @@ pub struct SteerMessage {
     /// The guidance.
     #[garde(length(utf16, min = 1))]
     pub content: String,
+    /// Echoed on the `steer` frame, or on the `message.ack` if it is queued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 /// Re-run a turn, discarding the answer it produced.
@@ -336,7 +343,10 @@ pub struct RegenerateMessage {
     /// The conversation.
     #[garde(length(utf16, min = 1))]
     pub session_key: String,
-    /// The user message to re-run from. Absent means the most recent turn.
+    /// Where to re-run from. A user message is asked again. An assistant
+    /// message is dropped with everything after it, and the loop continues from
+    /// the history before it with no new question. Absent means the most recent
+    /// question.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
     #[schemars(transform = positive)]
@@ -482,6 +492,10 @@ literal! {
 literal! {
     /// The `type` of a [`TurnEnd`].
     pub struct TurnEndTag = "turn.end";
+}
+literal! {
+    /// The `type` of a [`StepEnd`].
+    pub struct StepEndTag = "step.end";
 }
 literal! {
     /// The `type` of a [`SubagentEventBody`].
@@ -938,6 +952,39 @@ pub struct TurnEnd {
     pub last_seq: Option<u64>,
 }
 
+/// One step of a turn was written: a model call and the tools it asked for.
+///
+/// The seqs are what make a step addressable before its turn ends. Every row
+/// up to `last_seq` is committed, so a branch can be taken there while the
+/// turn goes on. Emitted only after rows are written, so both are always
+/// present. Absent from [`NestedAgentEvent`]: a subagent's steps belong to a
+/// session nobody is reading, and its rows carry their stats regardless.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct StepEnd {
+    /// Always `step.end`.
+    #[serde(rename = "type")]
+    pub tag: StepEndTag,
+    /// The turn.
+    #[garde(length(utf16, min = 1))]
+    pub turn_id: String,
+    /// The first row this step wrote.
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub first_seq: u64,
+    /// The last row this step wrote.
+    #[garde(range(min = 1, max = MAX_SAFE_INTEGER))]
+    #[schemars(transform = positive)]
+    pub last_seq: u64,
+    /// What the step cost. The same figures its assistant row stores.
+    #[garde(dive)]
+    pub stats: StepStats,
+    /// Turn start to now, so a clock that was not running can catch up.
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub turn_elapsed_ms: u64,
+}
+
 tagged_union! {
     /// Everything a turn emits, minus the `seq` the transport owns.
     ///
@@ -1203,7 +1250,11 @@ pub struct ToolsChanged {
     pub tools: Vec<ToolDefinition>,
 }
 
-/// Mid-turn steering echoed back so every tab shows what was injected.
+/// Steering, the moment the loop writes it into the turn.
+///
+/// Sent by the loop rather than on receipt, so it lands in the transcript
+/// where the model read it. Absent from [`NestedAgentEvent`]: nothing steers a
+/// subagent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -1214,8 +1265,14 @@ pub struct Steer {
     /// The conversation.
     #[garde(length(utf16, min = 1))]
     pub session_key: String,
+    /// The turn that read it.
+    #[garde(length(utf16, min = 1))]
+    pub turn_id: String,
     /// The guidance.
     pub content: String,
+    /// The `turn.steer` that sent it, so the sender's pending bubble can go.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 /// `message.ack`, sequenced.
@@ -1244,6 +1301,8 @@ pub type TurnEndEvent = Sequenced<TurnEnd>;
 pub type SubagentEvent = Sequenced<SubagentEventBody>;
 /// `context.usage`, sequenced.
 pub type ContextUsageEvent = Sequenced<ContextUsage>;
+/// `step.end`, sequenced.
+pub type StepEndEvent = Sequenced<StepEnd>;
 /// `session.status`, sequenced.
 pub type SessionStatusEvent = Sequenced<SessionStatus>;
 /// `session.reset`, sequenced.
@@ -1290,6 +1349,8 @@ tagged_union! {
         Notice(NoticeEvent) = "notice",
         /// A turn finished.
         TurnEnd(TurnEndEvent) = "turn.end",
+        /// A step of a turn was written.
+        StepEnd(StepEndEvent) = "step.end",
         /// A subagent's event.
         Subagent(SubagentEvent) = "subagent.event",
         /// The context bar's figure.
@@ -1335,6 +1396,7 @@ impl ServerMessage {
             Self::ToolApprovalRequest(e) => Some(e.seq),
             Self::Notice(e) => Some(e.seq),
             Self::TurnEnd(e) => Some(e.seq),
+            Self::StepEnd(e) => Some(e.seq),
             Self::Subagent(e) => Some(e.seq),
             Self::ContextUsage(e) => Some(e.seq),
             Self::SessionStatus(e) => Some(e.seq),

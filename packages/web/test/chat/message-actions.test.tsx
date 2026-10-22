@@ -8,11 +8,15 @@
  * checks the rendered result, which is the half a source sweep cannot see.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MessageActions } from '@/chat/message-actions.js';
+import { STYLES } from '@testkit/paths.js';
 import { renderWithProviders } from '@testkit/render.js';
 
 /**
@@ -72,7 +76,7 @@ describe('the message action bar', () => {
     ).toBeInTheDocument();
   });
 
-  it('disables everything that would start a turn while one is running', () => {
+  it('disables what would start a turn while one is running, and nothing else', () => {
     renderWithProviders(
       <MessageActions
         text="hello"
@@ -89,11 +93,32 @@ describe('the message action bar', () => {
     expect(
       screen.getByRole('button', { name: 'Regenerate the answer' }),
     ).toBeDisabled();
+    // A branch is a new session, and the server refuses a point the running
+    // turn has not finished, so a running turn is no reason to refuse it.
     expect(
       screen.getByRole('button', { name: 'Branch from here' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     // Copy asks the server nothing, so a running turn is no reason to refuse it.
     expect(screen.getByRole('button', { name: 'Copy message' })).toBeEnabled();
+  });
+
+  it('names Copy and Branch after what they act on, where asked to', () => {
+    renderWithProviders(
+      <MessageActions
+        text="hello"
+        busy={false}
+        copyLabel="Copy step 2"
+        branchLabel="Branch from step 2"
+        onBranch={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Copy step 2' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Branch from step 2' }),
+    ).toBeInTheDocument();
   });
 
   it('reports each action to its caller', async () => {
@@ -121,5 +146,33 @@ describe('the message action bar', () => {
     expect(onEdit).toHaveBeenCalledOnce();
     expect(onRegenerate).toHaveBeenCalledOnce();
     expect(onBranch).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * jsdom lays nothing out, so the height of a message's line is invisible to
+ * every other test here. Buttons that set the line's height are a hole after
+ * every message of a long turn, and only a reader would ever notice it.
+ */
+describe("a message's line in the stylesheet", () => {
+  const css = readFileSync(join(STYLES, 'screens/chat.css'), 'utf8');
+  const rule = (selector: string): string =>
+    new RegExp(`\\n  ${selector.replaceAll('.', '\\.')} \\{([^}]*)\\}`).exec(
+      css,
+    )?.[1] ?? '';
+
+  it('keeps the buttons from making the line of figures taller', () => {
+    expect(rule('.turn__line-actions')).toContain(
+      'margin-block: calc((var(--leading-sm) - var(--size-control-md)) / 2);',
+    );
+  });
+
+  it('keeps one set of controls per pointer', () => {
+    expect(css).toMatch(
+      /@media \(hover: hover\) \{[^@]*\.turn__line-more \{\s*display: none;/,
+    );
+    expect(css).toMatch(
+      /@media \(hover: none\) \{[^@]*\.message-actions--line \{\s*display: none;/,
+    );
   });
 });

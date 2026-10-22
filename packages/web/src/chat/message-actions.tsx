@@ -14,10 +14,15 @@
  *  - **Info** is only on a turn, because only a turn has a cost.
  *  - **Copy** is on both, and is the one action that asks the server nothing.
  *
- * Everything destructive is disabled while a turn is running, and everything
- * that names a message is disabled until that message has a `seq` — an
- * optimistic bubble has no address in storage yet, and the actions that need one
- * cannot be honestly offered before it lands.
+ * Every message of a turn gets the same bar. Regenerate there re-runs from
+ * just before that message and keeps what came earlier.
+ *
+ * Edit and Regenerate are disabled while a turn is running. Branch is not: it
+ * forks into a new session and leaves this one alone, and the server refuses a
+ * point the running turn has not finished. Everything that names a message is
+ * offered only once that message has a `seq`. An optimistic bubble has no
+ * address in storage yet, and the actions that need one cannot be honestly
+ * offered before it lands.
  *
  * The bar reveals on hover with `opacity` and `:focus-within` rather than
  * `display: none`, so the buttons keep their place in the tab order. See
@@ -28,6 +33,7 @@ import { Check, Copy, GitBranch, Pencil, RefreshCw } from 'lucide-react';
 import type { JSX, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { cn } from '@/lib/cn.js';
 import { Button } from '@/components/ui/button.js';
 import { useCopy } from '@/components/use-copy.js';
 
@@ -41,6 +47,14 @@ interface MessageActionsProps {
   readonly info?: ReactNode | undefined;
   /** True while a turn is running: nothing here may start a second one. */
   readonly busy: boolean;
+  /**
+   * Names for the buttons, where the defaults would repeat: a turn of ten
+   * messages has ten of each, and a reader needs to know which one they are on.
+   */
+  readonly copyLabel?: string | undefined;
+  readonly regenerateLabel?: string | undefined;
+  readonly branchLabel?: string | undefined;
+  readonly className?: string | undefined;
 }
 
 export function MessageActions({
@@ -50,16 +64,20 @@ export function MessageActions({
   onBranch,
   info,
   busy,
+  copyLabel,
+  regenerateLabel,
+  branchLabel,
+  className,
 }: MessageActionsProps): JSX.Element {
   const { t } = useTranslation();
   const { copied, copy } = useCopy(text);
 
   return (
-    <div className="cluster message-actions">
+    <div className={cn('cluster message-actions', className)}>
       <Button
         variant="ghost"
         size="icon"
-        aria-label={copied ? 'Copied' : 'Copy message'}
+        aria-label={copied ? 'Copied' : (copyLabel ?? 'Copy message')}
         onClick={copy}
       >
         {copied ? <Check /> : <Copy />}
@@ -81,7 +99,7 @@ export function MessageActions({
         <Button
           variant="ghost"
           size="icon"
-          aria-label={t('chat.regenerate')}
+          aria-label={regenerateLabel ?? t('chat.regenerate')}
           disabled={busy}
           onClick={onRegenerate}
         >
@@ -93,8 +111,7 @@ export function MessageActions({
         <Button
           variant="ghost"
           size="icon"
-          aria-label={t('chat.branchHere')}
-          disabled={busy}
+          aria-label={branchLabel ?? t('chat.branchHere')}
           onClick={onBranch}
         >
           <GitBranch />

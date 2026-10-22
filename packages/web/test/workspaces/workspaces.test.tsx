@@ -110,7 +110,6 @@ describe('query keys', () => {
       queryKeys.sessionPage({ page: 1, q: '', sort: 'updated', desc: true })[0],
     ).toBe(prefix);
     expect(queryKeys.session('k')[0]).toBe(prefix);
-    expect(queryKeys.turns('k')[0]).toBe(prefix);
   });
 });
 

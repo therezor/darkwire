@@ -12,8 +12,9 @@ use darkwire_protocol::messages::StopReason;
 use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, NestedAgentEvent,
     NotificationBody, NotificationLevel, NotificationTag, ReasoningDelta, ReasoningDeltaTag,
-    Sequenced, ServerMessage, SessionStatus, SessionStatusTag, SubagentEventBody, SubagentEventTag,
-    ToolResult, ToolResultTag, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    Sequenced, ServerMessage, SessionStatus, SessionStatusTag, Steer, SteerEventTag, StepEnd,
+    StepEndTag, SubagentEventBody, SubagentEventTag, ToolResult, ToolResultTag, TurnEnd,
+    TurnEndTag, TurnStart, TurnStartTag,
 };
 use darkwire_server::turn_log::TurnLog;
 use indexmap::IndexMap;
@@ -131,6 +132,56 @@ fn texts(log: &TurnLog) -> Vec<String> {
             other => format!("{other:?}"),
         })
         .collect()
+}
+
+fn step(seq: u64, last_seq: u64) -> ServerMessage {
+    ServerMessage::StepEnd(Sequenced {
+        seq,
+        event: StepEnd {
+            tag: StepEndTag,
+            turn_id: TURN.to_owned(),
+            first_seq: 2,
+            last_seq,
+            stats: darkwire_protocol::StepStats::default(),
+            turn_elapsed_ms: 10,
+        },
+    })
+}
+
+#[test]
+fn keeps_a_step_boundary_between_the_deltas_on_either_side() {
+    let mut log = TurnLog::new(BIG);
+    log.push(&start(1, TURN));
+    log.push(&delta(2, "one", TURN));
+    log.push(&step(3, 3));
+    log.push(&delta(4, "two", TURN));
+
+    let frames = log.frames();
+    assert_eq!(frames.len(), 4);
+    assert!(matches!(&frames[2], ServerMessage::StepEnd(e) if e.event.last_seq == 3));
+    assert_eq!(texts(&log)[3], "two", "the boundary keeps the deltas apart");
+}
+
+#[test]
+fn keeps_a_steer_where_the_loop_wrote_it() {
+    let mut log = TurnLog::new(BIG);
+    log.push(&start(1, TURN));
+    log.push(&step(2, 3));
+    log.push(&ServerMessage::Steer(Sequenced {
+        seq: 3,
+        event: Steer {
+            tag: SteerEventTag,
+            session_key: SESSION.to_owned(),
+            turn_id: TURN.to_owned(),
+            content: "faster".to_owned(),
+            client_message_id: Some("s1".to_owned()),
+        },
+    }));
+    log.push(&delta(4, "ok", TURN));
+
+    let frames = log.frames();
+    assert_eq!(frames.len(), 4);
+    assert!(matches!(&frames[2], ServerMessage::Steer(e) if e.event.content == "faster"));
 }
 
 #[test]

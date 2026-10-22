@@ -273,8 +273,8 @@ impl darkwire_server::hub::TurnRunner for LoopRunner {
         Box::new(self.agent_loop.run(input, parent))
     }
 
-    fn steer(&self, session_key: &str, content: &str) {
-        self.agent_loop.steer(session_key, content);
+    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
+        self.agent_loop.steer(session_key, id, content)
     }
 }
 

@@ -1193,7 +1193,12 @@ const CLIENT_FRAMES: readonly Json[] = [
   { type: 'session.switch', sessionKey: 'web:abc' },
   { type: 'session.resume', sessionKey: 'web:abc', lastSeq: 41 },
   { type: 'tool.approve', callId: 'c1', approved: true, scope: 'session' },
-  { type: 'turn.steer', sessionKey: 'web:abc', content: 'shorter' },
+  {
+    type: 'turn.steer',
+    sessionKey: 'web:abc',
+    content: 'shorter',
+    clientMessageId: 'c-steer',
+  },
 ];
 
 const SERVER_FRAMES: readonly Json[] = [
@@ -1299,6 +1304,28 @@ const SERVER_FRAMES: readonly Json[] = [
     lastSeq: 9,
   },
   {
+    type: 'step.end',
+    seq: 56,
+    turnId: 't1',
+    firstSeq: 8,
+    lastSeq: 9,
+    stats: {
+      usage: {
+        promptTokens: 60,
+        completionTokens: 40,
+        totalTokens: 100,
+        cachedTokens: 50,
+        reasoningTokens: 5,
+      },
+      model: 'qwen3:8b',
+      elapsedMs: 4200,
+      generationMs: 800,
+      generationTokens: 40,
+      firstTokenMs: 300,
+    },
+    turnElapsedMs: 6100,
+  },
+  {
     type: 'subagent.event',
     seq: 53,
     turnId: 't1',
@@ -1368,7 +1395,14 @@ const SERVER_FRAMES: readonly Json[] = [
       },
     ],
   },
-  { type: 'steer', seq: 61, sessionKey: 'web:abc', content: 'shorter' },
+  {
+    type: 'steer',
+    seq: 61,
+    sessionKey: 'web:abc',
+    turnId: 't1',
+    content: 'shorter',
+    clientMessageId: 'c-steer',
+  },
 ];
 
 describe('fixtures/ws/frames', () => {

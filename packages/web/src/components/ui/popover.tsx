@@ -13,6 +13,8 @@ import { cn } from '@/lib/cn.js';
 
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
+/** Where the content is placed, for a popover something else opens. */
+export const PopoverAnchor = PopoverPrimitive.Anchor;
 
 export function PopoverContent({
   className,

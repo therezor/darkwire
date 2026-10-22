@@ -67,12 +67,6 @@ export const queryKeys = {
   }) => ['sessions', 'page', params] as const,
   session: (key: string) => ['sessions', key] as const,
   messages: (key: string) => ['sessions', key, 'messages'] as const,
-  /**
-   * Under the `['sessions']` prefix on purpose: `use-connection.ts` already
-   * invalidates that after every turn, so a conversation's costs refresh as it
-   * grows without a second subscription.
-   */
-  turns: (key: string) => ['sessions', key, 'turns'] as const,
   /** The bell's recent list, unpaged. */
   notifications: ['notifications'] as const,
   /**

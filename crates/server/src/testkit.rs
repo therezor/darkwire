@@ -144,11 +144,11 @@ impl TurnRunner for ScriptedRunner {
         Box::new(self.agent_loop.run(input, parent))
     }
 
-    fn steer(&self, session_key: &str, content: &str) {
+    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
         self.steers
             .lock()
             .push((session_key.to_owned(), content.to_owned()));
-        self.agent_loop.steer(session_key, content);
+        self.agent_loop.steer(session_key, id, content)
     }
 }
 

@@ -536,13 +536,12 @@ pub async fn branch(
     let store = state.runtime.store();
     require_session(&store, &params.key).await?;
 
-    // Forking mid-turn would copy a question whose answer has not been written
-    // yet: the loop appends an assistant turn and all of its tool traffic in
-    // one transaction at the end, so a branch taken now starts with an
-    // unanswered question and no way to tell that it did.
-    if state.hub.busy(&params.key) {
+    // The loop commits each step as it finishes, so the rows up to a finished
+    // step are final while the turn goes on. Past that is a question whose
+    // answer has not been written yet.
+    if !state.hub.can_branch_at(&params.key, request.seq) {
         return Err(HttpError::conflict(
-            "A turn is running on this session. Stop it, then branch.",
+            "A turn is running on this session. Branch from a finished message, or stop it first.",
         ));
     }
 

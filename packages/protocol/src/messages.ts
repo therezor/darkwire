@@ -97,6 +97,42 @@ export const UserMessageSchema = z.object({
   content: z.array(ContentPartSchema),
 });
 
+/** Token accounting as reported by the provider. */
+export const UsageSchema = z.object({
+  promptTokens: z.number().int().nonnegative().default(0),
+  completionTokens: z.number().int().nonnegative().default(0),
+  totalTokens: z.number().int().nonnegative().default(0),
+  /** Prompt-cache hits, where the provider reports them. */
+  cachedTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+});
+export type Usage = z.infer<typeof UsageSchema>;
+
+/**
+ * One step of a turn: a model call and the tools it asked for.
+ *
+ * The timings mean what the turn's do, scoped to the step. A call that wrote
+ * no row has its figures carried onto the next row written, so the steps of a
+ * turn always sum to the turn.
+ */
+export const StepStatsSchema = z.object({
+  usage: UsageSchema,
+  /** As the provider reported it, which may differ from what was requested. */
+  model: z.string().optional(),
+  /**
+   * The step's first request to its rows being written, tools and approval
+   * waits included.
+   */
+  elapsedMs: z.number().int().nonnegative(),
+  /** Time the model spent emitting tokens. Absent when nothing measured it. */
+  generationMs: z.number().int().nonnegative().optional(),
+  /** The completion tokens produced inside `generationMs`, and only those. */
+  generationTokens: z.number().int().nonnegative().optional(),
+  /** The step's first request to its first token. */
+  firstTokenMs: z.number().int().nonnegative().optional(),
+});
+export type StepStats = z.infer<typeof StepStatsSchema>;
+
 export const AssistantMessageSchema = z.object({
   role: z.literal('assistant'),
   content: z.array(ContentPartSchema),
@@ -119,6 +155,14 @@ export const AssistantMessageSchema = z.object({
    * last week. Absent rather than zero when nothing measured it.
    */
   reasoningMs: z.number().int().nonnegative().optional(),
+  /**
+   * What the model call behind this message cost, written with it.
+   *
+   * On the row rather than in a table beside it, so a fork copies it and a
+   * rewind drops it with the message it describes. Absent on a row no model
+   * call produced.
+   */
+  stats: StepStatsSchema.optional(),
 });
 
 export const ToolMessageSchema = z.object({
@@ -179,17 +223,6 @@ export const StoredMessageSchema = z.object({
   message: ChatMessageSchema,
 });
 export type StoredMessage = z.infer<typeof StoredMessageSchema>;
-
-/** Token accounting as reported by the provider. */
-export const UsageSchema = z.object({
-  promptTokens: z.number().int().nonnegative().default(0),
-  completionTokens: z.number().int().nonnegative().default(0),
-  totalTokens: z.number().int().nonnegative().default(0),
-  /** Prompt-cache hits, where the provider reports them. */
-  cachedTokens: z.number().int().nonnegative().optional(),
-  reasoningTokens: z.number().int().nonnegative().optional(),
-});
-export type Usage = z.infer<typeof UsageSchema>;
 
 /**
  * Completion tokens per second, or `undefined` when the figure would be a lie.

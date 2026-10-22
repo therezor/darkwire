@@ -516,8 +516,8 @@ export function Composer({
               placeholder={
                 configured
                   ? busy
-                    ? 'Queue another message…'
-                    : 'Send a message…'
+                    ? t('chat.placeholder.steer')
+                    : t('chat.placeholder.send')
                   : t('chat.noModel')
               }
               aria-label={t('chat.message')}

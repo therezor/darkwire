@@ -32,7 +32,7 @@ use std::time::Duration;
 use darkwire_core::message_bus::IdSource;
 use darkwire_protocol::{
     AssistantDelta, AssistantDeltaTag, Attachment, ClientMessage, Sequenced, ServerMessage,
-    StopReason, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    StepEnd, StepEndTag, StepStats, StopReason, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
 };
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
@@ -184,6 +184,18 @@ impl ScriptedConnection {
                 },
             }));
         }
+        // The loop ends every message it writes, and a channel posts it there.
+        self.emit(ServerMessage::StepEnd(Sequenced {
+            seq: 0,
+            event: StepEnd {
+                tag: StepEndTag,
+                turn_id: turn_id.clone(),
+                first_seq: 2,
+                last_seq: 2,
+                stats: StepStats::default(),
+                turn_elapsed_ms: 0,
+            },
+        }));
         self.emit(ServerMessage::TurnEnd(Sequenced {
             seq: 0,
             event: TurnEnd {

@@ -221,7 +221,7 @@ the first token.
 | `return`                     | Run the highlighted command                      |
 | `ctrl-t`                     | Show the whole transcript, or `/transcript`      |
 | `ctrl-o`                     | How the next tool's output arrives               |
-| `ctrl-y`                     | Whether the next turn's cost is printed          |
+| `ctrl-y`                     | Whether each message's cost is printed           |
 | `ctrl-l`                     | Draw the screen again                            |
 | `ctrl-c`                     | Stop the turn, or leave                          |
 | `ctrl-d`                     | Leave                                            |
@@ -232,11 +232,14 @@ the first token.
 | `alt-left`, `alt-right`      | Back a word, forward a word                      |
 | `ctrl-u`, `ctrl-k`, `ctrl-w` | Clear the line, clear to the end, delete a word  |
 
-**Reasoning and what a turn cost live in the transcript**, in full and whatever
-the switches say. That is what `ctrl-t` and `/transcript` are for, and why there
-is no `/output` or `/stats` command any more: one place to look, rather than two
-commands deciding what the conversation is allowed to carry. `ctrl-o` and
-`ctrl-y` still flip what the _next_ turn prints inline.
+**Reasoning and what each message cost live in the transcript**, in full and
+whatever the switches say. That is what `ctrl-t` and `/transcript` are for, and
+why there is no `/output` or `/stats` command any more: one place to look, rather
+than two commands deciding what the conversation is allowed to carry. `ctrl-o`
+and `ctrl-y` still flip what the _next_ turn prints inline.
+
+A message's cost is one short line after it, the same line the web shows:
+`· 3.1s · 171 out · 78 tok/s`. Nothing is added up for the turn.
 
 `/help` takes the window rather than printing into the conversation, with four
 tabs: commands, the turn, setup and keys. Left and right move between them, the

@@ -241,7 +241,22 @@
     color: var(--warning-fg);
   }
 
-  .turn__footer {
+  /* One message of a turn: a model call and the tool cards it asked for. The
+   * same gap as the turn, so a turn of one message looks as it always did. */
+  .turn__message {
+    --gap: var(--space-3);
+
+    min-width: 0;
+  }
+
+  /* More space after a message than inside it, so its line reads as the end
+   * of the message above rather than the start of the next. */
+  .turn__message ~ .turn__message {
+    margin-block-start: calc(var(--space-6) - var(--gap));
+  }
+
+  /* The line under a message: its figures, then its actions. */
+  .turn__line {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -251,12 +266,21 @@
     color: var(--fg-3);
   }
 
+  .turn__figures {
+    font-variant-numeric: tabular-nums;
+  }
+
   .turn__stop-reason {
     color: var(--warning-fg);
   }
 
-  .turn__usage {
-    font-variant-numeric: tabular-nums;
+  /* The icons are taller than the figures beside them. The negative margin
+   * keeps the line at its own height, so a message's figures cost one line of
+   * text rather than a row of buttons. */
+  .turn__line-actions {
+    display: flex;
+    margin-inline-start: auto;
+    margin-block: calc((var(--leading-sm) - var(--size-control-md)) / 2);
   }
 
   /* A mid-turn steer is neither side of the conversation — it is a note about
@@ -334,15 +358,20 @@
 
   /* ── Tool card ─────────────────────────────────────────────── */
 
-  .tool-card {
+  /* The calls a message made back to back: one box, a row each. */
+  .tool-list {
     overflow: hidden;
     background-color: var(--surface-2);
     border: var(--hairline) solid var(--line);
     border-radius: var(--radius-md);
   }
 
-  .tool-card--awaiting {
+  .tool-list:has(.tool-card--awaiting) {
     border-color: var(--warning-edge);
+  }
+
+  .tool-card + .tool-card {
+    border-block-start: var(--hairline) solid var(--line);
   }
 
   .tool-card__header {
@@ -468,7 +497,9 @@
     color: var(--fg-3);
   }
 
+  /* No top padding: the header above already ends in `--space-2`. */
   .tool-card__running {
+    padding: 0 var(--space-3) var(--space-2);
     font-size: var(--text-sm);
     color: var(--fg-3);
   }
@@ -1069,10 +1100,35 @@
     opacity: 1;
   }
 
+  /* A message's actions answer to that message, not to the turn around it:
+   * hovering an answer of forty messages would otherwise light up forty bars.
+   * Same specificity as the rule above, so source order decides. Only where
+   * there is a hover to answer to: on touch a tap leaves `:hover` stuck, and
+   * this would hide every bar after the first tap in a turn. */
+  @media (hover: hover) {
+    .transcript__item:hover .message-actions--line,
+    .transcript__item:focus-within .message-actions--line {
+      opacity: 0;
+    }
+
+    .turn__message:hover .message-actions--line,
+    .turn__message:focus-within .message-actions--line {
+      opacity: 1;
+    }
+
+    .turn__line-more {
+      display: none;
+    }
+  }
+
   /* A touch pointer cannot hover, so there is nothing to reveal with. */
   @media (hover: none) {
     .message-actions {
       opacity: 1;
+    }
+
+    .turn__line-actions > .message-actions--line {
+      display: none;
     }
   }
 
@@ -1101,24 +1157,20 @@
     justify-content: flex-end;
   }
 
-  .turn__actions {
-    flex-shrink: 0;
-  }
+  /* ── Message details ───────────────────────────────────────── */
 
-  /* ── Turn details ──────────────────────────────────────────── */
-
-  .popover--turn-info {
+  .popover--message-info {
     width: 18rem;
     padding: var(--space-3);
   }
 
-  .turn-info__row {
+  .message-info__row {
     display: flex;
     gap: var(--space-3);
     align-items: baseline;
   }
 
-  .turn-info__label {
+  .message-info__label {
     flex: 0 0 5rem;
     font-size: var(--text-2xs);
     line-height: var(--leading-2xs);
@@ -1127,17 +1179,12 @@
     color: var(--fg-3);
   }
 
-  .turn-info__value {
-    /* Read character by character — a token count and a rate are identifiers,
+  .message-info__value {
+    /* Read character by character: a token count and a model are identifiers,
      * not prose. */
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     line-height: var(--leading-sm);
     color: var(--fg-1);
-  }
-
-  .turn-info__empty {
-    font-size: var(--text-sm);
-    color: var(--fg-3);
   }
 }

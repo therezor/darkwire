@@ -817,27 +817,27 @@ fn prints_an_error_with_its_code_and_whether_retrying_is_worth_it() {
     assert!(text.contains("provider_error · retryable"));
 }
 
-#[test]
-fn explains_a_turn_that_hit_a_cap() {
-    // Stats switched on, because the row arrives folded now. The stop reason
-    // above it is not part of that fold: it says something went differently,
-    // not what the turn cost.
-    let text = render(
-        &[
-            start(),
-            json!({
-                "type": "turn.end", "turnId": "t1",
-                "stopReason": "max_iterations", "iterations": 40,
-            }),
-        ],
-        |built| built.show_stats = true,
-    );
-    assert!(text.contains("stopped at the tool-iteration cap"));
-    assert!(text.contains("40 steps"));
+/// One message ending, with the figures `step.end` carries.
+fn message_end(elapsed_ms: u64, completion: u64) -> Value {
+    json!({
+        "type": "step.end", "turnId": "t1", "firstSeq": 2, "lastSeq": 3,
+        "stats": {
+            "usage": {
+                "promptTokens": 1204, "completionTokens": completion,
+                "totalTokens": 1204 + completion,
+            },
+            "elapsedMs": elapsed_ms,
+            "generationMs": 1000,
+            "generationTokens": completion,
+        },
+        "turnElapsedMs": elapsed_ms,
+    })
 }
 
 #[test]
-fn the_stop_reason_is_said_even_with_the_cost_switched_off() {
+fn explains_a_turn_that_hit_a_cap() {
+    // The stop reason is not part of the stats fold: it says something went
+    // differently, not what a message cost.
     let text = plain(&[
         start(),
         json!({
@@ -845,42 +845,78 @@ fn the_stop_reason_is_said_even_with_the_cost_switched_off() {
             "stopReason": "max_iterations", "iterations": 40,
         }),
     ]);
-    assert!(text.contains("stopped at the tool-iteration cap"));
-    assert!(!text.contains("40 steps"));
+    assert!(text.contains("stopped at the message limit"));
 }
 
 #[test]
-fn reports_usage_when_the_provider_sent_any() {
+fn prints_the_same_short_line_after_every_message() {
     let text = render(
         &[
             start(),
+            json!({"type": "assistant.delta", "turnId": "t1", "text": "Looking."}),
+            message_end(1200, 88),
+            json!({"type": "assistant.delta", "turnId": "t1", "text": "Done."}),
+            message_end(2500, 40),
+        ],
+        |built| built.show_stats = true,
+    );
+    assert!(
+        text.contains("Looking.\n  · 1.2s · 88 out · 88 tok/s"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Done.\n  · 2.5s · 40 out · 40 tok/s"),
+        "{text}"
+    );
+}
+
+#[test]
+fn puts_the_line_after_the_tools_the_message_ran() {
+    let text = render(
+        &[
+            start(),
+            json!({"type": "assistant.delta", "turnId": "t1", "text": "Let me look"}),
+            json!({
+                "type": "tool.call", "turnId": "t1", "callId": "c1",
+                "name": "ls", "args": {}, "risk": "safe",
+            }),
+            json!({
+                "type": "tool.result", "turnId": "t1", "callId": "c1", "ok": true,
+                "content": "notes.md", "truncated": false, "durationMs": 3,
+            }),
+            message_end(1200, 88),
+        ],
+        |built| built.show_stats = true,
+    );
+    let tool = text.find("⚙ ls").expect("the call is drawn");
+    let line = text.find("· 1.2s · 88 out").expect("the line is drawn");
+    assert!(tool < line, "{text}");
+    assert!(text.trim_end().ends_with("88 tok/s"), "{text:?}");
+}
+
+#[test]
+fn adds_nothing_up_for_the_turn() {
+    let text = render(
+        &[
+            start(),
+            message_end(1200, 88),
             json!({
                 "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 1,
-                "usage": {
-                    "promptTokens": 1204, "completionTokens": 88, "totalTokens": 1292,
-                    "cachedTokens": 1000, "reasoningTokens": 40,
-                },
+                "usage": { "promptTokens": 1204, "completionTokens": 88, "totalTokens": 1292 },
             }),
         ],
         |built| built.show_stats = true,
     );
-    assert!(text.contains("1 step"));
-    assert!(text.contains("1.2k in / 88 out / 1.0k cached / 40 reasoning"));
+    assert_eq!(text.matches(" out").count(), 1, "{text}");
+    assert!(!text.contains("1.2k in"));
 }
 
 #[test]
-fn omits_the_summary_line_when_usage_is_switched_off() {
-    let text = render(
-        &[
-            start(),
-            json!({
-                "type": "turn.end", "turnId": "t1",
-                "stopReason": "complete", "iterations": 2,
-            }),
-        ],
-        |built| built.show_stats = false,
-    );
-    assert!(!text.contains("steps"));
+fn omits_the_line_when_stats_are_switched_off() {
+    let text = render(&[start(), message_end(1200, 88)], |built| {
+        built.show_stats = false;
+    });
+    assert!(!text.contains("88 out"));
 }
 
 #[test]
@@ -961,7 +997,7 @@ fn reports_what_past_turns_cost_one_line_each() {
     renderer.stats(&[stats_row("qwen3", 1_000, 2_000, 2)]);
 
     let text = sink.text();
-    assert!(text.contains("qwen3 · 2 steps · 100 in / 250 out · 1.0s · 250.0 tok/s"));
+    assert!(text.contains("qwen3 · 2 messages · 100 in / 250 out · 1.0s · 250.0 tok/s"));
 }
 
 #[test]
@@ -1469,7 +1505,7 @@ fn a_surface_that_can_fold_is_handed_the_row_even_when_it_is_off() {
     struct Folding(Arc<Mutex<Vec<(String, bool)>>>);
     impl TranscriptSink for Folding {
         fn emit(&mut self, event: TranscriptEvent) {
-            if let TranscriptEvent::TurnStats { line, shown } = event {
+            if let TranscriptEvent::Stats { line, shown } = event {
                 self.0.lock().unwrap().push((line, shown));
             }
         }
@@ -1482,14 +1518,15 @@ fn a_surface_that_can_fold_is_handed_the_row_even_when_it_is_off() {
         ..TurnRendererOptions::new(Box::new(seen.clone()))
     });
     renderer.handle(&event(start()));
+    renderer.handle(&event(message_end(1200, 88)));
     renderer.handle(&event(json!({
-        "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 2,
+        "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 1,
     })));
     renderer.finish();
 
     let calls = seen.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
-    assert!(calls[0].0.contains("2 steps"), "{}", calls[0].0);
+    assert!(calls[0].0.contains("88 out"), "{}", calls[0].0);
     assert!(!calls[0].1, "the switch is off by default");
 }
 
@@ -1498,14 +1535,9 @@ fn a_pipe_prints_the_row_only_when_it_is_on() {
     // The default target has nowhere to keep a row it is not showing, so the
     // switch decides whether it is written at all. Byte for byte what a pipe
     // did before any of this existed.
-    let events = [
-        start(),
-        json!({
-            "type": "turn.end", "turnId": "t1", "stopReason": "complete", "iterations": 2,
-        }),
-    ];
-    assert!(!plain(&events).contains("2 steps"));
-    assert!(render(&events, |built| built.show_stats = true).contains("2 steps"));
+    let events = [start(), message_end(1200, 88)];
+    assert!(!plain(&events).contains("88 out"));
+    assert!(render(&events, |built| built.show_stats = true).contains("88 out"));
 }
 
 #[test]

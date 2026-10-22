@@ -84,6 +84,8 @@ interface TurnState {
     readonly clientMessageId: string;
     readonly text: string;
     readonly attachments?: readonly Attachment[];
+    /** Sent to the running turn rather than queued behind it. */
+    readonly steering?: boolean;
   }) => void;
   /**
    * Drops everything after `seq`, while a regenerate or edit is in flight.

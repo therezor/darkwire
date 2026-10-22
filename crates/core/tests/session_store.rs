@@ -23,7 +23,7 @@ use darkwire_core::session_store::{
     to_stored_message,
 };
 use darkwire_core::testkit::ManualClock;
-use darkwire_core::{Database, ErrorKind};
+use darkwire_core::{Database, ErrorKind, STEERING_PREFIX};
 use darkwire_protocol::messages::{ChatMessage, StopReason, ToolMessage, ToolRole, Usage};
 use serde_json::{Map, Value, json};
 
@@ -2380,11 +2380,10 @@ fn the_last_turns_question_is_its_first_user_row_however_long_the_turn() {
         .unwrap();
     // Longer than any fixed tail, with a steering row partway through.
     for n in 0..250 {
-        let text = if n == 100 { "a steer" } else { "working" };
         let message = if n == 100 {
-            user_message(text)
+            user_message(&format!("{STEERING_PREFIX}\n\na steer"))
         } else {
-            assistant_message(text, Vec::new())
+            assistant_message("working", Vec::new())
         };
         store.append("s", message, &turn("t2")).unwrap();
     }
@@ -2392,4 +2391,67 @@ fn the_last_turns_question_is_its_first_user_row_however_long_the_turn() {
     let question = store.last_turn_question("s").unwrap().unwrap();
     assert_eq!(text_of(&question.message), "second question");
     assert_eq!(store.last_turn_question("empty").unwrap(), None);
+}
+
+#[test]
+fn the_last_question_is_found_past_a_turn_that_asked_none() {
+    // A regenerated message runs as a turn of its own and writes no question,
+    // so the question it answers sits in the turn before it.
+    let (store, _) = make_store();
+    let turn = |id: &str| AppendOptions {
+        turn_id: Some(id.to_owned()),
+    };
+    store
+        .append("s", user_message("the question"), &turn("t1"))
+        .unwrap();
+    store
+        .append("s", assistant_message("step one", Vec::new()), &turn("t1"))
+        .unwrap();
+    store
+        .append(
+            "s",
+            assistant_message("step two, again", Vec::new()),
+            &turn("t2"),
+        )
+        .unwrap();
+    store
+        .append(
+            "s",
+            user_message(&format!("{STEERING_PREFIX}\n\nfaster")),
+            &turn("t2"),
+        )
+        .unwrap();
+
+    let question = store.last_turn_question("s").unwrap().unwrap();
+    assert_eq!(text_of(&question.message), "the question");
+}
+
+#[test]
+fn a_cut_drops_the_stats_of_every_turn_it_took_rows_from() {
+    let (store, _) = make_store();
+    let turn = |id: &str| AppendOptions {
+        turn_id: Some(id.to_owned()),
+    };
+    store.append("s", user_message("one"), &turn("t1")).unwrap();
+    store
+        .append("s", assistant_message("a", Vec::new()), &turn("t1"))
+        .unwrap();
+    store.append("s", user_message("two"), &turn("t2")).unwrap();
+    let last = store
+        .append("s", assistant_message("b", Vec::new()), &turn("t2"))
+        .unwrap();
+    for turn_id in ["t1", "t2"] {
+        store.record_turn_stats(&stats(turn_id)).unwrap();
+    }
+
+    // Through t2's answer: t2 loses a row and its figures with it, t1 keeps
+    // both.
+    store.truncate_after("s", last.seq - 1).unwrap();
+    let kept: Vec<String> = store
+        .turn_stats("s", None)
+        .unwrap()
+        .into_iter()
+        .map(|stats| stats.turn_id)
+        .collect();
+    assert_eq!(kept, vec!["t1".to_owned()]);
 }

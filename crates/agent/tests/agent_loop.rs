@@ -626,12 +626,12 @@ async fn it_stops_at_the_iteration_cap_and_says_so() {
 
     assert_eq!(result.stop_reason, StopReason::MaxIterations);
     assert_eq!(result.iterations, 3);
-    assert!(result.text.contains("I stopped after 3 tool iterations"));
+    assert!(result.text.contains("I stopped after 3 messages"));
     // Unlike an error, this is persisted: the next turn's history has to
     // explain why the task stopped half-done.
     let stored = harness.stored("web:1");
     let last = darkwire_core::text_of(stored.last().unwrap());
-    assert!(last.contains("I stopped after 3 tool iterations"));
+    assert!(last.contains("I stopped after 3 messages"));
     assert!(answer(&events).contains("I stopped after 3"));
 }
 
@@ -767,16 +767,19 @@ async fn abandoning_the_stream_unwinds_the_turn() {
 #[tokio::test(start_paused = true)]
 async fn a_dropped_turn_leaves_no_steering_behind() {
     let harness = Harness::build(Setup::with(vec![ScriptedTurn::text("slow").after(60_000)]));
-    harness.steering.push("web:1", "wait", 0);
 
     let turn = harness
         .agent_loop
         .run(TurnInput::new("web:1", "hi"), &CancellationToken::new());
+    assert!(harness.agent_loop.steer("web:1", "s1", "wait"));
     drop(turn);
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Whatever ended the turn, nothing queued for it may leak into the next.
+    // Whatever ended the turn, nothing queued for it may leak into the next,
+    // and nothing more is accepted for a turn that is gone.
     assert!(!harness.steering.has_pending("web:1"));
+    assert!(harness.steering.is_empty());
+    assert!(!harness.agent_loop.steer("web:1", "s2", "too late"));
 }
 
 #[tokio::test]
@@ -876,17 +879,18 @@ async fn a_stream_that_ends_without_a_result_fails_the_turn() {
 // Steering
 
 #[tokio::test]
-async fn a_correction_that_arrives_during_the_final_answer_continues_the_turn() {
+async fn a_correction_sent_as_the_turn_opens_is_read_by_its_first_step() {
     let harness = Harness::build(Setup::with(vec![
         ScriptedTurn::text("first answer"),
         ScriptedTurn::text("second answer"),
     ]));
-    // Queued before the turn starts, so the first iteration drains it and the
-    // second finds nothing pending. The property under test is the one after
-    // that: a queue that fills while the first answer is composed keeps going.
-    harness.steering.push("web:1", "no, the other one", 0);
-
-    let (_, result) = harness.say("web:1", "go").await;
+    // Accepted the moment `run` returns, which is the window the hub used to
+    // refuse a steer in.
+    let turn = harness
+        .agent_loop
+        .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
+    assert!(harness.agent_loop.steer("web:1", "s1", "no, the other one"));
+    let (events, result) = turn.collect().await;
     let result = result.expect("a turn");
 
     let stored = harness.stored("web:1");
@@ -895,6 +899,16 @@ async fn a_correction_that_arrives_during_the_final_answer_continues_the_turn() 
     assert!(steered.starts_with("[Steering"));
     assert!(steered.contains("no, the other one"));
     assert_eq!(result.text, "first answer");
+
+    // Reported once written, under the turn that read it and the sender's id.
+    let steers = events_of(&events, "steer");
+    assert_eq!(steers.len(), 1);
+    assert_eq!(steers[0]["content"], json!("no, the other one"));
+    assert_eq!(steers[0]["clientMessageId"], json!("s1"));
+    assert_eq!(
+        steers[0]["turnId"],
+        events_of(&events, "turn.start")[0]["turnId"]
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -911,7 +925,7 @@ async fn a_correction_queued_mid_answer_is_answered_rather_than_discarded() {
     // by now, so this lands while the model is composing its final answer —
     // which is the moment the property is about.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    harness.steering.push("web:1", "actually, do this", 0);
+    assert!(harness.agent_loop.steer("web:1", "s1", "actually, do this"));
     let (_, result) = turn.collect().await;
     let result = result.expect("a turn");
 
@@ -923,7 +937,7 @@ async fn a_correction_queued_mid_answer_is_answered_rather_than_discarded() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_correction_on_the_last_iteration_keeps_the_answer_and_the_correction() {
+async fn a_correction_on_the_last_iteration_is_left_for_the_next_turn() {
     let harness = Harness::build(Setup {
         turns: vec![ScriptedTurn::text("first").after(1_000)],
         config: AgentSettings {
@@ -938,8 +952,8 @@ async fn a_correction_on_the_last_iteration_keeps_the_answer_and_the_correction(
         .agent_loop
         .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
     tokio::time::sleep(Duration::from_millis(500)).await;
-    harness.steering.push("web:1", "actually, do this", 0);
-    let (_, result) = turn.collect().await;
+    assert!(harness.agent_loop.steer("web:1", "s1", "actually, do this"));
+    let (events, result) = turn.collect().await;
     let result = result.expect("a turn");
 
     // No iteration is left to answer it, so the real answer stands rather
@@ -952,18 +966,109 @@ async fn a_correction_on_the_last_iteration_keeps_the_answer_and_the_correction(
             .iter()
             .all(|message| !darkwire_core::text_of(message).contains("I stopped after"))
     );
-    // Written to history for the next turn, not cleared with the queue.
-    let steered = darkwire_core::text_of(stored.last().unwrap());
-    assert!(steered.starts_with("[Steering"));
-    assert!(steered.contains("actually, do this"));
+    // Not written into a turn that will never answer it, and never reported
+    // as read: the transport that accepted it runs it as the next turn.
+    assert!(
+        stored
+            .iter()
+            .all(|message| !darkwire_core::is_steer(message))
+    );
+    assert!(events_of(&events, "steer").is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_correction_pending_when_the_wall_cap_fires_is_not_written() {
+    let harness = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![tool_call("c1", "read", &json!({}))]).after(5_000),
+            ScriptedTurn::text("never asked"),
+        ],
+        tools: vec![FakeTool::reading("read", "x")],
+        config: AgentSettings {
+            model: "test-model".to_owned(),
+            loop_wall_timeout_ms: 2_000,
+            ..AgentSettings::default()
+        },
+        ..Setup::default()
+    });
+
+    let turn = harness
+        .agent_loop
+        .run(TurnInput::new("web:1", "slow"), &CancellationToken::new());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(harness.agent_loop.steer("web:1", "s1", "faster please"));
+    let (events, result) = turn.collect().await;
+
+    // The cap is checked before the queue is read, so a turn that is ending
+    // does not write a steer it will not answer and then report it read.
+    assert_eq!(result.expect("a turn").stop_reason, StopReason::WallTimeout);
+    assert!(
+        harness
+            .stored("web:1")
+            .iter()
+            .all(|message| !darkwire_core::is_steer(message))
+    );
+    assert!(events_of(&events, "steer").is_empty());
 }
 
 #[tokio::test]
-async fn a_turn_clears_its_session_queue_when_it_ends() {
+async fn a_turn_closes_its_session_queue_when_it_ends() {
     let harness = Harness::simple();
-    harness.steering.push("web:1", "one", 0);
     let _ = harness.say("web:1", "hi").await;
-    assert!(!harness.steering.has_pending("web:1"));
+    assert!(harness.steering.is_empty());
+    assert!(!harness.agent_loop.steer("web:1", "s1", "one"));
+}
+
+// Continuing from history
+
+#[tokio::test]
+async fn a_continuation_answers_the_question_already_in_history_and_asks_none() {
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn::text("again, better")]));
+    let turn = |id: &str| darkwire_core::session_store::AppendOptions {
+        turn_id: Some(id.to_owned()),
+    };
+    harness
+        .store
+        .ensure_session(
+            "web:1",
+            darkwire_core::session_store::CreateSession::default(),
+        )
+        .unwrap();
+    let question = harness
+        .store
+        .append(
+            "web:1",
+            ChatMessage::User(darkwire_core::user_message("what is in the file?")),
+            &turn("t1"),
+        )
+        .unwrap();
+
+    let (events, result) = harness
+        .agent_loop
+        .run(
+            TurnInput {
+                continue_from: Some(question.seq),
+                ..TurnInput::new("web:1", "")
+            },
+            &CancellationToken::new(),
+        )
+        .collect()
+        .await;
+    assert_eq!(result.expect("a turn").text, "again, better");
+
+    // No second question: the answer follows the one that was there.
+    let stored = harness.stored("web:1");
+    assert_eq!(stored.len(), 2);
+    assert!(matches!(stored[1], ChatMessage::Assistant(_)));
+    let sent = &harness.provider.requests()[0].messages;
+    assert!(
+        sent.iter()
+            .any(|message| darkwire_core::text_of(message) == "what is in the file?")
+    );
+    // It wrote no question, so it names none.
+    let start = &events_of(&events, "turn.start")[0];
+    assert_eq!(start.get("firstSeq"), None);
+    assert_eq!(events_of(&events, "turn.end")[0].get("firstSeq"), None);
 }
 
 // A tool call written as text
@@ -1475,8 +1580,9 @@ async fn the_loop_reports_what_a_turn_would_reach() {
     assert_eq!(harness.agent_loop.agent_id(), "default");
     assert!(harness.agent_loop.steering().is_empty());
 
-    harness.agent_loop.steer("web:1", "hurry up");
-    assert!(harness.agent_loop.steering().has_pending("web:1"));
+    // Nothing is running, so there is nothing to read it.
+    assert!(!harness.agent_loop.steer("web:1", "s1", "hurry up"));
+    assert!(!harness.agent_loop.steering().has_pending("web:1"));
     // And the debug form names the agent rather than dumping every seam.
     let shown = format!("{:?}", harness.agent_loop);
     assert!(shown.contains("test-model"), "{shown}");

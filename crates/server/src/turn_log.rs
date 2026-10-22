@@ -193,6 +193,8 @@ fn is_retained(message: &ServerMessage) -> bool {
             | ServerMessage::ToolResult(_)
             | ServerMessage::Notice(_)
             | ServerMessage::Subagent(_)
+            | ServerMessage::StepEnd(_)
+            | ServerMessage::Steer(_)
     )
 }
 
@@ -207,6 +209,8 @@ fn turn_id_of(message: &ServerMessage) -> Option<&str> {
         ServerMessage::ToolResult(e) => Some(&e.event.turn_id),
         ServerMessage::ToolApprovalRequest(e) => Some(&e.event.turn_id),
         ServerMessage::TurnEnd(e) => Some(&e.event.turn_id),
+        ServerMessage::StepEnd(e) => Some(&e.event.turn_id),
+        ServerMessage::Steer(e) => Some(&e.event.turn_id),
         ServerMessage::Notice(e) => e.event.turn_id.as_deref(),
         ServerMessage::Subagent(e) => Some(&e.event.turn_id),
         _ => None,

@@ -193,8 +193,8 @@ test.describe('/model on a session bound to an agent of its own', () => {
       tools: { read: 'allow' },
     });
 
-    // And the turn that follows runs on it. `turn.start` carries the model the
-    // loop was built with, so this is the model the request actually named
+    // And the turn that follows runs on it. A message's details name the model
+    // the provider answered as, so this is the model the request reached
     // rather than a label read back off the settings tree.
     await message.fill('stream a long answer');
     await app.getByRole('button', { name: 'Send' }).click();
@@ -202,7 +202,7 @@ test.describe('/model on a session bound to an agent of its own', () => {
       app.getByTestId('transcript').getByText('Here is what I found.'),
     ).toBeVisible({ timeout: 15_000 });
 
-    await app.getByRole('button', { name: 'Turn details' }).click();
+    await app.getByRole('button', { name: 'Message 1 details' }).click();
     await expect(app.getByRole('dialog').getByText('gpt-oss')).toBeVisible();
   });
 });

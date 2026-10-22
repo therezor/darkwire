@@ -152,6 +152,7 @@ pub fn assistant_message(
         tool_calls: options.tool_calls,
         reasoning: options.reasoning,
         reasoning_ms: options.reasoning_ms,
+        stats: None,
     }
 }
 
@@ -204,6 +205,21 @@ pub fn text_of(message: &ChatMessage) -> String {
         ChatMessage::User(user) => join_text(&user.content),
         ChatMessage::Assistant(assistant) => join_text(&assistant.content),
     }
+}
+
+/// Marks a user row as an interruption rather than the next thing the user
+/// said.
+///
+/// Without it the model reads a mid-task user turn as a new request and
+/// frequently abandons what it was doing. With it, the common case ("no, the
+/// other directory") is understood as a correction to the task in flight.
+/// Here rather than beside the queue that writes it, because the store has to
+/// tell a steer from a question too.
+pub const STEERING_PREFIX: &str = "[Steering: sent by the user while this task was running]";
+
+/// Whether a stored message is a steer rather than something the user asked.
+pub fn is_steer(message: &ChatMessage) -> bool {
+    matches!(message, ChatMessage::User(_)) && text_of(message).starts_with(STEERING_PREFIX)
 }
 
 fn join_text(parts: &[ContentPart]) -> String {

@@ -270,7 +270,7 @@ async fn the_iteration_cap_is_a_warning_rather_than_a_failure() {
     let settled = outcome.await.unwrap();
     assert_eq!(settled.error, None);
     assert_eq!(settled.warnings.len(), 1);
-    assert!(settled.warnings[0].contains("tool-iteration cap"));
+    assert!(settled.warnings[0].contains("message limit"));
 }
 
 #[tokio::test]
@@ -1158,6 +1158,7 @@ fn chat_result(tool_calls: Vec<ToolCall>) -> ChatResult {
             tool_calls,
             reasoning: None,
             reasoning_ms: None,
+            stats: None,
         },
         finish_reason: FinishReason::Stop,
         usage: Usage::default(),
