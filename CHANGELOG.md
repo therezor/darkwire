@@ -24,6 +24,11 @@ version that is running.
   connection menu. The chat header shows it beside the wordmark, and the
   `darkwire serve` banner has a Version row.
 
+### Changed
+
+- **tokio is 1.53.3 and ctutils is 0.4.5**, which fixes RUSTSEC-2026-0386 and
+  RUSTSEC-2026-0385.
+
 ## [0.6.0]
 
 Each model call is now a message of its own, the context meter reads the provider's own
