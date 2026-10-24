@@ -18,7 +18,8 @@
 
 use darkwire::i18n::{Env, Translations};
 use darkwire::program::{
-    AgentCommand, ChatArgs, Globals, Invocation, Parsed, StoreAction, Subcommand, VERSION, parse,
+    AgentCommand, ChatArgs, Globals, Invocation, Parsed, StoreAction, Subcommand, UpdateCommand,
+    VERSION, parse,
 };
 use darkwire_core::LogLevel;
 
@@ -319,6 +320,42 @@ fn a_bare_extension_command_lists() {
         Subcommand::Extension(StoreAction::List, None) => {}
         other => panic!("expected a listing, got {other:?}"),
     }
+}
+
+#[test]
+fn update_takes_a_tag_or_a_check_and_not_both() {
+    assert_eq!(
+        invocation(&["update"]).command,
+        Subcommand::Update(UpdateCommand::default())
+    );
+    assert_eq!(
+        invocation(&["update", "--check"]).command,
+        Subcommand::Update(UpdateCommand {
+            tag: None,
+            check: true,
+        })
+    );
+    assert_eq!(
+        invocation(&["update", "v0.7.0"]).command,
+        Subcommand::Update(UpdateCommand {
+            tag: Some("v0.7.0".to_owned()),
+            check: false,
+        })
+    );
+    // `--check` asks about the latest release, so a tag beside it is a
+    // question with two answers.
+    assert!(matches!(
+        run(&["update", "--check", "v0.7.0"]),
+        Parsed::Refused(_, 1)
+    ));
+}
+
+#[test]
+fn update_leaves_the_version_flag_to_mean_this_binary() {
+    // A tag is positional because `--version` is already taken.
+    let (text, code) = printed(&["update", "--version"]);
+    assert_eq!(code, 0);
+    assert_eq!(text, format!("{VERSION}\n"));
 }
 
 #[test]

@@ -22,6 +22,7 @@
  * which would drop the turn the user went to Settings to reconfigure.
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
 import { Menu, RotateCw } from 'lucide-react';
 import { useEffect, useState, type JSX, type ReactNode } from 'react';
@@ -29,6 +30,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '@/lib/api.js';
+import { queryKeys } from '@/lib/query.js';
 import { useTurnStore } from '@/state/turn.js';
 import { useConnection } from '@/chat/use-connection.js';
 import { Button } from '@/components/ui/button.js';
@@ -234,6 +236,10 @@ async function reloadApp(t: TFunction): Promise<void> {
  * absence of change. It is the server's settings and then the page, in that
  * order; `reloadApp` above says why.
  *
+ * The version is here for the same tab left open for a week: after an update
+ * it says which build the server is now running. Asked again on every open,
+ * because the shell never unmounts and nothing else refetches it here.
+ *
  * The live region stays on the wrapper rather than moving to the trigger: this
  * is the one piece of the header that changes without anyone acting, so a
  * socket that dropped has to announce itself to a user who is not looking at
@@ -247,6 +253,10 @@ function ConnectionBadge({
 }): JSX.Element {
   const { t } = useTranslation();
   const label = t(CONNECTION_LABELS[connection]);
+  const status = useQuery({
+    queryKey: queryKeys.status,
+    queryFn: ({ signal }) => api.status(signal),
+  });
 
   return (
     <span
@@ -255,7 +265,11 @@ function ConnectionBadge({
       className="conn"
       data-connection={connection}
     >
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open) void status.refetch();
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="conn__trigger">
             <span className="conn__dot" aria-hidden="true" />
@@ -269,6 +283,11 @@ function ConnectionBadge({
           {/* The state in words, for the narrow screens that draw the dot
               alone and for anyone who cannot tell green from amber. */}
           <DropdownMenuLabel>{label}</DropdownMenuLabel>
+          {status.data !== undefined && (
+            <DropdownMenuLabel>
+              {t('connection.version', { version: status.data.version })}
+            </DropdownMenuLabel>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() => {

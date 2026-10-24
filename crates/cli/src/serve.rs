@@ -1424,6 +1424,7 @@ pub fn banner(running: &RunningServer, colors: Option<bool>, t: &Translations) -
                 UiRoot::None => c.dim.apply(&t.t(keys::serve::UI_UNBUILT)),
             },
         ),
+        (t.t(keys::serve::VERSION), crate::VERSION.to_owned()),
     ];
 
     let channels = running.channel_ids();

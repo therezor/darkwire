@@ -492,7 +492,8 @@
     "serverError": "Server error",
     "tooLarge": "Message too long to send",
     "tooLargeBody": "A message can be at most {{limit}} MiB. It is still in the box.",
-    "unreadable": "Unreadable message from the server"
+    "unreadable": "Unreadable message from the server",
+    "version": "DarkWire {{version}}"
   },
   "context": {
     "estimated": "Estimated from characters until the model replies.",

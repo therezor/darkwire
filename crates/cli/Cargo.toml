@@ -51,6 +51,7 @@ darkwire-tui.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 crossterm.workspace = true
+flate2.workspace = true
 futures.workspace = true
 # Definition validation: the schema declares its constraints with `garde`, and a
 # document that parsed but violates one is a refusal with a line per issue.
@@ -59,10 +60,17 @@ indexmap.workspace = true
 parking_lot.workspace = true
 ratatui.workspace = true
 owo-colors.workspace = true
+# `darkwire update`, and only that: the release lookup and the download.
+reqwest.workspace = true
 schemars = { workspace = true, optional = true }
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde-saphyr.workspace = true
+sha2.workspace = true
+tar.workspace = true
+# The new binary is staged beside the old one, so the swap is one rename.
+tempfile.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
@@ -78,11 +86,7 @@ darkwire-security = { workspace = true, features = ["testkit"] }
 darkwire-server = { workspace = true, features = ["testkit"] }
 darkwire-tools = { workspace = true, features = ["testkit"] }
 darkwire-tui = { workspace = true, features = ["testkit"] }
-# A real client for the tests that drive a bound listener; everything else in
-# this crate talks to the server in-process.
-reqwest.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
 
 [[test]]
 name = "cli"

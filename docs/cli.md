@@ -20,6 +20,7 @@ darkwire agent     list
 darkwire environment list
 darkwire sandbox   health | list | start | stop | restart
 darkwire extension list | approve <id> | revoke <id>
+darkwire update [tag] [--check]   replace this binary with a release
 darkwire help [command]
 ```
 
@@ -432,6 +433,42 @@ darkwire sandbox restart <instance>
 `--socket` overrides the service socket. Stop and restart never refuse a busy instance:
 the container goes away under whatever it was running and the next command starts a fresh
 one. See [Sandbox service](sandbox-service.md).
+
+## `darkwire update`
+
+Replaces this binary with the latest release, or with the one a tag names.
+
+```bash
+darkwire update            # the latest release, if it is newer than this one
+darkwire update --check    # say whether there is one, and install nothing
+darkwire update v0.5.2     # exactly this release, even an older one
+```
+
+| Flag      | Does                                                 |
+| --------- | ---------------------------------------------------- |
+| `--check` | Say whether a newer release exists. Install nothing. |
+
+It takes the steps `install.sh` takes. It asks GitHub which release is the latest, then
+downloads that release's tarball and `SHA256SUMS` and checks the hash before it extracts
+anything. It runs the new binary with `--version`, and only when that names the expected
+version does it rename the new file over the old one. If any step fails, the binary you
+had is still there, unchanged.
+
+Without a tag it never moves you to an older version. With a tag it installs exactly that
+release, which is how you go back, or repair a binary that no longer starts. A release
+from before this command existed has no `update` of its own, so coming back from one is
+`install.sh` again.
+
+- **It writes where the binary is.** In `/usr/local/bin` that usually means
+  `sudo darkwire update`. It never asks for root itself, and when it cannot write there it
+  stops before downloading anything.
+- **A running `darkwire serve` keeps the old version** until you restart it. Replacing
+  the file does not touch a process that already started from it.
+- **A source build is refused.** A binary under cargo's `target/` belongs to
+  `cargo build`, so pull and rebuild instead.
+
+This command is the only time DarkWire contacts GitHub. Nothing checks for updates in the
+background. See [Security](security.md#privacy).
 
 ## Environment
 

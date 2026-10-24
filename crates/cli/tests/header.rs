@@ -36,6 +36,7 @@ fn view() -> HeaderView {
             window_tokens: 128_000,
         }),
         locale: "en".to_owned(),
+        version: "1.2.3".to_owned(),
     }
 }
 
@@ -245,8 +246,39 @@ fn a_narrow_window_gets_the_name_written_rather_than_cut() {
     // the window that cannot hold it is the one where every row is worth more.
     let header = startup_header(&view(), 20, &PLAIN_THEME, &Translations::default(), false);
     let rows: Vec<&str> = header.lines().collect();
-    assert_eq!(rows[0], "  darkwire");
+    assert_eq!(rows[0], "  darkwire  v1.2.3");
     assert!(!header.contains("┌┬┐"), "{header}");
+}
+
+#[test]
+fn the_version_sits_beside_the_last_row_of_the_drawn_name() {
+    let header = startup_header(&view(), 80, &PLAIN_THEME, &Translations::default(), false);
+    let rows: Vec<&str> = header.lines().collect();
+    assert!(!rows[0].contains("v1.2.3"), "{rows:?}");
+    assert!(rows[2].ends_with("└─┘  v1.2.3"), "{rows:?}");
+}
+
+#[test]
+fn the_version_is_left_out_rather_than_cut_when_it_does_not_fit() {
+    let header = startup_header(&view(), 14, &PLAIN_THEME, &Translations::default(), false);
+    let rows: Vec<&str> = header.lines().collect();
+    assert_eq!(rows[0], "  darkwire");
+}
+
+#[test]
+fn no_version_draws_nothing_beside_the_name() {
+    let unversioned = HeaderView {
+        version: String::new(),
+        ..view()
+    };
+    let header = startup_header(
+        &unversioned,
+        20,
+        &PLAIN_THEME,
+        &Translations::default(),
+        false,
+    );
+    assert_eq!(header.lines().next(), Some("  darkwire"));
 }
 
 #[test]

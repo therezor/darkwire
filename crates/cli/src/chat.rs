@@ -471,6 +471,7 @@ impl ChatSession {
             session_key: self.attachment.session_key.clone(),
             context: self.context,
             locale: self.t.locale().as_str().to_owned(),
+            version: crate::VERSION.to_owned(),
         }
     }
 }

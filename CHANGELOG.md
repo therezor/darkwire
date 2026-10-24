@@ -6,6 +6,21 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [Unreleased]
+
+### Added
+
+- **`darkwire update` replaces the binary with a newer release.** Like `install.sh`, it
+  checks the download against the release's `SHA256SUMS` before it extracts anything.
+  It then runs the new binary with `--version` and replaces the old file only if that
+  prints the expected version. `--check` reports whether a newer release exists and
+  installs nothing. A tag such as `v0.5.2` installs that release, even an older one.
+  This command is the only part of DarkWire that contacts GitHub, and nothing checks for
+  updates in the background.
+- **The web UI and the terminal show the version.** The web UI shows it in the
+  connection menu. The chat header shows it beside the wordmark, and the
+  `darkwire serve` banner has a Version row.
+
 ## [0.6.0]
 
 Each model call is now a message of its own, the context meter reads the provider's own

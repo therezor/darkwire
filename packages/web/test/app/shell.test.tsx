@@ -442,6 +442,35 @@ describe('the shell', () => {
     );
   });
 
+  it('names the version the server runs, in the status menu', async () => {
+    const { user } = renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Connecting' }));
+
+    expect(
+      await screen.findByText(`DarkWire ${STATUS.version}`),
+    ).toBeInTheDocument();
+  });
+
+  it('asks the server for its version again each time the menu opens', async () => {
+    // The shell never unmounts, so a tab left open across an update would
+    // otherwise name the build it first loaded.
+    const { user, calls } = renderApp();
+    const asked = (): number =>
+      calls.filter((call) => call.path === '/api/status').length;
+    const trigger = await screen.findByRole('button', { name: 'Connecting' });
+    await waitFor(() => {
+      expect(asked()).toBeGreaterThan(0);
+    });
+    const before = asked();
+
+    await user.click(trigger);
+
+    await waitFor(() => {
+      expect(asked()).toBe(before + 1);
+    });
+  });
+
   it('keeps the page when the server could not reload, and says why', async () => {
     const reload = vi.fn();
     vi.stubGlobal('location', { href: globalThis.location.href, reload });

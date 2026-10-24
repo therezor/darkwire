@@ -475,3 +475,9 @@ New Roman while a request times out.
 What leaves the machine, and only because you configured it: requests to whichever model
 provider you chose — local ones go to `127.0.0.1` — and whatever an agent fetches, within
 your network policy.
+
+What leaves it only because you typed a command: `darkwire update` asks GitHub's releases
+API for the latest tag, then downloads that release's tarball and `SHA256SUMS`. Nothing
+checks for updates in the background. The hash proves the download is the file the
+release lists. It cannot prove the release itself is sound, which is the same trust
+`install.sh` asks for.

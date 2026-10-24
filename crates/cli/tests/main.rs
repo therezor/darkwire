@@ -47,4 +47,5 @@ mod server_runtime;
 mod stream;
 mod telegram;
 mod transcript_overlay;
+mod update;
 mod version;

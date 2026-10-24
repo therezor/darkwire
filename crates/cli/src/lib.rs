@@ -41,6 +41,7 @@ pub mod server_runtime;
 pub mod stream;
 pub mod telegram;
 pub mod transcript_overlay;
+pub mod update;
 // Compiled only into a `test-hooks` build, and armed only by the environment on
 // top of that. See the module for the two-switch rule.
 #[cfg(feature = "test-hooks")]
@@ -261,5 +262,6 @@ async fn dispatch(
             extension::run(&globals, action, id.as_deref(), env, streams)
         }
         Subcommand::Agent(command) => agent::run(&globals, &command, env, streams),
+        Subcommand::Update(command) => update::run(&command, env, streams).await,
     }
 }

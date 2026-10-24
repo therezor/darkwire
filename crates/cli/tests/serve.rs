@@ -335,6 +335,18 @@ async fn the_banner_names_the_url_the_workspace_and_where_the_ui_came_from() {
 }
 
 #[tokio::test]
+async fn the_banner_names_the_version_so_a_log_says_which_build_ran() {
+    let home = tempfile::tempdir().unwrap();
+    let text = banner_for(home.path(), ServeArgs::default(), Some(false)).await;
+
+    let row = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("Version"))
+        .unwrap_or_else(|| panic!("no Version row in:\n{text}"));
+    assert!(row.ends_with(darkwire::VERSION), "{row}");
+}
+
+#[tokio::test]
 async fn the_banner_prints_the_setup_code_and_only_on_a_first_run() {
     // The whole reason the server starts unclaimed instead of refusing: the
     // terminal printing the code is the only place it will ever appear.

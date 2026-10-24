@@ -222,6 +222,7 @@
     "uiBundled": "bundled with this binary",
     "uiUnbuilt": "not bundled. Serving the API only (this binary was built without the web UI)",
     "url": "URL",
+    "version": "Version",
     "workspaces": "Workspaces"
   },
   "slash": {
@@ -345,5 +346,29 @@
       "tools": "tools",
       "turn": "the turn"
     }
+  },
+  "update": {
+    "available": "{{latest}} is available (running {{current}}). Run `darkwire update` to install it.",
+    "check": "say whether a newer release exists, and install nothing",
+    "checksumMismatch": "checksum mismatch for {{asset}}.\n  expected {{expected}}\n  got      {{actual}}\nNothing has been installed.",
+    "description": "Replace this binary with the latest release, or the one a tag names.",
+    "downloading": "Downloading {{asset}} ({{tag}})…",
+    "fetchFailed": "could not download {{url}}: {{reason}}",
+    "newerThanLatest": "This build ({{current}}) is newer than the latest release ({{latest}}). Nothing to do.",
+    "noBuild": "no release build for {{os}} {{arch}}. The release carries macOS and Linux on x86_64 and arm64; everything else builds from source.",
+    "notATag": "{{tag}} is not a release tag such as v1.2.3.",
+    "notInArchive": "{{asset}} does not contain a darkwire binary. Nothing has been installed.",
+    "notInSums": "SHA256SUMS does not mention {{asset}}, so the download cannot be verified.",
+    "notWritable": "{{dir}} is not writable. Run `sudo darkwire update`, or reinstall with `install.sh --dir` somewhere you can write.",
+    "probeFailed": "the new binary did not start ({{reason}}). Nothing has been installed.",
+    "probeMismatch": "the new binary says it is {{printed}}, not {{expected}}. Nothing has been installed.",
+    "replaceFailed": "could not replace {{path}}: {{reason}}",
+    "restart": "A running `darkwire serve` keeps the old version until you restart it.",
+    "sourceBuild": "{{path}} is a source build. Pull and rebuild it instead.",
+    "tag": "a release tag such as v1.2.3 (default: the latest release)",
+    "tooLarge": "{{url}} is larger than any release ({{limit}} MiB). Nothing has been installed.",
+    "upToDate": "darkwire {{version}} is up to date.",
+    "updated": "Updated darkwire {{from}} to {{to}}.",
+    "verified": "Checksum verified."
   }
 }

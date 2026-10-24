@@ -98,6 +98,8 @@ pub struct HeaderView {
     pub context: Option<ContextUsage>,
     /// The install's locale, for the decimal separator in a shortened count.
     pub locale: String,
+    /// The binary's version, drawn beside the name. Empty draws nothing.
+    pub version: String,
 }
 
 /// The six labelled rows, in the order they are printed.
@@ -137,8 +139,20 @@ pub fn startup_header(
         .unwrap_or(0);
 
     let mut lines = Vec::with_capacity(labels.len() + 6);
-    for row in wordmark(width) {
-        lines.push(theme.title.apply(&theme.accent.apply(&row)));
+    let mark = wordmark(width);
+    if let Some((last, rest)) = mark.split_last() {
+        for row in rest {
+            lines.push(theme.title.apply(&theme.accent.apply(row)));
+        }
+        let mut row = theme.title.apply(&theme.accent.apply(last));
+        // Dropped rather than cut when the window is too narrow: half a version
+        // number names a build that does not exist.
+        let version = format!("v{}", view.version);
+        if !view.version.is_empty() && visible_width(last) + 2 + visible_width(&version) <= width {
+            row.push_str("  ");
+            row.push_str(&theme.dim.apply(&version));
+        }
+        lines.push(row);
     }
     for (label, (_, value)) in labels.iter().zip(rows_for(view)) {
         let padded = theme.dim.apply(&pad_to_width(label, column));

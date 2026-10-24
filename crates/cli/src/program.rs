@@ -193,6 +193,15 @@ pub enum AgentCommand {
     List,
 }
 
+/// What `darkwire update` was asked to do.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateCommand {
+    /// The release to install. `None` is the latest.
+    pub tag: Option<String>,
+    /// Say whether there is a newer release, and install nothing.
+    pub check: bool,
+}
+
 /// What `darkwire sandbox` was asked to do.
 ///
 /// An enum rather than the string clap validated, so the dispatch is
@@ -241,6 +250,8 @@ pub enum Subcommand {
 
     /// `agent list`.
     Agent(AgentCommand),
+    /// `update [tag] [--check]`.
+    Update(UpdateCommand),
 }
 
 /// A parsed command line, ready to run.
@@ -423,6 +434,7 @@ pub fn build_command(t: &Translations) -> Command {
             t.t(keys::extension::revoke::DESCRIPTION),
         ))
         .subcommand(agent_command(t))
+        .subcommand(update_command(t))
         // clap's own `help` subcommand carries an English sentence with no seam
         // to translate it, and `darkwire help <command>` is on the documented
         // surface. So it is declared here and answered in `parse`.
@@ -638,6 +650,25 @@ fn agent_command(t: &Translations) -> Command {
     Command::new("agent")
         .about(t.t(keys::agent::DESCRIPTION))
         .subcommand(Command::new("list").about(t.t(keys::agent::list::DESCRIPTION)))
+}
+
+/// The tag is positional because `--version` is already the global flag that
+/// prints this binary's version.
+fn update_command(t: &Translations) -> Command {
+    Command::new("update")
+        .about(t.t(keys::update::DESCRIPTION))
+        .arg(
+            Arg::new("tag")
+                .value_name("tag")
+                .help(t.t(keys::update::TAG)),
+        )
+        .arg(
+            Arg::new("check")
+                .long("check")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("tag")
+                .help(t.t(keys::update::CHECK)),
+        )
 }
 
 /// A port from the command line, refused before anything binds.
@@ -872,6 +903,10 @@ where
             Subcommand::Extension(action, id)
         }
         Some(("agent", _)) => Subcommand::Agent(AgentCommand::List),
+        Some(("update", sub)) => Subcommand::Update(UpdateCommand {
+            tag: string_of(sub, "tag"),
+            check: flag(sub, "check"),
+        }),
         // No subcommand: the words are a chat, which is the default.
         _ => Subcommand::Chat(Box::new(chat_args_of(&matches))),
     };

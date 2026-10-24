@@ -71,7 +71,7 @@ fn documented_flags(page: &str) -> BTreeSet<String> {
 #[test]
 fn every_command_the_page_lists_is_in_the_help() {
     let help = help(&[]);
-    // The six the page's synopsis block names, plus `chat`, which it calls
+    // The seven the page's synopsis block names, plus `chat`, which it calls
     // the default rather than listing.
     for command in [
         "chat",
@@ -80,6 +80,7 @@ fn every_command_the_page_lists_is_in_the_help() {
         "agent",
         "environment",
         "extension",
+        "update",
         "help",
     ] {
         assert!(
@@ -139,6 +140,7 @@ fn every_flag_the_page_tabulates_appears_on_some_help_page() {
         help(&["agent"]),
         help(&["extension"]),
         help(&["init"]),
+        help(&["update"]),
     ]
     .join("\n");
 

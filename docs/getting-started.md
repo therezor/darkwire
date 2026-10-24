@@ -80,8 +80,10 @@ The asset names carry no version, so the lines above keep working after the next
 release. The directory _inside_ the tarball does carry one, which is what tells you
 later which build you extracted.
 
-That is the whole install. The tarball holds one file, the browser UI is compiled into
-it, and nothing else is fetched at any point — see [Security](security.md).
+That is the whole install. The tarball holds one file, and the browser UI is compiled
+into it. Nothing else is fetched unless you run `darkwire update`, which is how you move
+to a newer release later. It checks the download against `SHA256SUMS` the same way. See
+[Security](security.md#privacy).
 
 **Each binary is built on its own architecture** rather than cross-compiled, because
 the credential vault talks to the platform keychain and the container runner signals

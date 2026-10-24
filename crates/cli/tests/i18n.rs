@@ -124,6 +124,7 @@ fn every_key_a_command_reaches_for_is_in_the_bundle() {
         keys::environment::DESCRIPTION,
         keys::extension::DESCRIPTION,
         keys::agent::DESCRIPTION,
+        keys::update::DESCRIPTION,
         keys::help::USAGE,
         keys::help::OPTIONS,
         keys::help::COMMANDS,
