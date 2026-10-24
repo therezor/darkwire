@@ -717,6 +717,9 @@ async fn the_hub_only_stamps_and_never_transforms_a_turns_event() {
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
     let turn = h.runner.turn(0);
+    // The status follows a store read that starts after the runner has the
+    // turn, so a count of one does not mean it has arrived.
+    client.until_seen("session.status").await;
 
     let representative: Vec<AgentEvent> = vec![
         AgentEvent::from(TurnStart {
@@ -752,7 +755,7 @@ async fn the_hub_only_stamps_and_never_transforms_a_turns_event() {
         }),
     ];
     // From here on, every frame this connection sees is one of the four below:
-    // the ack and status the submit produced have already been asserted away.
+    // the ack and status the submit produced have arrived and are cleared.
     client.reset();
     for event in &representative {
         turn.emit(event.clone());
