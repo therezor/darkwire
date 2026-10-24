@@ -6,7 +6,10 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
-## [Unreleased]
+## [0.6.1]
+
+`darkwire update` installs a newer release, and the web UI and the terminal show the
+version that is running.
 
 ### Added
 
@@ -230,6 +233,8 @@ them reads as more finished than it is.
   ships as a scheduled job's payload; delivery does not.
 - **Session search is by title and filter, not by message content.**
 
+[0.6.1]: https://github.com/therezor/darkwire/releases/tag/v0.6.1
+[0.6.0]: https://github.com/therezor/darkwire/releases/tag/v0.6.0
 [0.5.2]: https://github.com/therezor/darkwire/releases/tag/v0.5.2
 [0.5.1]: https://github.com/therezor/darkwire/releases/tag/v0.5.1
 [0.5.0]: https://github.com/therezor/darkwire/releases/tag/v0.5.0

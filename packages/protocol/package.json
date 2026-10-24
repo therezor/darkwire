@@ -1,6 +1,6 @@
 {
   "name": "@darkwire/protocol",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Zod schemas and derived types shared by every DarkWire package.",
   "type": "module",
   "private": true,
