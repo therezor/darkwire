@@ -799,6 +799,9 @@ export const AgentEntrySchema = AgentSettingsSchema.extend({
    * Still parsed so an agent that set it can be told its wording is not placed,
    * rather than losing it in silence.
    */
+  // The declaration itself. typescript-eslint 8.72 checks a literal's keys
+  // against its contextual type, and `extend` infers that type from this key.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   environmentPrompt: z.string().optional(),
   /**
    * The `## Tool output policy` section, as a template.

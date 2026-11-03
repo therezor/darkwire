@@ -515,7 +515,7 @@ function ModelStep({
       // a provider already configured. And the endpoint comes from the *model*:
       // `instanceId` is empty whenever the provider step was skipped, and the
       // schema refuses an empty provider.
-      const settings = await queryClient.fetchQuery({
+      const settings = await queryClient.query({
         queryKey: queryKeys.settings,
         queryFn: ({ signal }) => api.settings(signal),
       });

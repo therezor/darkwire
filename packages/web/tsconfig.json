@@ -5,7 +5,8 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["vite/client"],
+    // `node` for the token gates and the tests that read files off disk.
+    "types": ["vite/client", "node"],
 
     // Vite owns the JavaScript here, so `tsc -b` is a checker rather than a
     // compiler — unlike every other package, where tsup emits the JS and tsc
@@ -34,7 +35,6 @@
     // source — and inside a package with a `components/ui/` depth, the same
     // pattern is just a relative path. The alias sidesteps the ambiguity
     // instead of loosening the rule that catches the real thing.
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@testkit/*": ["./test/testkit/*"]

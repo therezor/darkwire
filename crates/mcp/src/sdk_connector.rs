@@ -46,7 +46,7 @@ use futures::future::BoxFuture;
 use rmcp::ClientHandler;
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, CancelledNotificationParam,
-    ClientCapabilities, ClientInfo, ClientRequest, ContentBlock, Implementation, ProtocolVersion,
+    ClientCapabilities, ClientConfig, ClientRequest, ContentBlock, Implementation, ProtocolVersion,
     ResourceContents, ServerResult,
 };
 use rmcp::service::{
@@ -292,12 +292,12 @@ impl Transport<RoleClient> for SessionTransport {
 /// The client half of the handshake, and the one notification we act on.
 #[derive(Clone)]
 struct Handler {
-    info: ClientInfo,
+    info: ClientConfig,
     events: broadcast::Sender<McpSessionEvent>,
 }
 
 impl ClientHandler for Handler {
-    fn get_info(&self) -> ClientInfo {
+    fn get_info(&self) -> ClientConfig {
         self.info.clone()
     }
 
@@ -478,8 +478,8 @@ impl SdkConnector {
         }
     }
 
-    fn client_info(&self) -> ClientInfo {
-        let mut info = ClientInfo::default();
+    fn client_info(&self) -> ClientConfig {
+        let mut info = ClientConfig::default();
         info.protocol_version = ProtocolVersion::LATEST;
         info.capabilities = ClientCapabilities::default();
         info.client_info = Implementation::new(self.name.clone(), self.version.clone());

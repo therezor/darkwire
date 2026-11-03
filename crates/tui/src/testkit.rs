@@ -17,6 +17,7 @@
 
 use std::fmt;
 use std::io::{self, Write};
+use std::num::NonZeroU16;
 
 use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
@@ -34,7 +35,11 @@ impl VT100Backend {
     pub fn new(width: u16, height: u16) -> Self {
         crossterm::style::force_color_output(true);
         Self {
-            inner: CrosstermBackend::new(vt100::Parser::new(height, width, 0)),
+            inner: CrosstermBackend::new(vt100::Parser::new(
+                at_least_one(height),
+                at_least_one(width),
+                0,
+            )),
             size: Size { width, height },
         }
     }
@@ -50,10 +55,10 @@ impl VT100Backend {
     pub fn rows(&self) -> Vec<String> {
         let screen = self.parser().screen();
         let (height, width) = screen.size();
-        (0..height)
+        (0..height.get())
             .map(|row| {
                 screen
-                    .contents_between(row, 0, row, width)
+                    .contents_between(row, 0, row, width.get())
                     .trim_end()
                     .to_owned()
             })
@@ -94,8 +99,16 @@ impl VT100Backend {
     /// Tells the emulator the window changed size.
     pub fn set_size(&mut self, width: u16, height: u16) {
         self.size = Size { width, height };
-        self.inner.writer_mut().screen_mut().set_size(height, width);
+        self.inner
+            .writer_mut()
+            .screen_mut()
+            .set_size(at_least_one(height), at_least_one(width));
     }
+}
+
+/// vt100 has no empty screen, so a zero side is the smallest one it has.
+fn at_least_one(cells: u16) -> NonZeroU16 {
+    NonZeroU16::new(cells).unwrap_or(NonZeroU16::MIN)
 }
 
 impl fmt::Debug for VT100Backend {

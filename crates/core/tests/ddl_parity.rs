@@ -183,11 +183,7 @@ fn table_rows(db: &Database, table: &str) -> Vec<Value> {
     let mut statement = guard
         .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
         .unwrap();
-    let names: Vec<String> = statement
-        .column_names()
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect();
+    let names: Vec<String> = statement.column_names().map(str::to_owned).collect();
     statement
         .query_map([], |row| {
             let mut object = Map::new();

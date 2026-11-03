@@ -17,6 +17,6 @@ export default defineConfig({
   // tsup rewrites `node:sqlite` to `sqlite` otherwise — a compatibility shim for
   // node versions older than 14.18 that turns a builtin into a missing package.
   // `node:sqlite` has no unprefixed form at all, so the rewrite is unloadable.
-  // The default flips to false in tsup 9; this is only saying so early.
+  // tsup 9 still defaults this to true.
   removeNodeProtocol: false,
 });

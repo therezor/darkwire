@@ -33,7 +33,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // Named, because TypeScript 6 no longer loads every `@types` package it
+    // finds. `web` replaces the list to add the Vite client types.
+    "types": ["node"]
   },
   "exclude": ["node_modules", "dist"]
 }

@@ -86,7 +86,7 @@ const PACKAGES = {
   protocol: {
     description:
       'Zod schemas and derived types shared by every DarkWire package.',
-    deps: { zod: '^4.0.0' },
+    deps: { zod: '^4.6.7' },
     // The browser's half of the schema drift gate: one JSON Schema document
     // per registered schema, committed under `schema/` and diffed in CI.
     scripts: { 'schema:dump': 'tsx scripts/emit-schemas.ts' },
@@ -241,7 +241,7 @@ export default defineConfig({
   // tsup rewrites \`node:sqlite\` to \`sqlite\` otherwise — a compatibility shim for
   // node versions older than 14.18 that turns a builtin into a missing package.
   // \`node:sqlite\` has no unprefixed form at all, so the rewrite is unloadable.
-  // The default flips to false in tsup 9; this is only saying so early.
+  // tsup 9 still defaults this to true.
   removeNodeProtocol: false,
 });
 `;

@@ -297,13 +297,12 @@ describe('the agents index', () => {
   });
 
   it('has no Delete while creating, because there is nothing to delete', async () => {
-    const { user } = mount('/agents/new');
+    mount('/agents/new');
 
     await screen.findByLabelText('Identifier');
     expect(
       screen.queryByRole('button', { name: /Actions for/u }),
     ).not.toBeInTheDocument();
-    void user;
   });
 
   it('deletes from the row menu, and asks before it does', async () => {

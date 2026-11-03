@@ -24,16 +24,16 @@ cargo install cargo-nextest cargo-llvm-cov cargo-deny --locked
 cargo build --workspace
 ```
 
-Node 22 or newer and pnpm 11 (`corepack enable` — the version is pinned in the root
+Node 22.18 or newer and pnpm 11 (`corepack enable`; the version is pinned in the root
 `package.json`).
 
 **Node is a build dependency now, not a runtime one.** It builds the web bundle and runs
 the four remaining TypeScript packages' tests; the binary it produces links no
 interpreter and reads no `node_modules`. The one place Node can still appear on a user's
 machine is an extension that happens to be written in JavaScript, and that runs as its
-own process over JSON-RPC — its interpreter is its business, not the product's. There is
-no version floor to state any more: `node:sqlite`, which is where the old 22.13 floor came
-from, has been replaced by SQLite compiled into the binary through `rusqlite`.
+own process over JSON-RPC — its interpreter is its business, not the product's. The
+22.18 floor is the build tools' (tsup 9 needs it). The old 22.13 floor came from
+`node:sqlite`, which SQLite compiled into the binary through `rusqlite` has replaced.
 
 A debug build is fine for everything except a demo: `cargo build -p darkwire --features
 test-hooks` is what the e2e harness looks for by default (`target/debug/darkwire`, unless

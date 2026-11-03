@@ -10,7 +10,7 @@ pnpm build                                   # the web bundle the binary embeds
 cargo build --release -p darkwire             # → target/release/darkwire
 ```
 
-pnpm 11 (`corepack enable`) and Node 22 or newer for the bundle; `rustup` for
+pnpm 11 (`corepack enable`) and Node 22.18 or newer for the bundle; `rustup` for
 everything else, with the compiler version pinned in `rust-toolchain.toml` and
 installed on the first `cargo` command. The gate also wants three cargo tools:
 

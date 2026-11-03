@@ -91,16 +91,16 @@ export function useCommands(): RunCommand {
        * changed. Spreading a cached copy would send back whatever the cache
        * last saw: edit an agent's system prompt in the Agents panel, type
        * `/model` here, and the pre-edit entry would be written over the edit.
-       * `ensureQueryData` — which `models()` above uses, correctly, for a list
-       * whose staleness is harmless — returns cached data without refetching,
-       * so it is exactly the wrong call here.
+       * `staleTime: 'static'`, which `models()` below uses correctly for a
+       * list whose staleness is harmless, returns cached data without
+       * refetching, so it is the wrong call here.
        *
        * `current` rather than the `agentId` preference: a conversation that has
        * been moved runs on its stored binding, and this has to edit the agent
        * that will actually answer.
        */
       const editAgent = async (changes: AgentSettingsChange): Promise<void> => {
-        const settings = await queryClient.fetchQuery({
+        const settings = await queryClient.query({
           queryKey: queryKeys.settings,
           queryFn: ({ signal }) => api.settings(signal),
         });
@@ -126,9 +126,10 @@ export function useCommands(): RunCommand {
         agents,
         models: async (): Promise<readonly ModelInfo[]> =>
           (
-            await queryClient.ensureQueryData({
+            await queryClient.query({
               queryKey: queryKeys.models,
               queryFn: ({ signal }) => api.models(signal),
+              staleTime: 'static',
             })
           ).models,
         newSession: () => newSession(workspaceId, agentId),
