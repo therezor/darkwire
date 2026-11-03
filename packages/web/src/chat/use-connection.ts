@@ -8,9 +8,9 @@
  *
  * What this adds on top of `connection.ts` is the part that needs React: the
  * Query cache. Several server events move fetched state, and none of them can
- * be discovered by polling — a turn ending changes the session list's message
- * counts, a notification changes the sidebar badge, and `tools.changed` means an
- * MCP server or an extension moved under the settings panel's feet.
+ * be discovered by polling. A turn starting or ending changes the session list,
+ * a notification changes the sidebar badge, and `tools.changed` means an MCP
+ * server or an extension moved under the settings panel's feet.
  *
  * One of them **writes** rather than invalidates. `context.usage` already
  * carries the numbers, so refetching to learn them would re-download the whole
@@ -20,6 +20,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -43,6 +44,14 @@ import { useWorkspace } from '@/workspaces/workspace-context.js';
 /** `messages` and `context` keys, which a turn's frames keep current. */
 function deliveredLive(key: readonly unknown[]): boolean {
   return key[2] === 'messages' || key[2] === 'context';
+}
+
+/** Refetches every `['sessions']` query a turn's frames do not keep current. */
+function refreshSessions(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.sessions(),
+    predicate: (query) => !deliveredLive(query.queryKey),
+  });
 }
 
 export function useConnection(sessionKey: string | undefined): void {
@@ -104,9 +113,17 @@ export function useConnection(sessionKey: string | undefined): void {
     return closeConnection;
   }, []);
 
+  // A switch detaches this tab from the old session's frames. A first message
+  // sent just before it would otherwise reach the list only on a reload.
+  const previous = useRef(sessionKey);
   useEffect(() => {
-    if (sessionKey !== undefined) switchSession(sessionKey);
-  }, [sessionKey]);
+    if (sessionKey === undefined) return;
+    switchSession(sessionKey);
+    if (previous.current !== undefined && previous.current !== sessionKey) {
+      refreshSessions(queryClient);
+    }
+    previous.current = sessionKey;
+  }, [sessionKey, queryClient]);
 
   // A socket the server signed out waits for a login rather than redialling
   // into a refusal. Refetching `me` is what raises the login overlay, and `me`
@@ -130,6 +147,13 @@ export function useConnection(sessionKey: string | undefined): void {
     () =>
       onServerMessage((message) => {
         switch (message.type) {
+          case 'turn.start':
+            // The user message and the title are written before this frame,
+            // so a first turn's row exists now. Waiting for `turn.end` missed
+            // it whenever the reader switched away mid-turn.
+            refreshSessions(queryClient);
+            return;
+
           case 'turn.end':
             // Unscoped: `['sessions']` is the prefix every workspace-scoped key
             // starts with, so one invalidation refreshes whichever is showing.

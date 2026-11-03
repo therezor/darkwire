@@ -95,6 +95,31 @@ test.describe('sessions', () => {
     });
   });
 
+  test('lists a session left while its first turn is still running', async ({
+    app,
+  }) => {
+    const sidebar = app.getByRole('complementary', { name: 'Sidebar' });
+    const message = app.getByRole('textbox', { name: 'Message' });
+
+    await sidebar.getByRole('button', { name: 'New session' }).click();
+    await message.fill('wait for me');
+    await message.press('Enter');
+    // Held for a minute, so the switch below always lands mid-turn and this
+    // tab never receives the turn's end.
+    await expect(
+      app.getByRole('region', { name: 'Tool call: e2e_wait' }),
+    ).toBeVisible();
+
+    await sidebar.getByRole('button', { name: 'New session' }).click();
+    await expect(
+      app.getByRole('heading', { name: 'Ready when you are.' }),
+    ).toBeVisible();
+
+    await expect(
+      sidebar.getByRole('link', { name: /wait for me/u }),
+    ).toBeVisible();
+  });
+
   test('marks the new session until there is a saved one to mark', async ({
     app,
   }) => {

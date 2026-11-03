@@ -1114,6 +1114,58 @@ describe('sending', () => {
   });
 });
 
+describe('the sidebar while a first turn runs', () => {
+  const SAVED = {
+    sessions: [
+      {
+        key: SESSION,
+        title: 'what is this?',
+        origin: 'web',
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        messageCount: 1,
+      },
+    ],
+    total: 1,
+  };
+
+  // The app's own client, so the list stays fresh for 30 s as it does in use,
+  // and only an invalidation can refetch it.
+  async function sendFirstMessage(): Promise<
+    ReturnType<typeof userEvent.setup>
+  > {
+    const user = userEvent.setup();
+    mount(`/sessions/${encodeURIComponent(SESSION)}`, createQueryClient());
+    await connect();
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Message' }),
+      'what is this?',
+    );
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    // The server has written the row by now. The list fetched at mount has not.
+    stubFetch({ ...BASE_ROUTES, '/api/sessions': [200, SAVED] });
+    return user;
+  }
+
+  it('lists the conversation when its turn starts, before it ends', async () => {
+    await sendFirstMessage();
+    deliver(START);
+
+    expect(
+      await screen.findByRole('link', { name: 'what is this?' }),
+    ).toBeInTheDocument();
+  });
+
+  it('lists the conversation left before its turn started', async () => {
+    const user = await sendFirstMessage();
+    await user.click(screen.getByRole('button', { name: 'New session' }));
+
+    expect(
+      await screen.findByRole('link', { name: 'what is this?' }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('the workspace of a conversation not yet saved', () => {
   it('stays the one the user chose when the server has none to report', async () => {
     localStorage.setItem('darkwire:workspace', 'research');
