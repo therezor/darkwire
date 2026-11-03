@@ -102,8 +102,12 @@ async fn fails_to_start_a_program_that_does_not_exist() {
 
 #[tokio::test]
 async fn caps_output_while_the_child_writes_and_keeps_the_head() {
+    // Four fields, because uutils printf (Ubuntu 26.04) refuses a width over 65535.
     let outcome = LocalRunner::new()
-        .run(request(plan(&["printf", "%0200000d", "0"], 64), 0))
+        .run(request(
+            plan(&["printf", "%050000d", "0", "0", "0", "0"], 64),
+            0,
+        ))
         .await
         .unwrap();
     assert!(outcome.truncated);

@@ -156,8 +156,9 @@ async fn passes_only_the_allow_listed_environment_through() {
 #[tokio::test]
 async fn caps_output_while_the_child_writes_keeping_the_head_of_it() {
     let ws = TestWorkspace::new();
+    // Four fields, because uutils printf (Ubuntu 26.04) refuses a width over 65535.
     let result = ok(
-        json!({"argv": ["printf", "%0200000d", "0"]}),
+        json!({"argv": ["printf", "%050000d", "0", "0", "0", "0"]}),
         &ws.with(|config| config.exec.max_output_bytes = 64),
     )
     .await;
