@@ -6,6 +6,26 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [0.6.2]
+
+A new conversation shows in the sidebar as soon as its first turn starts, and the
+dependencies are on their newest releases.
+
+### Fixed
+
+- **A new conversation shows in the sidebar while its first turn runs.** Switching to
+  another conversation before the first reply finished left it out of the list until a
+  reload.
+
+### Changed
+
+- **Dependencies are on their newest releases.** The JavaScript tools move to
+  TypeScript 6, ESLint 10, Vitest 5 and tsup 9. TypeScript stops at 6 because
+  typescript-eslint does not support 7 yet. In Rust, `parking_lot`, `lru` and
+  `tokio-tungstenite` stay on the versions that crossterm, ratatui and axum use, so the
+  build compiles one copy of each.
+- **Building the web UI needs Node 22.18 or newer**, up from 22.13. tsup 9 requires it.
+
 ## [0.6.1]
 
 `darkwire update` installs a newer release, and the web UI and the terminal show the
@@ -238,6 +258,7 @@ them reads as more finished than it is.
   ships as a scheduled job's payload; delivery does not.
 - **Session search is by title and filter, not by message content.**
 
+[0.6.2]: https://github.com/therezor/darkwire/releases/tag/v0.6.2
 [0.6.1]: https://github.com/therezor/darkwire/releases/tag/v0.6.1
 [0.6.0]: https://github.com/therezor/darkwire/releases/tag/v0.6.0
 [0.5.2]: https://github.com/therezor/darkwire/releases/tag/v0.5.2
