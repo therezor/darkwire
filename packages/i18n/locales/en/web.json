@@ -427,7 +427,6 @@
     "risk": "Risk: {{risk}}",
     "send": "Send",
     "sending": "Sending…",
-    "steeredMidTurn": "Steered mid-turn: {{text}}",
     "steerPending": "The running task reads this before its next message.",
     "stopReasons": {
       "aborted": "Stopped by you",

@@ -122,10 +122,10 @@ run yet:
   runs rather than going grey.
 - **Typing during a run reaches that run.** Enter sends the words to the running turn,
   which reads them before its next message. They appear in the transcript at that
-  point, between the messages they came between. If the turn ends first, by finishing,
-  hitting a cap, or being stopped, the words run as the next turn instead, so nothing
-  is lost. A message with a file attached is queued as the next turn, since a steer
-  carries none.
+  point as an ordinary message of yours, between the messages they came between. If the
+  turn ends first, by finishing, hitting a cap, or being stopped, the words run as the
+  next turn instead, so nothing is lost. A message with a file attached is queued as the
+  next turn, since a steer carries none.
 - **Attachments upload when you pick them**, not on send, so a large file is already there
   when you hit Enter.
 - An agent picker, and a context budget strip.

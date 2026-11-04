@@ -140,8 +140,14 @@ test.describe('typing while a turn runs', () => {
     await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
     // Inside the turn, after the call it interrupted and before the answer
     // to it, and never as a turn of its own.
+    const answer = transcript
+      .getByRole('listitem')
+      .filter({ hasText: 'Ready.' });
+    await expect(
+      answer.getByText('and keep it short', { exact: true }),
+    ).toBeVisible();
     const text = await transcript.innerText();
-    const steered = text.indexOf('Steered mid-turn: and keep it short');
+    const steered = text.indexOf('and keep it short');
     expect(steered).toBeGreaterThan(text.indexOf('exec'));
     expect(steered).toBeLessThan(text.indexOf('Ready.'));
     await expect(transcript.getByText('run the version command')).toHaveCount(
@@ -169,10 +175,16 @@ test.describe('typing while a turn runs', () => {
       timeout: 15_000,
     });
     await expect(app.getByRole('button', { name: 'Send' })).toBeVisible();
-    await expect(transcript.getByText('Steered mid-turn')).toHaveCount(0);
     await expect(
       transcript.getByText('and keep it short', { exact: true }),
     ).toBeVisible();
+    // A turn of its own, not a part of the answer's.
+    await expect(
+      transcript
+        .getByRole('listitem')
+        .filter({ hasText: 'Ready.' })
+        .getByText('and keep it short', { exact: true }),
+    ).toHaveCount(0);
   });
 });
 

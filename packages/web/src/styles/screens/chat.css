@@ -293,17 +293,6 @@
     margin-block: calc((var(--leading-sm) - var(--size-control-md)) / 2);
   }
 
-  /* A mid-turn steer is neither side of the conversation — it is a note about
-   * it — so it sits centred and quiet rather than in either column. */
-  .steer {
-    align-self: center;
-    padding: var(--space-1) var(--space-3);
-    background-color: var(--surface-2);
-    border-radius: var(--radius-full);
-    font-size: var(--text-sm);
-    color: var(--fg-3);
-  }
-
   /* Notices moved to `components/notice.css` — four screens use them. */
 
   /* ── Reasoning ─────────────────────────────────────────────── */
@@ -1122,7 +1111,9 @@
     }
 
     .turn__message:hover .message-actions--line,
-    .turn__message:focus-within .message-actions--line {
+    .turn__message:focus-within .message-actions--line,
+    .message-user:hover .message-actions--line,
+    .message-user:focus-within .message-actions--line {
       opacity: 1;
     }
 

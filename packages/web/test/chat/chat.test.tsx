@@ -881,9 +881,9 @@ describe('typing while a turn runs', () => {
       clientMessageId: sent.clientMessageId,
     });
 
-    expect(
-      await screen.findByText('Steered mid-turn: the other folder'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('the other folder')).toHaveClass(
+      'message-user__bubble',
+    );
     expect(
       screen.queryByText(
         'The running task reads this before its next message.',

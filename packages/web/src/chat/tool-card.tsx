@@ -74,8 +74,10 @@ import {
   type ToolPart,
   type TurnPart,
 } from '@/state/transcript.js';
+import { useTurnStore } from '@/state/turn.js';
 import { ApprovalPrompt } from './approval.js';
 import { Markdown } from './markdown/markdown.js';
+import { MessageActions } from './message-actions.js';
 import { Notice } from './notice.js';
 import { ReasoningBlock } from './reasoning.js';
 
@@ -449,7 +451,7 @@ function TurnPartsList({
             return null;
 
           case 'steer':
-            return <SteerNote key={part.id} text={part.text} />;
+            return <SteerMessage key={part.id} text={part.text} />;
         }
       })}
     </>
@@ -478,9 +480,20 @@ function runsOf(parts: readonly TurnPart[]): readonly Run[] {
 }
 
 /** What the user said to the running turn, at the point the loop read it. */
-function SteerNote({ text }: { readonly text: string }): JSX.Element {
-  const { t } = useTranslation();
-  return <p className="steer">{t('chat.steeredMidTurn', { text })}</p>;
+function SteerMessage({ text }: { readonly text: string }): JSX.Element {
+  const busy = useTurnStore((state) => state.busy);
+  return (
+    <div className="stack message-user">
+      <div className="message-user__bubble">{text}</div>
+      <div className="message-user__actions">
+        <MessageActions
+          text={text}
+          busy={busy}
+          className="message-actions--line"
+        />
+      </div>
+    </div>
+  );
 }
 
 function Labelled({
