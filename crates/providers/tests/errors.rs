@@ -166,8 +166,21 @@ fn classify_status_reads_the_code_on_a_400() {
     );
     assert_eq!(by("invalid_model"), ProviderErrorReason::ModelNotFound);
     assert_eq!(by("content_filter"), ProviderErrorReason::ContentFilter);
-    assert_eq!(by("insufficient_quota"), ProviderErrorReason::RateLimit);
+    assert_eq!(by("insufficient_quota"), ProviderErrorReason::QuotaExceeded);
+    assert_eq!(by("rate_limit_exceeded"), ProviderErrorReason::RateLimit);
     assert_eq!(by("something_else"), ProviderErrorReason::InvalidRequest);
+}
+
+#[test]
+fn an_exhausted_quota_on_a_429_is_not_a_rate_limit_and_is_not_retried() {
+    // Billing exhaustion arrives as a 429, and waiting does not change it.
+    let reason = classify_status(429, Some(&body(Some("insufficient_quota"), None, None)));
+    assert_eq!(reason, ProviderErrorReason::QuotaExceeded);
+    assert!(!reason.default_retryable());
+    assert_eq!(
+        classify_status(429, Some(&body(Some("rate_limit_exceeded"), None, None))),
+        ProviderErrorReason::RateLimit
+    );
 }
 
 #[test]

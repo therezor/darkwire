@@ -1,52 +1,29 @@
 //! The tool half of a turn: authorise, run, answer.
 //!
-//! `agent_loop` owns the turn — the prompt, the provider, the stream, the caps
-//! — and hands each assistant message that asked for tools to
-//! [`ToolDispatcher::dispatch`]. What comes back is the messages the turn
-//! should append; the events the operator sees go out through the sink as they
-//! happen. The store is not this file's to write.
+//! `agent_loop` owns the turn: the prompt, the provider, the stream, the caps.
+//! It hands each assistant message that asked for tools to
+//! [`AgentLoop::dispatch`], which returns the messages the turn should append;
+//! the events the operator sees go out through the sink as they happen.
 //!
-//! Three invariants live here rather than upstairs, because this is the only
-//! place that can hold them:
+//! Three invariants live here, because this is the only place that can hold
+//! them:
 //!
 //!  - **Every tool call gets a `tool` message.** Providers reject an
 //!    `assistant` turn whose tool calls were never answered, so a call that was
 //!    cancelled, denied, or arrived on an agent with tools switched off still
-//!    produces a result — no execution, still an answer. Stopping mid-tool
-//!    without writing one would make the *next* turn fail on history the user
-//!    cannot see, long after the stop that caused it. That is also why
-//!    `dispatch` returns the whole batch: one append upstairs, never a partial
-//!    write.
+//!    produces a result. That is also why `dispatch` returns the whole batch:
+//!    one append upstairs, never a partial write.
 //!  - **Permission is checked between the `tool.call` event and execution**,
-//!    which is the only place it can be checked once for every transport. A
-//!    transport that gated it for itself would be one `if` away from an ungated
-//!    one. The answer comes from the scope, because the scope is what knows
-//!    whether a name resolved to a built-in or to a program in this agent's
-//!    container. What this file decides is whether to ask; what the answer is,
-//!    and how long it holds, belong to the gate.
+//!    the one place every transport passes through.
 //!  - **Adjacent read-only calls run together; everything else runs in order.**
-//!    A model asks for six files in one message; fetching them one after
-//!    another is the shape of the loop, not a requirement. Grouping is
-//!    *adjacent* runs only, which is the safety property rather than a
-//!    simplification: `read, read, write, read` becomes `[read‖read]`, `write`,
-//!    `read`, so a write is never reordered past a read. A delegation and a
-//!    call that would prompt are both excluded.
+//!    `read, read, write, read` becomes `[read‖read]`, `write`, `read`, so a
+//!    write is never reordered past a read. A delegation and a call that would
+//!    prompt are both excluded.
 //!
-//! A subagent call is authorised here too, on the same path, and then handed
-//! back to the loop through [`SubagentDelegate`] — delegation needs the loop
-//! resolver, the store and the lineage, none of which belong to a dispatcher.
-//!
-//! **This file is the one place a result is truncated and fenced**, and the
-//! tool layer is deliberately left to do neither: the turn's context carries no
-//! nonce, so the registry returns plain content and every result — a real
-//! execution, a denial, a cancellation, a refused delegation — passes through
-//! the same two steps in the same order here. Splitting them would mean the
-//! synthesised results took a second path, and getting the truncate-then-wrap
-//! order wrong on that path fails silently.
-//!
-//! Nothing here falls back to a default. Every collaborator is resolved by the
-//! loop and passed in, so there is no branch in this file that a turn does not
-//! take.
+//! **This is the one place a result is truncated and fenced.** Every result, a
+//! real execution, a denial, a cancellation or a delegation, takes the same two
+//! steps in the same order, so the truncate-then-wrap order cannot differ
+//! between paths.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,13 +38,14 @@ use darkwire_protocol::{
 };
 use darkwire_providers::{BoxFuture, ChatResult};
 use darkwire_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
-use darkwire_tools::{ToolContext, ToolExecution, ToolInvocation, ToolScope, permission_for};
+use darkwire_tools::{ToolContext, ToolExecution, ToolInvocation, permission_for};
 use futures::StreamExt as _;
 use futures::stream::FuturesUnordered;
 use indexmap::IndexMap;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use crate::agent_loop::AgentLoop;
 use crate::approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequest, DenialReason, denied_notice,
     denied_tool_result,
@@ -79,19 +57,16 @@ use crate::subagent::SubagentBinding;
 ///
 /// Long enough that a normal tool call never emits one, short enough that a UI
 /// showing a spinner is never left guessing whether the process died. The tools
-/// this exists for — a build under `exec`, a slow MCP server — produce no
-/// output at all until they finish, so the loop is the only thing that can say.
+/// this exists for, a build under `exec` or a slow MCP server, produce no
+/// output until they finish, so the loop is the only thing that can say.
 pub const TOOL_HEARTBEAT_MS: u64 = 15_000;
 
 /// How many read-only calls may be in flight at once.
 ///
-/// A bound rather than a tuning knob, which is why it is here and not in
-/// `ToolsConfig`: the calls it governs are read-only by definition, so there is
-/// no contention story an operator would need to tune against — no GPU, no
-/// shared container, no lock. What it stops is a model asking for two hundred
-/// files at once and opening two hundred file handles to answer.
-///
-/// Eight, because the batches models actually emit are three to six.
+/// A bound rather than a tuning knob: the calls are read-only, so there is no
+/// contention to tune against. What it stops is a model asking for two hundred
+/// files at once and opening two hundred file handles. Eight, because the
+/// batches models emit are three to six.
 pub const MAX_PARALLEL_TOOL_CALLS: usize = 8;
 
 /// What a cancelled call records, so the `assistant` turn stays answered.
@@ -100,10 +75,9 @@ pub const CANCELLED_TOOL_RESULT: &str =
 
 /// The model's arguments, as the UI should see them.
 ///
-/// Parsing is best-effort on purpose: malformed JSON from a model is common
-/// enough that it must not break the event stream, and the registry is the
-/// thing that turns it into a typed tool error the model can recover from. Here
-/// it is only being displayed.
+/// Best-effort on purpose: malformed JSON from a model is common enough that it
+/// must not break the event stream, and the registry is what turns it into a
+/// typed tool error the model can recover from. Here it is only displayed.
 pub fn parse_tool_args(arguments_json: &str) -> Value {
     if arguments_json.trim().is_empty() {
         return Value::Object(serde_json::Map::new());
@@ -126,11 +100,9 @@ fn cancelled_execution(name: &str) -> ToolExecution {
 
 /// A call that arrived on an agent whose tools are switched off.
 ///
-/// `config` rather than `permission_denied`: nothing was denied. The agent's
-/// permission map is untouched and still says `allow`; this model was simply
-/// never sent a tool list, so the call is one it invented. The wording says the
-/// tool did not run, because the alternative reading — that it ran and the
-/// output was lost — is the one that has a model retry the same command.
+/// `config` rather than `permission_denied`: nothing was denied, the model was
+/// never sent a tool list. The wording says the tool did not run, because the
+/// other reading, that it ran and the output was lost, makes a model retry.
 fn tools_disabled_execution(name: &str) -> ToolExecution {
     named(
         name,
@@ -165,10 +137,7 @@ enum ApprovalOutcome {
 }
 
 impl ApprovalOutcome {
-    /// What a decision the gate handed over without being awaited means.
-    ///
-    /// A refusal is `Declined` rather than `Policy`: a remembered answer is one
-    /// a person gave, and the model is told the difference.
+    /// A remembered answer is one a person gave, so a refusal is `Declined`.
     fn of(decision: &ApprovalDecision) -> ApprovalOutcome {
         if decision.approved {
             ApprovalOutcome::Approved
@@ -196,15 +165,14 @@ pub struct LiveAgent {
     pub permissions: LivePermissions,
 }
 
-/// Reads [`LiveAgent`], or `None` when the agent no longer resolves.
+/// Reads the agent before each tool call. `None` when it was deleted, switched
+/// off or no longer builds, which stops the turn.
 pub type LiveAgentSource = Arc<dyn Fn() -> Option<LiveAgent> + Send + Sync>;
 
 /// What the tool half of a turn needs from the half above it.
 ///
-/// Named rather than inlined because it grew past the point where one inline
-/// shape in two signatures is one shape: `dispatch` and the loop's delegation
-/// must agree about it, and a subagent needs the workspace and the chain that
-/// authorisation does not.
+/// `dispatch` and the loop's delegation must agree about it, and a subagent
+/// needs the workspace and the chain that authorisation does not.
 #[derive(Debug, Clone)]
 pub struct TurnScope {
     /// The session the turn runs in.
@@ -223,11 +191,9 @@ pub struct TurnScope {
     pub chain: Vec<String>,
     /// The environment and egress this turn settled on.
     ///
-    /// Here rather than derived from `tool_context.placement` because a
-    /// delegation that inherits hands this down whole, and a caller on the host
-    /// must hand down the host. Reading it back out of an `Option` would make
-    /// "nobody decided" and "the host" the same value again, which is the
-    /// overload this field exists to end.
+    /// Not derived from `tool_context.placement`: a delegation that inherits
+    /// hands this down whole, and "nobody decided" and "the host" must stay two
+    /// values.
     pub environment: AgentEnvironment,
     /// The conversation a person is watching. See [`ApprovalRequest`].
     pub root_session_key: String,
@@ -235,85 +201,17 @@ pub struct TurnScope {
     pub permissions: Option<Arc<LivePermissions>>,
 }
 
-/// One delegated task, run by the loop.
-///
-/// Delegation stays in the loop because a subagent's turn is a real turn on a
-/// real loop — it needs the loop resolver, the store and the lineage. The
-/// dispatcher only needs to know that a call may be answered by one.
-///
-/// Passed to [`ToolDispatcher::dispatch`] rather than held on the dispatcher,
-/// because the loop owns the dispatcher and a delegate stored here would be a
-/// reference cycle back into it.
-pub trait SubagentDelegate: Send + Sync {
-    /// Runs one delegation to completion, emitting the child's events on the
-    /// way past.
-    fn delegate<'a>(
-        &'a self,
-        call: &'a ToolCall,
-        binding: &'a SubagentBinding,
-        turn: &'a TurnScope,
-        sink: &'a EventSink,
-    ) -> BoxFuture<'a, Result<ToolExecution>>;
-}
-
-/// A delegate for a loop that has no subagents.
-///
-/// Reachable only if a binding exists without a resolver, which the loop's own
-/// construction rules out; it exists so `dispatch` can be called without one.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoDelegation;
-
-impl SubagentDelegate for NoDelegation {
-    fn delegate<'a>(
-        &'a self,
-        call: &'a ToolCall,
-        binding: &'a SubagentBinding,
-        _turn: &'a TurnScope,
-        _sink: &'a EventSink,
-    ) -> BoxFuture<'a, Result<ToolExecution>> {
-        Box::pin(async move {
-            Ok(crate::subagent::refused_execution(
-                crate::subagent::DelegationRefusal::Unconfigured,
-                binding,
-                &[],
-            ))
-            .map(|execution| named(&call.name, execution))
-        })
-    }
-}
-
 /// What one assistant turn's tool calls produced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolCallOutcome {
     /// Whether the turn was stopped while the batch ran.
     pub cancelled: bool,
+    /// Whether the agent stopped resolving while the batch ran.
+    pub agent_gone: bool,
     /// The assistant message and one `tool` message per call, in the order the
-    /// model asked. The caller appends them — in one transaction, because a
-    /// partial write is exactly the orphaned tool result the history walker
-    /// then has to repair on every later request.
+    /// model asked. The caller appends them in one transaction, because a
+    /// partial write is an orphaned tool result on every later request.
     pub pending: Vec<ChatMessage>,
-}
-
-/// Everything a dispatcher is built from. The loop resolves every default.
-pub struct ToolDispatcherOptions {
-    /// What this loop may call.
-    pub tools: Arc<dyn ToolScope>,
-    /// The agents this one may delegate to, keyed by tool name.
-    pub subagents: IndexMap<String, SubagentBinding>,
-    /// Who to ask before an `ask` tool runs. `None` means nobody is there.
-    pub approvals: Option<Arc<dyn ApprovalGate>>,
-    /// Whether the request advertises any tools at all.
-    pub tools_enabled: bool,
-    /// Head+tail budget for one tool result before it enters history.
-    pub max_tool_result_chars: usize,
-    /// `0` disables the heartbeat.
-    pub heartbeat_ms: u64,
-    /// Which agent is asking, for the approval request.
-    pub agent_id: String,
-    /// Wall-clock and monotonic time.
-    pub clock: Arc<dyn Clock>,
-    /// Read before each call. `None` keeps what the turn started with.
-    pub live: Option<LiveAgentSource>,
 }
 
 /// A delegation's permission now. One removed since the turn began is refused.
@@ -328,48 +226,25 @@ fn delegation_permission(binding: &SubagentBinding, turn: &TurnScope) -> ToolPer
     }
 }
 
-/// Runs the tools one assistant turn asked for.
-pub struct ToolDispatcher {
-    tools: Arc<dyn ToolScope>,
-    subagents: IndexMap<String, SubagentBinding>,
-    approvals: Option<Arc<dyn ApprovalGate>>,
-    tools_enabled: bool,
-    max_tool_result_chars: usize,
-    heartbeat_ms: u64,
-    agent_id: String,
-    clock: Arc<dyn Clock>,
-    live: Option<LiveAgentSource>,
-}
-
-impl ToolDispatcher {
-    /// A dispatcher over already-resolved collaborators.
-    pub fn new(options: ToolDispatcherOptions) -> ToolDispatcher {
-        ToolDispatcher {
-            tools: options.tools,
-            subagents: options.subagents,
-            approvals: options.approvals,
-            tools_enabled: options.tools_enabled,
-            max_tool_result_chars: options.max_tool_result_chars,
-            heartbeat_ms: options.heartbeat_ms,
-            agent_id: options.agent_id,
-            clock: options.clock,
-            live: options.live,
-        }
-    }
-
+impl AgentLoop {
     /// A rule or permission saved while the turn runs decides the next call,
-    /// not the next turn.
-    fn refresh(&self, turn: &mut TurnScope) {
-        if let Some(current) = self.live.as_ref().and_then(|read| read()) {
-            turn.tool_context.config = Arc::new(current.settings);
-            turn.permissions = Some(Arc::new(current.permissions));
-        }
+    /// not the next turn. `false` when the agent no longer resolves.
+    fn refresh(&self, turn: &mut TurnScope) -> bool {
+        let Some(read) = self.inner.live.as_ref() else {
+            return true;
+        };
+        let Some(current) = read() else {
+            return false;
+        };
+        turn.tool_context.config = Arc::new(current.settings);
+        turn.permissions = Some(Arc::new(current.permissions));
+        true
     }
 
     /// The permission `name` has now. A tool the turn was not offered stays
     /// off, because the model was never sent it.
     fn permission_of(&self, name: &str, turn: &TurnScope) -> ToolPermission {
-        let offered = self.tools.permission_for(name);
+        let offered = self.inner.tools.permission_for(name);
         match &turn.permissions {
             Some(live) if offered != ToolPermission::Deny => {
                 permission_for(Some(&live.tools), name)
@@ -379,13 +254,12 @@ impl ToolDispatcher {
     }
 
     /// The binding for a call, or `None` when a registered tool wins.
+    ///
+    /// The same precedence the advertised definitions apply, so a shadowed
+    /// subagent is neither advertised nor reachable by a lucky guess.
     fn subagent_for(&self, name: &str) -> Option<&SubagentBinding> {
-        let binding = self.subagents.get(name)?;
-        // The same precedence the loop's advertised definitions apply, asked
-        // the same way — so a shadowed subagent is not advertised *and* is not
-        // reachable, rather than being invisible to the model and callable by a
-        // lucky guess.
-        if self.tools.get(name).is_some() {
+        let binding = self.inner.subagents.get(name)?;
+        if self.inner.tools.get(name).is_some() {
             None
         } else {
             Some(binding)
@@ -393,7 +267,8 @@ impl ToolDispatcher {
     }
 
     fn risk_of(&self, name: &str) -> ToolRisk {
-        self.tools
+        self.inner
+            .tools
             .get(name)
             .map_or(ToolRisk::Safe, |tool| tool.risk())
     }
@@ -413,57 +288,54 @@ impl ToolDispatcher {
 
     /// Runs every tool the model asked for.
     ///
-    /// Returns the messages to append rather than appending them: the store is
-    /// the turn's to write, and handing back one list is what keeps "the
-    /// assistant message and all of its results land in one transaction" a
-    /// property of the shape rather than a rule to remember. Once cancelled,
-    /// the remaining calls are not executed — but each still gets a result, so
-    /// the `assistant` turn is never left with an unanswered tool call.
-    pub async fn dispatch(
+    /// Returns the messages to append rather than appending them, so "the
+    /// assistant message and all of its results land in one transaction" is a
+    /// property of the shape. Once cancelled, or once the agent is gone, the
+    /// remaining calls are not executed, but each still gets a result.
+    pub(crate) async fn dispatch(
         &self,
         result: &ChatResult,
         turn: &mut TurnScope,
         sink: &EventSink,
-        delegate: &dyn SubagentDelegate,
     ) -> Result<ToolCallOutcome> {
         let mut pending: Vec<ChatMessage> = vec![ChatMessage::Assistant(result.message.clone())];
         let mut cancelled = turn.token.is_cancelled();
+        let mut agent_gone = false;
 
         let calls = &result.message.tool_calls;
         let mut next = 0;
         while next < calls.len() {
+            if !self.refresh(turn) {
+                agent_gone = true;
+                self.refuse_rest(&calls[next..], turn, sink, &mut pending)
+                    .await;
+                break;
+            }
             // Grouped after the refresh, so a call that stopped being `allow`
             // leaves the group and is asked about on its own.
-            self.refresh(turn);
             let group = self.next_group(&calls[next..], turn);
             next += group.len();
             let turn = &*turn;
-            // A group of one is the whole of the path that existed before
-            // parallelism, and it is the common case: no queue, nothing
-            // allocated that a single call did not allocate before.
+            // Stop reaches a delegation as a successful "stopped early", so
+            // the token is the only signal for the calls after it.
+            cancelled = cancelled || turn.token.is_cancelled();
+
             if let [solo] = group.as_slice() {
                 sink.emit(self.call_event(solo, &turn.turn_id)).await;
-
                 let execution = if cancelled {
                     cancelled_execution(&solo.name)
                 } else {
-                    // Between the event and the execution, and nowhere else: a
-                    // transport that gated it for itself would be one `if` away
-                    // from an ungated one. A subagent is authorised here too —
-                    // its binding carries a permission exactly as the scope
-                    // carries a tool's, so `ask` gets the same prompt.
                     match self
                         .authorize(solo, self.risk_of(&solo.name), turn, sink)
                         .await
                     {
                         Some(refusal) => refusal,
                         None => match self.subagent_for(&solo.name) {
-                            Some(binding) => delegate.delegate(solo, binding, turn, sink).await?,
+                            Some(binding) => self.run_subagent(solo, binding, turn, sink).await?,
                             None => self.execute_with_heartbeat(solo, turn, sink).await,
                         },
                     }
                 };
-
                 if execution.kind == Some(ErrorKind::Aborted) {
                     cancelled = true;
                 }
@@ -471,9 +343,6 @@ impl ToolDispatcher {
                 continue;
             }
 
-            // Cancelled before the group started. Nothing runs, and every
-            // member still gets its `tool` message — the same rule the
-            // sequential path follows, applied to the whole run at once.
             if cancelled {
                 for call in &group {
                     sink.emit(self.call_event(call, &turn.turn_id)).await;
@@ -484,21 +353,54 @@ impl ToolDispatcher {
             }
 
             let (group_cancelled, messages) = self.run_parallel(&group, turn, sink).await;
-            if group_cancelled {
-                cancelled = true;
-            }
+            cancelled = cancelled || group_cancelled;
             pending.extend(messages);
         }
 
-        Ok(ToolCallOutcome { cancelled, pending })
+        Ok(ToolCallOutcome {
+            cancelled,
+            agent_gone,
+            pending,
+        })
+    }
+
+    /// Answers every call left in the batch once the agent is gone, and says
+    /// why once.
+    async fn refuse_rest(
+        &self,
+        calls: &[ToolCall],
+        turn: &TurnScope,
+        sink: &EventSink,
+        pending: &mut Vec<ChatMessage>,
+    ) {
+        tracing::warn!(
+            session_key = %turn.session_key,
+            turn_id = %turn.turn_id,
+            agent_id = %self.inner.agent_id,
+            "agent no longer resolves, stopping the turn"
+        );
+        sink.emit(Notice {
+            tag: darkwire_protocol::NoticeTag,
+            kind: NoticeKind::AgentRemoved,
+            message: format!(
+                "Stopped: the agent \"{}\" was deleted, switched off or no longer builds, so \
+                 nothing more ran.",
+                self.inner.agent_id
+            ),
+            turn_id: Some(turn.turn_id.clone()),
+            call_id: None,
+        })
+        .await;
+        for call in calls {
+            sink.emit(self.call_event(call, &turn.turn_id)).await;
+            let execution = denied_execution(&call.name, DenialReason::AgentRemoved);
+            pending.push(self.finish(call, execution, turn, sink).await);
+        }
     }
 
     /// Turns one finished execution into its `tool` message and the events that
-    /// report it.
-    ///
-    /// Shared by both paths so there is one place that truncates, wraps and
-    /// reports. The alternative is two copies of the truncate-then-wrap order,
-    /// and getting that order wrong in one of them fails silently.
+    /// report it. Truncate first, wrap second: the other order cuts the closing
+    /// delimiter off the envelope.
     async fn finish(
         &self,
         call: &ToolCall,
@@ -506,11 +408,9 @@ impl ToolDispatcher {
         turn: &TurnScope,
         sink: &EventSink,
     ) -> ChatMessage {
-        // Truncate first, wrap second. The other order cuts the closing
-        // delimiter off the envelope, and a tool result the model cannot see
-        // the end of is a tool result it reads as continuing into the
-        // conversation.
-        let truncation = truncate_head_tail(&execution.content, self.max_tool_result_chars);
+        let budget =
+            usize::try_from(turn.tool_context.config.max_output_chars).unwrap_or(usize::MAX);
+        let truncation = truncate_head_tail(&execution.content, budget);
         let truncated = truncation.truncated || execution.truncated;
 
         sink.emit(ToolResult {
@@ -552,10 +452,8 @@ impl ToolDispatcher {
                 }
                 wrapped.text
             }
-            // A nonce this turn cannot fence with is a defect upstream, not
-            // something the model can act on. The call still answers — an
-            // unanswered tool call is a provider 400 on the next request —
-            // and it answers with the content rather than with nothing.
+            // A nonce this turn cannot fence with is a defect upstream. The
+            // call still answers, with the content rather than with nothing.
             Err(error) => {
                 tracing::error!(tool = %call.name, err = %error.message, "could not fence tool output");
                 truncation.text.clone()
@@ -569,10 +467,8 @@ impl ToolDispatcher {
             ToolOptions {
                 is_error: execution.is_error,
                 truncated,
-                // The same figure the `tool.result` event above carries. A
-                // reader coming back to this session wants the card to say
-                // what it said while the call was running, and nothing can
-                // work out after the fact how long something took.
+                // The figure the `tool.result` event carried, so a reloaded
+                // card says what the live one said.
                 duration_ms: Some(execution.duration_ms),
             },
         ))
@@ -580,43 +476,28 @@ impl ToolDispatcher {
 
     /// Whether this call may run beside its neighbours.
     ///
-    /// `risk == Safe` is the whole predicate, and reusing it rather than adding
-    /// a second field is deliberate: it already means "read-only, as declared
-    /// by the tool or its server", and an MCP server's read-only hint already
-    /// sets that tool's *approval* bar — a strictly higher-stakes use of the
-    /// same claim than setting a scheduling one. A second vocabulary for one
-    /// fact is two things to keep in step.
-    ///
-    /// The lookup is the scope's `get`, not `risk_of`, because `risk_of`
-    /// answers `Safe` for a name it cannot resolve. An invented name has to
-    /// stay sequential and take its `not_found` on the ordinary path.
-    ///
-    /// `Allow` is required, and that is what makes an approval prompt
-    /// impossible inside a group — so there is no question of whose prompt
-    /// appears first, and no ordering to get wrong. A safe tool an operator set
-    /// to `ask` simply runs on its own, which is right: if every read is
-    /// prompted, the prompts are the latency.
+    /// `risk == Safe` already means "read-only, as declared by the tool or its
+    /// server", so it is reused rather than adding a second field. The lookup
+    /// is the scope's `get`, not `risk_of`, which answers `Safe` for a name it
+    /// cannot resolve. `Allow` is required, which makes an approval prompt
+    /// impossible inside a group.
     fn is_parallel_eligible(&self, call: &ToolCall, turn: &TurnScope) -> bool {
-        if !self.tools_enabled {
+        if !self.inner.config.tools_enabled {
             return false;
         }
-        // A delegation is a whole turn on another loop, not a tool call. Two of
-        // them at once is background agents, which this deliberately is not.
+        // A delegation is a whole turn on another loop, not a tool call.
         if self.subagent_for(&call.name).is_some() {
             return false;
         }
-        if self.tools.get(&call.name).map(|tool| tool.risk()) != Some(ToolRisk::Safe) {
+        if self.inner.tools.get(&call.name).map(|tool| tool.risk()) != Some(ToolRisk::Safe) {
             return false;
         }
         self.permission_of(&call.name, turn) == ToolPermission::Allow
     }
 
     /// The run at the front of `calls` that may execute together, or the
-    /// first call alone.
-    ///
-    /// **Adjacent runs only.** See the header: a write must never be reordered
-    /// past a read, and gathering every eligible call regardless of position
-    /// would do exactly that.
+    /// first call alone. Adjacent runs only, so a write is never reordered past
+    /// a read.
     fn next_group(&self, calls: &[ToolCall], turn: &TurnScope) -> Vec<ToolCall> {
         let run: Vec<ToolCall> = calls
             .iter()
@@ -633,19 +514,10 @@ impl ToolDispatcher {
 
     /// One group, in flight together.
     ///
-    /// **One heartbeat for the group, not one per call.** Authorisation and
-    /// delegation are both excluded by `is_parallel_eligible`, so a group
-    /// produces no concurrent event streams to interleave, only a liveness
-    /// tick.
-    ///
-    /// **Results are reported as they land, not gathered at the end.** A card
-    /// resolving on its own is the behaviour every renderer already shows for a
-    /// delegation; waiting for the whole group would leave a fast read spinning
-    /// until the slowest member finished.
-    ///
-    /// **The messages come back in the order the model asked**, whatever order
-    /// they finished in, because the batch is a single append upstairs and a
-    /// `tool` message that does not follow its tool call is a provider 400.
+    /// One heartbeat for the group. Results are reported as they land, so a
+    /// fast read does not spin until the slowest finishes, and the messages
+    /// come back in the order the model asked, because a `tool` message that
+    /// does not follow its call is a provider 400.
     async fn run_parallel(
         &self,
         group: &[ToolCall],
@@ -656,12 +528,14 @@ impl ToolDispatcher {
             sink.emit(self.call_event(call, &turn.turn_id)).await;
         }
 
-        let started = self.clock.monotonic();
+        let heartbeat_ms = self.inner.tool_heartbeat_ms;
+        let clock = &*self.inner.clock;
+        let started = clock.monotonic();
         let mut running: FuturesUnordered<BoxFuture<'_, (usize, ToolExecution)>> = group
             .iter()
             .enumerate()
             .map(|(index, call)| {
-                let scope = Arc::clone(&self.tools);
+                let scope = Arc::clone(&self.inner.tools);
                 let invocation = invocation_of(call);
                 let context = turn.tool_context.clone();
                 let future: BoxFuture<'_, (usize, ToolExecution)> =
@@ -675,15 +549,14 @@ impl ToolDispatcher {
         let mut cancelled = false;
 
         while !in_flight.is_empty() {
-            let settled = if self.heartbeat_ms == 0 {
+            let settled = if heartbeat_ms == 0 {
                 running.next().await
             } else {
-                let beat = tokio::time::sleep(Duration::from_millis(self.heartbeat_ms));
+                let beat = tokio::time::sleep(Duration::from_millis(heartbeat_ms));
                 tokio::select! {
                     settled = running.next() => settled,
                     () = beat => {
-                        let elapsed_ms = elapsed_ms(&*self.clock, started);
-                        // Every call still running, on one shared cadence.
+                        let elapsed_ms = elapsed_ms(clock, started);
                         let mut waiting: Vec<(usize, &ToolCall)> =
                             in_flight.iter().map(|(index, call)| (*index, *call)).collect();
                         waiting.sort_by_key(|(index, _)| *index);
@@ -714,18 +587,11 @@ impl ToolDispatcher {
         )
     }
 
-    /// Whether this call may run — and, if not, the result that says so.
+    /// Whether this call may run, and if not, the result that says so.
     ///
-    /// `None` means proceed. Anything else is a [`ToolExecution`] that never
-    /// executed, which is what keeps the "every tool call gets a `tool`
-    /// message" rule true for a call the user refused: a denial the model
-    /// cannot see is an unanswered tool call, and that is a provider 400 on the
-    /// next turn rather than a refusal it can work around.
-    ///
-    /// An abort during an approval is a cancellation, not a denial. The
-    /// difference matters to the caller: a denial lets the turn continue so the
-    /// model can respond to it, while a cancellation stops the turn and the
-    /// remaining calls.
+    /// `None` means proceed. An abort during an approval is a cancellation,
+    /// not a denial: a denial lets the model respond, a cancellation stops the
+    /// turn.
     async fn authorize(
         &self,
         call: &ToolCall,
@@ -733,18 +599,9 @@ impl ToolDispatcher {
         turn: &TurnScope,
         sink: &EventSink,
     ) -> Option<ToolExecution> {
-        // Before the permission lookup, and deliberately not expressed as one:
-        // the agent's map is untouched and still says `allow`, so asking it
-        // would run the call. The request carried no tools at all, which makes
-        // anything arriving here a name the model invented — and this is the
-        // one enforcement point every call passes through, including a
-        // subagent's, so gating it here is what makes "nothing executes" true
-        // rather than mostly true.
-        //
-        // A refusal rather than a silent drop, because every tool call must be
-        // answered by a `tool` message: an unanswered one is a dangling call
-        // the model waits on and a provider 400 on the next request.
-        if !self.tools_enabled {
+        // Not expressed as a permission: the agent's map still says `allow`,
+        // and the request carried no tools, so this is a name the model made up.
+        if !self.inner.config.tools_enabled {
             tracing::warn!(
                 session_key = %turn.session_key,
                 turn_id = %turn.turn_id,
@@ -766,31 +623,28 @@ impl ToolDispatcher {
             return Some(tools_disabled_execution(&call.name));
         }
 
-        // The binding first, and only when the registry has no such name — the
-        // same precedence `subagent_for` applies, asked once here so a shadowed
-        // subagent is gated as the registered tool it actually is.
         let binding = self.subagent_for(&call.name);
         let fallback = binding.map_or_else(
             || self.permission_of(&call.name, turn),
             |b| delegation_permission(b, turn),
         );
-        // Belt and braces. A denied tool is not in the definitions the model
-        // was sent and `execute` would report it as `not_found`, so reaching
-        // here means something advertised a tool this scope does not permit.
+        // A denied tool is not in the definitions the model was sent, so this
+        // means something advertised a tool this scope does not permit.
         if fallback == ToolPermission::Deny {
             return self
                 .refuse(call, risk, fallback, DenialReason::Policy, turn, sink)
                 .await;
         }
 
-        // A tool whose permission depends on its arguments says so here, and
-        // its answer replaces the agent's. Asked only once the tool is enabled
-        // at all: a rule can narrow or widen `ask`, never switch a tool on.
+        // A tool whose permission depends on its arguments answers here. Asked
+        // only once the tool is enabled: a rule can narrow or widen `ask`, never
+        // switch a tool on.
         let args = parse_tool_args(&call.arguments_json);
         let policy = if binding.is_some() {
             None
         } else {
-            self.tools
+            self.inner
+                .tools
                 .get(&call.name)
                 .and_then(|tool| tool.policy(&args, &turn.tool_context, fallback))
         };
@@ -805,13 +659,11 @@ impl ToolDispatcher {
         }
 
         let denial = {
-            // No gate at all is the process saying `ask` runs unasked, which
-            // is `darkwire chat --yes`. A surface that cannot ask installs a
-            // gate that refuses instead.
-            let gate = self.approvals.as_ref()?;
+            // No gate is the process saying `ask` runs unasked (`chat --yes`).
+            let gate = self.inner.approvals.as_ref()?;
 
             let timeout_ms = turn.tool_context.config.approval_timeout_ms;
-            let expires_at_ms = u64::try_from(self.clock.now_ms()).unwrap_or(0) + timeout_ms;
+            let expires_at_ms = u64::try_from(self.inner.clock.now_ms()).unwrap_or(0) + timeout_ms;
             let (memory_key, command) = match policy {
                 Some(policy) => (policy.memory_key, policy.command),
                 None => (call.name.clone(), None),
@@ -819,7 +671,7 @@ impl ToolDispatcher {
             let request = ApprovalRequest {
                 session_key: turn.session_key.clone(),
                 root_session_key: turn.root_session_key.clone(),
-                agent_id: self.agent_id.clone(),
+                agent_id: self.inner.agent_id.clone(),
                 turn_id: turn.turn_id.clone(),
                 call_id: call.id.clone(),
                 name: call.name.clone(),
@@ -831,10 +683,8 @@ impl ToolDispatcher {
                 token: turn.token.clone(),
             };
 
-            // Asked before the event goes out, and the order is the whole
-            // point. "This session" means the question stops being asked; a
-            // prompt announced first would appear on every client and be
-            // replaced in the same breath by the answer the gate already held.
+            // Asked before the event goes out: a remembered answer must not
+            // flash a prompt on every client first.
             let outcome = if gate.cannot_ask(&request) {
                 ApprovalOutcome::Denied(DenialReason::NoPrompt)
             } else if let Some(decision) = gate.remembered(&request) {
@@ -851,7 +701,7 @@ impl ToolDispatcher {
                     command,
                 })
                 .await;
-                self.decide(gate.as_ref(), &request, timeout_ms).await
+                decide(gate.as_ref(), &request, timeout_ms).await
             };
 
             match outcome {
@@ -894,91 +744,84 @@ impl ToolDispatcher {
         Some(denied_execution(&call.name, denial))
     }
 
-    /// Waits for a decision, a deadline, or the turn ending — whichever is
-    /// first.
-    ///
-    /// The deadline is enforced here rather than left to the gate because the
-    /// case it exists for is a gate that never answers: a browser tab closed on
-    /// an open prompt, or a channel that has no way to render one. The timer is
-    /// tokio's, so a test advances time instead of waiting five minutes.
-    ///
-    /// A gate that fails denies. There is no failure mode of an approval
-    /// mechanism where the safe reading is "go ahead".
-    async fn decide(
-        &self,
-        gate: &dyn ApprovalGate,
-        request: &ApprovalRequest,
-        timeout_ms: u64,
-    ) -> ApprovalOutcome {
-        let deadline = async {
-            if timeout_ms == 0 {
-                std::future::pending::<()>().await;
-            } else {
-                tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
-            }
-        };
-
-        tokio::select! {
-            answer = gate.ask(request) => match answer {
-                Ok(decision) => {
-                    tracing::info!(
-                        tool = %request.name,
-                        approved = decision.approved,
-                        scope = ?decision.scope,
-                        "approval decision"
-                    );
-                    if decision.approved {
-                        ApprovalOutcome::Approved
-                    } else {
-                        ApprovalOutcome::Denied(DenialReason::Declined)
-                    }
-                }
-                Err(error) if error.is_aborted() => ApprovalOutcome::Aborted,
-                // The gate keeps its own deadline, and reaching it first is
-                // still nobody answering.
-                Err(error) if error.kind == ErrorKind::Timeout => {
-                    ApprovalOutcome::Denied(DenialReason::Timeout)
-                }
-                Err(error) => {
-                    tracing::error!(tool = %request.name, err = %error.message, "approval gate failed");
-                    ApprovalOutcome::Denied(DenialReason::Declined)
-                }
-            },
-            () = deadline => ApprovalOutcome::Denied(DenialReason::Timeout),
-            () = request.token.cancelled() => ApprovalOutcome::Aborted,
-        }
-    }
-
     /// One tool call, with a liveness event on a fixed cadence while it runs.
     ///
-    /// The heartbeat is raced against the call on tokio's timer, so a test
-    /// advances a paused clock instead of waiting 15 real seconds. The per-call
-    /// timeout is not enforced here — the registry owns it, and owning it in
-    /// two places is how a call ends up with two different deadlines.
+    /// The heartbeat races the call on tokio's timer, so a test advances a
+    /// paused clock. The per-call timeout is the registry's alone.
     async fn execute_with_heartbeat(
         &self,
         call: &ToolCall,
         turn: &TurnScope,
         sink: &EventSink,
     ) -> ToolExecution {
-        let started = self.clock.monotonic();
+        let clock = &*self.inner.clock;
+        let started = clock.monotonic();
         let invocation = invocation_of(call);
-        let mut running = Box::pin(self.tools.execute(&invocation, &turn.tool_context));
+        let mut running = Box::pin(self.inner.tools.execute(&invocation, &turn.tool_context));
 
-        if self.heartbeat_ms == 0 {
+        let heartbeat_ms = self.inner.tool_heartbeat_ms;
+        if heartbeat_ms == 0 {
             return running.await;
         }
 
         loop {
-            let beat = tokio::time::sleep(Duration::from_millis(self.heartbeat_ms));
+            let beat = tokio::time::sleep(Duration::from_millis(heartbeat_ms));
             tokio::select! {
                 execution = &mut running => return execution,
                 () = beat => {
-                    let elapsed_ms = elapsed_ms(&*self.clock, started);
+                    let elapsed_ms = elapsed_ms(clock, started);
                     sink.emit(progress(&turn.turn_id, call, elapsed_ms)).await;
                 }
             }
         }
+    }
+}
+
+/// Waits for a decision, a deadline, or the turn ending, whichever is first.
+///
+/// The deadline is enforced here because the case it exists for is a gate
+/// that never answers: a tab closed on an open prompt. A gate that fails
+/// denies; no failure of an approval mechanism safely reads as "go ahead".
+async fn decide(
+    gate: &dyn ApprovalGate,
+    request: &ApprovalRequest,
+    timeout_ms: u64,
+) -> ApprovalOutcome {
+    let deadline = async {
+        if timeout_ms == 0 {
+            std::future::pending::<()>().await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
+        }
+    };
+
+    tokio::select! {
+        answer = gate.ask(request) => match answer {
+            Ok(decision) => {
+                tracing::info!(
+                    tool = %request.name,
+                    approved = decision.approved,
+                    scope = ?decision.scope,
+                    "approval decision"
+                );
+                if decision.approved {
+                    ApprovalOutcome::Approved
+                } else {
+                    ApprovalOutcome::Denied(DenialReason::Declined)
+                }
+            }
+            Err(error) if error.is_aborted() => ApprovalOutcome::Aborted,
+            // The gate's own deadline, reached first, is still nobody answering.
+            Err(error) if error.kind == ErrorKind::Timeout => {
+                ApprovalOutcome::Denied(DenialReason::Timeout)
+            }
+            Err(error) => {
+                tracing::error!(tool = %request.name, err = %error.message, "approval gate failed");
+                ApprovalOutcome::Denied(DenialReason::Declined)
+            }
+        },
+        () = deadline => ApprovalOutcome::Denied(DenialReason::Timeout),
+        () = request.token.cancelled() => ApprovalOutcome::Aborted,
     }
 }
 
@@ -989,10 +832,8 @@ fn invocation_of(call: &ToolCall) -> ToolInvocation {
     }
 }
 
-/// Whole milliseconds, because a `tool.progress` frame *is* a `ServerMessage`
-/// and the protocol says an integer. A client that validates its frames drops
-/// the one that says the call finished, leaving a tool card spinning forever
-/// over a tool that returned in a millisecond.
+/// Whole milliseconds, because the protocol says an integer and a client that
+/// validates its frames would drop a fractional one.
 fn elapsed_ms(clock: &dyn Clock, started: Duration) -> u64 {
     u64::try_from(clock.monotonic().saturating_sub(started).as_millis()).unwrap_or(u64::MAX)
 }

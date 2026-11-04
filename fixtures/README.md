@@ -8,7 +8,7 @@ equality — and only assert. **Rust never writes here.**
 
 ## What can still be regenerated, and what is frozen
 
-Twelve of the fifteen families were written by tests in packages that no longer
+Eleven of the fourteen families were written by tests in packages that no longer
 exist — the runtime they described is Rust now, and deleting the TypeScript
 deleted the emitter with it. Those files are **frozen artefacts**: the
 specification they record is gone, so there is nothing left to re-derive them
@@ -19,7 +19,7 @@ that disagrees with the behaviour that shipped — not a fixture to edit.
 | Family                                                                                                   | State  |
 | -------------------------------------------------------------------------------------------------------- | ------ |
 | `protocol/`, `ws/frames/`, `uuid/`                                                                       | live   |
-| `config/`, `cron/`, `exec/`, `extension/`, `history/`, `ip/`, `jail/`, `merge/`, `nonce/`, `sqlite/`, `sse/`, `wire/` | frozen |
+| `config/`, `cron/`, `exec/`, `extension/`, `ip/`, `jail/`, `merge/`, `nonce/`, `sqlite/`, `sse/`, `wire/`              | frozen |
 
 The three live families come from `packages/protocol`, which is still TypeScript
 because the browser parses it. They regenerate the way they always did:

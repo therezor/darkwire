@@ -115,6 +115,10 @@ pub type WorkspacesPath = String;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent operator switch the wire carries as a boolean"
+)]
 pub struct AgentSettings {
     /// Empty means *unconfigured*, not "pick one for me". There is no
     /// model-picking code anywhere: an empty model refuses every turn, which is
@@ -180,6 +184,10 @@ pub struct AgentSettings {
     /// rather than a failed request.
     #[serde(default = "yes")]
     pub tools_enabled: bool,
+    /// Whether a conversation at 90% of `context_window_tokens` is summarised
+    /// into a new session before the next message runs.
+    #[serde(default = "yes")]
+    pub auto_compact: bool,
     /// What the `exec` tool may run for this agent, and for how long.
     ///
     /// Whether the agent has `exec` at all is the permission map's answer,
@@ -261,6 +269,7 @@ impl Default for AgentSettings {
             reasoning_effort: None,
             vision_enabled: true,
             tools_enabled: true,
+            auto_compact: true,
             exec: ExecToolConfig::default(),
             approval_timeout_ms: default_approval_timeout_ms(),
             max_output_chars: default_max_output_chars(),
@@ -387,32 +396,20 @@ pub struct ServerConfig {
     /// DNS alias. An entry with a port matches only that port.
     #[serde(default)]
     pub allowed_hosts: Vec<String>,
+    /// Reverse proxies whose `X-Forwarded-For` names the caller, as addresses
+    /// or CIDR blocks.
+    ///
+    /// The login throttle and the rate limits key on the caller's address,
+    /// which behind a proxy is the proxy's for every request. Only a peer
+    /// listed here is believed, so a client cannot name an address of its
+    /// choosing. An entry that is neither is ignored.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
     /// Who may reach it.
     #[serde(default)]
     #[schemars(transform = prefault)]
     #[garde(dive)]
     pub auth: AuthConfig,
-    /// How many server events to retain per session so a reconnecting tab can
-    /// replay an in-flight turn from its last `seq`.
-    ///
-    /// A count of *frames*, and a turn that streams a long answer spends one
-    /// per token — so this is not the knob that decides whether a reload comes
-    /// back to the whole turn; `turn_log_max_bytes` is. This one decides how
-    /// far back a *reconnect* can pick up across turns.
-    #[serde(default = "default_replay_buffer_size")]
-    #[garde(range(max = MAX_SAFE_INTEGER))]
-    pub replay_buffer_size: u64,
-    /// The budget for retaining the turn that is running, whole, so a reload
-    /// comes back to all of it — including every nested subagent step.
-    ///
-    /// Bytes rather than frames because frames are not the cost: the log
-    /// merges adjacent deltas of the same part, so a long answer is one entry,
-    /// and what is actually retained is tool output. Held only while a turn is
-    /// open, so the ceiling is the number of concurrent turns. Past it the log
-    /// stops retaining and says so; `0` disables it.
-    #[serde(default = "default_turn_log_max_bytes")]
-    #[garde(range(max = MAX_SAFE_INTEGER))]
-    pub turn_log_max_bytes: u64,
 }
 
 fn default_host() -> String {
@@ -423,23 +420,14 @@ fn default_port() -> u16 {
     3000
 }
 
-fn default_replay_buffer_size() -> u64 {
-    512
-}
-
-fn default_turn_log_max_bytes() -> u64 {
-    16 * 1024 * 1024
-}
-
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: default_host(),
             port: default_port(),
             allowed_hosts: Vec::new(),
+            trusted_proxies: Vec::new(),
             auth: AuthConfig::default(),
-            replay_buffer_size: default_replay_buffer_size(),
-            turn_log_max_bytes: default_turn_log_max_bytes(),
         }
     }
 }
@@ -1357,6 +1345,9 @@ pub struct AgentSettingsPatch {
     /// See [`AgentSettings::tools_enabled`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools_enabled: Option<bool>,
+    /// See [`AgentSettings::auto_compact`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_compact: Option<bool>,
     /// See [`AgentSettings::exec`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
@@ -1394,6 +1385,7 @@ impl From<AgentSettings> for AgentSettingsPatch {
             reasoning_effort: settings.reasoning_effort,
             vision_enabled: Some(settings.vision_enabled),
             tools_enabled: Some(settings.tools_enabled),
+            auto_compact: Some(settings.auto_compact),
             exec: Some(settings.exec.into()),
             approval_timeout_ms: Some(settings.approval_timeout_ms),
             max_output_chars: Some(settings.max_output_chars),
@@ -1679,18 +1671,13 @@ pub struct ServerConfigPatch {
     /// See [`ServerConfig::allowed_hosts`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_hosts: Option<Vec<String>>,
+    /// See [`ServerConfig::trusted_proxies`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_proxies: Option<Vec<String>>,
     /// See [`ServerConfig::auth`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub auth: Option<AuthConfigPatch>,
-    /// See [`ServerConfig::replay_buffer_size`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(range(max = MAX_SAFE_INTEGER))]
-    pub replay_buffer_size: Option<u64>,
-    /// See [`ServerConfig::turn_log_max_bytes`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(range(max = MAX_SAFE_INTEGER))]
-    pub turn_log_max_bytes: Option<u64>,
 }
 
 /// A patch over [`McpServerConfig`].

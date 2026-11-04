@@ -6,9 +6,11 @@
 //! Encoding the payload is a bug waiting for one long id, and the failure is a
 //! button that silently stops working.
 //!
-//! So a button carries a **token**: a counter in base 36, four to six bytes
-//! whatever it points at. That is not only a way round the limit; it is what
-//! makes three other things possible at all.
+//! So a button carries a **token**: a prefix drawn once per process and a
+//! counter, in base 36, a dozen bytes whatever it points at. The prefix is what
+//! keeps a button from before a restart from naming a menu drawn after it,
+//! since the counter starts again at one. The token is not only a way round
+//! the limit; it is what makes three other things possible at all.
 //!
 //!  - **A stale button can say so.** An entry has a deadline, so a menu from
 //!    yesterday answers "That menu has expired" instead of switching to a
@@ -201,6 +203,8 @@ pub const MAX_CALLBACK_ENTRIES: usize = 500;
 pub struct CallbackStore {
     clock: Arc<dyn Clock>,
     ttl_ms: i64,
+    /// Drawn once, so this process's tokens never collide with an earlier one's.
+    prefix: String,
     state: Mutex<CallbackState>,
 }
 
@@ -241,9 +245,12 @@ impl CallbackStore {
 
     /// An empty table whose entries live `ttl_ms`.
     pub fn with_ttl(clock: Arc<dyn Clock>, ttl_ms: i64) -> CallbackStore {
+        let mut bytes = [0u8; 4];
+        darkwire_security::RandomSource::fill(&darkwire_security::OsRandom, &mut bytes);
         CallbackStore {
             clock,
             ttl_ms,
+            prefix: format!("{}.", base36(u64::from(u32::from_be_bytes(bytes)))),
             state: Mutex::new(CallbackState {
                 entries: IndexMap::new(),
                 counter: 0,
@@ -275,7 +282,7 @@ impl CallbackStore {
         let now = self.clock.now_ms();
         let mut state = self.state.lock();
         state.counter += 1;
-        let token = base36(state.counter);
+        let token = format!("{}{}", self.prefix, base36(state.counter));
         state.entries.insert(
             token.clone(),
             CallbackEntry {

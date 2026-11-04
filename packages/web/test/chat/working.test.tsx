@@ -48,6 +48,7 @@ function turn(parts: readonly TurnPart[]): TurnItem {
     firstSeq: undefined,
     lastSeq: undefined,
     authoritative: true,
+    watched: true,
   };
 }
 

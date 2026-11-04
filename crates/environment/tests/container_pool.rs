@@ -348,7 +348,6 @@ fn plan() -> RunRequest {
             env: indexmap::IndexMap::new(),
             timeout_ms: 0,
             max_output_bytes: 1024,
-            paths: Vec::new(),
         },
         timeout_ms: 0,
         token: tokio_util::sync::CancellationToken::new(),

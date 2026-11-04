@@ -73,6 +73,9 @@
                   "toolsEnabled": {
                     "type": "boolean"
                   },
+                  "autoCompact": {
+                    "type": "boolean"
+                  },
                   "exec": {
                     "type": "object",
                     "properties": {
@@ -360,6 +363,12 @@
             "type": "string"
           }
         },
+        "trustedProxies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "auth": {
           "type": "object",
           "properties": {
@@ -382,16 +391,6 @@
               "maximum": 9007199254740991
             }
           }
-        },
-        "replayBufferSize": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "turnLogMaxBytes": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
         }
       }
     },

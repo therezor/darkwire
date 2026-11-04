@@ -339,12 +339,12 @@ fn delta_text(event: &NestedAgentEvent) -> Option<&str> {
 /// frame reveals the size.
 fn payload_size(message: &ServerMessage) -> usize {
     match message {
-        ServerMessage::AssistantDelta(e) => utf16_len(&e.event.text),
-        ServerMessage::ReasoningDelta(e) => utf16_len(&e.event.text),
-        ServerMessage::ToolResult(e) => utf16_len(&e.event.content),
+        ServerMessage::AssistantDelta(e) => e.event.text.len(),
+        ServerMessage::ReasoningDelta(e) => e.event.text.len(),
+        ServerMessage::ToolResult(e) => e.event.content.len(),
         ServerMessage::ToolCall(e) => json_size(&e.event.args),
         ServerMessage::ToolApprovalRequest(e) => json_size(&e.event.args),
-        ServerMessage::Notice(e) => utf16_len(&e.event.message),
+        ServerMessage::Notice(e) => e.event.message.len(),
         ServerMessage::Subagent(e) => nested_payload_size(&e.event.event),
         _ => 0,
     }
@@ -353,27 +353,23 @@ fn payload_size(message: &ServerMessage) -> usize {
 /// [`payload_size`] for a frame that arrived wrapped in a subagent event.
 fn nested_payload_size(event: &NestedAgentEvent) -> usize {
     match event {
-        NestedAgentEvent::AssistantDelta(body) => utf16_len(&body.text),
-        NestedAgentEvent::ReasoningDelta(body) => utf16_len(&body.text),
-        NestedAgentEvent::ToolResult(body) => utf16_len(&body.content),
+        NestedAgentEvent::AssistantDelta(body) => body.text.len(),
+        NestedAgentEvent::ReasoningDelta(body) => body.text.len(),
+        NestedAgentEvent::ToolResult(body) => body.content.len(),
         NestedAgentEvent::ToolCall(body) => json_size(&body.args),
         NestedAgentEvent::ToolApprovalRequest(body) => json_size(&body.args),
-        NestedAgentEvent::Notice(body) => utf16_len(&body.message),
+        NestedAgentEvent::Notice(body) => body.message.len(),
         _ => 0,
     }
 }
 
-/// The budget counts what the client counts, which is UTF-16 code units.
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
+/// In encoded bytes, the unit the connection's replay cap is measured in.
 fn json_size(value: &Value) -> usize {
     match value {
-        Value::String(text) => utf16_len(text),
+        Value::String(text) => text.len(),
         Value::Null => 0,
         // A value that cannot be serialised is not one this log can measure, and
         // a guess is better than a failure on the emit path.
-        other => serde_json::to_string(other).map_or(0, |json| utf16_len(&json)),
+        other => serde_json::to_string(other).map_or(0, |json| json.len()),
     }
 }

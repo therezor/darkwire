@@ -20,7 +20,9 @@
         "approval_denied",
         "agent_fallback",
         "tools_disabled",
-        "length_cut"
+        "length_cut",
+        "agent_removed",
+        "compacted"
       ]
     },
     "message": {

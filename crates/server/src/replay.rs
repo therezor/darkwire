@@ -2,7 +2,7 @@
 //!
 //! A tab that refreshes mid-turn has to come back to the turn it left, not to a
 //! blank transcript with a spinner nobody will ever clear. The server therefore
-//! keeps the last `server.replayBufferSize` events it emitted for a session, and
+//! keeps the last 512 events it emitted for a session, and
 //! a reconnecting client asks for everything after the last `seq` it rendered.
 //!
 //! Three properties are what make it usable, and each one is a decision:

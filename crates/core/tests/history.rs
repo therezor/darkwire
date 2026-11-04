@@ -1,5 +1,4 @@
-//! History windowing: the boundary rules, the truncation, the pipeline, and the
-//! parity fixture.
+//! History windowing: the boundary rules, the truncation and the window.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -10,20 +9,14 @@
 use std::collections::BTreeSet;
 
 use darkwire_core::history::{
-    DEFAULT_MAX_TOOL_RESULT_CHARS, HistoryOptions, find_legal_end, find_legal_start,
-    has_orphaned_tool_result, has_unanswered_tool_call, history_for_llm, truncate_head_tail,
+    find_legal_end, find_legal_start, has_orphaned_tool_result, has_unanswered_tool_call,
+    history_window_start, truncate_head_tail,
 };
 use darkwire_core::messages::{
     AssistantOptions, ToolOptions, assistant_message, system_message, tool_message, user_message,
 };
 use darkwire_protocol::{ChatMessage, ToolCall};
 use proptest::prelude::*;
-use serde_json::Value;
-
-const WINDOWS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../fixtures/history/windows.json"
-));
 
 fn call(id: &str) -> ToolCall {
     ToolCall {
@@ -59,13 +52,6 @@ fn system(text: &str) -> ChatMessage {
 
 fn tool(id: &str, content: &str) -> ChatMessage {
     tool_message(id, "read", content, ToolOptions::default()).into()
-}
-
-fn tool_of(message: &ChatMessage) -> &darkwire_protocol::ToolMessage {
-    match message {
-        ChatMessage::Tool(tool) => tool,
-        other => panic!("expected a tool message, got {other:?}"),
-    }
 }
 
 mod find_legal_start_tests {
@@ -208,8 +194,8 @@ proptest! {
         messages in history_strategy(),
         max_messages in 0_usize..=24
     ) {
-        let options = HistoryOptions { max_messages, ..HistoryOptions::default() };
-        prop_assert!(!has_orphaned_tool_result(&history_for_llm(&messages, &options)));
+        let window = &messages[history_window_start(&messages, max_messages)..];
+        prop_assert!(!has_orphaned_tool_result(window));
     }
 
     #[test]
@@ -407,48 +393,35 @@ mod truncate_head_tail_tests {
     }
 }
 
-mod history_for_llm_tests {
+mod window_tests {
     use super::*;
+
+    fn window(messages: &[ChatMessage], max_messages: usize) -> Vec<ChatMessage> {
+        messages[history_window_start(messages, max_messages)..].to_vec()
+    }
 
     #[test]
     fn keeps_the_most_recent_max_messages() {
         let messages = [user("a"), user("b"), user("c")];
-        let options = HistoryOptions {
-            max_messages: 2,
-            ..HistoryOptions::default()
-        };
-        assert_eq!(
-            history_for_llm(&messages, &options),
-            vec![user("b"), user("c")]
-        );
+        assert_eq!(window(&messages, 2), vec![user("b"), user("c")]);
     }
 
     #[test]
     fn treats_max_messages_of_zero_as_unlimited() {
         let messages = [user("a"), user("b"), user("c")];
-        let options = HistoryOptions {
-            max_messages: 0,
-            ..HistoryOptions::default()
-        };
-        assert_eq!(history_for_llm(&messages, &options).len(), 3);
+        assert_eq!(window(&messages, 0).len(), 3);
     }
 
     #[test]
     fn starts_at_the_first_user_message() {
         let messages = [system("stale prompt"), assistant("mid-turn"), user("go")];
-        assert_eq!(
-            history_for_llm(&messages, &HistoryOptions::default()),
-            vec![user("go")]
-        );
+        assert_eq!(window(&messages, 500), vec![user("go")]);
     }
 
     #[test]
     fn keeps_the_window_when_it_contains_no_user_message_at_all() {
         let messages = [calling(&["a"]), tool("a", "x")];
-        assert_eq!(
-            history_for_llm(&messages, &HistoryOptions::default()).len(),
-            2
-        );
+        assert_eq!(window(&messages, 500).len(), 2);
     }
 
     #[test]
@@ -461,114 +434,8 @@ mod history_for_llm_tests {
             tool("a", "stranded"),
             user("next"),
         ];
-        let result = history_for_llm(&messages, &HistoryOptions::default());
+        let result = window(&messages, 500);
         assert!(!has_orphaned_tool_result(&result));
         assert_eq!(result, vec![user("next")]);
-    }
-
-    #[test]
-    fn truncates_long_tool_results_and_flags_them() {
-        let long = "x".repeat(DEFAULT_MAX_TOOL_RESULT_CHARS + 100);
-        let messages = [user("go"), calling(&["a"]), tool("a", &long)];
-        let result = history_for_llm(&messages, &HistoryOptions::default());
-        let truncated = tool_of(&result[2]);
-        assert!(truncated.truncated);
-        assert!(truncated.content.len() < long.len());
-    }
-
-    #[test]
-    fn leaves_tool_results_within_the_cap_untouched() {
-        let messages = [user("go"), calling(&["a"]), tool("a", "small")];
-        let result = history_for_llm(&messages, &HistoryOptions::default());
-        assert!(!tool_of(&result[2]).truncated);
-    }
-
-    #[test]
-    fn disables_truncation_when_the_cap_is_zero() {
-        let long = "x".repeat(20_000);
-        let messages = [user("go"), calling(&["a"]), tool("a", &long)];
-        let options = HistoryOptions {
-            max_tool_result_chars: 0,
-            ..HistoryOptions::default()
-        };
-        let result = history_for_llm(&messages, &options);
-        assert_eq!(tool_of(&result[2]).content.len(), 20_000);
-    }
-
-    #[test]
-    fn never_mutates_the_callers_messages() {
-        let long = "x".repeat(200);
-        let original = tool("a", &long);
-        let messages = [user("go"), calling(&["a"]), original.clone()];
-        let options = HistoryOptions {
-            max_tool_result_chars: 10,
-            ..HistoryOptions::default()
-        };
-        history_for_llm(&messages, &options);
-        assert_eq!(messages[2], original);
-        assert_eq!(tool_of(&messages[2]).content, long);
-    }
-}
-
-/// The fixture's expected output holds two lone surrogates where the UTF-16
-/// cut split a pair; a Rust string cannot, so they read as the replacement
-/// character the port produces. Nothing else in the file is touched.
-fn replace_lone_surrogates(text: &str) -> String {
-    let escapes: Vec<(usize, u32)> = text
-        .match_indices("\\u")
-        .filter_map(|(index, _)| {
-            let hex = text.get(index + 2..index + 6)?;
-            u32::from_str_radix(hex, 16).ok().map(|code| (index, code))
-        })
-        .collect();
-    let mut lone = Vec::new();
-    let mut previous_high: Option<usize> = None;
-    for (index, code) in escapes {
-        if let Some(high) = previous_high.take() {
-            if (0xDC00..=0xDFFF).contains(&code) && high + 6 == index {
-                continue;
-            }
-            lone.push(high);
-        }
-        match code {
-            0xD800..=0xDBFF => previous_high = Some(index),
-            0xDC00..=0xDFFF => lone.push(index),
-            _ => {}
-        }
-    }
-    lone.extend(previous_high);
-    let mut out = text.to_owned();
-    for index in lone.into_iter().rev() {
-        out.replace_range(index..index + 6, "\\ufffd");
-    }
-    out
-}
-
-#[test]
-fn matches_the_windows_fixture() {
-    let fixture: Value = serde_json::from_str(&replace_lone_surrogates(WINDOWS)).unwrap();
-    let cases = fixture["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 25);
-
-    for case in cases {
-        let name = case["name"].as_str().unwrap();
-        let messages: Vec<ChatMessage> =
-            serde_json::from_value(case["input"]["messages"].clone()).unwrap();
-        let patch = &case["input"]["options"];
-        let budget = |key: &str, default: usize| -> usize {
-            patch
-                .get(key)
-                .and_then(Value::as_i64)
-                .map_or(default, |value| usize::try_from(value).unwrap_or(0))
-        };
-        let options = HistoryOptions {
-            max_messages: budget("maxMessages", HistoryOptions::default().max_messages),
-            max_tool_result_chars: budget(
-                "maxToolResultChars",
-                HistoryOptions::default().max_tool_result_chars,
-            ),
-        };
-        let produced = serde_json::to_value(history_for_llm(&messages, &options)).unwrap();
-        assert_eq!(produced, case["output"], "case: {name}");
     }
 }

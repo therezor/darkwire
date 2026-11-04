@@ -10,6 +10,7 @@
 
 pub mod approval;
 pub mod attachments;
+pub mod compact;
 pub mod context;
 pub mod dispatch;
 pub mod events;
@@ -43,20 +44,23 @@ pub use attachments::{
     AttachmentCache, MAX_INLINE_TEXT_BYTES, MaterialiseOptions, attachment_tokens,
     materialise_attachments, materialise_file_part,
 };
+pub use compact::{
+    COMPACTED_FROM_KEY, CompactRequest, SUMMARY_MAX_TOKENS, SUMMARY_PROMPT, SUMMARY_REQUEST,
+    continued_title,
+};
 pub use context::{
     ContextBreakdown, ContextReport, MeasureContext, MeasureWindow, describe_context,
     measure_context, measure_context_with,
 };
 pub use dispatch::{
     CANCELLED_TOOL_RESULT, LiveAgent, LiveAgentSource, LivePermissions, MAX_PARALLEL_TOOL_CALLS,
-    NoDelegation, SubagentDelegate, TOOL_HEARTBEAT_MS, ToolCallOutcome, ToolDispatcher,
-    ToolDispatcherOptions, TurnScope, parse_tool_args,
+    TOOL_HEARTBEAT_MS, ToolCallOutcome, TurnScope, parse_tool_args,
 };
 pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
 pub use history_window::{
     FixedCost, HISTORY_BUDGET_FACTOR, MIN_BUDGET_RATIO, RowPrices, SAMPLE_RATIO_LIMIT,
     WindowedHistory, calibration_of, history_budget, read_history, token_window_start,
-    window_records, windowed_history,
+    window_records,
 };
 pub use length_cut::{length_cut_correction, length_cut_notice, split_cut_calls};
 pub use memory_contributor::{MemoryContributor, render_memory_section};
@@ -70,9 +74,7 @@ pub use skills::{
     parse_skill_agents, read_skills, skills_for_agent,
 };
 pub use skills_contributor::{SkillsContributor, render_skills};
-pub use steering::{
-    MAX_PENDING_STEER, STEERING_PREFIX, SteeringMessage, SteeringQueue, steering_text,
-};
+pub use steering::{STEERING_PREFIX, SteeringMessage, SteeringQueue, steering_text};
 pub use subagent::{
     DelegationRefusal, MAX_SUBAGENT_DEPTH, SubagentBinding, parse_task, refuse_delegation,
     refused_execution, subagent_definition, subagent_map, subagent_result,

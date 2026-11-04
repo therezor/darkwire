@@ -57,7 +57,7 @@ pub fn open_vault(paths: &WirePaths) -> Result<CredentialVault> {
     let keychain = KeychainStore::new(KeychainOptions::default());
     let key_file = KeyFileStore::new(paths.key_file.clone());
     let stores: [&dyn KeyStore; 2] = [&keychain, &key_file];
-    let resolved = resolve_vault_key(&stores, random.as_ref())?;
+    let resolved = resolve_vault_key(&stores, random.as_ref(), paths.vault_file.exists())?;
     CredentialVault::open(&paths.vault_file, &resolved.key, random)
 }
 

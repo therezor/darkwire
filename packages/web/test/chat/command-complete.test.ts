@@ -102,6 +102,7 @@ describe('what completes it', () => {
     expect(rows.map((row) => row.label)).toEqual([
       '/new',
       '/clear',
+      '/compact [instructions]',
       '/rename <title>',
       '/stop',
       '/branch',
@@ -110,6 +111,12 @@ describe('what completes it', () => {
       '/effort <level>',
       '/temperature <0-2>',
     ]);
+  });
+
+  it('closes on a command whose argument is optional, so Enter sends it', () => {
+    expect(commandSuggestions(commandAtCaret('/compact', 8)!, deps)).toEqual(
+      [],
+    );
   });
 
   it('filters by prefix, and inserts a trailing space', () => {

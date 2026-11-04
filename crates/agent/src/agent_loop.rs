@@ -52,6 +52,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use darkwire_core::db::blocking;
+use darkwire_core::history::DEFAULT_MAX_HISTORY_MESSAGES;
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{AssistantOptions, assistant_message, system_message, user_message};
 use darkwire_core::session_store::{AppendOptions, CreateSession, UpdateSession};
@@ -86,10 +87,7 @@ use tokio_util::sync::CancellationToken;
 use crate::approval::ApprovalGate;
 use crate::attachments::{AttachmentCache, MaterialiseOptions, materialise_attachments};
 use crate::context::{MeasureWindow, RequestShape, measure_records, prompt_costs};
-use crate::dispatch::{
-    LiveAgentSource, SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions,
-    TurnScope, parse_tool_args,
-};
+use crate::dispatch::{LiveAgentSource, TOOL_HEARTBEAT_MS, TurnScope, parse_tool_args};
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
 use crate::history_window::{
     FixedCost, MIN_BUDGET_RATIO, RowPrices, SAMPLE_RATIO_LIMIT, calibration_of, history_budget,
@@ -101,15 +99,12 @@ use crate::prompt::{
     PromptTools, RuntimePromptContext, StaticPromptContext, build_raw_prompt, build_runtime_block,
     build_static_prompt, contributor_sections, runtime_reminder,
 };
-use crate::steering::{SteeringMessage, SteeringQueue, steering_text};
+use crate::steering::{SteeringQueue, steering_text};
 use crate::subagent::{
     DelegationRefusal, SubagentBinding, parse_task, refuse_delegation, refused_execution,
     subagent_definition, subagent_result,
 };
 use crate::text_tool_call::{text_tool_call_correction, text_tool_call_name};
-
-/// The head+tail budget for one tool result before it enters history.
-const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 
 fn max_iterations_text(max_iterations: u64) -> String {
     format!(
@@ -191,15 +186,15 @@ pub struct LoopAgent {
     /// because it is the same kind of thing: text the operator owns, scoped to
     /// one agent. The registry's definitions are memoised across every agent in
     /// the process, so this cannot be applied there.
-    pub tool_prompts: Option<ToolPromptOverrides>,
+    pub tool_prompts: ToolPromptOverrides,
     /// The operator's wording for the section that says where commands land.
     ///
     /// Here rather than on [`PromptAgent`] because an agent always has an
     /// identity and does not always have tools: the prompt layer receives these
     /// as [`PromptTools`], which it is handed or is not.
-    pub platform_prompt: Option<String>,
+    pub platform_prompt: String,
     /// The operator's wording for the tool-output policy.
-    pub tool_policy_prompt: Option<String>,
+    pub tool_policy_prompt: String,
 }
 
 /// Resolves the loop for a subagent.
@@ -261,7 +256,7 @@ pub struct AgentLoopOptions {
     /// kind of decision: a loop *is* one agent. The composition root builds one
     /// per agent rather than making every turn re-resolve who it belongs to,
     /// and a turn already running therefore keeps the agent it started under.
-    pub agent: Option<LoopAgent>,
+    pub agent: LoopAgent,
     /// The zone the prompt's clock is printed in — the install's setting.
     ///
     /// A closure rather than a value, because it is read once per turn and an
@@ -308,8 +303,6 @@ pub struct AgentLoopOptions {
     pub host: Host,
     /// `0` disables the heartbeat.
     pub tool_heartbeat_ms: u64,
-    /// Head+tail budget for one tool result before it enters history.
-    pub max_tool_result_chars: usize,
 }
 
 impl AgentLoopOptions {
@@ -331,7 +324,7 @@ impl AgentLoopOptions {
             environment: AgentEnvironment::default(),
             config: AgentSettings::default(),
             model: None,
-            agent: None,
+            agent: LoopAgent::default(),
             time_zone: None,
             live_agent: None,
             contributors: Vec::new(),
@@ -345,7 +338,6 @@ impl AgentLoopOptions {
             env: Arc::new(HashMap::new()),
             host: Host::default(),
             tool_heartbeat_ms: TOOL_HEARTBEAT_MS,
-            max_tool_result_chars: DEFAULT_MAX_TOOL_RESULT_CHARS,
         }
     }
 }
@@ -525,13 +517,11 @@ impl Turn {
     /// had more than the buffer's worth left to say.
     pub async fn finish(mut self) -> Result<TurnResult> {
         while self.events.recv().await.is_some() {}
-        match self.result.try_recv() {
-            Ok(result) => result,
-            // The task ended without answering, which means it was cancelled
-            // between the last event and the send. Nothing finished, so there
-            // is nothing to report.
-            Err(_) => Err(WireError::aborted("Turn")),
-        }
+        // Awaited, not polled: the task closes the event stream a moment before
+        // it sends the result. Only a task that died answers nothing.
+        (&mut self.result)
+            .await
+            .unwrap_or_else(|_| Err(WireError::aborted("Turn")))
     }
 
     /// Every event the turn emitted, and its outcome.
@@ -540,10 +530,9 @@ impl Turn {
         while let Some(event) = self.events.recv().await {
             events.push(event);
         }
-        let result = match self.result.try_recv() {
-            Ok(result) => result,
-            Err(_) => Err(WireError::aborted("Turn")),
-        };
+        let result = (&mut self.result)
+            .await
+            .unwrap_or_else(|_| Err(WireError::aborted("Turn")));
         (events, result)
     }
 }
@@ -556,35 +545,12 @@ impl Stream for Turn {
     }
 }
 
-/// Closes the session's steering queue however the turn ended.
-///
-/// A guard rather than a line at each exit, because "however it ended" includes
-/// the early return a vanished consumer takes. What no iteration read is not
-/// this crate's to deliver: the transport that accepted it knows it was never
-/// echoed, and runs it as the next turn.
-struct SteeringGuard {
-    steering: Arc<SteeringQueue>,
-    session_key: String,
-}
-
-impl Drop for SteeringGuard {
-    fn drop(&mut self) {
-        self.steering.close(&self.session_key);
-    }
-}
-
-/// What a turn works out once and reuses on every iteration.
-///
-/// Exactly one of the two is populated, decided by the agent's prompt mode. A
-/// union would be tidier to read and worse to use: both fields are consumed by
-/// one composition step that already branches on the mode, and a second
-/// discriminant would have to be kept in step with it.
-struct Preamble {
-    /// Template mode: the cached static half, built once. Empty in raw mode.
-    static_prompt: String,
-    /// Raw mode: the contributor sections, which may have done I/O. Empty
-    /// otherwise.
-    static_sections: Vec<String>,
+/// What a turn works out once and reuses on every iteration, by prompt mode.
+enum Preamble {
+    /// The cached static half, built once.
+    Template(String),
+    /// The contributor sections, which may have done I/O.
+    Raw(Vec<String>),
 }
 
 /// The running totals one turn accumulates.
@@ -782,6 +748,9 @@ struct Noted {
 /// What [`AgentLoop::build_request`] built.
 struct Built {
     request: ChatRequest,
+    /// The stored rows the request was windowed from, so the meter after the
+    /// tool step does not read them again.
+    rows: Vec<StoredMessageRecord>,
     /// Whether older turns were left out to fit the window.
     trimmed: bool,
     /// The request as the estimator prices it, row by row.
@@ -797,7 +766,7 @@ struct Built {
 fn calibration_sample(result: &ChatResult, estimated: usize, model: &str) -> Option<Calibration> {
     let reported = result.usage.prompt_tokens;
     let estimated = u64::try_from(estimated).ok()?;
-    if reported == 0 || estimated == 0 || result.degraded {
+    if reported == 0 || estimated == 0 || !result.degraded.is_empty() {
         return None;
     }
     if result
@@ -864,30 +833,32 @@ fn round_ms(value: f64) -> u64 {
 /// can take `&self` and still hand the work to a task that outlives the call —
 /// and so a subagent resolver can answer with a loop by cloning a pointer
 /// rather than rebuilding a provider.
-struct LoopInner {
-    provider: Arc<dyn ChatProvider>,
-    tools: Arc<dyn ToolScope>,
-    agent: Option<LoopAgent>,
-    agent_id: String,
-    store: Arc<SessionStore>,
+pub(crate) struct LoopInner {
+    pub(crate) provider: Arc<dyn ChatProvider>,
+    pub(crate) tools: Arc<dyn ToolScope>,
+    agent: LoopAgent,
+    pub(crate) agent_id: String,
+    pub(crate) store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
     web: Option<Arc<dyn WebResolver>>,
     environments: Option<Arc<dyn EnvironmentResolver>>,
     environment: AgentEnvironment,
-    config: Arc<AgentSettings>,
-    model_id: String,
+    pub(crate) config: Arc<AgentSettings>,
+    pub(crate) model_id: String,
     contributors: Vec<Arc<dyn ContextContributor>>,
     time_zone: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    subagents: IndexMap<String, SubagentBinding>,
+    pub(crate) subagents: IndexMap<String, SubagentBinding>,
     resolve_loop: Option<Arc<dyn LoopResolver>>,
     steering: Arc<SteeringQueue>,
-    clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
     random: Arc<dyn RandomSource>,
     new_id: Arc<dyn Fn() -> String + Send + Sync>,
     env: Arc<HashMap<String, String>>,
     host: Host,
-    dispatcher: ToolDispatcher,
+    pub(crate) approvals: Option<Arc<dyn ApprovalGate>>,
+    pub(crate) tool_heartbeat_ms: u64,
+    pub(crate) live: Option<LiveAgentSource>,
     /// What each session has pulled in through `tool_search`, keyed by session
     /// key. Same shape as the steering queue and for the same reason: one loop
     /// serves every session on an agent, so nothing session-shaped may sit on
@@ -896,14 +867,7 @@ struct LoopInner {
     ///
     /// Least recently activated first, and held to [`ACTIVATED_SESSIONS`].
     activated: Mutex<IndexMap<String, Activated>>,
-    /// [`AgentLoop::permitted_definitions`], memoised on the scope's list it
-    /// was derived from. The scope hands back the same `Arc` until the registry
-    /// moves, and the permitted list is read several times an iteration.
-    permitted: Mutex<Option<PermittedMemo>>,
 }
-
-/// The scope's list, and the permitted list derived from it.
-type PermittedMemo = (Arc<[ToolDefinition]>, Arc<[ToolDefinition]>);
 
 /// How many sessions' activations one loop remembers.
 ///
@@ -976,7 +940,7 @@ impl TaskPort for SessionTasks {
 /// One agent's loop: a provider, a tool scope and a store, turned into turns.
 #[derive(Clone)]
 pub struct AgentLoop {
-    inner: Arc<LoopInner>,
+    pub(crate) inner: Arc<LoopInner>,
 }
 
 impl std::fmt::Debug for AgentLoop {
@@ -991,11 +955,6 @@ impl std::fmt::Debug for AgentLoop {
 
 impl AgentLoop {
     /// Builds a loop, or refuses when no model is configured.
-    ///
-    /// The dispatcher is built last, so a loop that refused to construct never
-    /// has one. Every value it takes is already resolved here — the dispatcher
-    /// defaults nothing itself, which is what keeps it free of branches no turn
-    /// takes.
     pub fn new(options: AgentLoopOptions) -> Result<AgentLoop> {
         let model = options
             .model
@@ -1009,22 +968,11 @@ impl AgentLoop {
             .with_detail("provider", options.provider.id()));
         }
 
-        let agent_id = options
-            .agent
-            .as_ref()
-            .map_or_else(|| DEFAULT_AGENT_ID.to_owned(), |agent| agent.id.clone());
-
-        let dispatcher = ToolDispatcher::new(ToolDispatcherOptions {
-            tools: Arc::clone(&options.tools),
-            subagents: options.subagents.clone(),
-            approvals: options.approvals.clone(),
-            tools_enabled: options.config.tools_enabled,
-            max_tool_result_chars: options.max_tool_result_chars,
-            heartbeat_ms: options.tool_heartbeat_ms,
-            agent_id: agent_id.clone(),
-            clock: Arc::clone(&options.clock),
-            live: options.live_agent,
-        });
+        let agent_id = if options.agent.id.is_empty() {
+            DEFAULT_AGENT_ID.to_owned()
+        } else {
+            options.agent.id.clone()
+        };
 
         Ok(AgentLoop {
             inner: Arc::new(LoopInner {
@@ -1050,9 +998,10 @@ impl AgentLoop {
                 new_id: options.new_id,
                 env: options.env,
                 host: options.host,
-                dispatcher,
+                approvals: options.approvals,
+                tool_heartbeat_ms: options.tool_heartbeat_ms,
+                live: options.live_agent,
                 activated: Mutex::new(IndexMap::new()),
-                permitted: Mutex::new(None),
             }),
         })
     }
@@ -1065,6 +1014,11 @@ impl AgentLoop {
     /// The model a turn on this loop would use.
     pub fn model(&self) -> &str {
         &self.inner.model_id
+    }
+
+    /// Whether a nearly full conversation is summarised before its next turn.
+    pub fn auto_compact(&self) -> bool {
+        self.inner.config.auto_compact
     }
 
     /// Whether an attached image reaches the model as an image.
@@ -1080,26 +1034,6 @@ impl AgentLoop {
     /// Which agent this loop is.
     pub fn agent_id(&self) -> &str {
         &self.inner.agent_id
-    }
-
-    /// The queue this loop drains. Exposed so a transport can push into it.
-    pub fn steering(&self) -> &Arc<SteeringQueue> {
-        &self.inner.steering
-    }
-
-    /// Queues a correction for the turn currently running on `session_key`.
-    ///
-    /// `false` when no turn there can read it, or its queue is full. The
-    /// caller delivers it some other way.
-    pub fn steer(&self, session_key: &str, id: &str, content: impl Into<String>) -> bool {
-        self.inner.steering.push(
-            session_key,
-            SteeringMessage {
-                id: id.to_owned(),
-                content: content.into(),
-                received_at_ms: self.inner.clock.now_ms(),
-            },
-        )
     }
 
     /// The tool registry entries a turn on this loop would send.
@@ -1128,16 +1062,7 @@ impl AgentLoop {
         if !inner.config.tools_enabled {
             return Arc::from(Vec::new());
         }
-        let source = inner.tools.definitions();
-        let mut memo = inner.permitted.lock();
-        if let Some((from, permitted)) = &*memo
-            && Arc::ptr_eq(from, &source)
-        {
-            return Arc::clone(permitted);
-        }
-        let permitted: Arc<[ToolDefinition]> = Arc::from(self.compose_permitted(&source));
-        *memo = Some((source, Arc::clone(&permitted)));
-        permitted
+        Arc::from(self.compose_permitted(&inner.tools.definitions()))
     }
 
     fn compose_permitted(&self, source: &[ToolDefinition]) -> Vec<ToolDefinition> {
@@ -1335,14 +1260,10 @@ impl AgentLoop {
     /// list afterwards, because an MCP server went down or `exec` was
     /// switched off.
     fn with_tool_prompts(&self, definitions: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
-        let Some(overrides) = self
-            .inner
-            .agent
-            .as_ref()
-            .and_then(|a| a.tool_prompts.as_ref())
-        else {
+        let overrides = &self.inner.agent.tool_prompts;
+        if overrides.is_empty() {
             return definitions;
-        };
+        }
 
         let applied = apply_tool_prompts(&definitions, overrides);
         if !applied.unknown_tools.is_empty() || !applied.unknown_fields.is_empty() {
@@ -1398,10 +1319,9 @@ impl AgentLoop {
         if !inner.config.tools_enabled {
             return None;
         }
-        let agent = inner.agent.as_ref();
         Some(PromptTools {
-            policy_prompt: agent.and_then(|a| a.tool_policy_prompt.clone()),
-            platform_prompt: agent.and_then(|a| a.platform_prompt.clone()),
+            policy_prompt: Some(inner.agent.tool_policy_prompt.clone()),
+            platform_prompt: Some(inner.agent.platform_prompt.clone()),
             // Straight from the placement, not merged with anything: it is the
             // built-in a containered turn inherits, and the agent's override of
             // it is `platform_prompt` above.
@@ -1415,10 +1335,7 @@ impl AgentLoop {
     }
 
     fn is_raw(&self) -> bool {
-        matches!(
-            self.inner.agent.as_ref().and_then(|a| a.prompt.prompt_mode),
-            Some(darkwire_protocol::PromptMode::Raw)
-        )
+        self.inner.agent.prompt.prompt_mode == darkwire_protocol::PromptMode::Raw
     }
 
     /// The once-per-turn half, in whichever form this agent's mode needs it.
@@ -1431,24 +1348,20 @@ impl AgentLoop {
     async fn preamble(&self, context: &StaticPromptContext, placed: &Placed) -> Preamble {
         let contributors = self.contributor_refs();
         if self.is_raw() {
-            return Preamble {
-                static_prompt: String::new(),
-                static_sections: contributor_sections(&contributors, context).await,
-            };
+            return Preamble::Raw(contributor_sections(&contributors, context).await);
         }
 
         let tools = self.prompt_tools(placed);
-        Preamble {
-            static_prompt: build_static_prompt(BuildStaticPrompt {
+        Preamble::Template(
+            build_static_prompt(BuildStaticPrompt {
                 context,
-                agent: self.inner.agent.as_ref().map(|a| &a.prompt),
+                agent: Some(&self.inner.agent.prompt),
                 contributors: &contributors,
                 tools: tools.as_ref(),
                 host: self.inner.host.clone(),
             })
             .await,
-            static_sections: Vec::new(),
-        }
+        )
     }
 
     /// The prompt for one iteration. One function, so the preview cannot drift
@@ -1466,34 +1379,37 @@ impl AgentLoop {
         let contributors = self.contributor_refs();
         let zone = inner.time_zone.as_ref().map(|read| read());
 
-        if self.is_raw() {
+        let template = match preamble {
+            Preamble::Template(template) => template,
             // One blob, and it stays in the system message. There is no cached
             // prefix to protect here — the operator's template places
             // everything itself, so splitting it across two messages would move
             // text they positioned.
-            return PromptPreview {
-                static_prompt: build_raw_prompt(&BuildRawPrompt {
-                    context,
-                    agent: inner.agent.as_ref().map(|a| &a.prompt),
-                    tools: tools.as_ref(),
-                    host: inner.host.clone(),
-                    nonce,
-                    static_sections: &preamble.static_sections,
-                    contributors: &contributors,
-                    time_zone: zone.as_deref(),
-                    correction,
-                }),
-                runtime_block: String::new(),
-            };
-        }
+            Preamble::Raw(static_sections) => {
+                return PromptPreview {
+                    static_prompt: build_raw_prompt(&BuildRawPrompt {
+                        context,
+                        agent: Some(&inner.agent.prompt),
+                        tools: tools.as_ref(),
+                        host: inner.host.clone(),
+                        nonce,
+                        static_sections,
+                        contributors: &contributors,
+                        time_zone: zone.as_deref(),
+                        correction,
+                    }),
+                    runtime_block: String::new(),
+                };
+            }
+        };
 
-        let agent = inner.agent.as_ref();
+        let agent = &inner.agent.prompt;
         PromptPreview {
-            static_prompt: preamble.static_prompt.clone(),
+            static_prompt: template.clone(),
             runtime_block: build_runtime_block(&BuildRuntimeBlock {
                 context,
-                live_prompt: agent.and_then(|a| a.prompt.live_prompt.as_deref()),
-                wrap_up_prompt: agent.and_then(|a| a.prompt.wrap_up_prompt.as_deref()),
+                live_prompt: Some(agent.live_prompt.as_str()),
+                wrap_up_prompt: Some(agent.wrap_up_prompt.as_str()),
                 tools: tools.as_ref(),
                 nonce,
                 contributors: &contributors,
@@ -1605,24 +1521,11 @@ impl AgentLoop {
         let (events_tx, events_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let (result_tx, result_rx) = oneshot::channel();
 
-        // Open before the task exists, so a steer sent the moment this returns
-        // is accepted rather than refused for a turn that has not started yet.
-        // The guard goes with the task and closes it however the turn ends.
-        self.inner.steering.open(&input.session_key);
-        let steering = SteeringGuard {
-            steering: Arc::clone(&self.inner.steering),
-            session_key: input.session_key.clone(),
-        };
-
         let loop_handle = self.clone();
         let task_token = token.clone();
         tokio::spawn(async move {
             let sink = EventSink::new(events_tx);
             let outcome = loop_handle.run_turn(input, &task_token, &sink).await;
-            // Closed before anyone can learn the turn ended. A transport that
-            // starts the next turn on the result would otherwise open its queue
-            // first and have this close take it away.
-            drop(steering);
             drop(sink);
             let _ = result_tx.send(outcome);
         });
@@ -1700,7 +1603,12 @@ impl AgentLoop {
         // The place, resolved from the same key. `sandboxed` is derived from it
         // rather than set beside it, so the guard's host-shaped refusals lift
         // exactly when the command stops starting on this machine.
-        let placed = self.resolve_placement(&placement);
+        // Reads the environment's policy file, so off the runtime's workers.
+        let placed = {
+            let agent_loop = self.clone();
+            let request = placement.clone();
+            blocking(move || Ok(agent_loop.resolve_placement(&request))).await?
+        };
         let environment = Arc::clone(&placed.environment);
 
         let mut tool_context = ToolContext::new(jail.clone(), Arc::clone(&inner.config));
@@ -1732,10 +1640,6 @@ impl AgentLoop {
         });
         tool_context.sandboxed = environment.confined();
         tool_context.runner = environment;
-        // Deliberately left unset: `dispatch` is the one place a result is
-        // truncated and fenced, and a registry that fenced too would produce an
-        // envelope inside an envelope. See the dispatch module header.
-        tool_context.nonce = None;
 
         // The stored row wins, for the same reason the workspace does: a
         // history built under one agent's prompt and tools must not silently
@@ -1974,7 +1878,10 @@ impl AgentLoop {
         state: &mut TurnState,
         sink: &EventSink,
     ) -> Result<()> {
-        for message in self.inner.steering.drain(&turn.scope.session_key) {
+        let steering = &self.inner.steering;
+        // Peeked, written, then popped: a steer whose write fails stays queued,
+        // and the transport runs it as the next turn when this one closes.
+        while let Some(message) = steering.peek(&turn.scope.session_key) {
             let key = turn.scope.session_key.clone();
             let steer = ChatMessage::User(user_message(steering_text(&message)));
             let options = AppendOptions {
@@ -1983,6 +1890,7 @@ impl AgentLoop {
             let written = self
                 .with_store(move |store| store.append(&key, steer, &options))
                 .await?;
+            steering.pop(&turn.scope.session_key);
             state.last_seq = written.seq;
             sink.emit(Steer {
                 tag: SteerEventTag,
@@ -2049,6 +1957,7 @@ impl AgentLoop {
         );
         let Built {
             request,
+            rows,
             trimmed,
             estimated_tokens,
         } = self
@@ -2081,7 +1990,7 @@ impl AgentLoop {
         // request that measured nothing.
         let requested_at = inner.clock.monotonic();
         let result = match self.stream_once(request, turn, sink).await {
-            Streamed::Result(result) => result,
+            Streamed::Result(result) => *result,
             Streamed::Aborted => {
                 state.stop_reason = Some(StopReason::Aborted);
                 return Ok(Flow::Stop);
@@ -2097,6 +2006,18 @@ impl AgentLoop {
         let sample = calibration_sample(&result, estimated_tokens, &inner.model_id);
         self.note_undercount(turn, state, sample.as_ref(), sink)
             .await;
+        // What the provider made the request lose, said where the person is
+        // looking: an image the model never saw explains the answer.
+        for lost in &result.degraded {
+            sink.emit(darkwire_protocol::Notice {
+                tag: darkwire_protocol::NoticeTag,
+                kind: NoticeKind::Degraded,
+                message: lost.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                call_id: None,
+            })
+            .await;
+        }
         state.note_step(requested_at, &result, sample);
         // Beside the usage it was measured against, and only ever from a
         // result. Both sides together, and only when there is a window to speak
@@ -2126,7 +2047,7 @@ impl AgentLoop {
                 let mut result = result;
                 result.message.tool_calls = kept;
                 return self
-                    .recover_cut_calls(turn, result, &cut, &prompt, state, sink)
+                    .recover_cut_calls(turn, result, &cut, &prompt, rows, state, sink)
                     .await;
             }
         }
@@ -2135,7 +2056,8 @@ impl AgentLoop {
             return self.finish_answer(turn, &result, state, sink).await;
         }
 
-        self.run_tools(turn, &result, &prompt, state, sink).await
+        self.run_tools(turn, &result, &prompt, rows, state, sink)
+            .await
     }
 
     /// The completion stopped at the token limit inside a tool call.
@@ -2151,6 +2073,7 @@ impl AgentLoop {
         result: ChatResult,
         cut: &[String],
         prompt: &PromptPreview,
+        rows: Vec<StoredMessageRecord>,
         state: &mut TurnState,
         sink: &EventSink,
     ) -> Result<Flow> {
@@ -2173,7 +2096,9 @@ impl AgentLoop {
         .await;
 
         if !result.message.tool_calls.is_empty() {
-            return self.run_tools(turn, &result, prompt, state, sink).await;
+            return self
+                .run_tools(turn, &result, prompt, rows, state, sink)
+                .await;
         }
         let message = ChatMessage::Assistant(result.message);
         if !text_of(&message).is_empty() {
@@ -2248,7 +2173,7 @@ impl AgentLoop {
             max_output_tokens: inner.config.max_tokens,
             calibration: calibration_of(&rows, &inner.model_id),
         });
-        let windowed = window_records(rows, Some(opening_seq), budget, prices);
+        let windowed = window_records(rows.clone(), Some(opening_seq), budget, prices);
         let trimmed = windowed.trimmed;
         // Priced the way the meter prices the next request, row by row, so the
         // ratio the provider's count makes with it carries over to the meter.
@@ -2314,6 +2239,7 @@ impl AgentLoop {
         };
         Ok(Built {
             request,
+            rows,
             trimmed,
             estimated_tokens,
         })
@@ -2372,7 +2298,7 @@ impl AgentLoop {
                         .await;
                     }
                 }
-                Ok(ChatStreamEvent::Done(done)) => result = Some(done),
+                Ok(ChatStreamEvent::Done(done)) => result = Some(*done),
                 Err(error) => {
                     if error.is_aborted() {
                         return Streamed::Aborted;
@@ -2384,17 +2310,31 @@ impl AgentLoop {
                         err = %error.message,
                         "provider request failed"
                     );
+                    // History is already windowed to the configured context, so
+                    // a request still too long means that setting is wrong.
+                    let message = if darkwire_providers::ProviderError::reason_of(&error)
+                        == darkwire_providers::ProviderErrorReason::ContextLength
+                    {
+                        format!(
+                            "{} The model says this request is longer than it accepts, but the \
+                             agent's context window is set to {} tokens. Set contextWindowTokens \
+                             to what the model really takes.",
+                            error.message, self.inner.config.context_window_tokens
+                        )
+                    } else {
+                        error.message.clone()
+                    };
                     sink.emit(ErrorEvent {
                         tag: darkwire_protocol::ErrorTag,
                         code: error_code_for(error.kind),
-                        message: error.message.clone(),
+                        message: message.clone(),
                         retryable: error.retryable,
                         turn_id: Some(turn.turn_id.clone()),
                         call_id: None,
                         client_message_id: None,
                     })
                     .await;
-                    return Streamed::Failed(error.message);
+                    return Streamed::Failed(message);
                 }
             }
         }
@@ -2425,7 +2365,7 @@ impl AgentLoop {
         }
         let mut result = result;
         result.message.reasoning_ms = reasoning_ms;
-        Streamed::Result(result)
+        Streamed::Result(Box::new(result))
     }
 
     /// Milliseconds since a monotonic reading, rounded the way a turn's are.
@@ -2603,15 +2543,13 @@ impl AgentLoop {
         turn: &mut TurnContext,
         result: &ChatResult,
         prompt: &PromptPreview,
+        mut rows: Vec<StoredMessageRecord>,
         state: &mut TurnState,
         sink: &EventSink,
     ) -> Result<Flow> {
         let inner = &self.inner;
         let revision_before = self.activation_revision(&turn.scope.session_key);
-        let outcome = inner
-            .dispatcher
-            .dispatch(result, &mut turn.scope, sink, self)
-            .await?;
+        let outcome = self.dispatch(result, &mut turn.scope, sink).await?;
         self.note_direct_calls(&turn.scope.session_key, result);
         // Rebuilt only when this batch moved it, so a turn that never touches
         // `tool_search` keeps the list it opened with. Before the measurement
@@ -2622,7 +2560,7 @@ impl AgentLoop {
         // One transaction, and the store stays the turn's to write. A partial
         // write is exactly the orphaned tool result the history walker then has
         // to repair on every later request.
-        self.write_step(turn, outcome.pending, state, sink).await?;
+        let written = self.write_step(turn, outcome.pending, state, sink).await?;
 
         // The history just grew, which is the only thing that moves the number.
         // Emitted here rather than at the end because a turn that calls twenty
@@ -2630,8 +2568,8 @@ impl AgentLoop {
         // asked while that is happening — a bar that moves once a turn is a bar
         // that answers after the question stopped mattering.
         //
-        // Measured from the prompt this iteration already composed, so the only
-        // new work is the pass over the messages.
+        // Measured from the prompt this iteration already composed and the rows
+        // it already read, plus the ones just written, so nothing is read twice.
         //
         // Root loop only. A subagent's context belongs to its own session, and
         // reporting it would move the operator's bar to a figure describing a
@@ -2639,7 +2577,9 @@ impl AgentLoop {
         // outside `NestedAgentEvent`, so this is enforced by the compiler when
         // a subagent's events are wrapped rather than by this condition alone.
         if turn.scope.root_session_key == turn.scope.session_key {
-            let rows = history_rows(&inner.store, &turn.scope.session_key).await?;
+            rows.extend(written);
+            let excess = rows.len().saturating_sub(DEFAULT_MAX_HISTORY_MESSAGES);
+            rows.drain(..excess);
             let measured = measure_records(
                 rows,
                 &RequestShape {
@@ -2665,7 +2605,7 @@ impl AgentLoop {
             .await;
         }
 
-        if outcome.cancelled {
+        if outcome.cancelled || outcome.agent_gone {
             state.stop_reason = Some(StopReason::Aborted);
             return Ok(Flow::Stop);
         }
@@ -2771,23 +2711,11 @@ impl AgentLoop {
 
 /// What one streamed request produced.
 enum Streamed {
-    Result(ChatResult),
+    Result(Box<ChatResult>),
     /// The turn was stopped. Not an error, and never reported as one.
     Aborted,
     /// The provider failed. The message is what the stats row records.
     Failed(String),
-}
-
-impl SubagentDelegate for AgentLoop {
-    fn delegate<'a>(
-        &'a self,
-        call: &'a darkwire_protocol::ToolCall,
-        binding: &'a SubagentBinding,
-        turn: &'a TurnScope,
-        sink: &'a EventSink,
-    ) -> darkwire_providers::BoxFuture<'a, Result<darkwire_tools::ToolExecution>> {
-        Box::pin(self.run_subagent(call, binding, turn, sink))
-    }
 }
 
 impl AgentLoop {
@@ -2817,7 +2745,7 @@ impl AgentLoop {
     ///    a child of the turn's, so the caller gets a tool result saying the
     ///    subagent was cut short and can carry on — which is what the cap is
     ///    for.
-    async fn run_subagent(
+    pub(crate) async fn run_subagent(
         &self,
         call: &darkwire_protocol::ToolCall,
         binding: &SubagentBinding,
@@ -2990,33 +2918,18 @@ impl AgentLoop {
 /// reloaded transcript finds the run again, which is worth a write and is not
 /// worth failing a turn that has otherwise worked.
 fn point_parent_at(store: &SessionStore, parent_key: &str, call_id: &str, run: &SubagentRunRef) {
-    match store.get_session(parent_key) {
-        Ok(Some(parent)) => {
-            if let Err(error) = store.update_session(
-                parent_key,
-                UpdateSession {
-                    metadata: Some(from_object(with_subagent_run(
-                        &to_object(&parent.metadata),
-                        call_id,
-                        run,
-                    ))),
-                    ..UpdateSession::default()
-                },
-            ) {
-                tracing::warn!(
-                    err = %error.message,
-                    session_key = %parent_key,
-                    call_id = %call_id,
-                    "failed to record the subagent session pointer"
-                );
-            }
-        }
-        Ok(None) => {}
-        Err(error) => tracing::warn!(
+    // Merged in one transaction: a rename or a plan written meanwhile shares
+    // this bag.
+    let written = store.merge_metadata(parent_key, |bag| {
+        from_object(with_subagent_run(&to_object(&bag), call_id, run))
+    });
+    if let Err(error) = written {
+        tracing::warn!(
             err = %error.message,
             session_key = %parent_key,
-            "failed to read the parent session"
-        ),
+            call_id = %call_id,
+            "failed to record the subagent session pointer"
+        );
     }
 }
 
@@ -3069,10 +2982,10 @@ fn wrap_subagent_event(
     }
 }
 
-/// The history window's rows, read on the blocking pool. A turn reads them
-/// twice an iteration, and each read parses up to five hundred rows under the
-/// database lock every other session shares.
-async fn history_rows(
+/// The history window's rows, read on the blocking pool. Read once an
+/// iteration: each read parses up to five hundred rows under the database lock
+/// every other session shares.
+pub(crate) async fn history_rows(
     store: &Arc<SessionStore>,
     session_key: &str,
 ) -> Result<Vec<StoredMessageRecord>> {

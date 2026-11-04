@@ -96,6 +96,10 @@ pub const APPROVAL_SETTLED_METADATA_KEY: &str = "approvalSettled";
 /// prompt is still open.
 pub const APPROVAL_ERROR_METADATA_KEY: &str = "approvalError";
 
+/// On the notice that a conversation was summarised: the key it carries on
+/// under, so a channel that keeps its own map of conversations can follow.
+pub const CONTINUED_METADATA_KEY: &str = "continuedKey";
+
 /// What an approval card says once the call went ahead without a denial.
 const NO_LONGER_WAITING: &str = "No longer waiting for an answer.";
 
@@ -229,6 +233,20 @@ impl TurnProjection {
             }
 
             ServerMessage::ToolApprovalRequest(event) => vec![self.approval(&event.event)],
+
+            ServerMessage::SessionCompacted(event) => {
+                let mut draft = self.draft(
+                    OutboundKind::Notice,
+                    "This session was summarised into a new one, which carries on from the \
+                     summary."
+                        .to_owned(),
+                );
+                draft.metadata.insert(
+                    CONTINUED_METADATA_KEY.to_owned(),
+                    Value::String(event.event.continued_key.clone()),
+                );
+                vec![draft]
+            }
 
             ServerMessage::Notice(event) => vec![self.notice(&event.event)],
 

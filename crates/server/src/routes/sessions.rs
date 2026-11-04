@@ -111,6 +111,11 @@ fn to_summary(
         workspace_id: record.workspace_id.clone(),
         agent_id: record.agent_id.clone(),
         total_usage,
+        continued_from: record
+            .metadata
+            .get(darkwire_agent::COMPACTED_FROM_KEY)
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     }
 }
 

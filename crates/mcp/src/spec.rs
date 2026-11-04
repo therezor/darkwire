@@ -19,15 +19,13 @@
 //!
 //! A stdio `command` does **not** go through the exec guard, and a `url` does
 //! **not** go through the SSRF-guarded fetch. Both guards exist to constrain
-//! what a *model* chose: the exec guard refuses absolute paths and shell
-//! binaries and classifies every path-shaped argument against the workspace
-//! jail; the fetch guard refuses loopback and private ranges. An MCP entry is
-//! operator configuration in `config.yaml`, in the same trust class as
-//! `providers.<id>.apiBase` or a container image. Its command is almost always
-//! `npx`, `uvx`, `docker` or an absolute path to a binary outside the
-//! workspace on purpose, and the single most common MCP deployment is a server
-//! on loopback — every one of which the guards refuse by design. Running them
-//! through would make the feature unusable while protecting against nothing:
+//! what a *model* chose: the exec guard caps shell binaries at the agent's
+//! shell permission, and the fetch guard refuses loopback and private ranges.
+//! An MCP entry is operator configuration in `config.yaml`, in the same trust
+//! class as `providers.<id>.apiBase` or a container image, and the single most
+//! common MCP deployment is a server on loopback, which the fetch guard refuses
+//! by design. Running them through would make the feature unusable while
+//! protecting against nothing:
 //! anyone able to edit `config.yaml` can already add an `allow *` rule to an
 //! agent's `exec.rules`. The model's reach stops at a bridged tool's
 //! *arguments*, which are JSON over a pipe and never become argv.

@@ -46,44 +46,7 @@ const POPUP_ROWS: usize = 5;
 /// and clip the composer off the bottom.
 const RESERVED_ROWS: usize = 5;
 
-/// What a key did to a view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewKey {
-    /// The view took it.
-    Consumed,
-    /// The view wants nothing to do with it.
-    PassThrough,
-}
-
-/// Something stacked over the composer for as long as it has a question.
-pub trait BottomPaneView {
-    /// What this did with a keystroke.
-    fn handle_key(&mut self, key: &Key) -> ViewKey;
-
-    /// Whether this has its answer and should be taken away.
-    fn is_complete(&self) -> bool;
-
-    /// The rows this wants at `width`.
-    fn rows(&mut self, width: usize) -> Vec<String>;
-
-    /// The line this wants drawn where the composer would be, if it wants one.
-    ///
-    /// A view is stacked over the composer while it has a question, and the
-    /// composer is not being typed into meanwhile. A menu with a filter has a
-    /// question *and* something being typed, so it says so here and gets the
-    /// row rather than leaving an empty prompt above itself.
-    fn prompt(&mut self, width: usize) -> Option<String> {
-        let _ = width;
-        None
-    }
-
-    /// Text the terminal pasted while this held the keys.
-    fn paste(&mut self, text: &str) {
-        let _ = text;
-    }
-}
-
-/// A menu, waiting for a row to be chosen.
+/// A menu over the composer, waiting for a row to be chosen.
 ///
 /// The answer goes back down the channel the picker is waiting on. Sending it
 /// from inside the key handler is what makes a cancelled menu and a chosen one
@@ -113,8 +76,9 @@ impl SelectView {
     }
 }
 
-impl BottomPaneView for SelectView {
-    fn handle_key(&mut self, key: &Key) -> ViewKey {
+impl SelectView {
+    /// Takes a keystroke. A menu takes every key while it is open.
+    fn handle_key(&mut self, key: &Key) {
         match self.select.handle_key(key) {
             SelectOutcome::Open => {}
             SelectOutcome::Chosen(row) => self.answer(Some(MenuAnswer { row, action: None })),
@@ -124,7 +88,6 @@ impl BottomPaneView for SelectView {
             })),
             SelectOutcome::Cancelled => self.answer(None),
         }
-        ViewKey::Consumed
     }
 
     /// Also complete once nobody is waiting for the answer: an approval
@@ -139,8 +102,9 @@ impl BottomPaneView for SelectView {
         darkwire_tui::Component::render(&mut self.select, width)
     }
 
-    fn prompt(&mut self, width: usize) -> Option<String> {
-        Some(truncate_to_width(&self.select.prompt(), width, "…"))
+    /// The filter being typed, drawn where the composer would be.
+    fn prompt(&mut self, width: usize) -> String {
+        truncate_to_width(&self.select.prompt(), width, "…")
     }
 
     fn paste(&mut self, text: &str) {
@@ -151,7 +115,7 @@ impl BottomPaneView for SelectView {
 /// The composer and everything drawn around it.
 pub struct BottomPane {
     editor: Editor,
-    views: Vec<Box<dyn BottomPaneView>>,
+    views: Vec<SelectView>,
     /// The commands the list offers.
     commands: Vec<SelectItem<CommandChoice>>,
     /// The list open under the composer, while a slash is being typed.
@@ -302,7 +266,7 @@ impl BottomPane {
     }
 
     /// Puts something over the composer.
-    pub fn push_view(&mut self, view: Box<dyn BottomPaneView>) {
+    pub fn push_view(&mut self, view: SelectView) {
         self.views.push(view);
     }
 
@@ -323,16 +287,16 @@ impl BottomPane {
     /// The top view sees it first and usually takes it. A view that answered
     /// its question is taken away here rather than at the next draw, so the
     /// key that closed it does not also reach the composer underneath.
-    pub fn offer_key(&mut self, key: &Key) -> ViewKey {
+    pub fn offer_key(&mut self, key: &Key) -> bool {
         self.drop_answered();
         let Some(view) = self.views.last_mut() else {
-            return ViewKey::PassThrough;
+            return false;
         };
-        let taken = view.handle_key(key);
+        view.handle_key(key);
         if view.is_complete() {
             self.views.pop();
         }
-        taken
+        true
     }
 
     /// Offers pasted text to whatever is stacked over the composer.
@@ -375,7 +339,7 @@ impl BottomPane {
         rows.extend(self.task_rows(width));
         rows.extend(self.queued_rows(width));
         rows.push(input_rule(width, &self.theme));
-        match self.views.last_mut().and_then(|view| view.prompt(width)) {
+        match self.views.last_mut().map(|view| view.prompt(width)) {
             // The menu's question and its filter, on the row the composer would
             // have had. The composer is not being typed into while a view holds
             // the keys, so the row is the menu's to use.

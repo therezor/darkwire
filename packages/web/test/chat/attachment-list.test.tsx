@@ -8,8 +8,8 @@
  * a given attachment takes and why.
  */
 
-import { screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Attachment } from '@darkwire/protocol';
 
@@ -94,6 +94,54 @@ describe('any other attachment', () => {
 
     expect(screen.getByText('rows.csv')).toBeInTheDocument();
     expect(screen.queryByText(/ B$/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a signed URL', () => {
+  it('says a file that is gone is unavailable, with no link to it', async () => {
+    stubFetch({
+      '/api/files/signed-url': [404, { error: { code: 'not_found' } }],
+    });
+    renderWithProviders(
+      <AttachmentList
+        attachments={[
+          { mimeType: 'image/png', path: 'uploads/gone.png', name: 'gone.png' },
+        ]}
+        workspace="default"
+      />,
+    );
+
+    expect(await screen.findByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('is signed again when an expired one fails to load', async () => {
+    // Every request this list makes is a signing.
+    let signings = 0;
+    vi.stubGlobal('fetch', () => {
+      signings += 1;
+      return Promise.resolve(
+        new Response(JSON.stringify(SIGNED), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+    renderWithProviders(
+      <AttachmentList
+        attachments={[{ mimeType: 'image/png', path: 'uploads/a.png' }]}
+        workspace="default"
+      />,
+    );
+    const image = await screen.findByRole('img', { name: 'a.png' });
+    const before = signings;
+
+    fireEvent.error(image);
+
+    await waitFor(() => {
+      expect(signings).toBeGreaterThan(before);
+    });
   });
 });
 

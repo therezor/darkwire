@@ -11,7 +11,7 @@
 //! coincidence.
 //!
 //! Two other things are load-bearing. The budget is computed rather than fixed,
-//! because the registry truncates by keeping the head *and* the tail, so a
+//! because the dispatcher truncates by keeping the head *and* the tail, so a
 //! result that overflows comes back with its middle removed and reads as a
 //! document with a hole in it. And every result that could not be read is
 //! **named**: a model that sees two extracts where it expected three needs to

@@ -6,7 +6,9 @@ use darkwire_channels::telegram::api::{
     BotApi, HttpClient, InlineKeyboardButton, InlineKeyboardMarkup,
 };
 use darkwire_channels::telegram::chats::{ChatState, RenderPrefs};
-use darkwire_channels::telegram::render::{RenderOutcome, RenderRequest, TelegramRenderer};
+use darkwire_channels::telegram::render::{
+    Deferred, RenderOutcome, RenderRequest, TelegramRenderer,
+};
 use darkwire_core::clock::Clock;
 use darkwire_core::message_bus::OutboundKind;
 use darkwire_core::testkit::ManualClock;
@@ -51,6 +53,7 @@ fn chat() -> ChatState {
         session_key: "telegram:4471".to_owned(),
         live_message_id: None,
         live_turn_id: None,
+        live_settled: 0,
         last_edit_ms: 0,
         prefs: RenderPrefs::default(),
         pending: None,
@@ -256,6 +259,47 @@ async fn the_rest_of_the_turn_edits_that_message_rather_than_posting_again() {
 }
 
 #[tokio::test]
+async fn an_answer_that_outgrows_its_message_posts_only_what_is_new() {
+    // Reposting the whole answer on every update floods the chat and runs
+    // into Telegram's rate limit before the reply.
+    let harness = harness();
+    harness.api.reply(
+        "sendMessage",
+        CannedAnswer::ok(&json!({ "message_id": 78, "chat": { "id": CHAT, "type": "private" } })),
+    );
+    let mut chat = chat();
+    chat.live_message_id = Some(77);
+    chat.live_turn_id = Some("turn-1".to_owned());
+    chat.last_edit_ms = NOW - EDIT_INTERVAL_MS;
+    let long = "word ".repeat(1200);
+    let mut request = request(&long, OutboundKind::Progress);
+    request.turn_id = Some("turn-1".to_owned());
+
+    let outcome = render(&harness, &request, &chat).await;
+
+    assert_eq!(
+        harness.api.bodies("editMessageText")[0]["message_id"],
+        json!(77)
+    );
+    assert_eq!(harness.api.count("sendMessage"), 1);
+    assert_eq!(outcome.live_message_id, Some(78));
+    assert_eq!(outcome.live_settled, 1);
+
+    // The next update edits the new last message and posts nothing.
+    chat.live_message_id = outcome.live_message_id;
+    chat.live_settled = outcome.live_settled;
+    chat.last_edit_ms = NOW - EDIT_INTERVAL_MS;
+    let mut more = request.clone();
+    more.text = format!("{long} and a little more");
+    render(&harness, &more, &chat).await;
+    assert_eq!(harness.api.count("sendMessage"), 1);
+    assert_eq!(
+        harness.api.bodies("editMessageText")[1]["message_id"],
+        json!(78)
+    );
+}
+
+#[tokio::test]
 async fn an_intermediate_progress_inside_the_debounce_is_skipped_rather_than_queued() {
     // The next one carries everything it did, and nothing here may sleep: every
     // chat shares one delivery chain.
@@ -373,9 +417,9 @@ async fn a_retry_that_also_fails_is_dropped_rather_than_raised() {
 }
 
 #[tokio::test]
-async fn a_rate_limit_longer_than_a_second_is_dropped_rather_than_waited_out() {
+async fn a_rate_limit_longer_than_a_second_is_deferred_rather_than_waited_out() {
     // The sleep would sit on the chain every other conversation is queued
-    // behind.
+    // behind, so the channel is told when to try again instead.
     let harness = harness();
     harness.api.rate_limit("sendMessage", 30);
 
@@ -388,6 +432,87 @@ async fn a_rate_limit_longer_than_a_second_is_dropped_rather_than_waited_out() {
 
     assert_eq!(harness.api.count("sendMessage"), 1);
     assert_eq!(outcome.posted, None);
+    assert_eq!(
+        outcome.deferred,
+        Some(Deferred {
+            after_ms: 30_000,
+            pieces: vec!["the answer".to_owned()],
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_dropped_connection_is_deferred_by_a_short_backoff() {
+    let harness = harness();
+    harness.api.reply(
+        "sendMessage",
+        CannedAnswer {
+            throws: Some("connection reset".to_owned()),
+            ..CannedAnswer::default()
+        },
+    );
+
+    let outcome = render(&harness, &request("Done.", OutboundKind::Notice), &chat()).await;
+
+    assert_eq!(
+        outcome.deferred.map(|deferred| deferred.after_ms),
+        Some(2_000)
+    );
+}
+
+#[tokio::test]
+async fn a_long_answer_deferred_part_way_keeps_only_what_is_left() {
+    let first = harness();
+    first.api.reply(
+        "sendMessage",
+        CannedAnswer::ok(&json!({ "message_id": 9, "chat": { "id": CHAT, "type": "private" } })),
+    );
+    first.api.rate_limit("sendMessage", 5);
+
+    let outcome = render(
+        &first,
+        &request(&"x".repeat(9000), OutboundKind::Reply),
+        &chat(),
+    )
+    .await;
+
+    assert_eq!(outcome.posted, Some(9));
+    let deferred = outcome.deferred.expect("the rest waits");
+    assert_eq!(first.api.count("sendMessage"), 2);
+    let posted = first.api.bodies("sendMessage")[0]["text"]
+        .as_str()
+        .unwrap()
+        .len();
+    assert_eq!(
+        posted + deferred.pieces.iter().map(String::len).sum::<usize>(),
+        9000
+    );
+
+    // Resuming posts exactly what was left, and nothing from before it.
+    let later = harness();
+    let request = request(&"x".repeat(9000), OutboundKind::Reply);
+    let outcome = later
+        .renderer
+        .resume(&request, &chat(), &deferred.pieces, &live())
+        .await;
+    assert!(outcome.posted.is_some());
+    assert_eq!(outcome.deferred, None);
+    assert_eq!(later.api.bodies("sendMessage").len(), deferred.pieces.len());
+}
+
+#[tokio::test]
+async fn a_rate_limited_progress_is_dropped_not_deferred() {
+    let harness = harness();
+    harness.api.rate_limit("sendMessage", 30);
+
+    let outcome = render(
+        &harness,
+        &request("so far", OutboundKind::Progress),
+        &chat(),
+    )
+    .await;
+
+    assert_eq!(outcome.deferred, None);
 }
 
 #[tokio::test]

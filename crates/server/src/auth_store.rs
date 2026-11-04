@@ -536,11 +536,13 @@ impl AuthStore {
             return Ok(false);
         }
 
-        self.db.lock().execute(
-            "DELETE FROM auth_secrets WHERE name = ?",
-            params![SETUP_CODE_SECRET],
+        // Conditional on the value just compared, and counted: of two claims
+        // that both matched, only the one whose delete removed the row wins.
+        let removed = self.db.lock().execute(
+            "DELETE FROM auth_secrets WHERE name = ? AND value = ?",
+            params![SETUP_CODE_SECRET, stored],
         )?;
-        Ok(true)
+        Ok(removed == 1)
     }
 
     /// The password alone, for the one caller that already knows who it is

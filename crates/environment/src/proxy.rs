@@ -6,11 +6,40 @@ use darkwire_security::{
 };
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    time::timeout,
 };
 
-async fn connection(mut client: TcpStream, allow: &AllowList) -> Result<()> {
+/// What a validated request turned into.
+enum Opened {
+    /// A `CONNECT` tunnel, relayed both ways.
+    Tunnel(TcpStream),
+    /// One forwarded request, whose answer is copied back.
+    Forwarded(TcpStream),
+}
+
+async fn connection(
+    mut client: TcpStream,
+    allow: &AllowList,
+    resolver: &HickoryResolver,
+) -> Result<()> {
+    let opened = timeout(IDLE_TIMEOUT, open(&mut client, allow, resolver))
+        .await
+        .map_err(|_| invalid("Proxy request was not completed in time"))??;
+    let relayed = match opened {
+        Opened::Tunnel(upstream) => relay(client, upstream).await,
+        Opened::Forwarded(mut upstream) => copy_idle(&mut upstream, &mut client).await,
+    };
+    relayed.map_err(|e| invalid(e.to_string()))
+}
+
+/// Reads and validates the request, and dials the one address it may reach.
+async fn open(
+    client: &mut TcpStream,
+    allow: &AllowList,
+    resolver: &HickoryResolver,
+) -> Result<Opened> {
     let mut header = Vec::new();
     while !header.ends_with(b"\r\n\r\n") {
         if header.len() >= 16384 {
@@ -42,7 +71,6 @@ async fn connection(mut client: TcpStream, allow: &AllowList) -> Result<()> {
     let port = parsed
         .port_or_known_default()
         .ok_or_else(|| invalid("Missing destination port"))?;
-    let resolver = HickoryResolver::new()?;
     // The same entries the allow-list check above used. The default policy
     // refuses every private range, so a gateway whose list names 10.0.0.0/8
     // would approve the destination here and refuse it a line later.
@@ -50,7 +78,7 @@ async fn connection(mut client: TcpStream, allow: &AllowList) -> Result<()> {
         allow: EgressAllow::Only(allow.clone()),
         ..NetworkPolicy::default()
     };
-    let target = validate_target(parsed.as_str(), &policy, &resolver).await?;
+    let target = validate_target(parsed.as_str(), &policy, resolver).await?;
     let (forwarded, body_length) = if tunnel {
         (String::new(), 0)
     } else {
@@ -69,31 +97,83 @@ async fn connection(mut client: TcpStream, allow: &AllowList) -> Result<()> {
             .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             .await
             .map_err(|e| invalid(e.to_string()))?;
-    } else {
-        let mut body = vec![0; body_length];
-        client
-            .read_exact(&mut body)
-            .await
-            .map_err(|e| invalid(e.to_string()))?;
-        upstream
-            .write_all(forwarded.as_bytes())
-            .await
-            .map_err(|e| invalid(e.to_string()))?;
-        upstream
-            .write_all(&body)
-            .await
-            .map_err(|e| invalid(e.to_string()))?;
-        // Forward exactly one validated request. Never tunnel pipelined HTTP
-        // requests that could change Host on a shared destination IP.
-        tokio::io::copy(&mut upstream, &mut client)
-            .await
-            .map_err(|e| invalid(e.to_string()))?;
-        return Ok(());
+        return Ok(Opened::Tunnel(upstream));
     }
-    tokio::io::copy_bidirectional(&mut client, &mut upstream)
+    let mut body = vec![0; body_length];
+    client
+        .read_exact(&mut body)
         .await
         .map_err(|e| invalid(e.to_string()))?;
+    upstream
+        .write_all(forwarded.as_bytes())
+        .await
+        .map_err(|e| invalid(e.to_string()))?;
+    upstream
+        .write_all(&body)
+        .await
+        .map_err(|e| invalid(e.to_string()))?;
+    // Forward exactly one validated request. Never tunnel pipelined HTTP
+    // requests that could change Host on a shared destination IP.
+    Ok(Opened::Forwarded(upstream))
+}
+
+fn idle() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::TimedOut, "Proxy connection went idle")
+}
+
+/// Copies both ways until both sides close, or until neither has moved for
+/// [`IDLE_TIMEOUT`]. One clock for both directions, so a long download with a
+/// quiet client stays open.
+async fn relay<A, B>(a: A, b: B) -> std::io::Result<()>
+where
+    A: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut a_read, mut a_write) = tokio::io::split(a);
+    let (mut b_read, mut b_write) = tokio::io::split(b);
+    let mut up = vec![0; 16 * 1024];
+    let mut down = vec![0; 16 * 1024];
+    let (mut a_open, mut b_open) = (true, true);
+    while a_open || b_open {
+        tokio::select! {
+            read = a_read.read(&mut up), if a_open => match read? {
+                0 => {
+                    a_open = false;
+                    b_write.shutdown().await?;
+                }
+                n => timeout(IDLE_TIMEOUT, b_write.write_all(&up[..n])).await.map_err(|_| idle())??,
+            },
+            read = b_read.read(&mut down), if b_open => match read? {
+                0 => {
+                    b_open = false;
+                    a_write.shutdown().await?;
+                }
+                n => timeout(IDLE_TIMEOUT, a_write.write_all(&down[..n])).await.map_err(|_| idle())??,
+            },
+            () = tokio::time::sleep(IDLE_TIMEOUT) => return Err(idle()),
+        }
+    }
     Ok(())
+}
+
+/// Copies one way until the reader closes or goes quiet for [`IDLE_TIMEOUT`].
+async fn copy_idle<R, W>(reader: &mut R, writer: &mut W) -> std::io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut buffer = vec![0; 16 * 1024];
+    loop {
+        let n = timeout(IDLE_TIMEOUT, reader.read(&mut buffer))
+            .await
+            .map_err(|_| idle())??;
+        if n == 0 {
+            return Ok(());
+        }
+        timeout(IDLE_TIMEOUT, writer.write_all(&buffer[..n]))
+            .await
+            .map_err(|_| idle())??;
+    }
 }
 
 /// The request line and headers to forward upstream, plus the body length the
@@ -191,17 +271,20 @@ fn approved_destination(url: &str, allow: &AllowList, tunnel: bool) -> Result<re
     Ok(parsed)
 }
 
-/// How long one proxied connection may stay open.
+/// How long a proxied connection may go without a byte in either direction.
 ///
 /// A bound rather than a courtesy: the gateway holds a fixed number of slots,
-/// and a connection nobody closes is a slot no later command can have.
-const PROXY_TIMEOUT: Duration = Duration::from_mins(5);
+/// and a connection nobody uses is a slot no later command can have. Idle
+/// rather than total, so a long download is not cut off part way.
+const IDLE_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Run inside the gateway as UID 65532, after firewall installation.
 pub async fn serve(entries: Vec<String>) -> Result<()> {
     // Parsed once, at startup, so a malformed entry stops the gateway rather
     // than failing every request with a message nobody reads.
     let allow = Arc::new(AllowList::parse(&entries)?);
+    // One resolver, so its cache serves every connection.
+    let resolver = Arc::new(HickoryResolver::new()?);
     let listener = TcpListener::bind("127.0.0.1:3128")
         .await
         .map_err(|e| invalid(e.to_string()))?;
@@ -216,21 +299,60 @@ pub async fn serve(entries: Vec<String>) -> Result<()> {
             continue;
         };
         let allow = Arc::clone(&allow);
+        let resolver = Arc::clone(&resolver);
         tokio::spawn(async move {
             let _slot = slot;
-            let _ = tokio::time::timeout(PROXY_TIMEOUT, connection(client, &allow)).await;
+            let _ = connection(client, &allow, &resolver).await;
         });
     }
 }
 
-/// Inline because `approved_destination` and `forwarded_request` are private
-/// and have no public path: both are halves of one decision that is only
-/// reachable through a live socket, and asserting them through one would test
-/// the network rather than the rule.
+/// Inline because `approved_destination`, `forwarded_request`, `relay` and
+/// `copy_idle` are private and have no public path: each is only reachable
+/// through a live socket, and asserting them through one would test the
+/// network rather than the rule.
 #[cfg(test)]
 mod tests {
-    use super::{approved_destination, forwarded_request};
+    use super::{IDLE_TIMEOUT, approved_destination, copy_idle, forwarded_request, relay};
     use darkwire_security::{AllowList, PinnedTarget};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+
+    #[tokio::test(start_paused = true)]
+    async fn a_relay_that_keeps_moving_outlives_the_idle_limit() {
+        let (client, mut client_far) = duplex(64);
+        let (upstream, mut upstream_far) = duplex(64);
+        let relayed = tokio::spawn(relay(client, upstream));
+        for _ in 0..3 {
+            tokio::time::sleep(Duration::from_mins(4)).await;
+            upstream_far.write_all(b"x").await.expect("written");
+            let mut byte = [0; 1];
+            client_far.read_exact(&mut byte).await.expect("relayed");
+        }
+        assert!(!relayed.is_finished());
+
+        tokio::time::sleep(IDLE_TIMEOUT + Duration::from_secs(1)).await;
+        let error = relayed.await.expect("joined").expect_err("idle");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_relay_ends_when_both_sides_close() {
+        let (client, client_far) = duplex(64);
+        let (upstream, upstream_far) = duplex(64);
+        drop((client_far, upstream_far));
+        assert!(relay(client, upstream).await.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_answer_is_given_up_on() {
+        let (mut upstream, _upstream_far) = duplex(64);
+        let (mut client, _client_far) = duplex(64);
+        let error = copy_idle(&mut upstream, &mut client)
+            .await
+            .expect_err("idle");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
 
     fn allow(entries: &[&str]) -> AllowList {
         AllowList::parse(
@@ -250,7 +372,6 @@ mod tests {
             url,
             host,
             addresses: vec![std::net::IpAddr::from([93, 184, 216, 34])],
-            exempt: false,
         }
     }
 

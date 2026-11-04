@@ -95,8 +95,25 @@ async fn read_bounds_the_read_by_the_output_budget_rather_than_the_file_size() {
         &ws.with(|config| config.max_output_chars = 100),
     )
     .await;
-    assert!(result.contains("showing the first 400 of 200000 bytes"));
-    assert!(result.len() < 600);
+    assert!(result.contains("as much as one result holds of this 200000-byte file"));
+}
+
+#[tokio::test]
+async fn a_read_fits_one_result_so_the_cut_never_hides_lines() {
+    // Everything returned survives the dispatcher's cut, so the line the note
+    // offers next is the first one the model has not seen.
+    let ws = TestWorkspace::new();
+    fs::write(ws.root().join("long.txt"), numbered(1500)).unwrap();
+    let ctx = ws.context();
+    let out = text(&read_tool(), json!({"path": "long.txt"}), ctx).await;
+    let cap = usize::try_from(ctx.config.max_output_chars).unwrap();
+    assert!(out.encode_utf16().count() <= cap, "{}", out.len());
+    let shown = out.lines().filter(|line| line.starts_with("line ")).count();
+    assert!(
+        out.contains(&format!("Use offset={} to continue", shown + 1)),
+        "{}",
+        &out[out.len() - 120..]
+    );
 }
 
 #[tokio::test]
@@ -144,7 +161,8 @@ async fn read_stops_at_two_thousand_lines_and_says_how_many_are_left() {
     let ws = TestWorkspace::new();
     let body = numbered(2500);
     fs::write(ws.root().join("long.txt"), body).unwrap();
-    let out = text(&read_tool(), json!({"path": "long.txt"}), ws.context()).await;
+    let roomy = ws.with(|config| config.max_output_chars = 100_000);
+    let out = text(&read_tool(), json!({"path": "long.txt"}), &roomy).await;
     assert!(out.contains("line 2000\n"), "tail of the window");
     assert!(!out.contains("line 2001"), "past the window");
     assert!(

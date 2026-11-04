@@ -483,10 +483,10 @@ async fn an_approval_request_names_the_agent_that_asked() {
         )],
         permissions: Some(asking("exec")),
         approvals: Some(gate.clone()),
-        agent: Some(darkwire_agent::LoopAgent {
+        agent: darkwire_agent::LoopAgent {
             id: "locked-down".to_owned(),
             ..darkwire_agent::LoopAgent::default()
-        }),
+        },
         ..Setup::default()
     });
 

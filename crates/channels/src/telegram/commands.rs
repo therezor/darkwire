@@ -23,7 +23,8 @@ use darkwire_core::{ErrorKind, Result, SessionStore, WireError};
 use darkwire_i18n::{DEFAULT_LOCALE, format_number, format_token_count, format_window_share};
 use darkwire_protocol::tasks::render_tasks;
 use darkwire_protocol::{
-    EditMessage, EditTag, RegenerateMessage, RegenerateTag, StopTurnMessage, StopTurnTag,
+    CompactSessionMessage, CompactSessionTag, EditMessage, EditTag, RegenerateMessage,
+    RegenerateTag, StopTurnMessage, StopTurnTag,
 };
 
 use crate::channel::{BoxFuture, ChannelControlFrame};
@@ -528,6 +529,18 @@ sync_command!(run_stop, |input| {
     Ok(CommandResult::say("Stopping."))
 });
 
+// The chat follows the conversation to the new session when the notice that
+// it was summarised arrives.
+sync_command!(run_compact, |input| {
+    let instructions = input.tail.trim();
+    (input.control)(ChannelControlFrame::Compact(CompactSessionMessage {
+        tag: CompactSessionTag,
+        session_key: input.chat.session_key.clone(),
+        instructions: (!instructions.is_empty()).then(|| instructions.to_owned()),
+    }));
+    Ok(CommandResult::say("Summarising this session."))
+});
+
 fn run_context<'a>(input: &'a CommandInput<'a>) -> BoxFuture<'a, Result<CommandResult>> {
     Box::pin(async move {
         let Some(report) = input.console.context(input.session_key()).await? else {
@@ -785,6 +798,14 @@ static COMMANDS: &[TelegramCommand] = &[
         run: run_stop,
     },
     TelegramCommand {
+        name: "compact",
+        usage: "[instructions]",
+        description: "Summarise this session into a new one that carries on from the summary",
+        admin: false,
+        aliases: &[],
+        run: run_compact,
+    },
+    TelegramCommand {
         name: "context",
         usage: "",
         description: "How much of the model’s window this session fills",
@@ -835,8 +856,8 @@ static COMMANDS: &[TelegramCommand] = &[
     TelegramCommand {
         name: "workspace",
         usage: "[id]",
-        description: "Where you are, the rest, and the buttons to manage them",
-        admin: false,
+        description: "Where you are, the rest, and the buttons to manage them (admin)",
+        admin: true,
         aliases: &[],
         run: run_workspace,
     },

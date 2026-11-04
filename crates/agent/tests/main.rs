@@ -17,6 +17,7 @@ mod agent_loop;
 mod approval;
 mod attachments;
 mod calibration;
+mod compact;
 mod context;
 mod dispatch;
 mod events;

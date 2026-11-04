@@ -1,5 +1,5 @@
 {
-  "description": "extensionDigest over `tree/`. Every regular file under the directory contributes one line `<relative path>\\0<sha256 hex of its bytes>` (a literal NUL between the two halves; the path uses `/` whatever the platform). The lines are sorted with JavaScript's default sort — by UTF-16 code unit, not by byte — joined with `\\n` and the digest is the sha256 hex of that string. `lines` is the sorted list as the implementation sees it. A symlinked file (`link.txt`) is NOT walked: readdir with file types reports a symlink as neither a file nor a directory, so it contributes no line — despite the module comment saying symlinks to files are followed. Symlinked directories are never walked. The tree assumes a POSIX checkout that preserves symlinks and byte-exact contents (see fixtures/README.md). `manifestHash` cases are sha256 hex over the given UTF-8 bytes.",
+  "description": "extensionDigest over `tree/`. Every regular file under the directory contributes one line `<relative path>\\0<sha256 hex of its bytes>` (a literal NUL between the two halves; the path uses `/` whatever the platform). The lines are sorted with JavaScript's default sort (by UTF-16 code unit, not by byte), joined with `\\n` and the digest is the sha256 hex of that string. `lines` is the sorted list as the implementation sees it. A symlink (`link.txt`) is not followed: it contributes the line `<relative path>\\0link:<target text>`, so adding or retargeting one moves the digest. A link that resolves outside the directory is refused. The tree assumes a POSIX checkout that preserves symlinks and byte-exact contents (see fixtures/README.md). `manifestHash` cases are sha256 hex over the given UTF-8 bytes.",
   "tree": [
     {
       "path": "darkwire.extension.json",
@@ -50,11 +50,12 @@
     "dist/index.txt\u0000b40dedde60828bf61d1fadbfc3bb7ea2e0421e9511d22f1b5fb44ae5ba07dbb3",
     "dist/nested/deep/thing.txt\u00005ab7ac5312eb208d9ee0f2f62e1e6fb432690f61d4a5e269454ead1c821ec3b3",
     "empty.txt\u0000e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "link.txt\u0000link:dist/index.txt",
     "z.txt\u00001c27ebdee0f1d1c6e5685fc06b6d7f93b0e1d827589a5708768e923049c3ebe6",
     "𝔘𝔫𝔦𝔠𝔬𝔡𝔢.txt\u000003f17a9664526cc9f1780ea9286fb78fee652114ac0d8b2750540719c73bca1a",
     ".txt\u000044f7eb5e82b7b2b08b670f478b5545831163d7afaf8c0ee6feebc7432bd35bc9"
   ],
-  "digest": "11e8afe1aa60cff1a5876d8a9c298b5ced88084e8b5504701bcd24c1ddf6101f",
+  "digest": "df654e3971e16c87ee85a4936c503c4ef0c4929ceb1848304f465b04d8fe962b",
   "manifestHash": [
     {
       "name": "empty bytes",

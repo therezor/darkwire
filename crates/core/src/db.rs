@@ -9,10 +9,9 @@
 //! `spawn_blocking` when it may take more than a millisecond.
 //!
 //! There is no migration framework and that is a decision. Each store runs
-//! `CREATE TABLE IF NOT EXISTS` on construction and, in exactly two places,
-//! reads `PRAGMA table_info` to add a column an older build did not have. No
-//! comment may appear inside a `CREATE TABLE` column list: SQLite stores the DDL
-//! text verbatim and `ALTER TABLE DROP COLUMN` rewrites it by byte offset.
+//! `CREATE TABLE IF NOT EXISTS` on construction. No comment may appear inside a
+//! `CREATE TABLE` column list: SQLite stores the DDL text verbatim and
+//! `ALTER TABLE DROP COLUMN` rewrites it by byte offset.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -176,23 +175,5 @@ impl Database {
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         self.lock().execute_batch(sql)?;
         Ok(())
-    }
-
-    /// The names of `table`'s columns, for the add-missing-columns ledgers.
-    pub fn column_names(&self, table: &str) -> Result<Vec<String>> {
-        if !table
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
-            return Err(
-                WireError::new(ErrorKind::Internal, "Not a table name").with_detail("table", table)
-            );
-        }
-        let guard = self.lock();
-        let mut statement = guard.prepare(&format!("PRAGMA table_info({table})"))?;
-        let names = statement
-            .query_map([], |row| row.get::<_, String>("name"))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(names)
     }
 }

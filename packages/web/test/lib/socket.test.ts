@@ -420,6 +420,31 @@ describe('a connection that dies without saying so', () => {
     expect(typesSent(latest())).toEqual([]);
   });
 
+  it('sends a steer again on the next connection until it is answered', () => {
+    const steer: ClientMessage = {
+      type: 'turn.steer',
+      sessionKey: 'web:1',
+      content: 'and keep it short',
+      clientMessageId: 's1',
+    };
+    const { socket } = harness();
+    socket.open();
+    latest().open();
+
+    expect(socket.send(steer)).toBe(true);
+    latest().drop();
+    vi.advanceTimersByTime(100);
+    latest().open();
+    expect(typesSent(latest())).toEqual(['turn.steer']);
+
+    // The `steer` frame that names it is the answer.
+    socket.acknowledge('s1');
+    latest().drop();
+    vi.advanceTimersByTime(400);
+    latest().open();
+    expect(typesSent(latest())).toEqual([]);
+  });
+
   it('gives a message up after three connections with no ack', () => {
     // The ack went to a session this tab has left, so it never arrives here.
     const { socket } = harness();

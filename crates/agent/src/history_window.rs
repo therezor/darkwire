@@ -98,9 +98,6 @@ pub fn history_budget(cost: &FixedCost) -> Option<usize> {
 /// The newest only, and none when it ran on another model: a different
 /// tokenizer's ratio says nothing about this one, and the first request on the
 /// new model replaces it.
-///
-/// Clamped to the range a fresh sample must fall in. A stored row skipped that
-/// check, and an extreme ratio would overflow the scaled breakdown.
 pub fn calibration_of(records: &[StoredMessageRecord], model: &str) -> Option<f64> {
     let newest = records
         .iter()
@@ -109,11 +106,7 @@ pub fn calibration_of(records: &[StoredMessageRecord], model: &str) -> Option<f6
             ChatMessage::Assistant(assistant) => assistant.stats.as_ref()?.calibration.as_ref(),
             _ => None,
         })?;
-    (newest.model == model).then(|| {
-        newest
-            .ratio()
-            .clamp(1.0 / SAMPLE_RATIO_LIMIT, SAMPLE_RATIO_LIMIT)
-    })
+    (newest.model == model).then(|| newest.ratio())
 }
 
 /// Token estimates of stored rows, by row id.
@@ -240,29 +233,7 @@ pub struct WindowedHistory {
     pub trimmed: bool,
 }
 
-/// Reads the window a request carries: the message cap first, then the budget.
-///
-/// The loop and the context report both read through this, so the bar shows
-/// what the next request sends. Rows rather than messages, because the turn
-/// boundaries and the opening row are found by `turn_id` and `seq`. The
-/// window `history_for_llm` keeps is a suffix, so its start index is all that
-/// is needed to cut the rows.
-///
-/// # Errors
-///
-/// When the store cannot be read.
-pub fn windowed_history(
-    store: &SessionStore,
-    session_key: &str,
-    opening_seq: Option<i64>,
-    budget: Option<usize>,
-    prices: &mut RowPrices,
-) -> Result<WindowedHistory> {
-    let records = read_history(store, session_key)?;
-    Ok(window_records(records, opening_seq, budget, prices))
-}
-
-/// The rows [`windowed_history`] windows: the newest, up to the message cap.
+/// The rows a request's window is cut from: the newest, up to the message cap.
 ///
 /// The store half on its own, so an async caller can run it on the blocking
 /// pool and window the rows after.
@@ -282,7 +253,11 @@ pub fn read_history(store: &SessionStore, session_key: &str) -> Result<Vec<Store
     )
 }
 
-/// [`windowed_history`] over rows already read.
+/// The window a request carries: the message cap first, then the budget.
+///
+/// The loop and the context report both read through this, so the bar shows
+/// what the next request sends. Rows rather than messages, because the turn
+/// boundaries and the opening row are found by `turn_id` and `seq`.
 pub fn window_records(
     mut records: Vec<StoredMessageRecord>,
     opening_seq: Option<i64>,

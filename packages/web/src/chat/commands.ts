@@ -93,6 +93,8 @@ export interface CommandContext {
   clear(): Promise<void>;
   branch(seq: number): Promise<string>;
   stop(): void;
+  /** Summarises the conversation into a new one; every tab follows. */
+  compact(instructions: string | undefined): void;
   chooseAgent(id: string): Promise<void>;
   /** The label of the agent this conversation runs on, for a note to name. */
   readonly agentLabel: string;
@@ -236,6 +238,20 @@ const COMMANDS: readonly WebCommand[] = [
       // `session.reset` frame, and every tab — this one included — empties from
       // that rather than from the promise.
       return { kind: 'note', key: 'chat.commands.notes.cleared' };
+    },
+  },
+
+  {
+    name: 'compact',
+    usage: '[instructions]',
+    description: 'chat.commands.compact',
+    run: ({ ctx, tail }) => {
+      const refusal = requireStored(ctx);
+      if (refusal !== undefined) return refusal;
+      // The server answers with `session.compacted`, and every tab on the
+      // conversation follows it to the new session from that frame.
+      ctx.compact(tail.trim() === '' ? undefined : tail.trim());
+      return { kind: 'note', key: 'chat.commands.notes.compacting' };
     },
   },
 

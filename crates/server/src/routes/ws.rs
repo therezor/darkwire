@@ -31,7 +31,8 @@
 //!    the bytes it has handed over and not yet seen drained, and emits a close
 //!    once they pass [`MAX_BUFFERED_BYTES`]; without it, one tab that stopped
 //!    draining grows the process by the whole of a turn's output for as long as
-//!    it stays open.
+//!    it stays open. A write the peer has not taken within [`SEND_TIMEOUT`]
+//!    drops the socket, since the close the hub queued sits behind that write.
 //!  - **A socket that sends faster than the hub runs frames stops being read.**
 //!    At most [`MAX_INBOUND_FRAMES`](crate::hub::MAX_INBOUND_FRAMES) wait for
 //!    the hub, each at most [`MAX_FRAME_BYTES`], and past that the read waits,
@@ -39,6 +40,7 @@
 //!    it sent.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Extension;
 use axum::extract::rejection::QueryRejection;
@@ -49,7 +51,7 @@ use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::Response;
 use darkwire_core::ErrorKind;
 use darkwire_protocol::ws::{CLOSE_SIGNED_OUT, ErrorCode};
-use futures::{SinkExt as _, StreamExt as _};
+use futures::{Sink, SinkExt as _, StreamExt as _};
 
 use crate::auth_store::AuthSession;
 use crate::errors::HttpError;
@@ -182,6 +184,8 @@ fn without_default_port(scheme: &str, authority: &str) -> String {
 /// feeding the hub frames on its way out.
 async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option<Login>) {
     let (client, mut outbound) = state.hub.connect(ConnectOptions {
+        // A tab that names its session resumes it before it wants frames.
+        awaits_resume: query.session.is_some(),
         session_key: query.session,
         agent_id: query.agent,
         channel: Some(WEB_CHANNEL.to_owned()),
@@ -205,12 +209,7 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
         None => true,
     };
     if !live {
-        let _ = sink
-            .send(Message::Close(Some(CloseFrame {
-                code: CLOSE_SIGNED_OUT,
-                reason: close_reason(CLOSE_SIGNED_OUT).into(),
-            })))
-            .await;
+        send(&mut sink, close_frame(CLOSE_SIGNED_OUT)).await;
         client.close();
         return;
     }
@@ -223,19 +222,14 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
         tokio::select! {
             instruction = outbound.next() => match instruction {
                 Some(Outbound::Text(text)) => {
-                    if sink.send(Message::Text((&*text).into())).await.is_err() {
+                    if !send(&mut sink, Message::Text((&*text).into())).await {
                         break;
                     }
                 }
                 Some(Outbound::Close(code)) => {
                     // Best effort: a peer that has stopped reading will not get
                     // the frame either, and the outcome is the same.
-                    let _ = sink
-                        .send(Message::Close(Some(CloseFrame {
-                            code,
-                            reason: close_reason(code).into(),
-                        })))
-                        .await;
+                    send(&mut sink, close_frame(code)).await;
                     break;
                 }
                 // The hub detached this connection.
@@ -268,14 +262,32 @@ async fn serve(state: AppState, socket: WebSocket, query: WsQuery, login: Option
     client.close();
 }
 
-/// The reason a close frame carries, for a person reading a network log.
-fn close_reason(code: u16) -> &'static str {
-    match code {
+/// Writes one message, giving up on a peer that has not taken it in time.
+async fn send<S: Sink<Message> + Unpin>(sink: &mut S, message: Message) -> bool {
+    matches!(
+        tokio::time::timeout(SEND_TIMEOUT, sink.send(message)).await,
+        Ok(Ok(()))
+    )
+}
+
+/// A close frame, with a reason a person reading a network log can follow.
+fn close_frame(code: u16) -> Message {
+    let reason = match code {
         CLOSE_SIGNED_OUT => "signed out",
         CLOSE_TRY_AGAIN_LATER => "client is not reading",
         _ => "",
-    }
+    };
+    Message::Close(Some(CloseFrame {
+        code,
+        reason: reason.into(),
+    }))
 }
+
+/// How long one write may wait for the peer to take it.
+///
+/// A peer whose receive window stays shut would otherwise hold this task, the
+/// socket and every frame queued behind the write for as long as TCP allows.
+pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The largest message a client may send, and the largest frame.
 ///
@@ -291,3 +303,29 @@ pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 /// the connection detaches, which the client sees as a disconnect it can
 /// resume from.
 pub const MAX_BUFFERED_BYTES: usize = 4 * 1024 * 1024;
+
+/// Inline because `send` is private and a stalled peer cannot be staged over a
+/// real socket without filling the kernel's buffers and waiting out the clock.
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use axum::extract::ws::Message;
+    use futures::sink;
+
+    use super::send;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_peer_that_never_takes_a_write_is_given_up_on() {
+        let mut stalled = sink::unfold((), |(), _: Message| {
+            futures::future::pending::<Result<(), Infallible>>()
+        });
+        assert!(!send(&mut stalled, Message::Text("hello".into())).await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_write_the_peer_takes_succeeds() {
+        let mut taken = sink::drain();
+        assert!(send(&mut taken, Message::Text("hello".into())).await);
+    }
+}

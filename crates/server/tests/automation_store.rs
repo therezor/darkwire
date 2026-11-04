@@ -484,23 +484,6 @@ fn finishing_a_run_that_is_not_there_answers_none() {
 }
 
 #[test]
-fn a_status_no_build_ever_wrote_reads_as_pending() {
-    let (store, _clock, db) = store();
-    let created = store.create_job(&job("x", every(1000), NOW)).unwrap();
-    let run = store.start_run(&created.id, None).unwrap();
-    db.lock()
-        .execute(
-            "UPDATE automation_runs SET status = 'exploded' WHERE id = ?",
-            [&run.id],
-        )
-        .unwrap();
-    assert_eq!(
-        store.get_run(&run.id).unwrap().unwrap().status,
-        RunStatus::Pending
-    );
-}
-
-#[test]
 fn unreadable_warnings_read_as_none_rather_than_failing_the_row() {
     let (store, _clock, db) = store();
     let created = store.create_job(&job("x", every(1000), NOW)).unwrap();
@@ -661,29 +644,6 @@ fn boot_closes_out_runs_a_dead_process_left_pending() {
 }
 
 // Opening an older database
-
-#[test]
-fn a_legacy_per_job_timezone_is_stripped_on_open() {
-    // A cron schedule refuses unknown keys, so a row still carrying `tz` does
-    // not parse — and every job in the listing would be dropped because one of
-    // them is old.
-    let (store, clock, db) = store();
-    let created = store
-        .create_job(&job("old", cron("0 9 * * *"), NOW))
-        .unwrap();
-    db.lock()
-        .execute(
-            r#"UPDATE automation_jobs SET schedule_json = '{"kind":"cron","expr":"0 9 * * *","tz":"Europe/Kyiv"}' WHERE id = ?"#,
-            [&created.id],
-        )
-        .unwrap();
-    // Before the sweep the row is unreadable.
-    assert!(store.get_job(&created.id).unwrap().is_none());
-
-    let reopened = AutomationStore::new(db, clock, ids("k")).unwrap();
-    let job = reopened.get_job(&created.id).unwrap().unwrap();
-    assert_eq!(job.schedule, cron("0 9 * * *"));
-}
 
 #[test]
 fn a_row_whose_schedule_is_not_json_is_left_for_the_schema_to_report() {

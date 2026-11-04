@@ -1,0 +1,8 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "session.compact",
+    "sessionKey": "web:abc",
+    "instructions": "keep the file names"
+  }
+}

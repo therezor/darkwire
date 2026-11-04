@@ -10,7 +10,6 @@
 use std::fs;
 
 use darkwire_core::ErrorKind;
-use darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 use darkwire_tools::testkit::TestWorkspace;
 use darkwire_tools::{AnyTool, ToolContext, ToolExecution, memory_tool, skill_tool};
 use serde_json::{Value, json};
@@ -112,10 +111,8 @@ async fn asks_for_content_rather_than_writing_an_empty_memory() {
 #[tokio::test]
 async fn saves_and_reads_back_a_memory_of_any_length() {
     let ws = TestWorkspace::new();
-    let long = format!(
-        "# Notes\n\n{}",
-        "x".repeat(DEFAULT_MAX_TOOL_RESULT_CHARS * 3)
-    );
+    let budget = usize::try_from(ws.context().config.max_output_chars).unwrap();
+    let long = format!("# Notes\n\n{}", "x".repeat(budget * 3));
     let saved = run(&memory_tool(), save("long-notes", &long), ws.context()).await;
     assert!(!saved.is_error, "{}", saved.content);
 
@@ -129,6 +126,23 @@ async fn saves_and_reads_back_a_memory_of_any_length() {
         ),
         "{}",
         &result.content[result.content.len() - 200..]
+    );
+}
+
+#[tokio::test]
+async fn notes_paging_by_the_unit_the_cut_counts() {
+    // Fewer chars than the budget, more UTF-16 units: the cut still fires, so
+    // the note must too.
+    let ws = TestWorkspace::new();
+    let budget = usize::try_from(ws.context().config.max_output_chars).unwrap();
+    let dogs = format!("# Dogs\n\n{}", "\u{1F415}".repeat(budget * 3 / 4));
+    assert!(dogs.chars().count() < budget);
+    run(&memory_tool(), save("dogs", &dogs), ws.context()).await;
+    let result = run(&memory_tool(), read("dogs"), ws.context()).await;
+    assert!(
+        result
+            .content
+            .ends_with("the one file tool memory allows.]")
     );
 }
 

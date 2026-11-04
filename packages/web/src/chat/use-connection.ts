@@ -20,6 +20,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +28,7 @@ import { useTranslation } from 'react-i18next';
 import type { ContextResponse } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { deliveredLive, queryKeys, refreshSessions } from '@/lib/query.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
   closeConnection,
@@ -41,21 +42,54 @@ import {
 import { toast } from '@/components/ui/toast.js';
 import { useWorkspace } from '@/workspaces/workspace-context.js';
 
-/** `messages` and `context` keys, which a turn's frames keep current. */
-function deliveredLive(key: readonly unknown[]): boolean {
-  return key[2] === 'messages' || key[2] === 'context';
+/**
+ * Fetches a conversation's stored history and merges it under what the socket
+ * has built. Called directly rather than left to the chat route's effect,
+ * which runs only when the response object changes, and an unchanged history
+ * comes back as the same object.
+ */
+function mergeStoredHistory(
+  queryClient: QueryClient,
+  sessionKey: string,
+): void {
+  void queryClient
+    .query({
+      queryKey: queryKeys.messages(sessionKey),
+      queryFn: ({ signal }) => api.messages(sessionKey, signal),
+      staleTime: 0,
+      retry: false,
+    })
+    .then((history) => {
+      const state = useTurnStore.getState();
+      if (state.sessionKey !== sessionKey) return;
+      state.mergeHistory(
+        history.messages,
+        history.subagentRuns,
+        history.failures,
+      );
+    })
+    // A conversation nobody has spoken in has no row yet: a 404, and nothing
+    // to merge.
+    .catch(() => undefined);
 }
 
-/** Refetches every `['sessions']` query a turn's frames do not keep current. */
-function refreshSessions(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({
-    queryKey: queryKeys.sessions(),
-    predicate: (query) => !deliveredLive(query.queryKey),
-  });
+/**
+ * A turn this page never saw start holds only what arrived after it attached.
+ * Once it ends, storage has the whole of it.
+ */
+function refillJoinedTurn(queryClient: QueryClient, turnId: string): void {
+  const { sessionKey, transcript } = useTurnStore.getState();
+  const turn = transcript.find(
+    (item) => item.kind === 'turn' && item.id === turnId,
+  );
+  if (sessionKey !== undefined && turn?.kind === 'turn' && !turn.watched) {
+    mergeStoredHistory(queryClient, sessionKey);
+  }
 }
 
 export function useConnection(sessionKey: string | undefined): void {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { adopt } = useWorkspace();
   const { t } = useTranslation();
 
@@ -176,6 +210,7 @@ export function useConnection(sessionKey: string | undefined): void {
                 deliveredLive(query.queryKey) && query.state.data !== undefined,
               refetchType: 'none',
             });
+            refillJoinedTurn(queryClient, message.turnId);
             return;
 
           case 'context.usage':
@@ -225,16 +260,10 @@ export function useConnection(sessionKey: string | undefined): void {
             return;
 
           case 'session.replay':
-            // Only the incomplete answer needs anything. The frame carries a
-            // bare `messages` array — no `subagentRuns`, no `failures` — so the
-            // rebuild it drives loses the pointers that let a finished
-            // delegation be fetched back and the reason a failed turn failed.
-            // The REST history carries all three, and `mergeStoredHistory` puts
-            // them under whatever the socket has built since.
+            // Incomplete: the store kept only what storage cannot describe,
+            // and storage supplies the rest.
             if (!message.complete) {
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.messages(message.sessionKey),
-              });
+              mergeStoredHistory(queryClient, message.sessionKey);
             }
             return;
 
@@ -250,6 +279,29 @@ export function useConnection(sessionKey: string | undefined): void {
             });
             return;
 
+          case 'session.reset':
+            // Removed rather than invalidated: a cached history merged under
+            // the emptied transcript would bring the cleared turns back.
+            queryClient.removeQueries({
+              queryKey: queryKeys.messages(message.sessionKey),
+            });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.sessions(),
+            });
+            return;
+
+          case 'session.compacted':
+            // The server has already moved this socket. Following it in the
+            // address bar is what puts the summary on screen.
+            if (message.sessionKey === useTurnStore.getState().sessionKey) {
+              void navigate({
+                to: '/sessions/$sessionKey',
+                params: { sessionKey: message.continuedKey },
+              });
+            }
+            refreshSessions(queryClient);
+            return;
+
           case 'tools.changed':
             void queryClient.invalidateQueries({ queryKey: queryKeys.tools });
             // The same frame is what a server connecting or dropping produces,
@@ -261,6 +313,6 @@ export function useConnection(sessionKey: string | undefined): void {
             return;
         }
       }),
-    [queryClient],
+    [navigate, queryClient],
   );
 }

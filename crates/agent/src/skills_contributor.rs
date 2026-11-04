@@ -27,6 +27,7 @@
 
 use std::path::Path;
 
+use darkwire_core::db::blocking;
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{DEFAULT_AGENT_ID, DEFAULT_SKILLS_TEMPLATE, render_prompt_template};
 use darkwire_providers::BoxFuture;
@@ -143,10 +144,12 @@ impl ContextContributor for SkillsContributor {
         context: &'a StaticPromptContext,
     ) -> BoxFuture<'a, Option<String>> {
         Box::pin(async move {
-            let skills = skills_for_agent(
-                &read_skills(Path::new(&context.workspace_root)),
-                &self.agent_id,
-            );
+            // Up to a hundred files, so off the runtime's workers.
+            let root = context.workspace_root.clone();
+            let all = blocking(move || Ok(read_skills(Path::new(&root))))
+                .await
+                .unwrap_or_default();
+            let skills = skills_for_agent(&all, &self.agent_id);
             // After the filter, not before: an agent every sheet is scoped away
             // from has an empty catalogue, and an empty catalogue is no section
             // rather than a heading with nothing under it.

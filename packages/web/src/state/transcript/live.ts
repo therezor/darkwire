@@ -107,18 +107,18 @@ export function applyServerMessage(
         // means the ring is sending the whole turn, so the frames rebuild it
         // rather than land on top of a copy of themselves. Kept in place: the
         // question above it is storage's alone.
-        const unwatched = (turn: TurnItem): boolean => turn.sessionKey === '';
         if (
           items.some(
             (item) =>
               item.kind === 'turn' &&
               item.id === message.turnId &&
-              unwatched(item),
+              !item.watched,
           )
         ) {
           const reseated = updateTurn(items, message.turnId, (turn) => ({
             ...turn,
             sessionKey: message.sessionKey,
+            watched: true,
             parts: [],
             stopReason: undefined,
             firstSeq: turn.firstSeq ?? message.firstSeq,
@@ -129,13 +129,8 @@ export function applyServerMessage(
           return stampUserSeq(reseated, message.turnId, message.firstSeq);
         }
         const filled = updateTurn(items, message.turnId, (turn) =>
-          turn.sessionKey === '' || turn.firstSeq === undefined
-            ? {
-                ...turn,
-                sessionKey:
-                  turn.sessionKey === '' ? message.sessionKey : turn.sessionKey,
-                firstSeq: turn.firstSeq ?? message.firstSeq,
-              }
+          turn.firstSeq === undefined
+            ? { ...turn, firstSeq: message.firstSeq }
             : turn,
         );
         return stampUserSeq(filled, message.turnId, message.firstSeq);
@@ -150,6 +145,7 @@ export function applyServerMessage(
           kind: 'turn',
           id: message.turnId,
           sessionKey: message.sessionKey,
+          watched: true,
           parts: [],
           stopReason: undefined,
           // From `turn.start`, not only from `turn.end`: a turn that fails
@@ -263,48 +259,28 @@ export function applyServerMessage(
       return EMPTY_TRANSCRIPT;
 
     case 'session.replay': {
-      // Two answers, and `complete` is which one this is. Covered by the ring:
-      // the frames themselves follow, so there is nothing to rebuild. Past it:
-      // the stored tail is the transcript, and the live frames resume on top.
+      // Covered by the ring: the frames follow, and there is nothing to
+      // rebuild.
       if (message.complete) return items;
 
-      // Past the ring, storage is the base — but it cannot hold a turn that has
-      // not finished, and this frame also arrives on a *reconnect*, where the
-      // page never went away and that turn is on screen. Rebuilding over it
-      // deleted the answer the user was watching, in front of them, mid-stream.
-      //
-      // So the unfinished tail is carried across, exactly as `session.truncated`
-      // below carries pending bubbles: anything storage cannot describe yet, and
-      // nothing storage can. On a reload there is no such tail and this is the
-      // plain rebuild it was before.
+      // Otherwise storage is the base, fetched and merged underneath by
+      // `use-connection.ts`. What stays is what storage cannot describe yet: an
+      // unfinished turn and a pending bubble. A finished item goes, so a
+      // `/clear` or an edit made while this page was away cannot survive it.
+      // The running turn the frames are about to rebuild gets a seat of its
+      // own, flagged as theirs, in place of whatever this page held for it.
       const resuming = message.resumingTurnId;
-      const stored = fromStoredMessages(message.messages).filter(
-        // The one turn the two sources overlap on. Its finished iterations are
-        // in the tail *and* in the frames about to arrive, and the frames are
-        // the fuller account — they carry the iteration still running and the
-        // nested subagent runs that never enter this session's history at all.
-        // The user bubble that opened it is not dropped: it is storage's alone,
-        // and no frame recreates it.
-        (item) => item.kind !== 'turn' || item.id !== resuming,
-      );
-      const known = new Set(stored.map((item) => item.id));
       const live = items.filter(
         (item) =>
-          !known.has(item.id) &&
           item.id !== resuming &&
           ((item.kind === 'turn' && !item.done) ||
             (item.kind === 'user' && item.pending)),
       );
-      // A seat for the frames, rather than letting them land on an `orphanTurn`
-      // built by the first one that arrives. Two things need it: the flag, which
-      // is a statement about this replay and not about any single frame, and the
-      // ordering — the turn belongs after the question storage just supplied,
-      // not after whatever else was still live.
       const seat: readonly TranscriptItem[] =
         resuming === undefined
           ? []
           : [{ ...orphanTurn(resuming), authoritative: true }];
-      return [...stored, ...seat, ...live];
+      return [...seat, ...live];
     }
 
     case 'session.truncated': {
@@ -335,6 +311,7 @@ export function applyServerMessage(
     case 'context.usage':
     case 'notification':
     case 'tools.changed':
+    case 'session.compacted':
       return items;
   }
 }
@@ -501,7 +478,7 @@ export function markTurnRunning(items: Transcript, turnId: string): Transcript {
     (item) => item.kind === 'turn' && item.id === turnId,
   );
   const turn = items[index];
-  if (turn?.kind !== 'turn' || !turn.done || turn.sessionKey !== '') {
+  if (turn?.kind !== 'turn' || !turn.done || turn.watched) {
     return items;
   }
   const copy = [...items];

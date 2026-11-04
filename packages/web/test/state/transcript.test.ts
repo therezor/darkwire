@@ -607,7 +607,6 @@ describe('session frames', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [],
       complete: true,
     });
 
@@ -615,28 +614,32 @@ describe('session frames', () => {
     expect(replayed).toBe(items);
   });
 
-  it('rebuilds from storage when the resume fell outside the ring', () => {
-    const replayed = applyServerMessage([], {
-      type: 'session.replay',
-      seq: 9,
-      sessionKey: 'web:1',
-      messages: [
-        stored('m1', 'user', {
+  it('clears what storage holds when the resume fell outside the ring', () => {
+    // Storage is fetched and merged underneath afterwards. What it no longer
+    // holds, a cleared conversation or an edited answer, must not survive.
+    const items = mergeStoredHistory(
+      [],
+      [
+        stored('m1', 'told', {
           role: 'user',
           content: [{ type: 'text', text: 'q' }],
         }),
       ],
+    );
+
+    const replayed = applyServerMessage(items, {
+      type: 'session.replay',
+      seq: 9,
+      sessionKey: 'web:1',
       complete: false,
     });
 
-    expect(replayed).toHaveLength(1);
-    expect(replayed[0]).toMatchObject({ kind: 'user', text: 'q' });
+    expect(replayed).toEqual([]);
   });
 
   it('keeps the running turn when the resume fell outside the ring', () => {
     // The same frame arrives on a *reconnect*, where the page never went away.
-    // Storage cannot describe a turn that has not finished, so rebuilding over
-    // it deleted the answer the user was watching, mid-stream, in front of them.
+    // Storage cannot describe a turn that has not finished.
     const live = play(START, {
       type: 'assistant.delta',
       turnId: 't1',
@@ -647,17 +650,11 @@ describe('session frames', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [
-        stored('m1', 'told', {
-          role: 'user',
-          content: [{ type: 'text', text: 'an older question' }],
-        }),
-      ],
       complete: false,
     });
 
-    expect(replayed.map((item) => item.kind)).toEqual(['user', 'turn']);
-    expect(replayed.at(-1)).toMatchObject({
+    expect(replayed).toHaveLength(1);
+    expect(replayed[0]).toMatchObject({
       kind: 'turn',
       id: 't1',
       done: false,
@@ -665,9 +662,7 @@ describe('session frames', () => {
     });
   });
 
-  it('drops a finished turn the rebuild already accounts for', () => {
-    // Only what storage cannot supply survives. A turn that ended is in the
-    // rows, and keeping the live copy beside it renders the answer twice.
+  it('drops a finished turn, which storage accounts for', () => {
     const live = applyServerMessage(
       play(START, { type: 'assistant.delta', turnId: 't1', text: 'done' }),
       {
@@ -683,69 +678,52 @@ describe('session frames', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [
-        stored('m1', 't1', {
-          role: 'user',
-          content: [{ type: 'text', text: 'q' }],
-        }),
-        stored('m2', 't1', {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'done' }],
-          toolCalls: [],
-        }),
-      ],
       complete: false,
     });
 
-    expect(replayed.map((item) => item.kind)).toEqual(['user', 'turn']);
+    expect(replayed).toEqual([]);
   });
 
-  it('clears the way for a turn the server is about to replay in full', () => {
-    // Past the ring *while a turn is running*, the server sends both the stored
-    // tail and the turn's own frames — legal only because it names the one turn
-    // they overlap on. The stored copy of that turn goes; its question stays,
-    // because no frame recreates a user bubble.
-    const replayed = applyServerMessage([], {
+  it('seats the turn the server is about to replay, under its stored history', () => {
+    // Past the ring while a turn runs, the turn's frames follow in full. The
+    // fetched history merges underneath; its copy of that turn is a prefix,
+    // and the seat is the one item it may not overrule.
+    const seated = applyServerMessage([], {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [
-        stored('m1', 'told', {
-          role: 'user',
-          content: [{ type: 'text', text: 'an older question' }],
-        }),
-        stored('m2', 'told', {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'an older answer' }],
-          toolCalls: [],
-        }),
-        stored('m3', 't1', {
-          role: 'user',
-          content: [{ type: 'text', text: 'and this one' }],
-        }),
-        stored('m4', 't1', {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'a finished iteration' }],
-          toolCalls: [],
-        }),
-      ],
       complete: false,
       resumingTurnId: 't1',
     });
+    const merged = mergeStoredHistory(seated, [
+      stored('m1', 'told', {
+        role: 'user',
+        content: [{ type: 'text', text: 'an older question' }],
+      }),
+      stored('m2', 'told', {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'an older answer' }],
+        toolCalls: [],
+      }),
+      stored('m3', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: 'and this one' }],
+      }),
+      stored('m4', 't1', {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'a finished iteration' }],
+        toolCalls: [],
+      }),
+    ]);
 
-    expect(replayed.map((item) => item.kind)).toEqual([
+    expect(merged.map((item) => item.kind)).toEqual([
       'user',
       'turn',
       'user',
       'turn',
     ]);
-    expect(replayed.at(-2)).toMatchObject({
-      kind: 'user',
-      text: 'and this one',
-    });
-    // The seat: empty, unfinished, and the one item the fetched history may not
-    // overrule.
-    expect(replayed.at(-1)).toMatchObject({
+    expect(merged.at(-2)).toMatchObject({ kind: 'user', text: 'and this one' });
+    expect(merged.at(-1)).toMatchObject({
       kind: 'turn',
       id: 't1',
       parts: [],
@@ -809,41 +787,76 @@ describe('session frames', () => {
   });
 
   it('seats the replayed turn after its question, not before it', () => {
-    // The tail of a running turn ends in a tool row as often as in an assistant
-    // one — a delegation's result is written when the iteration closes. A tool
-    // row attaches to the turn it names rather than opening an item, so dropping
-    // the turn has to leave the question it followed, and the seat has to land
-    // after that rather than wherever the row happened to be.
-    const replayed = applyServerMessage([], {
+    // The tail of a running turn ends in a tool row as often as an assistant
+    // one, and a tool row attaches to the turn it names. The merge has to
+    // leave the question first and the seat after it.
+    const seated = applyServerMessage([], {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [
-        stored('m1', 't1', {
-          role: 'user',
-          content: [{ type: 'text', text: 'the question' }],
-        }),
-        stored('m2', 't1', {
-          role: 'assistant',
-          content: [],
-          toolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{}' }],
-        }),
-        stored('m3', 't1', {
-          role: 'tool',
-          toolCallId: 'c1',
-          name: 'read',
-          content: 'contents',
-          isError: false,
-          truncated: false,
-        }),
-      ],
       complete: false,
       resumingTurnId: 't1',
     });
+    const merged = mergeStoredHistory(seated, [
+      stored('m1', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: 'the question' }],
+      }),
+      stored('m2', 't1', {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{}' }],
+      }),
+      stored('m3', 't1', {
+        role: 'tool',
+        toolCallId: 'c1',
+        name: 'read',
+        content: 'contents',
+        isError: false,
+        truncated: false,
+      }),
+    ]);
 
-    expect(replayed.map((item) => item.kind)).toEqual(['user', 'turn']);
-    expect(replayed[0]).toMatchObject({ text: 'the question' });
-    expect(replayed[1]).toMatchObject({ id: 't1', parts: [], done: false });
+    expect(merged.map((item) => item.kind)).toEqual(['user', 'turn']);
+    expect(merged[0]).toMatchObject({ text: 'the question' });
+    expect(merged[1]).toMatchObject({ id: 't1', parts: [], done: false });
+  });
+
+  it('rebuilds a turn a subagent frame reached before its replayed start', () => {
+    // A tab that reattached mid-delegation sees the child's frames first. They
+    // name the turn, but they do not make this page a witness to its start, so
+    // the replayed `turn.start` still rebuilds it rather than adding to it.
+    const touched = [
+      { type: 'assistant.delta', seq: 1, turnId: 't1', text: 'the answer' },
+      {
+        type: 'subagent.event',
+        seq: 2,
+        turnId: 't1',
+        parentSessionKey: 'web:1',
+        parentCallId: 'c1',
+        agentId: 'researcher',
+        label: 'Researcher',
+        sessionKey: 'sub-1',
+        depth: 1,
+        event: { type: 'assistant.delta', turnId: 't2', text: 'Found it.' },
+      },
+    ].reduce<Transcript>(
+      (items, frame) => applyServerMessage(items, frame as ServerMessage),
+      [],
+    );
+
+    const replayed = [
+      { ...START, seq: 3 },
+      { type: 'assistant.delta', seq: 4, turnId: 't1', text: 'the answer' },
+    ].reduce<Transcript>(
+      (items, frame) => applyServerMessage(items, frame as ServerMessage),
+      touched,
+    );
+
+    expect(turnOf(replayed)).toMatchObject({
+      watched: true,
+      parts: [{ kind: 'text', text: 'the answer' }],
+    });
   });
 
   it('rebuilds the replayed turn from the frames that follow', () => {
@@ -851,12 +864,6 @@ describe('session frames', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [
-        stored('m1', 't1', {
-          role: 'user',
-          content: [{ type: 'text', text: 'q' }],
-        }),
-      ],
       complete: false,
       resumingTurnId: 't1',
     });
@@ -895,7 +902,6 @@ describe('session frames', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 'web:1',
-      messages: [],
       complete: false,
       resumingTurnId: 't1',
     });
@@ -1449,7 +1455,6 @@ describe('merging a fetched history', () => {
       type: 'session.replay',
       seq: 1,
       sessionKey: 'web:1',
-      messages: [row],
       complete: false,
       resumingTurnId: 't1',
     });
@@ -1487,7 +1492,6 @@ describe('merging a fetched history', () => {
       type: 'session.replay',
       seq: 1,
       sessionKey: 'web:1',
-      messages: [row],
       complete: false,
       resumingTurnId: 't1',
     });

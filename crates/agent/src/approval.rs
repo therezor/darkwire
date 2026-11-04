@@ -164,6 +164,8 @@ pub enum DenialReason {
     Timeout,
     /// The session has no way to ask, such as a one-shot terminal run.
     NoPrompt,
+    /// The agent the turn runs on was deleted, switched off or stopped building.
+    AgentRemoved,
 }
 
 /// What the model reads. Phrased to stop a retry loop, not to explain a UI.
@@ -185,6 +187,12 @@ pub fn denied_tool_result(name: &str, reason: DenialReason) -> String {
         }
         DenialReason::NoPrompt => {
             format!("\"{name}\" needs approval and this session has nobody to ask")
+        }
+        DenialReason::AgentRemoved => {
+            return format!(
+                "Stopped: the agent this conversation runs on was removed, so \"{name}\" did \
+                 not run and the turn is over."
+            );
         }
     };
     format!(
@@ -208,6 +216,9 @@ pub fn denied_notice(name: &str, reason: DenialReason) -> String {
         }
         DenialReason::NoPrompt => {
             format!("Denied \"{name}\": it needs approval and this session cannot ask for it.")
+        }
+        DenialReason::AgentRemoved => {
+            format!("Stopped \"{name}\": the agent was removed while the turn ran.")
         }
     }
 }

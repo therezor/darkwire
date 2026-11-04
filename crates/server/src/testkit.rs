@@ -114,8 +114,8 @@ pub struct ScriptedRunner {
     agent_loop: AgentLoop,
     /// Every turn this runner was asked to run, in order.
     inputs: Mutex<Vec<String>>,
-    /// Every steer, as `(session key, content)`.
-    steers: Mutex<Vec<(String, String)>>,
+    /// The queue its loop reads, for the hub to push into.
+    steering: Arc<SteeringQueue>,
 }
 
 impl std::fmt::Debug for ScriptedRunner {
@@ -132,9 +132,9 @@ impl ScriptedRunner {
         self.inputs.lock().clone()
     }
 
-    /// Every steer this runner was handed, in order.
-    pub fn steers(&self) -> Vec<(String, String)> {
-        self.steers.lock().clone()
+    /// The queue its loop reads, for the hub to push into.
+    pub fn steering(&self) -> Arc<SteeringQueue> {
+        Arc::clone(&self.steering)
     }
 }
 
@@ -142,13 +142,6 @@ impl TurnRunner for ScriptedRunner {
     fn run(&self, input: TurnInput, parent: &CancellationToken) -> Box<dyn TurnHandle> {
         self.inputs.lock().push(input.session_key.clone());
         Box::new(self.agent_loop.run(input, parent))
-    }
-
-    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
-        self.steers
-            .lock()
-            .push((session_key.to_owned(), content.to_owned()));
-        self.agent_loop.steer(session_key, id, content)
     }
 }
 
@@ -176,6 +169,7 @@ pub fn scripted_runner(
     let provider = ScriptedProvider::new(turns);
     let registry = Arc::new(ToolRegistry::default());
     let scope: Arc<dyn ToolScope> = registry.select(IndexMap::new());
+    let steering = Arc::new(SteeringQueue::new());
 
     let agent_loop = AgentLoop::new(AgentLoopOptions {
         // The scripted provider answers whatever is asked of it, but a loop
@@ -184,7 +178,7 @@ pub fn scripted_runner(
         // turn that fails at the provider.
         model: Some("test-model".to_owned()),
         clock: Arc::clone(clock),
-        steering: Arc::new(SteeringQueue::new()),
+        steering: Arc::clone(&steering),
         time_zone: Some(Arc::new(|| "UTC".to_owned())),
         ..AgentLoopOptions::new(
             provider,
@@ -197,7 +191,7 @@ pub fn scripted_runner(
     Ok(Arc::new(ScriptedRunner {
         agent_loop,
         inputs: Mutex::new(Vec::new()),
-        steers: Mutex::new(Vec::new()),
+        steering,
     }))
 }
 
@@ -797,7 +791,8 @@ pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
         ..HubApprovalGateOptions::default()
     }));
     let hub = SessionHub::new(SessionHubOptions {
-        config: config.clone(),
+        replay_frames: None,
+        turn_log_bytes: None,
         loop_for: {
             let runner: Arc<dyn TurnRunner> = Arc::clone(&runner) as Arc<dyn TurnRunner>;
             Arc::new(move |_| Ok(Some(Arc::clone(&runner))))
@@ -840,6 +835,7 @@ pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
         new_id: None,
         max_queue_depth: None,
         max_sessions: None,
+        steering: runner.steering(),
     });
 
     hub.fill_rules(crate::exec_rules::rule_writer(

@@ -165,39 +165,6 @@ pub const SCHEMA: &[&str] = &[
     TURN_STATS_SESSION_INDEX,
 ];
 
-/// Columns a database created by an older build does not have, and the
-/// statement that adds each.
-///
-/// `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists,
-/// so a column added to the schema reaches a fresh install and no other.
-/// Deliberately not a migration framework: a versioned ledger for a handful
-/// of `ALTER TABLE`s is a mechanism with one caller.
-///
-/// `error` is in the list because it was always meant to be. The read
-/// tolerates a database written before that column existed — which was true
-/// of the read and false of the write, since the insert names it and would
-/// have failed with `no such column` on exactly the databases the tolerance
-/// was about.
-pub const TURN_STATS_LEDGER: &[(&str, &str)] = &[
-    (
-        "workspace_id",
-        "ALTER TABLE turn_stats ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'",
-    ),
-    ("error", "ALTER TABLE turn_stats ADD COLUMN error TEXT"),
-    (
-        "generation_ms",
-        "ALTER TABLE turn_stats ADD COLUMN generation_ms INTEGER",
-    ),
-    (
-        "generation_tokens",
-        "ALTER TABLE turn_stats ADD COLUMN generation_tokens INTEGER",
-    ),
-    (
-        "first_token_ms",
-        "ALTER TABLE turn_stats ADD COLUMN first_token_ms INTEGER",
-    ),
-];
-
 /// One conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -560,9 +527,6 @@ fn row_to_turn_stats(row: &Row<'_>) -> Result<TurnStatsRecord> {
         generation_ms: READ.optional_int(row, "generation_ms"),
         generation_tokens: READ.optional_int(row, "generation_tokens"),
         first_token_ms: READ.optional_int(row, "first_token_ms"),
-        // Tolerant on purpose: a database written before this column existed
-        // has no `error` in the row at all, and that is a turn with no
-        // recorded reason rather than a corrupt one.
         error: READ.optional_string(row, "error"),
     })
 }
@@ -749,17 +713,10 @@ fn no_such_session(key: &str) -> WireError {
 }
 
 impl SessionStore {
-    /// Creates the tables if needed and adds any column an older build left
-    /// out.
+    /// Creates the tables if needed.
     pub fn new(db: Database, clock: Arc<dyn Clock>, new_id: IdSource) -> Result<SessionStore> {
         for statement in SCHEMA {
             db.execute_batch(statement)?;
-        }
-        let present = db.column_names("turn_stats")?;
-        for (column, ddl) in TURN_STATS_LEDGER {
-            if !present.iter().any(|name| name == column) {
-                db.execute_batch(ddl)?;
-            }
         }
         Ok(SessionStore { db, clock, new_id })
     }
@@ -1114,37 +1071,77 @@ impl SessionStore {
     }
 
     /// Patches a session, creating it first if needed, and returns the result.
+    ///
+    /// Writes only the columns the patch names, in one transaction. Writing
+    /// back a value read a moment earlier would undo whatever wrote it in
+    /// between: a rename during a turn used to wipe the plan `set_tasks` had
+    /// just stored.
     pub fn update_session(&self, session_key: &str, patch: UpdateSession) -> Result<SessionRecord> {
-        let existing = self.ensure_session(session_key, CreateSession::default())?;
+        self.ensure_session(session_key, CreateSession::default())?;
         let now = self.clock.now_ms();
+        let UpdateSession {
+            title,
+            agent_id,
+            workspace_id,
+            metadata,
+        } = patch;
+        self.db.transaction(|conn| {
+            if let Some(title) = &title {
+                conn.execute(
+                    "UPDATE sessions SET title = ? WHERE key = ?",
+                    params![title, session_key],
+                )?;
+            }
+            if let Some(agent_id) = &agent_id {
+                conn.execute(
+                    "UPDATE sessions SET agent_id = ? WHERE key = ?",
+                    params![agent_id, session_key],
+                )?;
+            }
+            if let Some(workspace_id) = &workspace_id {
+                conn.execute(
+                    "UPDATE sessions SET workspace_id = ? WHERE key = ?",
+                    params![workspace_id, session_key],
+                )?;
+            }
+            if let Some(metadata) = &metadata {
+                conn.execute(
+                    "UPDATE sessions SET metadata_json = ? WHERE key = ?",
+                    params![Value::Object(metadata.clone()).to_string(), session_key],
+                )?;
+            }
+            conn.execute(
+                "UPDATE sessions SET updated_at_ms = ? WHERE key = ?",
+                params![now, session_key],
+            )?;
+            Ok(())
+        })?;
+        self.get_session(session_key)?
+            .ok_or_else(|| no_such_session(session_key))
+    }
 
-        let next = SessionRecord {
-            title: patch.title.unwrap_or(existing.title),
-            agent_id: patch.agent_id.unwrap_or(existing.agent_id),
-            workspace_id: patch.workspace_id.unwrap_or(existing.workspace_id),
-            metadata: patch.metadata.unwrap_or(existing.metadata),
-            updated_at_ms: now,
-            key: existing.key,
-            origin: existing.origin,
-            created_at_ms: existing.created_at_ms,
-        };
-
-        self.db.lock().execute(
-            "UPDATE sessions
-          SET title = ?, agent_id = ?, workspace_id = ?, metadata_json = ?,
-              updated_at_ms = ?
-        WHERE key = ?",
-            params![
-                next.title,
-                next.agent_id,
-                next.workspace_id,
-                Value::Object(next.metadata.clone()).to_string(),
-                now,
-                session_key,
-            ],
-        )?;
-
-        Ok(next)
+    /// Rewrites the metadata bag from what it holds now, in one transaction,
+    /// so two writers of different keys cannot lose each other's.
+    pub fn merge_metadata(
+        &self,
+        session_key: &str,
+        change: impl FnOnce(Map<String, Value>) -> Map<String, Value>,
+    ) -> Result<()> {
+        self.ensure_session(session_key, CreateSession::default())?;
+        let now = self.clock.now_ms();
+        self.db.transaction(|conn| {
+            let raw: String = conn.query_row(
+                "SELECT metadata_json FROM sessions WHERE key = ?",
+                params![session_key],
+                |row| row.get(0),
+            )?;
+            let next = change(parse_metadata(&raw));
+            conn.execute(
+                "UPDATE sessions SET metadata_json = ?, updated_at_ms = ? WHERE key = ?",
+                params![Value::Object(next).to_string(), now, session_key],
+            )?;
+            Ok(())
+        })
     }
 
     /// The metadata bag as the protocol's helpers want it.

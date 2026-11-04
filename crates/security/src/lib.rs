@@ -17,9 +17,8 @@
 //!  - [`guarded_fetch`] — SSRF and DNS rebinding, by pinning the addresses that
 //!    validation resolved into the client that connects, and re-validating every
 //!    redirect hop.
-//!  - [`guard_exec`] — command injection, by taking an argv, jailing every
-//!    path-shaped argument, and refusing the shell invocations that would put a
-//!    parser back in the middle.
+//!  - [`guard_exec`]: command injection, by taking an argv rather than a
+//!    string and capping every shell call at the agent's `shell` permission.
 //!  - [`CredentialVault`] — credential theft at rest, with AES-256-GCM under a
 //!    key from the OS keychain or a `0600` keyfile.
 //!  - [`extension_digest`] / [`ExtensionStore`] — code loading itself into the
@@ -77,7 +76,7 @@ pub use ip::{
 };
 pub use jail::{
     JailAccept, JailCheck, JailOptions, JailRejection, JailResolver, PathShape, SingleJail,
-    WorkspaceJail, escape_refusal, led_outside, path_shapes, single_jail,
+    WorkspaceJail, escape_refusal, led_outside, single_jail,
 };
 pub use keychain::{
     CommandResult, CommandRunner, KeychainOptions, KeychainStore, Platform, SystemCommandRunner,

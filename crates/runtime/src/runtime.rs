@@ -575,16 +575,6 @@ impl WireRuntime {
             Arc::clone(&clock),
         )?);
         let tools = Arc::new(ToolRegistry::with_options(ToolRegistryOptions {
-            // The default agent's, because the registry is built once for the
-            // process while a timeout is per agent. A turn on another agent
-            // re-reads its own — this is the floor for anything built before an
-            // agent is chosen.
-            timeout_ms: loaded
-                .config
-                .agents
-                .list
-                .get(DEFAULT_AGENT_ID)
-                .map_or(0, |entry| entry.settings.tool_timeout_ms),
             clock: Some(Arc::clone(&clock)),
         }));
 
@@ -1076,8 +1066,6 @@ impl WireRuntime {
 
         // Past here nothing fails, so the mutations below cannot leave the
         // registry describing a runtime that failed to build.
-        self.tools
-            .set_timeout_ms(default_agent.settings.tool_timeout_ms);
         // Exact by source: a scheduler switched off in the settings panel has
         // to take `automation` out of the definitions the model sees, and MCP
         // and extension tools registered on this same registry must survive
@@ -1119,10 +1107,11 @@ impl WireRuntime {
         // started on, because it holds the object rather than looking it up
         // again. Its tool settings and permissions are the exception:
         // `live_agent` re-reads them before each call.
-        let (factory, cache_resolver) =
-            self.loop_factory(config.clone(), paths.clone(), Arc::clone(&jails));
-        let loops = Arc::new(LoopCache::new(factory));
-        cache_resolver.bind(&loops);
+        let loops = Arc::new(LoopCache::new(self.loop_factory(
+            config.clone(),
+            paths.clone(),
+            Arc::clone(&jails),
+        )));
         let agent_loop = loops.get(DEFAULT_AGENT_ID)?;
 
         Ok(Resolved {
@@ -1365,22 +1354,15 @@ impl WireRuntime {
     }
 }
 
-/// Resolves a subagent's loop through the cache that built its parent.
+/// Resolves a subagent's loop from the runtime as it is now.
 ///
-/// A resolver rather than a map, because loops are built lazily: handing one a
-/// set of them would build every subagent's provider whether or not it was ever
-/// used.
-struct CacheResolver {
-    /// Weak, because the cache owns the factory that owns this resolver: a
-    /// strong handle here would be a cycle that never frees.
-    loops: Mutex<Option<std::sync::Weak<LoopCache>>>,
-}
-
-impl CacheResolver {
-    /// Points the resolver at the cache built from its own factory.
-    fn bind(&self, loops: &Arc<LoopCache>) {
-        *self.loops.lock() = Some(Arc::downgrade(loops));
-    }
+/// A turn keeps the loop it started on, but a settings save replaces the loop
+/// cache, so a resolver tied to the old cache would refuse every later
+/// delegation in that turn. Asking the runtime instead also hands the
+/// delegation the subagent's current settings.
+struct RuntimeResolver {
+    /// Weak, because the runtime owns the loops that hold this resolver.
+    runtime: Weak<WireRuntime>,
 }
 
 /// The host, or a container reached through the isolated service.
@@ -1426,53 +1408,38 @@ impl darkwire_tools::EnvironmentResolver for ServiceEnvironments {
     }
 }
 
-impl LoopResolver for CacheResolver {
+impl LoopResolver for RuntimeResolver {
     fn loop_for(&self, agent_id: &str) -> Option<AgentLoop> {
-        let cache = self.loops.lock().as_ref()?.upgrade()?;
         // A subagent that cannot run is a refusal the model is told about, so a
-        // failure here reads the same as an absence: the delegation tool says so
-        // rather than unwinding the parent's turn.
-        cache.get(agent_id).ok().flatten()
+        // failure here reads the same as an absence.
+        self.runtime
+            .upgrade()?
+            .loop_for(Some(agent_id))
+            .ok()
+            .flatten()
     }
 }
 
 impl WireRuntime {
     /// The factory a [`LoopCache`] is built from.
-    ///
-    /// Split out because the cache and the resolver refer to each other: a
-    /// loop's subagents resolve through the same cache that built it, and the
-    /// resolver is filled in once the cache exists.
-    #[allow(
-        clippy::too_many_arguments,
-        clippy::too_many_lines,
-        reason = "one call site; every argument is a distinct product of the same build"
-    )]
     fn loop_factory(
         self: &Arc<Self>,
         config: Config,
         paths: WirePaths,
         jails: Arc<JailCache>,
-    ) -> (crate::loop_cache::LoopFactory, Arc<CacheResolver>) {
-        let resolver = Arc::new(CacheResolver {
-            loops: Mutex::new(None),
-        });
+    ) -> crate::loop_cache::LoopFactory {
         // Weak, because the cache this factory is handed to is held by the
         // runtime: a strong handle would be a cycle the process never frees.
         let runtime = Arc::downgrade(self);
-        let bound = Arc::clone(&resolver);
-        let factory: crate::loop_cache::LoopFactory = Arc::new(move |agent_id: &str| {
+        let resolver: Arc<dyn LoopResolver> = Arc::new(RuntimeResolver {
+            runtime: Arc::downgrade(self),
+        });
+        Arc::new(move |agent_id: &str| {
             let Some(runtime) = runtime.upgrade() else {
                 return Ok(None);
             };
-            runtime.create_loop(
-                &config,
-                agent_id,
-                &paths,
-                &jails,
-                Arc::clone(&bound) as Arc<dyn LoopResolver>,
-            )
-        });
-        (factory, resolver)
+            runtime.create_loop(&config, agent_id, &paths, &jails, Arc::clone(&resolver))
+        })
     }
 }
 
@@ -1565,23 +1532,23 @@ impl WireRuntime {
                 },
             })
         }));
-        options.agent = Some(LoopAgent {
+        options.agent = LoopAgent {
             prompt: PromptAgent {
                 label: agent.label.clone(),
-                live_prompt: Some(agent.live_prompt.clone()),
-                wrap_up_prompt: Some(agent.wrap_up_prompt.clone()),
-                prompt_mode: Some(agent.prompt_mode),
+                live_prompt: agent.live_prompt.clone(),
+                wrap_up_prompt: agent.wrap_up_prompt.clone(),
+                prompt_mode: agent.prompt_mode,
                 system_prompt: agent.system_prompt.clone(),
             },
             id: agent.id.clone(),
-            tool_prompts: Some(agent.tool_prompts.clone()),
+            tool_prompts: agent.tool_prompts.clone(),
             // Passed through as the operator wrote it. Which built-in an
             // empty override inherits is decided per turn, in the loop, because
             // a subagent runs where its caller's reference says it does and
             // this value is resolved once per agent.
-            platform_prompt: Some(agent.platform_prompt.clone()),
-            tool_policy_prompt: Some(agent.tool_policy_prompt.clone()),
-        });
+            platform_prompt: agent.platform_prompt.clone(),
+            tool_policy_prompt: agent.tool_policy_prompt.clone(),
+        };
 
         // Which sources may write into the prompt is a composition decision, not
         // the loop's — the loop composes and caches sections and deliberately

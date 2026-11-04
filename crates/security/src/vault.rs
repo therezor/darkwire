@@ -176,9 +176,14 @@ pub struct ResolvedVaultKey {
 /// vault encrypted under a key that was never written is a vault whose contents
 /// are lost at the next restart, and discovering that later is worse than not
 /// starting now.
+///
+/// `vault_exists` forbids minting. A vault on disk was encrypted under a key
+/// some store holds, so finding none means a store could not answer (a locked
+/// keychain over SSH), and a fresh key would only make the vault unreadable.
 pub fn resolve_vault_key(
     stores: &[&dyn KeyStore],
     random: &dyn RandomSource,
+    vault_exists: bool,
 ) -> Result<ResolvedVaultKey> {
     for store in stores {
         if let Some(key) = store.load()? {
@@ -188,6 +193,13 @@ pub fn resolve_vault_key(
                 created: false,
             });
         }
+    }
+    if vault_exists {
+        return Err(WireError::new(
+            ErrorKind::Config,
+            "The credential vault exists but no key store answered for its key. If the OS \
+             keychain is locked, unlock it and try again; the vault itself is untouched.",
+        ));
     }
 
     let mut key = vec![0u8; VAULT_KEY_BYTES];

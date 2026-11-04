@@ -110,6 +110,24 @@ fn an_expired_entry_is_dropped_rather_than_kept_forever() {
 }
 
 #[test]
+fn expired_entries_are_swept_at_most_once_a_window() {
+    let (clock, limiter) = limiter(5);
+    let half = Duration::from_secs(30);
+    assert_eq!(limiter.check("first"), None);
+    clock.advance(half);
+    assert_eq!(limiter.check("early"), None);
+    clock.advance(half + Duration::from_secs(1));
+    // A window since the last sweep: "first" is dropped, "early" is not due.
+    assert_eq!(limiter.check("second"), None);
+    assert!(format!("{limiter:?}").contains("tracked: 2"));
+
+    clock.advance(half);
+    // "early" has expired, but the next sweep is half a window away.
+    assert_eq!(limiter.check("third"), None);
+    assert!(format!("{limiter:?}").contains("tracked: 3"));
+}
+
+#[test]
 fn a_zero_quota_refuses_everything() {
     let (_clock, limiter) = limiter(0);
     assert!(limiter.check("1.2.3.4").is_some());

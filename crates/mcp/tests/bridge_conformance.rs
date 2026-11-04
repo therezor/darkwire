@@ -106,7 +106,6 @@ async fn a_bridged_tool_conforms() {
             (workspace, context)
         }),
         valid_args: args(json!({ "text": "hi", "times": 2 })),
-        large_output_args: Some(args(json!({ "text": "long-enough-line\n", "times": 500 }))),
     })
     .await;
 }

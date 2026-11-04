@@ -421,6 +421,8 @@ export const SessionSummarySchema = z.object({
   workspaceId: z.string().min(1).default('default'),
   agentId: z.string().optional(),
   totalUsage: UsageSchema.optional(),
+  /** The conversation this one was summarised from, when it was. */
+  continuedFrom: z.string().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 

@@ -285,6 +285,12 @@ impl ChatSession {
     /// The warning is right once per turn and wrong every time a prompt is
     /// redrawn — and the prompt is redrawn on every keystroke.
     fn agent_quietly(&self) -> String {
+        self.chosen_agent()
+            .unwrap_or_else(|| DEFAULT_AGENT_ID.to_owned())
+    }
+
+    /// The stored session's agent, else the flag's, as a turn picks it.
+    fn chosen_agent(&self) -> Option<String> {
         let stored = self
             .runtime
             .store()
@@ -297,7 +303,6 @@ impl ChatSession {
             self.attachment.agent_id.as_deref(),
             &|id| self.resolves(id),
         )
-        .unwrap_or_else(|| DEFAULT_AGENT_ID.to_owned())
     }
 
     /// Which agent this turn runs on.
@@ -313,18 +318,7 @@ impl ChatSession {
     /// failure on its next turn. The default runs it instead, and says so every
     /// time, because nothing is written down to make the substitution stick.
     fn agent_for_this_turn(&self, renderer: &mut TurnRenderer) -> Option<String> {
-        let stored = self
-            .runtime
-            .store()
-            .get_session(&self.attachment.session_key)
-            .ok()
-            .flatten()
-            .and_then(|session| session.agent_id);
-        let chosen = agent_for_turn(
-            stored.as_deref(),
-            self.attachment.agent_id.as_deref(),
-            &|id| self.resolves(id),
-        )?;
+        let chosen = self.chosen_agent()?;
         if self.resolves(&chosen) {
             return Some(chosen);
         }
@@ -967,16 +961,6 @@ pub trait Surface {
         Box::pin(std::future::ready(false))
     }
 
-    /// What a key did to `/output stats` since this was last asked.
-    ///
-    /// The frame owns that switch while a key is pressed, because only it can
-    /// fold rows already drawn, and the renderer owns it the rest of the time,
-    /// because only it decides whether a pipe sees the row. A surface with no
-    /// keyboard answers `None` and nothing changes.
-    fn take_stats_shown(&mut self) -> BoxFut<'_, Option<bool>> {
-        Box::pin(std::future::ready(None))
-    }
-
     /// Runs something that is not a turn, drawing while it runs.
     ///
     /// A slash command can open a picker, and a picker only answers when
@@ -1035,13 +1019,6 @@ pub async fn drive_prompt(
             surface.close().await;
             return Ok(0);
         };
-        // Before the slash dispatch, so `/output` typed straight after Ctrl-Y
-        // prints the truth. The frame has already folded what is on screen;
-        // this is the half that decides whether a pipe sees the next one.
-        if let Some(shown) = surface.take_stats_shown().await {
-            renderer.set_stats_shown(shown);
-        }
-
         let typed = line.trim().to_owned();
         if typed.is_empty() {
             continue;

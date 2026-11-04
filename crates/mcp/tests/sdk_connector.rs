@@ -18,6 +18,7 @@
 )]
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use darkwire_core::ErrorKind;
@@ -55,6 +56,8 @@ fn schema(properties: Value) -> Arc<serde_json::Map<String, Value>> {
 #[derive(Clone)]
 struct Demo {
     tools: Arc<Mutex<Vec<Tool>>>,
+    /// The client told the server to stop a call.
+    told_to_stop: Arc<AtomicBool>,
 }
 
 impl Demo {
@@ -67,6 +70,7 @@ impl Demo {
                     json!({ "text": { "type": "string", "description": "The string to repeat." } }),
                 ),
             )])),
+            told_to_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -93,7 +97,7 @@ impl ServerHandler for Demo {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let result = match request.name.as_ref() {
             "repeat" => {
@@ -109,6 +113,13 @@ impl ServerHandler for Demo {
             "explode" => CallToolResult::error(vec![ContentBlock::text("boom")]),
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(2)).await;
+                CallToolResult::success(vec![])
+            }
+            "watch" => {
+                tokio::select! {
+                    () = context.ct.cancelled() => self.told_to_stop.store(true, Ordering::SeqCst),
+                    () = tokio::time::sleep(Duration::from_secs(5)) => {}
+                }
                 CallToolResult::success(vec![])
             }
             other => return Err(ErrorData::invalid_params(format!("no tool {other}"), None)),
@@ -297,6 +308,44 @@ async fn a_cancelled_token_abandons_the_call() {
         .await
         .unwrap_err();
     assert!(error.is_aborted());
+    session.close().await;
+    let _ = running.cancel().await;
+}
+
+#[tokio::test]
+async fn a_stop_with_no_timeout_still_tells_the_server_to_stop() {
+    // No timeout is the default, and dropping the call there left the server
+    // running the tool and holding its request open.
+    let Live {
+        demo,
+        running,
+        session,
+    } = live().await;
+    let token = CancellationToken::new();
+    let cancel = token.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        cancel.cancel();
+    });
+    let error = session
+        .call_tool(
+            "watch",
+            Object::new(),
+            McpCallOptions {
+                token,
+                timeout_ms: 0,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(error.is_aborted());
+    for _ in 0..200 {
+        if demo.told_to_stop.load(Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(demo.told_to_stop.load(Ordering::SeqCst));
     session.close().await;
     let _ = running.cancel().await;
 }

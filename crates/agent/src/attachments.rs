@@ -419,28 +419,6 @@ fn modified_ms(stats: &fs::Metadata) -> u128 {
         .map_or(0, |since| since.as_millis())
 }
 
-/// A legacy image part that no provider can fetch.
-///
-/// Before attachments were workspace files, the web put a *relative* signed URL
-/// here, which every provider silently failed on and which the degradation
-/// ladder then stripped, so the turn appeared to succeed without the image.
-/// Those rows are still in storage. Nothing rewrites history, but there is no
-/// reason to keep paying a guaranteed 4xx and a retry for them on every
-/// iteration of every turn.
-fn is_unfetchable(part: &ContentPart) -> bool {
-    let ContentPart::Image(image) = part else {
-        return false;
-    };
-    if image.data.is_some() {
-        return false;
-    }
-    image.url.as_ref().is_none_or(|url| !SCHEME.is_match(url))
-}
-
-/// An absolute URL's scheme, which a relative signed URL does not have.
-static SCHEME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^[a-z][a-z0-9+.\-]*:").unwrap_or_else(|_| unreachable!()));
-
 fn materialise_content(
     content: &[ContentPart],
     jail: &WorkspaceJail,
@@ -450,7 +428,7 @@ fn materialise_content(
 ) -> Option<Vec<ContentPart>> {
     if !content
         .iter()
-        .any(|part| matches!(part, ContentPart::File(_)) || is_unfetchable(part))
+        .any(|part| matches!(part, ContentPart::File(_)))
     {
         return None;
     }
@@ -468,9 +446,6 @@ fn materialise_content(
                     budget,
                 ));
             }
-            other if is_unfetchable(other) => parts.push(text_part(
-                "[image: unavailable. This attachment predates workspace attachments]",
-            )),
             other => parts.push(other.clone()),
         }
     }
@@ -495,8 +470,11 @@ pub fn materialise_attachments(
     };
     let mut cache = cache;
 
-    messages
+    // Newest first, so the message being answered gets its attachments before
+    // older turns do. Put back in order afterwards.
+    let mut out: Vec<ChatMessage> = messages
         .into_iter()
+        .rev()
         .map(|message| match message {
             ChatMessage::System(_) | ChatMessage::Tool(_) => message,
             ChatMessage::User(mut user) => {
@@ -524,5 +502,7 @@ pub fn materialise_attachments(
                 ChatMessage::Assistant(assistant)
             }
         })
-        .collect()
+        .collect();
+    out.reverse();
+    out
 }

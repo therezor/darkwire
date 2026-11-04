@@ -629,6 +629,9 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(dive)]
     pub total_usage: Option<Usage>,
+    /// The conversation this one was summarised from, when it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continued_from: Option<String>,
 }
 
 fn default_origin() -> String {

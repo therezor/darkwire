@@ -65,6 +65,7 @@ export function Markdown({
           token={block.token}
           raw={block.raw}
           complete={!streaming || index < blocks.length - 1}
+          final={!streaming}
         />
       ))}
     </div>
@@ -76,6 +77,12 @@ interface BlockProps {
   /** The comparator's input. Present as a prop so `memo` can see it. */
   readonly raw: string;
   readonly complete: boolean;
+  /**
+   * The answer has finished. Every block renders once more then, because the
+   * whole-text lex can resolve a reference link whose definition arrived after
+   * its block had settled.
+   */
+  readonly final: boolean;
 }
 
 /**
@@ -86,14 +93,20 @@ interface BlockProps {
  * neither has anything the block renders.
  */
 const MemoBlock = memo(
-  ({ token, complete }: BlockProps): ReactNode => {
-    return renderBlock(token, complete);
+  ({ token, complete, final }: BlockProps): ReactNode => {
+    return renderBlock(token, complete, final);
   },
   (previous, next) =>
-    previous.raw === next.raw && previous.complete === next.complete,
+    previous.raw === next.raw &&
+    previous.complete === next.complete &&
+    previous.final === next.final,
 );
 
-function renderBlock(token: Token, complete: boolean): ReactNode {
+function renderBlock(
+  token: Token,
+  complete: boolean,
+  final: boolean,
+): ReactNode {
   switch (token.type) {
     case 'heading':
       return renderHeading(token as Tokens.Heading);
@@ -124,13 +137,14 @@ function renderBlock(token: Token, complete: boolean): ReactNode {
               token={child}
               raw={child.raw}
               complete={complete}
+              final={final}
             />
           ))}
         </blockquote>
       );
 
     case 'list':
-      return renderList(token as Tokens.List, complete);
+      return renderList(token as Tokens.List, complete, final);
 
     case 'table':
       return renderTable(token as Tokens.Table);
@@ -161,7 +175,11 @@ function renderHeading(token: Tokens.Heading): ReactNode {
   return <Tag>{renderInline(inlineTokens(token))}</Tag>;
 }
 
-function renderList(token: Tokens.List, complete: boolean): ReactNode {
+function renderList(
+  token: Tokens.List,
+  complete: boolean,
+  final: boolean,
+): ReactNode {
   const Tag = token.ordered ? 'ol' : 'ul';
   const start = typeof token.start === 'number' ? token.start : undefined;
   // A `data-` attribute rather than a class: the markdown stylesheet addresses
@@ -197,6 +215,7 @@ function renderList(token: Tokens.List, complete: boolean): ReactNode {
                 token={child}
                 raw={child.raw}
                 complete={complete}
+                final={final}
               />
             ))}
           </div>

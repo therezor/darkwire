@@ -129,14 +129,6 @@ pub enum TranscriptEvent {
         /// Whether a target that only writes bytes prints it.
         shown: bool,
     },
-    /// The reasoning channel has been switched on or off for this session.
-    ///
-    /// `/output reasoning off` stops the run reaching a consumer at all, which
-    /// a surface drawing a fold has to know: without it, a key that unfolds the
-    /// reasoning would keep claiming there was some.
-    ReasoningShown(bool),
-    /// The turn's cost has been switched on or off for this session.
-    StatsShown(bool),
 }
 
 /// What a complete line is, which is what decides the space around it.
@@ -270,10 +262,7 @@ impl PlainPrinter {
             TranscriptEvent::EndLine
             | TranscriptEvent::ReasoningStart { .. }
             | TranscriptEvent::ReasoningEnd => self.whole(""),
-            TranscriptEvent::ToolBodyEnd
-            | TranscriptEvent::Tasks(_)
-            | TranscriptEvent::ReasoningShown(_)
-            | TranscriptEvent::StatsShown(_) => String::new(),
+            TranscriptEvent::ToolBodyEnd | TranscriptEvent::Tasks(_) => String::new(),
         }
     }
 
@@ -332,12 +321,8 @@ pub struct TurnRendererOptions {
     pub colors: Option<bool>,
     /// Reasoning deltas are dimmed rather than hidden.
     pub show_reasoning: bool,
-    /// The dim token and timing line after a turn.
-    ///
-    /// Called stats rather than usage, which is what it was: `Usage` is the
-    /// token record the protocol carries, and this is the *line*, which nobody
-    /// at a prompt calls usage. `/output stats` and `ctrl-y` are how it is
-    /// turned on, and one word for one thing is worth the rename.
+    /// The dim token and timing line after a turn. Stats rather than usage:
+    /// `Usage` is the token record the protocol carries, and this is the line.
     ///
     /// It decides whether a target that only writes bytes prints the row. The
     /// row is built either way, so a frame can hold one it is not showing.
@@ -653,10 +638,7 @@ enum Mode {
 pub struct TurnRenderer {
     out: Box<dyn TranscriptSink>,
     colors: Palette,
-    /// Both flags are settable, because `/output` turns them off part way
-    /// through a session. The flags that set them at launch — `--no-reasoning`,
-    /// and `--json`, which suppresses the lot — are the same two fields; a REPL
-    /// simply gets to change its mind.
+    /// Set at launch by `--no-reasoning` and `--json`.
     show_reasoning: bool,
     show_stats: bool,
     tool_result_lines: usize,
@@ -1018,30 +1000,6 @@ impl TurnRenderer {
     /// empty card and writes nothing, which is why the two do not double up.
     pub fn plan(&mut self, tasks: &[(TaskStatus, String)]) {
         self.out.emit(TranscriptEvent::Tasks(tasks.to_vec()));
-    }
-
-    /// Whether the model's reasoning is streamed.
-    #[must_use]
-    pub fn reasoning_shown(&self) -> bool {
-        self.show_reasoning
-    }
-
-    /// Shows or hides the model's reasoning from here on.
-    pub fn set_reasoning_shown(&mut self, shown: bool) {
-        self.show_reasoning = shown;
-        self.out.emit(TranscriptEvent::ReasoningShown(shown));
-    }
-
-    /// Whether the token and timing line is printed after a turn.
-    #[must_use]
-    pub fn stats_shown(&self) -> bool {
-        self.show_stats
-    }
-
-    /// Shows or hides the token and timing line from here on.
-    pub fn set_stats_shown(&mut self, shown: bool) {
-        self.show_stats = shown;
-        self.out.emit(TranscriptEvent::StatsShown(shown));
     }
 
     /// What past turns cost, one line each.

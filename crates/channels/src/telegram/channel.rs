@@ -29,6 +29,7 @@
 //!    presses alike. A press is an authorisation decision arriving from a
 //!    person Telegram will happily let into any group the bot is in.
 
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
@@ -48,7 +49,7 @@ use crate::channel::{
 };
 use crate::projection::{
     APPROVAL_ERROR_METADATA_KEY, APPROVAL_METADATA_KEY, APPROVAL_SETTLED_METADATA_KEY,
-    ApprovalDraftDetail,
+    ApprovalDraftDetail, CONTINUED_METADATA_KEY,
 };
 use crate::telegram::access::{AccessList, Requester};
 use crate::telegram::api::{
@@ -65,8 +66,12 @@ use crate::telegram::menus::{
     CallbackLookup, CallbackPayload, CallbackRefusal, CallbackStore, MenuKind, PickerRow,
     approval_keyboard, confirm_keyboard, picker, picker_keyboard,
 };
-use crate::telegram::render::{RenderRequest, TelegramRenderer};
+use crate::telegram::render::{RenderOutcome, RenderRequest, TelegramRenderer};
 use crate::telegram::settings::{TelegramSettings, parse_telegram_settings};
+
+/// The answer to a workspace button pressed by somebody who is not an admin.
+const WORKSPACES_ARE_FOR_ADMINS: &str =
+    "Managing workspaces is for an administrator of this install.";
 
 /// Backoff after a failed poll: one second, doubling, capped at a minute.
 const FIRST_BACKOFF_MS: u64 = 1000;
@@ -74,6 +79,28 @@ const MAX_BACKOFF_MS: u64 = 60_000;
 
 /// How long `stop()` spends telling Telegram which updates were handled.
 const CONFIRM_OFFSET_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How many times one message is tried before it is dropped.
+const MAX_SEND_TRIES: u32 = 3;
+
+/// How many messages one chat may hold while it waits out a failure.
+const MAX_BACKLOG: usize = 64;
+
+/// A card to register once its message is posted.
+struct CardDraft {
+    session_key: String,
+    detail: ApprovalDraftDetail,
+    text: String,
+}
+
+/// One message waiting for its chat to take messages again.
+struct Waiting {
+    request: RenderRequest,
+    /// What a deferred send left to post, or `None` for one not yet tried.
+    rest: Option<Vec<String>>,
+    tries: u32,
+    card: Option<CardDraft>,
+}
 
 /// How many conversations `/sessions` paging reads at once.
 const PAGE_LISTING_LIMIT: usize = 100;
@@ -141,6 +168,10 @@ pub struct Telegram {
     /// The poll, so `stop()` can await it rather than racing the cancellation.
     polling: Mutex<Option<JoinHandle<()>>>,
     offset: AtomicI64,
+    /// Chats waiting out a rate limit or a dropped connection. A chat listed
+    /// here takes every new message at the back, so its order holds, and a
+    /// task of its own drains it while every other chat carries on.
+    backlog: Mutex<HashMap<i64, VecDeque<Waiting>>>,
 }
 
 impl std::fmt::Debug for Telegram {
@@ -199,6 +230,7 @@ impl Telegram {
             username: Mutex::new(None),
             polling: Mutex::new(None),
             offset: AtomicI64::new(0),
+            backlog: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -622,6 +654,9 @@ impl Telegram {
             }
 
             CallbackPayload::Workspace { workspace_id } => {
+                if !self.access.admits(Requester { user_id, chat_id }) {
+                    return Ok(Some(WORKSPACES_ARE_FOR_ADMINS.to_owned()));
+                }
                 self.ensure(&session_key)?;
                 self.console.store().update_session(
                     &session_key,
@@ -666,7 +701,14 @@ impl Telegram {
             | CallbackPayload::WorkspaceRemoveAsk { .. }
             | CallbackPayload::WorkspaceRemove { .. }
             | CallbackPayload::WorkspaceMoveAsk { .. }
-            | CallbackPayload::WorkspaceMove { .. } => self.workspace(payload, chat_id).await,
+            | CallbackPayload::WorkspaceMove { .. } => {
+                // A button outlives the command that drew it, so the gate is
+                // asked again here and not only on `/workspace`.
+                if !self.access.admits(Requester { user_id, chat_id }) {
+                    return Ok(Some(WORKSPACES_ARE_FOR_ADMINS.to_owned()));
+                }
+                self.workspace(payload, chat_id).await
+            }
 
             CallbackPayload::Page { menu, offset } => self.page(menu, offset, chat_id).await,
         }
@@ -985,19 +1027,147 @@ impl Telegram {
         });
     }
 
-    /// Renders one request and writes the live-message bookkeeping back.
+    /// Renders one answer to something the user just did. Not retried: the
+    /// caller wants the message id now, and a person can ask again.
     async fn render(&self, chat_id: i64, request: RenderRequest) -> Option<i64> {
+        let outcome = self.attempt(chat_id, &request, None).await;
+        if outcome.deferred.is_some() {
+            tracing::warn!(channel = %self.id, "telegram send failed; dropped");
+        }
+        outcome.posted
+    }
+
+    /// Renders `request`, or posts what a deferral left of it, and writes the
+    /// live-message bookkeeping back.
+    async fn attempt(
+        &self,
+        chat_id: i64,
+        request: &RenderRequest,
+        rest: Option<&[String]>,
+    ) -> RenderOutcome {
         let chat = self.chats.lock().snapshot(chat_id);
-        let outcome = self
-            .renderer
-            .render(&request, &chat, &self.context.token)
-            .await;
+        let token = &self.context.token;
+        let outcome = match rest {
+            Some(pieces) => self.renderer.resume(request, &chat, pieces, token).await,
+            None => self.renderer.render(request, &chat, token).await,
+        };
         let mut book = self.chats.lock();
         let state = book.for_chat(chat_id);
         state.live_message_id = outcome.live_message_id;
-        state.live_turn_id = outcome.live_turn_id;
+        state.live_turn_id.clone_from(&outcome.live_turn_id);
+        state.live_settled = outcome.live_settled;
         state.last_edit_ms = outcome.last_edit_ms;
-        outcome.posted
+        outcome
+    }
+
+    /// Delivers a message a turn produced, through the chat's backlog when it
+    /// has one.
+    async fn deliver(&self, chat_id: i64, request: RenderRequest, card: Option<CardDraft>) {
+        let waiting = Waiting {
+            request,
+            rest: None,
+            tries: 0,
+            card,
+        };
+        if let Some(queue) = self.backlog.lock().get_mut(&chat_id) {
+            self.enqueue(queue, waiting);
+            return;
+        }
+        let Some((waiting, after_ms)) = self.try_once(chat_id, waiting).await else {
+            return;
+        };
+        match self.backlog.lock().entry(chat_id) {
+            std::collections::hash_map::Entry::Occupied(mut queue) => {
+                queue.get_mut().push_front(waiting);
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(VecDeque::from([waiting]));
+                if let Some(me) = self.me.upgrade() {
+                    tokio::spawn(me.drain(chat_id, after_ms));
+                }
+            }
+        }
+    }
+
+    /// One try. Registers a card that posted, and hands back what must wait.
+    async fn try_once(&self, chat_id: i64, mut waiting: Waiting) -> Option<(Waiting, u64)> {
+        let outcome = self
+            .attempt(chat_id, &waiting.request, waiting.rest.as_deref())
+            .await;
+        waiting.tries += 1;
+        if let Some(message_id) = outcome.posted
+            && let Some(card) = waiting.card.take()
+        {
+            self.cards.put(ApprovalCard {
+                chat_id,
+                message_id,
+                session_key: card.session_key,
+                detail: card.detail,
+                text: card.text,
+                answered: None,
+            });
+        }
+        let deferred = outcome.deferred?;
+        if waiting.tries >= MAX_SEND_TRIES {
+            tracing::warn!(
+                channel = %self.id,
+                tries = waiting.tries,
+                "telegram send still failing; dropped"
+            );
+            return None;
+        }
+        waiting.rest = Some(deferred.pieces);
+        Some((waiting, deferred.after_ms))
+    }
+
+    /// Works through one chat's backlog, waiting out each failure on this
+    /// task rather than on the chain every chat shares.
+    async fn drain(self: Arc<Self>, chat_id: i64, mut after_ms: u64) {
+        loop {
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(after_ms)) => {}
+                () = self.context.token.cancelled() => return,
+            }
+            loop {
+                let next = {
+                    let mut backlog = self.backlog.lock();
+                    let Some(queue) = backlog.get_mut(&chat_id) else {
+                        return;
+                    };
+                    let Some(next) = queue.pop_front() else {
+                        backlog.remove(&chat_id);
+                        return;
+                    };
+                    next
+                };
+                if let Some((waiting, wait)) = self.try_once(chat_id, next).await {
+                    if let Some(queue) = self.backlog.lock().get_mut(&chat_id) {
+                        queue.push_front(waiting);
+                    }
+                    after_ms = wait;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Queues behind a chat's wait. A newer progress, or the reply, carries
+    /// everything an older progress of the same turn said, so that one goes.
+    fn enqueue(&self, queue: &mut VecDeque<Waiting>, waiting: Waiting) {
+        let kind = waiting.request.kind;
+        if matches!(kind, OutboundKind::Progress | OutboundKind::Reply)
+            && waiting.request.turn_id.is_some()
+        {
+            queue.retain(|queued| {
+                queued.request.kind != OutboundKind::Progress
+                    || queued.request.turn_id != waiting.request.turn_id
+            });
+        }
+        if queue.len() >= MAX_BACKLOG {
+            tracing::warn!(channel = %self.id, "telegram chat backlog full; message dropped");
+            return;
+        }
+        queue.push_back(waiting);
     }
 
     /// Posts an approval card, and remembers it so it can be settled later.
@@ -1009,29 +1179,20 @@ impl Telegram {
         approval: ApprovalDraftDetail,
     ) {
         let keyboard = self.card_keyboard(chat_id, session_key, &approval, true);
-        let posted = self
-            .render(
-                chat_id,
-                RenderRequest {
-                    chat_id,
-                    text: approval_text(text, &approval),
-                    kind: OutboundKind::Notice,
-                    turn_id: None,
-                    keyboard: Some(keyboard),
-                    force_reply: false,
-                },
-            )
-            .await;
-        if let Some(message_id) = posted {
-            self.cards.put(ApprovalCard {
-                chat_id,
-                message_id,
-                session_key: session_key.to_owned(),
-                detail: approval,
-                text: text.to_owned(),
-                answered: None,
-            });
-        }
+        let request = RenderRequest {
+            chat_id,
+            text: approval_text(text, &approval),
+            kind: OutboundKind::Notice,
+            turn_id: None,
+            keyboard: Some(keyboard),
+            force_reply: false,
+        };
+        let card = CardDraft {
+            session_key: session_key.to_owned(),
+            detail: approval,
+            text: text.to_owned(),
+        };
+        self.deliver(chat_id, request, Some(card)).await;
     }
 
     /// The buttons for a card. "Always" is left off once the server has
@@ -1238,23 +1399,29 @@ impl Channel for Telegram {
             if message.kind == OutboundKind::Update {
                 return Ok(());
             }
+            // The conversation was summarised into a new session, so this
+            // chat's next message belongs there.
+            if let Some(continued) = message
+                .metadata
+                .get(CONTINUED_METADATA_KEY)
+                .and_then(Value::as_str)
+            {
+                self.chats.lock().attach(chat_id, continued);
+            }
 
-            self.render(
+            let request = RenderRequest {
                 chat_id,
-                RenderRequest {
-                    chat_id,
-                    text,
-                    kind: message.kind,
-                    turn_id: message
-                        .metadata
-                        .get("turnId")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
-                    keyboard: None,
-                    force_reply: false,
-                },
-            )
-            .await;
+                text,
+                kind: message.kind,
+                turn_id: message
+                    .metadata
+                    .get("turnId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                keyboard: None,
+                force_reply: false,
+            };
+            self.deliver(chat_id, request, None).await;
             Ok(())
         })
     }

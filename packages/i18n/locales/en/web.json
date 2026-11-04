@@ -14,6 +14,8 @@
   "agents": {
     "approvalTimeout": "Approval timeout (seconds)",
     "approvalTimeoutHint": "An unanswered prompt is denied after this. 0 is not allowed.",
+    "autoCompact": "Summarise when nearly full",
+    "autoCompactHint": "At 90% of the context window, the session is summarised into a new one before the next message runs, so older turns are not quietly left out.",
     "backToAgents": "Back to agents",
     "contextWindow": "Context window (tokens)",
     "deleteAgent": "Delete this agent",
@@ -64,7 +66,7 @@
       "patternPlaceholder": "cargo test *",
       "remove": "Remove rule {{position}}",
       "shell": "Shell scripts",
-      "shellHint": "The most a call to bash, sh or another shell can get. Only a rule naming the exact command decides one on its own. On the host a shell never runs -c.",
+      "shellHint": "The most a call to bash, sh or another shell can get. Only a rule naming the exact command decides one on its own.",
       "title": "Command rules"
     },
     "execTimeout": "Command timeout (seconds)",
@@ -341,12 +343,14 @@
     },
     "attachFile": "Attach a file",
     "attachmentDownload": "Download {{name}}",
+    "attachmentUnavailable": "Unavailable",
     "attachTooLarge": "{{name}} is larger than {{limit}} and was not attached.",
     "branchHere": "Branch from here",
     "commands": {
       "agent": "Which agent this session runs on",
       "branch": "Fork this session at your last message",
       "clear": "Forget this session’s history, keeping the session",
+      "compact": "Summarise this session into a new one",
       "current": "current",
       "effort": "How hard this session’s agent is asked to think",
       "efforts": {
@@ -374,6 +378,7 @@
         "agentSet": "This session now runs on {{id}}.",
         "branched": "Branched at message {{seq}}.",
         "cleared": "History cleared.",
+        "compacting": "Summarising this session…",
         "effortDefault": "{{agent}} now sends no reasoning effort at all. The provider applies its own. Saved.",
         "effortSet": "{{agent}} now sends effort {{level}}. Saved.",
         "modelSet": "{{agent}} now runs {{id}}. Saved.",
@@ -387,6 +392,8 @@
       "stop": "Abort the turn that is running",
       "temperature": "The sampling temperature this session’s agent sends"
     },
+    "continuedFrom": "Continued from {{title}}",
+    "continuedFromEarlier": "Continued from an earlier session",
     "copied": "Copied",
     "copyMessage": "Copy message",
     "editMessage": "Edit message",
@@ -404,7 +411,9 @@
     "noModelLink": "Add a provider",
     "notices": {
       "agent_fallback": "Ran on the default agent",
+      "agent_removed": "Agent removed",
       "approval_denied": "Denied",
+      "compacted": "Summarised into a new session",
       "degraded": "Degraded request",
       "length_cut": "Cut at the token limit",
       "prompt_injection": "Possible prompt injection",
@@ -424,6 +433,7 @@
     "reasoning": "Reasoning",
     "regenerate": "Regenerate the answer",
     "removeAttachment": "Remove {{name}}",
+    "retryMayWork": "Sending the message again may work.",
     "risk": "Risk: {{risk}}",
     "send": "Send",
     "sending": "Sending…",

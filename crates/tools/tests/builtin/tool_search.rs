@@ -348,7 +348,6 @@ async fn conforms() {
             (ws, ctx)
         }),
         valid_args: json!({"query": "file"}).as_object().cloned().unwrap(),
-        large_output_args: None,
     })
     .await;
     assert_eq!(tool_search_tool().definition().name, TOOL_SEARCH_NAME);

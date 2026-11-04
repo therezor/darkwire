@@ -56,7 +56,6 @@ fn plan_of() -> ExecPlan {
         env,
         timeout_ms: 30_000,
         max_output_bytes: 1024,
-        paths: Vec::new(),
     }
 }
 

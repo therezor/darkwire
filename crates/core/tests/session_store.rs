@@ -622,6 +622,49 @@ fn patches_only_the_fields_it_is_given() {
 }
 
 #[test]
+fn a_rename_leaves_the_metadata_bag_to_whoever_wrote_it() {
+    // A rename runs during a turn; the plan and the subagent pointers share
+    // the bag. The rename must not write the bag at all.
+    let (store, _) = make_store();
+    store.ensure_session("a", CreateSession::default()).unwrap();
+    store
+        .merge_metadata("a", |mut bag| {
+            bag.insert("plan".to_owned(), serde_json::json!(["one"]));
+            bag
+        })
+        .unwrap();
+
+    let renamed = store
+        .update_session(
+            "a",
+            UpdateSession {
+                title: Some("Renamed".to_owned()),
+                ..UpdateSession::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(renamed.title, "Renamed");
+    assert_eq!(renamed.metadata["plan"], serde_json::json!(["one"]));
+}
+
+#[test]
+fn merging_metadata_keeps_what_another_writer_added() {
+    let (store, _) = make_store();
+    for key in ["first", "second"] {
+        store
+            .merge_metadata("a", |mut bag| {
+                bag.insert(key.to_owned(), serde_json::json!(true));
+                bag
+            })
+            .unwrap();
+    }
+    let session = store.get_session("a").unwrap().unwrap();
+    assert_eq!(session.metadata["first"], serde_json::json!(true));
+    assert_eq!(session.metadata["second"], serde_json::json!(true));
+}
+
+#[test]
 fn distinguishes_clearing_an_agent_from_leaving_it_alone() {
     let (store, _) = make_store();
     store.ensure_session("a", with_agent("p1")).unwrap();
@@ -1632,54 +1675,6 @@ fn records_and_reads_back_a_turn() {
     let store = store_with_session();
     store.record_turn_stats(&stats("t1")).unwrap();
     assert_eq!(store.turn_stats("s", None).unwrap(), [stats("t1")]);
-}
-
-#[test]
-fn adds_its_columns_to_a_database_an_older_build_created() {
-    // `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
-    // exists, so a column added to the schema reaches a fresh install and no
-    // other.
-    //
-    // The real schema with every migrated column dropped back off it, rather
-    // than a hand-written stub: a stub would drift from the thing it stands in
-    // for, and this is exactly the shape an older build left behind. Each new
-    // entry in the ledger belongs in this list too.
-    //
-    // This is also what keeps comments out of the schema's column lists: DROP
-    // COLUMN rewrites the stored CREATE TABLE text by offset, and a comment in
-    // the list can make the rewrite unparseable.
-    let db = Database::in_memory().unwrap();
-    let clock = Arc::new(ManualClock::at(NOW));
-    drop(make_store_on(db.clone(), Arc::clone(&clock)).unwrap());
-    db.execute_batch(
-        "ALTER TABLE turn_stats DROP COLUMN workspace_id;
-         ALTER TABLE turn_stats DROP COLUMN error;
-         ALTER TABLE turn_stats DROP COLUMN generation_ms;
-         ALTER TABLE turn_stats DROP COLUMN generation_tokens;
-         ALTER TABLE turn_stats DROP COLUMN first_token_ms;",
-    )
-    .unwrap();
-    assert_eq!(db.column_names("turn_stats").unwrap().len(), 14);
-
-    let store = make_store_on(db.clone(), clock).unwrap();
-    assert_eq!(db.column_names("turn_stats").unwrap().len(), 19);
-    store.ensure_session("s", CreateSession::default()).unwrap();
-    // Would fail with `no such column` if the ledger had not run.
-    store
-        .record_turn_stats(&TurnStatsRecord {
-            workspace_id: "research".to_owned(),
-            generation_ms: Some(400),
-            generation_tokens: Some(88),
-            first_token_ms: Some(9000),
-            ..stats("t1")
-        })
-        .unwrap();
-
-    let row = store.turn_stats("s", None).unwrap().swap_remove(0);
-    assert_eq!(row.workspace_id, "research");
-    assert_eq!(row.generation_ms, Some(400));
-    assert_eq!(row.generation_tokens, Some(88));
-    assert_eq!(row.first_token_ms, Some(9000));
 }
 
 #[test]

@@ -134,6 +134,23 @@ export const queryKeys = {
  */
 export const CONVERSATION_GC_MS = 30_000;
 
+/** `messages` and `context` keys, which a turn's frames keep current. */
+export function deliveredLive(key: readonly unknown[]): boolean {
+  return key[2] === 'messages' || key[2] === 'context';
+}
+
+/**
+ * Refetches every `['sessions']` query the socket does not keep current. An
+ * open conversation's history is left alone: refetching it downloads every
+ * page of it for nothing.
+ */
+export function refreshSessions(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.sessions(),
+    predicate: (query) => !deliveredLive(query.queryKey),
+  });
+}
+
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {

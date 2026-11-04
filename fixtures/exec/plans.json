@@ -1,5 +1,5 @@
 {
-  "description": "guardExec(argv, {jail, config, env, sandboxed}). `input.config` is a patch over ExecToolConfigSchema's defaults ({} means the defaults), `input.env` is the whole process environment the guard sees. `output` is {plan: {file, args, cwd, env, timeoutMs, maxOutputBytes, paths}} or {error: {kind, message}}. The workspace root is a temp directory holding `layout`; it is spelled `<root>` and its parent `<base>` wherever either appears in a plan or a message. `escape` is a symlink to `<base>` and `notes.txt` a symlink to `<base>/outside.txt`; `<base>/outside.txt` exists.",
+  "description": "guardExec(argv, {jail, config, env, sandboxed}). `input.config` is a patch over ExecToolConfigSchema's defaults ({} means the defaults), `input.env` is the whole process environment the guard sees. `output` is {plan: {file, args, cwd, env, timeoutMs, maxOutputBytes}} or {error: {kind, message}}. The workspace root is a temp directory holding `layout`; it is spelled `<root>` and its parent `<base>` wherever either appears in a plan or a message. `escape` is a symlink to `<base>` and `notes.txt` a symlink to `<base>/outside.txt`; `<base>/outside.txt` exists.",
   "layout": {
     "files": [
       "script.js",
@@ -49,8 +49,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -85,15 +84,12 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/src/a.ts"
-          ]
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a workspace-relative program is resolved",
+      "name": "a workspace-relative program is anchored at the root",
       "input": {
         "argv": [
           "./build.sh"
@@ -109,7 +105,7 @@
       },
       "output": {
         "plan": {
-          "file": "<root>/build.sh",
+          "file": "<root>/./build.sh",
           "args": [],
           "cwd": "<root>",
           "env": {
@@ -118,10 +114,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/build.sh"
-          ]
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -154,8 +147,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -185,8 +177,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -219,8 +210,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 5000,
-          "maxOutputBytes": 4096,
-          "paths": []
+          "maxOutputBytes": 4096
         }
       }
     },
@@ -250,8 +240,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -276,8 +265,7 @@
             "PATH": "/usr/bin"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -307,8 +295,7 @@
             "LANG": "C"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -335,8 +322,7 @@
             "PATH": "/usr/bin:/opt/tools/bin"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -361,8 +347,7 @@
             "PATH": "/opt/tools/bin"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -455,30 +440,6 @@
       }
     },
     {
-      "name": "a shell by .exe on another platform",
-      "input": {
-        "argv": [
-          "cmd.exe",
-          "/k",
-          "dir"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "cmd /k re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
       "name": "a shell by default",
       "input": {
         "argv": [
@@ -507,13 +468,12 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a shell with -c",
+      "name": "a shell with -c runs",
       "input": {
         "argv": [
           "bash",
@@ -530,129 +490,20 @@
         "sandboxed": false
       },
       "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "bash -c re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
-      "name": "a shell with -lc",
-      "input": {
-        "argv": [
-          "bash",
-          "-lc",
-          "x"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "bash -lc re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
-      "name": "a shell with --command",
-      "input": {
-        "argv": [
-          "bash",
-          "--command",
-          "x"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "bash --command re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
-      "name": "a shell with /C",
-      "input": {
-        "argv": [
-          "bash",
-          "/C",
-          "x"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "bash /C re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
-      "name": "a shell with -Command",
-      "input": {
-        "argv": [
-          "powershell",
-          "-Command",
-          "x"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "powershell -Command re-introduces shell parsing. Pass the program and its arguments as argv instead."
-        }
-      }
-    },
-    {
-      "name": "a shell with -EncodedCommand",
-      "input": {
-        "argv": [
-          "powershell",
-          "-EncodedCommand",
-          "x"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "permission_denied",
-          "message": "powershell -EncodedCommand re-introduces shell parsing. Pass the program and its arguments as argv instead."
+        "plan": {
+          "file": "bash",
+          "args": [
+            "-c",
+            "rm -rf / | sh"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -689,13 +540,12 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a traversal argument",
+      "name": "a traversal argument passes unchanged",
       "input": {
         "argv": [
           "cat",
@@ -711,37 +561,24 @@
         "sandboxed": false
       },
       "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (traversal): ../outside.txt"
+        "plan": {
+          "file": "cat",
+          "args": [
+            "../outside.txt"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a deep traversal argument",
-      "input": {
-        "argv": [
-          "cat",
-          "src/../../outside.txt"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (traversal): src/../../outside.txt"
-        }
-      }
-    },
-    {
-      "name": "an absolute argument",
+      "name": "an absolute argument passes unchanged",
       "input": {
         "argv": [
           "cat",
@@ -757,129 +594,24 @@
         "sandboxed": false
       },
       "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (absolute): /etc/passwd"
+        "plan": {
+          "file": "cat",
+          "args": [
+            "/etc/passwd"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a home argument",
-      "input": {
-        "argv": [
-          "cat",
-          "~/.ssh/id_ed25519"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (home_prefix): ~/.ssh/id_ed25519"
-        }
-      }
-    },
-    {
-      "name": "a UNC argument",
-      "input": {
-        "argv": [
-          "cat",
-          "\\\\server\\share"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (unc): \\\\server\\share"
-        }
-      }
-    },
-    {
-      "name": "a drive-letter argument",
-      "input": {
-        "argv": [
-          "cat",
-          "C:\\Windows\\System32"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (drive): C:\\Windows\\System32"
-        }
-      }
-    },
-    {
-      "name": "a flag value that escapes",
-      "input": {
-        "argv": [
-          "cat",
-          "--output=../outside.txt"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (traversal): ../outside.txt"
-        }
-      }
-    },
-    {
-      "name": "a flag value that is absolute",
-      "input": {
-        "argv": [
-          "cat",
-          "--output=/etc/passwd"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument points outside the workspace (absolute): /etc/passwd"
-        }
-      }
-    },
-    {
-      "name": "a symlink argument pointing out",
+      "name": "a symlink argument pointing out passes unchanged",
       "input": {
         "argv": [
           "cat",
@@ -895,37 +627,24 @@
         "sandboxed": false
       },
       "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument is not inside the workspace: Path resolves outside the workspace: escape/outside.txt"
+        "plan": {
+          "file": "cat",
+          "args": [
+            "escape/outside.txt"
+          ],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "a bare filename that is a symlink out",
-      "input": {
-        "argv": [
-          "cat",
-          "notes.txt"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument is not inside the workspace: Path resolves outside the workspace: notes.txt"
-        }
-      }
-    },
-    {
-      "name": "a traversal program path",
+      "name": "a traversal program path is anchored at the root",
       "input": {
         "argv": [
           "../evil.sh"
@@ -940,31 +659,17 @@
         "sandboxed": false
       },
       "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Program path points outside the workspace (traversal): ../evil.sh"
-        }
-      }
-    },
-    {
-      "name": "a home program path",
-      "input": {
-        "argv": [
-          "~/bin/evil"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Program path points outside the workspace (home_prefix): ~/bin/evil"
+        "plan": {
+          "file": "<root>/../evil.sh",
+          "args": [],
+          "cwd": "<root>",
+          "env": {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/ghost",
+            "LANG": "en_US.UTF-8"
+          },
+          "timeoutMs": 0,
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -985,7 +690,7 @@
       },
       "output": {
         "plan": {
-          "file": "<root>/missing/tool",
+          "file": "<root>/./missing/tool",
           "args": [],
           "cwd": "<root>",
           "env": {
@@ -994,10 +699,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/missing/tool"
-          ]
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1034,8 +736,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1068,8 +769,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1102,8 +802,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1136,8 +835,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1170,8 +868,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1204,8 +901,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1238,10 +934,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/src/index.ts"
-          ]
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1274,10 +967,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/script.js"
-          ]
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1310,144 +1000,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
-        }
-      }
-    },
-    {
-      "name": "path-shaped arguments are collected",
-      "input": {
-        "argv": [
-          "node",
-          "script.js",
-          "src/a.ts",
-          "--out=src/b.ts"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "plan": {
-          "file": "node",
-          "args": [
-            "script.js",
-            "src/a.ts",
-            "--out=src/b.ts"
-          ],
-          "cwd": "<root>",
-          "env": {
-            "PATH": "/usr/bin:/bin",
-            "HOME": "/home/ghost",
-            "LANG": "en_US.UTF-8"
-          },
-          "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": [
-            "<root>/src/a.ts",
-            "<root>/src/b.ts"
-          ]
-        }
-      }
-    },
-    {
-      "name": "a URL is not reported as a path",
-      "input": {
-        "argv": [
-          "curl",
-          "https://example.com/a/b"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "plan": {
-          "file": "curl",
-          "args": [
-            "https://example.com/a/b"
-          ],
-          "cwd": "<root>",
-          "env": {
-            "PATH": "/usr/bin:/bin",
-            "HOME": "/home/ghost",
-            "LANG": "en_US.UTF-8"
-          },
-          "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
-        }
-      }
-    },
-    {
-      "name": "a message too long to verify",
-      "input": {
-        "argv": [
-          "git",
-          "commit",
-          "-m",
-          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "plan": {
-          "file": "git",
-          "args": [
-            "commit",
-            "-m",
-            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-          ],
-          "cwd": "<root>",
-          "env": {
-            "PATH": "/usr/bin:/bin",
-            "HOME": "/home/ghost",
-            "LANG": "en_US.UTF-8"
-          },
-          "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
-        }
-      }
-    },
-    {
-      "name": "a path-shaped argument too long to verify",
-      "input": {
-        "argv": [
-          "cat",
-          "src/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        ],
-        "config": {},
-        "env": {
-          "PATH": "/usr/bin:/bin",
-          "HOME": "/home/ghost",
-          "LANG": "en_US.UTF-8",
-          "AWS_SECRET_ACCESS_KEY": "leak"
-        },
-        "sandboxed": false
-      },
-      "output": {
-        "error": {
-          "kind": "jail_escape",
-          "message": "Argument is not inside the workspace: Path cannot be verified: src/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (ENAMETOOLONG)"
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1482,8 +1035,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1516,8 +1068,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
@@ -1552,13 +1103,12 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },
     {
-      "name": "sandboxed: a relative program path is not resolved",
+      "name": "sandboxed: a relative program path is left to the container",
       "input": {
         "argv": [
           "./build.sh"
@@ -1583,8 +1133,7 @@
             "LANG": "en_US.UTF-8"
           },
           "timeoutMs": 0,
-          "maxOutputBytes": 1048576,
-          "paths": []
+          "maxOutputBytes": 1048576
         }
       }
     },

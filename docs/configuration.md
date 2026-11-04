@@ -63,23 +63,24 @@ on, and with nothing above it there would otherwise be nothing for a fresh insta
 run. The id also names the agent's directory on disk, so it follows the workspace id
 rules.
 
-| Key                   | Type                                     | Default   | Notes                                                                                                                                         |
-| --------------------- | ---------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`               | string                                   | `''`      | Empty means **unconfigured**, not "pick one". The agent is still listed and editable; only a turn on it is refused, with a message saying so. |
-| `provider`            | string                                   | `'auto'`  | An instance id, a bare provider type, or `auto`.                                                                                              |
-| `maxTokens`           | int > 0                                  | `8192`    | Output cap per response.                                                                                                                      |
-| `contextWindowTokens` | int > 0                                  | `65536`   | What the context inspector measures against.                                                                                                  |
-| `temperature`         | 0–2                                      | _unset_   | Absent means the request carries no `temperature` at all and the provider applies its own, the only correct answer for models that reject it. |
-| `maxToolIterations`   | int > 0                                  | `40`      | Tool rounds in one turn.                                                                                                                      |
-| `toolTimeoutMs`       | int ≥ 0                                  | `0`       |                                                                                                                                               |
-| `loopWallTimeoutMs`   | int ≥ 0                                  | `0`       | Wall-clock cap on a turn, checked at the top of each iteration.                                                                               |
-| `subagentTimeoutMs`   | int ≥ 0                                  | `0`       | Applies to delegations _this_ agent makes.                                                                                                    |
-| `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_   | Absent sends nothing, which is not the same as `off`. See below.                                                                              |
-| `approvalTimeoutMs`   | int > 0                                  | 5 min     | How long an `ask` prompt stays open before it counts as denied. `0` is refused: an approval that never expires holds the turn open forever.   |
-| `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result. `0` is refused: `read` sizes its buffer from this, so `0` would read one byte of every file.            |
-| `exec`                | object                                   | see below | What the `exec` tool may run for this agent. Whether it has `exec` at all is the `tools` map below.                                           |
-| `lazyDiscovery`       | boolean                                  | `false`   | Send `tool_search` plus the pinned tools instead of every permitted tool. See [Lazy discovery](tools.md#lazy-discovery).                      |
-| `pinnedTools`         | string[]                                 | `[]`      | Tools that stay in the list while `lazyDiscovery` is on. Names, not permissions. Replaced whole on a save.                                    |
+| Key                   | Type                                     | Default   | Notes                                                                                                                                                   |
+| --------------------- | ---------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`               | string                                   | `''`      | Empty means **unconfigured**, not "pick one". The agent is still listed and editable; only a turn on it is refused, with a message saying so.           |
+| `provider`            | string                                   | `'auto'`  | An instance id, a bare provider type, or `auto`.                                                                                                        |
+| `maxTokens`           | int > 0                                  | `8192`    | Output cap per response.                                                                                                                                |
+| `contextWindowTokens` | int > 0                                  | `65536`   | What the context inspector measures against.                                                                                                            |
+| `temperature`         | 0–2                                      | _unset_   | Absent means the request carries no `temperature` at all and the provider applies its own, the only correct answer for models that reject it.           |
+| `maxToolIterations`   | int > 0                                  | `40`      | Tool rounds in one turn.                                                                                                                                |
+| `toolTimeoutMs`       | int ≥ 0                                  | `0`       | Wall-clock cap on one tool call for this agent, read per call. `0` waits as long as it takes.                                                           |
+| `loopWallTimeoutMs`   | int ≥ 0                                  | `0`       | Wall-clock cap on a turn, checked at the top of each iteration.                                                                                         |
+| `subagentTimeoutMs`   | int ≥ 0                                  | `0`       | Applies to delegations _this_ agent makes.                                                                                                              |
+| `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_   | Absent sends nothing, which is not the same as `off`. See below.                                                                                        |
+| `approvalTimeoutMs`   | int > 0                                  | 5 min     | How long an `ask` prompt stays open before it counts as denied. `0` is refused: an approval that never expires holds the turn open forever.             |
+| `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result, in UTF-16 units, applied once. `read` stops its window inside it. `0` is refused.                                 |
+| `exec`                | object                                   | see below | What the `exec` tool may run for this agent. Whether it has `exec` at all is the `tools` map below.                                                     |
+| `autoCompact`         | boolean                                  | `true`    | At 90% of `contextWindowTokens`, summarise the conversation into a new session before the next message. See [Architecture](architecture.md#compaction). |
+| `lazyDiscovery`       | boolean                                  | `false`   | Send `tool_search` plus the pinned tools instead of every permitted tool. See [Lazy discovery](tools.md#lazy-discovery).                                |
+| `pinnedTools`         | string[]                                 | `[]`      | Tools that stay in the list while `lazyDiscovery` is on. Names, not permissions. Replaced whole on a save.                                              |
 
 `reasoningEffort` is sent as the wire's own `reasoning_effort`, verbatim, and only
 `off` is translated — into whatever the provider spells "do not think" as
@@ -218,6 +219,11 @@ name. Letting a block admit a hostname would mean resolving every unlisted name 
 out whether its answer lands inside, which turns a refused destination into a DNS query
 the caller chose the name of.
 
+**A name reaches public addresses only.** Whoever answers for a name decides where it
+points, so a name that resolves to a loopback or private address is refused unless an
+address or block entry covers that address too. `internal.corp` on `10.0.0.5` needs both
+`internal.corp` and `10.0.0.0/8`.
+
 Blocks and addresses are enforced by the gateway's packet filter. Names are enforced by
 the egress proxy, which sees the name rather than the address a name resolved to, and so
 is the one thing DNS rebinding cannot defeat. An entry in a range nothing may reach, such
@@ -319,38 +325,19 @@ See [Providers](providers.md) for the registry table and the resolution order.
 
 ## `server`
 
-| Key                       | Type        | Default       | Notes                                                                             |
-| ------------------------- | ----------- | ------------- | --------------------------------------------------------------------------------- |
-| `host`                    | string      | `'127.0.0.1'` | A non-loopback host with `auth.enabled: false` **refuses to start**.              |
-| `port`                    | int 1–65535 | `3000`        | One port for the API, the WebSocket and the UI.                                   |
-| `allowedHosts`            | string[]    | `[]`          | Extra `Host` names to answer to. See [below](#serverallowedhosts).                |
-| `replayBufferSize`        | int ≥ 0     | `512`         | Events retained per session so a reconnecting tab can replay across turns.        |
-| `turnLogMaxBytes`         | int ≥ 0     | 16 MiB        | Budget for keeping the _running_ turn whole, so a reload comes back to all of it. |
-| `auth.enabled`            | boolean     | `true`        |                                                                                   |
-| `auth.sessionTtlMs`       | int > 0     | 30 days       |                                                                                   |
-| `auth.rateLimitPerMinute` | int ≥ 0     | `0`           | `0` is off.                                                                       |
-| `auth.signedUrlTtlMs`     | int > 0     | 10 minutes    | Lifetime of the HMAC-signed URLs that serve workspace media to `<img>`.           |
+| Key                       | Type        | Default       | Notes                                                                            |
+| ------------------------- | ----------- | ------------- | -------------------------------------------------------------------------------- |
+| `host`                    | string      | `'127.0.0.1'` | A non-loopback host with `auth.enabled: false` **refuses to start**.             |
+| `port`                    | int 1–65535 | `3000`        | One port for the API, the WebSocket and the UI.                                  |
+| `allowedHosts`            | string[]    | `[]`          | Extra `Host` names to answer to. See [below](#serverallowedhosts).               |
+| `trustedProxies`          | string[]    | `[]`          | Proxies whose `X-Forwarded-For` is believed. See [below](#servertrustedproxies). |
+| `auth.enabled`            | boolean     | `true`        |                                                                                  |
+| `auth.sessionTtlMs`       | int > 0     | 30 days       |                                                                                  |
+| `auth.rateLimitPerMinute` | int ≥ 0     | `0`           | `0` is off.                                                                      |
+| `auth.signedUrlTtlMs`     | int > 0     | 10 minutes    | Lifetime of the HMAC-signed URLs that serve workspace media to `<img>`.          |
 
-**These two are not alternatives, and `turnLogMaxBytes` is the one that decides whether a
-reload comes back to the whole answer.** `replayBufferSize` counts events, and 512 is
-fewer than it sounds: every delta is one, and every delta a _subagent_ produces is one
-too, so a delegation of any length pushes the call that started it out of the buffer.
-Raising it is not the fix — it only widens how far back a reconnect can pick up _across_
-turns, and it costs that many whole events per live session. The ring also stops at 4 MiB
-of encoded frames, whatever the count.
-
-The turn that is running is kept separately and in full, from its `turn.start`, which is
-what a reload actually needs. Adjacent deltas of the same part are merged as they are
-retained, so length is nearly free and the budget is spent on tool output — a turn that
-reads fifty large files is the shape that reaches 16 MiB; a turn that writes for ten
-minutes is not. Only a session with an open turn holds one, so the ceiling is the number
-of turns running at once rather than the number of live sessions.
-
-Past the budget the log is dropped and the server says so by naming no turn, because a
-half-log would rebuild a turn that began in the middle. A resume then falls back to the
-stored tail alone — the behaviour that made reloading mid-delegation lose the run. `0`
-turns the log off outright and makes that the behaviour always. See
-[API](api.md#sequencing-and-replay) for what a client does with either answer.
+What a reconnecting tab gets back, and how a reload comes back to a running turn, is in
+[API](api.md#sequencing-and-replay).
 
 `0.0.0.0` and `::` count as remote. All of `127.0.0.0/8`, `localhost` and `::1` count as
 loopback. The refusal is a startup error rather than a warning because a warning scrolls
@@ -387,6 +374,23 @@ public host. The names that are always accepted are not trusted as an `Origin`: 
 from another server on `localhost` is still another page.
 
 Read at startup, like `host` and `port`.
+
+### `server.trustedProxies`
+
+The login throttle and the rate limits key on the caller's address. Behind a reverse
+proxy every request comes from the proxy, so every caller would share one bucket. List the
+proxy here, as an address or a CIDR block, and its `X-Forwarded-For` names the caller.
+
+```yaml
+server:
+  trustedProxies:
+    - 127.0.0.1
+    - 10.0.0.0/8
+```
+
+Only a peer in the list is believed. The header is read from the right, skipping hops
+that are themselves listed, so an address a client writes into the header is never used.
+An entry that is neither an address nor a CIDR block is ignored. Read at startup.
 
 ---
 

@@ -11,9 +11,15 @@
 //! dead request: the model may simply not accept a parameter this one carried.
 //! Each [`DegradationStep`] states what it can repair and how, in the order
 //! that costs the least: drop `prompt_cache_key`, then merge the trailing
-//! turn, then `reasoning_effort`, then `tool_choice`, then images, then the
-//! oldest turns. Every step is a pure function of the request, so each is
-//! unit-testable on its own and the ladder is data rather than control flow.
+//! turn, then `reasoning_effort`, then `tool_choice`, then images. Every step
+//! is a pure function of the request, so each is unit-testable on its own and
+//! the ladder is data rather than control flow. A request too long for the
+//! model is not repaired here: the loop already windows history to the
+//! configured context, so a context-length rejection means that setting is
+//! wrong, and the error says so.
+//!
+//! What a step removed travels on the result as [`ChatResult::degraded`], in
+//! words for a person, and the loop shows each as a notice.
 //!
 //! **A degradation is not a retry.** They have different budgets. Retries
 //! exist for transient failures and are capped low because each one costs a
@@ -29,7 +35,7 @@
 //! fallback for a malformed event stream, applies only before the first delta.
 //! After that the error propagates, which is the truthful outcome.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,7 +47,6 @@ use futures::stream::{BoxStream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::{ProviderError, ProviderErrorReason};
-use crate::measure::estimate_message_tokens;
 use crate::registry::ProviderSpec;
 use crate::types::{BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent};
 
@@ -54,15 +59,13 @@ use crate::types::{BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamE
 pub struct DegradationStep {
     /// Stable name, used to record that the step has fired.
     pub id: &'static str,
-    /// What the user is told, once per request, when this step fires.
-    pub description: &'static str,
+    /// What the person is told when this step fires.
+    pub notice: &'static str,
     /// Whether this step could help with `error` against `request`.
     pub applies: fn(&ProviderError, &ChatRequest) -> bool,
     /// The repaired request, or `None` when there is nothing to repair.
+    /// Each step fires at most once per request.
     pub apply: fn(&ChatRequest) -> Option<ChatRequest>,
-    /// How many times the step may fire on one request. `1` for a step that
-    /// removes a thing outright, more for one that shrinks what is left.
-    pub max_fires: u32,
 }
 
 /// Reasons a *request-shaped* repair could help.
@@ -143,130 +146,6 @@ fn strip_images_apply(request: &ChatRequest) -> Option<ChatRequest> {
     })
 }
 
-/// How much of the history one `truncate_turns` step removes.
-const TRUNCATION_FRACTION: f64 = 0.35;
-
-/// How many times `truncate_turns` may cut one request. Each cut keeps 65% of
-/// what the last one kept, so five leave about a ninth of the history. A
-/// window still too small after that is a misconfigured window, and more
-/// round trips will not find it.
-pub const MAX_TRUNCATIONS: u32 = 5;
-
-/// Drops the oldest turns, keeping the request legal.
-///
-/// Measured in estimated tokens rather than message count, because message
-/// counts say nothing: ten one-line exchanges and one pasted stack trace are
-/// the same number and nowhere near the same request.
-///
-/// Measured on the *body*, through the same encoder the request is built
-/// with. The distinction is not cosmetic here: a rejection for context length
-/// is about what the provider received, and pricing the stored records
-/// instead inflates the total by text that was never sent, the model's own
-/// reasoning. `target` is a fraction of that total, so an inflated one is
-/// reached while less real history has been cut, and the retry can fail on
-/// length again and burn another rung of the ladder.
-///
-/// The system message is preserved wherever the cut lands (it is the agent's
-/// instructions, not conversation) and the survivors are realigned so a `tool`
-/// result never outlives the `assistant` message that requested it. Cutting
-/// blindly by token budget is exactly how a context-length retry becomes a
-/// provider 400 about an orphaned tool result.
-pub fn truncate_oldest_turns(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
-    let (system, body) = match messages.split_first() {
-        Some((first @ ChatMessage::System(_), rest)) => (Some(first), rest),
-        _ => (None, messages),
-    };
-    if body.len() <= 1 {
-        return None;
-    }
-
-    let sizes: Vec<usize> = body.iter().map(estimate_message_tokens).collect();
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "token estimates are far below 2^53"
-    )]
-    let target = sizes.iter().sum::<usize>() as f64 * TRUNCATION_FRACTION;
-
-    let floor = current_turn_start(body);
-    let mut dropped = 0.0;
-    let mut cut = 0;
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "token estimates are far below 2^53"
-    )]
-    while cut < floor && dropped < target {
-        dropped += sizes[cut] as f64;
-        cut += 1;
-    }
-    if cut == 0 {
-        return None;
-    }
-
-    let kept = align_to_legal_start(&body[cut..]);
-    if kept.is_empty() {
-        return None;
-    }
-    Some(system.into_iter().chain(kept).cloned().collect())
-}
-
-/// Where the turn this request is answering begins. Nothing from here on is cut.
-///
-/// Outside a tool loop that is the last message, or the one before it when the
-/// loop has appended the prompt's runtime half as a trailing user message. Two
-/// consecutive user turns is that shape, and more than two is ordinary history
-/// nobody promised to keep.
-///
-/// Inside a tool loop (the body ends in a tool result, less that trailing
-/// message) the question sits before the calls it started, so the floor moves
-/// back to the first user message after the last plain answer. Without that,
-/// the second iteration of a turn could keep its tool results and lose the
-/// question they were for.
-fn current_turn_start(body: &[ChatMessage]) -> usize {
-    let tail = body.len() - if last_two_are_user(body) { 2 } else { 1 };
-    let settled = match body {
-        [.., ChatMessage::User(_)] => &body[..body.len() - 1],
-        _ => body,
-    };
-    if !matches!(settled, [.., ChatMessage::Tool(_)]) {
-        return tail;
-    }
-    let opened = body
-        .iter()
-        .rposition(|message| {
-            matches!(message, ChatMessage::Assistant(assistant) if assistant.tool_calls.is_empty())
-        })
-        .map_or(0, |index| index + 1);
-    body[opened..]
-        .iter()
-        .position(|message| matches!(message, ChatMessage::User(_)))
-        .map_or(tail, |index| (opened + index).min(tail))
-}
-
-/// Drops leading `tool` messages whose `assistant` was cut away.
-///
-/// `find_legal_start` in `darkwire-core` answers the same question for stored
-/// history; this is the same invariant applied to a request that a truncation
-/// step just reshaped, and it deliberately does not import the history
-/// windowing around it. That path owns the message window and tool-output
-/// caps, neither of which applies to a request already on its way out.
-fn align_to_legal_start(messages: &[ChatMessage]) -> &[ChatMessage] {
-    let mut declared: HashSet<&str> = HashSet::new();
-    let mut start = 0;
-    for (index, message) in messages.iter().enumerate() {
-        match message {
-            ChatMessage::Assistant(assistant) => {
-                declared.extend(assistant.tool_calls.iter().map(|call| call.id.as_str()));
-            }
-            ChatMessage::Tool(tool) if !declared.contains(tool.tool_call_id.as_str()) => {
-                start = index + 1;
-                declared.clear();
-            }
-            _ => {}
-        }
-    }
-    &messages[start..]
-}
-
 fn drop_prompt_cache_key_applies(error: &ProviderError, request: &ChatRequest) -> bool {
     is_repairable(error)
         && !blames_other(error, &["prompt_cache_key"])
@@ -334,101 +213,47 @@ fn merge_trailing_user_apply(request: &ChatRequest) -> Option<ChatRequest> {
     })
 }
 
-fn truncate_turns_applies(error: &ProviderError, _request: &ChatRequest) -> bool {
-    error.reason == ProviderErrorReason::ContextLength
-}
-
-fn truncate_turns_apply(request: &ChatRequest) -> Option<ChatRequest> {
-    truncate_oldest_turns(&request.messages).map(|messages| ChatRequest {
-        messages,
-        ..request.clone()
-    })
-}
-
 /// The ladder, cheapest repair first.
 ///
 /// Order is the policy: dropping a cache-routing hint costs nothing, merging
 /// the trailing turn costs a message boundary, losing `reasoning_effort` costs
-/// answer quality, losing images costs information the user supplied, and
-/// losing turns costs the conversation's memory. Each step is tried only after
-/// the one above it has failed or does not apply.
-pub const DEFAULT_DEGRADATION_STEPS: [DegradationStep; 6] = [
+/// answer quality, and losing images costs information the user supplied. Each
+/// step is tried only after the one above it has failed or does not apply.
+pub const DEFAULT_DEGRADATION_STEPS: [DegradationStep; 5] = [
     DegradationStep {
         id: "drop_prompt_cache_key",
-        description: "retrying without prompt_cache_key",
+        notice: "The provider refused the prompt cache hint, so the request went without it.",
         applies: drop_prompt_cache_key_applies,
         apply: drop_prompt_cache_key_apply,
-        max_fires: 1,
     },
     DegradationStep {
         id: "merge_trailing_user",
-        description: "retrying with the trailing turn merged",
+        notice: "The provider refused two user messages in a row, so they were sent as one.",
         applies: merge_trailing_user_applies,
         apply: merge_trailing_user_apply,
-        max_fires: 1,
     },
     DegradationStep {
         id: "drop_reasoning_effort",
-        description: "retrying without reasoning_effort",
+        notice: "This model does not take a reasoning effort, so that setting was left out.",
         applies: drop_reasoning_effort_applies,
         apply: drop_reasoning_effort_apply,
-        max_fires: 1,
     },
     DegradationStep {
         id: "drop_tool_choice",
-        description: "retrying without tool_choice",
+        notice: "This model does not take a forced tool choice, so it was left out.",
         applies: drop_tool_choice_applies,
         apply: drop_tool_choice_apply,
-        max_fires: 1,
     },
     DegradationStep {
         id: "strip_images",
-        description: "retrying with images removed",
+        notice: "This model cannot read images, so the images were left out.",
         applies: strip_images_applies,
         apply: strip_images_apply,
-        max_fires: 1,
-    },
-    DegradationStep {
-        id: "truncate_turns",
-        description: "retrying with the oldest turns dropped",
-        applies: truncate_turns_applies,
-        apply: truncate_turns_apply,
-        max_fires: MAX_TRUNCATIONS,
     },
 ];
 
-/// What kind of recovery a notice reports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NoticeKind {
-    /// The request was rewritten by a ladder step.
-    Degraded,
-    /// The same request was repeated after a wait.
-    Retry,
-    /// An unreadable stream was answered in one piece instead.
-    Fallback,
-}
-
-/// What the decorator did about a failure. Surfaced to the UI as a `notice`
-/// event; never an error.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResilienceNotice {
-    /// Degraded, retried or fell back.
-    pub kind: NoticeKind,
-    /// For a person.
-    pub message: String,
-    /// Which attempt at the same request this was.
-    pub attempt: u32,
-    /// The wait before a retry, so a test can assert the schedule as data.
-    pub delay_ms: Option<u64>,
-    /// The failure that prompted it.
-    pub error: ProviderError,
-}
-
 /// A jitter factor in `[0, 1)`.
 pub type JitterFn = Arc<dyn Fn() -> f64 + Send + Sync>;
-
-/// A callback for notices.
-pub type NoticeFn = Arc<dyn Fn(ResilienceNotice) + Send + Sync>;
 
 /// How the decorator is configured. Every field defaults.
 #[derive(Clone, Default)]
@@ -437,7 +262,8 @@ pub struct ResilienceOptions {
     pub max_attempts: Option<u32>,
     /// The first backoff, before jitter.
     pub base_delay_ms: Option<u64>,
-    /// The ceiling on any one wait, including one the provider asked for.
+    /// The ceiling on a jittered backoff. An explicit `Retry-After` has its
+    /// own, [`MAX_RETRY_AFTER_MS`].
     pub max_delay_ms: Option<u64>,
     /// Replaces [`DEFAULT_DEGRADATION_STEPS`].
     pub steps: Option<Vec<DegradationStep>>,
@@ -446,8 +272,6 @@ pub struct ResilienceOptions {
     pub jitter: Option<JitterFn>,
     /// The randomness behind the default jitter.
     pub random: Option<Arc<dyn RandomSource>>,
-    /// Told about every degradation, retry and fallback.
-    pub on_notice: Option<NoticeFn>,
 }
 
 impl std::fmt::Debug for ResilienceOptions {
@@ -465,12 +289,16 @@ const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 const DEFAULT_BASE_DELAY_MS: u64 = 500;
 const DEFAULT_MAX_DELAY_MS: u64 = 8_000;
 
+/// The longest wait a provider's `Retry-After` is honoured for. Past it the
+/// turn fails rather than sitting silent for minutes.
+pub const MAX_RETRY_AFTER_MS: u64 = 60_000;
+
 /// The backoff parameters [`backoff_delay_ms`] reads.
 #[derive(Clone)]
 pub struct BackoffOptions {
     /// The first backoff, before jitter.
     pub base_delay_ms: u64,
-    /// The ceiling on any one wait.
+    /// The ceiling on a jittered wait.
     pub max_delay_ms: u64,
     /// Jitter factor in `[0, 1)`.
     pub jitter: JitterFn,
@@ -486,7 +314,7 @@ pub fn backoff_delay_ms(attempt: u32, error: &ProviderError, options: &BackoffOp
     if let Some(retry_after) = error.retry_after_ms {
         return u64::try_from(retry_after.max(0))
             .unwrap_or(u64::MAX)
-            .min(options.max_delay_ms);
+            .min(MAX_RETRY_AFTER_MS);
     }
     let exponential = options
         .base_delay_ms
@@ -516,7 +344,6 @@ struct Resolved {
     max_attempts: u32,
     backoff: BackoffOptions,
     steps: Vec<DegradationStep>,
-    notify: Option<NoticeFn>,
 }
 
 impl Resolved {
@@ -534,13 +361,6 @@ impl Resolved {
             steps: options
                 .steps
                 .unwrap_or_else(|| DEFAULT_DEGRADATION_STEPS.to_vec()),
-            notify: options.on_notice,
-        }
-    }
-
-    fn notify(&self, notice: ResilienceNotice) {
-        if let Some(notify) = &self.notify {
-            notify(notice);
         }
     }
 }
@@ -553,11 +373,12 @@ impl Resolved {
 /// is anything left to try. The caller returns the error when it says no.
 struct Recovery {
     request: ChatRequest,
-    fired: HashMap<&'static str, u32>,
+    /// The steps that rewrote the request, in the order they fired.
+    fired: Vec<DegradationStep>,
     attempt: u32,
     iteration: u32,
-    /// Each step fires at most `max_fires` times, so the ladder is finite;
-    /// the extra room is for the attempt that follows the last degradation.
+    /// Each step fires at most once, so the ladder is finite; the extra room is
+    /// for the attempt that follows the last degradation.
     ceiling: u32,
 }
 
@@ -565,22 +386,22 @@ impl Recovery {
     fn new(request: ChatRequest, config: &Resolved) -> Recovery {
         Recovery {
             request,
-            fired: HashMap::new(),
+            fired: Vec::new(),
             attempt: 1,
             iteration: 0,
             ceiling: config
-                .steps
-                .iter()
-                .fold(config.max_attempts, |total, step| {
-                    total.saturating_add(step.max_fires)
-                })
+                .max_attempts
+                .saturating_add(u32::try_from(config.steps.len()).unwrap_or(u32::MAX))
                 .saturating_add(1),
         }
     }
 
-    /// Whether any step has rewritten the request.
-    fn degraded(&self) -> bool {
-        !self.fired.is_empty()
+    /// What the steps that fired removed, in words for a person.
+    fn degraded(&self) -> Vec<String> {
+        self.fired
+            .iter()
+            .map(|step| step.notice.to_owned())
+            .collect()
     }
 
     async fn recover(
@@ -597,25 +418,15 @@ impl Recovery {
         }
 
         for step in &config.steps {
-            let fired = self.fired.get(step.id).copied().unwrap_or(0);
-            if fired >= step.max_fires || !(step.applies)(error, &self.request) {
+            let fired = self.fired.iter().any(|done| done.id == step.id);
+            if fired || !(step.applies)(error, &self.request) {
                 continue;
             }
             let Some(degraded) = (step.apply)(&self.request) else {
                 continue;
             };
-            self.fired.insert(step.id, fired + 1);
+            self.fired.push(*step);
             self.request = degraded;
-            // Once per request: a step that fires again says nothing new.
-            if fired == 0 {
-                config.notify(ResilienceNotice {
-                    kind: NoticeKind::Degraded,
-                    message: step.description.to_owned(),
-                    attempt: self.attempt,
-                    delay_ms: None,
-                    error: error.clone(),
-                });
-            }
             return Ok(true);
         }
 
@@ -624,13 +435,6 @@ impl Recovery {
         }
 
         let delay_ms = backoff_delay_ms(self.attempt, error, &config.backoff);
-        config.notify(ResilienceNotice {
-            kind: NoticeKind::Retry,
-            message: format!("retrying in {delay_ms} ms after {}", error.reason),
-            attempt: self.attempt,
-            delay_ms: Some(delay_ms),
-            error: error.clone(),
-        });
         self.attempt += 1;
         // Aborting mid-backoff returns the `aborted` error here, which is the
         // intended exit: the token is the same one threaded into the request.
@@ -640,14 +444,13 @@ impl Recovery {
 }
 
 /// Runs `run` against the request, recovering until the ladder and the retry
-/// budget are both spent. Also says whether a step rewrote the request on the
-/// way.
+/// budget are both spent. Also says what the steps that fired removed.
 async fn attempt<T, F>(
     request: ChatRequest,
     config: &Resolved,
     token: &CancellationToken,
     run: impl Fn(ChatRequest) -> F,
-) -> Result<(T, bool)>
+) -> Result<(T, Vec<String>)>
 where
     F: Future<Output = Result<T>>,
 {
@@ -715,7 +518,7 @@ impl ChatProvider for Resilient {
                 async move { inner.chat(&req, token).await }
             })
             .await?;
-            result.degraded |= degraded;
+            result.degraded.extend(degraded);
             Ok(result)
         })
     }
@@ -801,7 +604,7 @@ impl StreamRecovery {
                 Some(Ok(mut event)) => {
                     self.emitted = true;
                     if let ChatStreamEvent::Done(result) = &mut event {
-                        result.degraded |= self.recovery.degraded();
+                        result.degraded.extend(self.recovery.degraded());
                         self.finished = true;
                         self.current = None;
                     }
@@ -814,7 +617,7 @@ impl StreamRecovery {
                     }
                     let error = ProviderError::of(&raw);
                     if error.reason == ProviderErrorReason::StreamParse {
-                        return match self.fallback(&error).await {
+                        return match self.fallback().await {
                             Ok(()) => continue,
                             Err(error) => Some(self.fail(error)),
                         };
@@ -836,14 +639,7 @@ impl StreamRecovery {
     /// Streaming is an optimisation. A stream that could not be read is still
     /// a request the provider can answer in one piece, and the consumer gets
     /// the same events either way, synthesised from the complete result.
-    async fn fallback(&mut self, error: &ProviderError) -> Result<()> {
-        self.config.notify(ResilienceNotice {
-            kind: NoticeKind::Fallback,
-            message: "stream unreadable, falling back to a single response".to_owned(),
-            attempt: 1,
-            delay_ms: None,
-            error: error.clone(),
-        });
+    async fn fallback(&mut self) -> Result<()> {
         let inner = Arc::clone(&self.inner);
         let token = self.token.clone();
         let (mut result, degraded) = attempt(
@@ -857,7 +653,8 @@ impl StreamRecovery {
             },
         )
         .await?;
-        result.degraded |= degraded || self.recovery.degraded();
+        result.degraded.extend(self.recovery.degraded());
+        result.degraded.extend(degraded);
         self.pending.extend(synthesise_stream(&result));
         self.finished = true;
         Ok(())
@@ -882,6 +679,6 @@ pub fn synthesise_stream(result: &ChatResult) -> Vec<ChatStreamEvent> {
             events.push(ChatStreamEvent::Text(text.text.clone()));
         }
     }
-    events.push(ChatStreamEvent::Done(result.clone()));
+    events.push(ChatStreamEvent::Done(Box::new(result.clone())));
     events
 }

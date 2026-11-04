@@ -18,9 +18,10 @@
 //!  - **Every chat shares one delivery chain.** The manager's queues are keyed
 //!    by *channel*, not by chat, so a send that slept on a `retry_after` would
 //!    stall every other conversation in the install. Nothing here sleeps. A
-//!    rate-limited `progress` is dropped — it is disposable by construction, and
-//!    the `reply` behind it carries the same text — and anything else is retried
-//!    once and then left to fail, which the manager logs and drops.
+//!    failed `progress` is dropped, since it is disposable by construction and
+//!    the `reply` behind it carries the same text. Anything else that meets a
+//!    long rate limit or a dropped connection comes back as [`Deferred`], and
+//!    the channel retries it on that chat's own backlog.
 
 use std::sync::Arc;
 
@@ -34,8 +35,20 @@ use crate::telegram::api::{
 use crate::telegram::chats::ChatState;
 use crate::telegram::format::{MAX_MESSAGE_CHARS, chunk_message, strip_markdown, to_markdown_v2};
 
-/// A longer wait than this would hold up every other chat, so it is dropped.
+/// A longer wait than this would hold up every other chat, so it is deferred.
 const MAX_RETRY_AFTER_SEC: u64 = 1;
+
+/// How long to wait after a request got no answer at all.
+const TRANSPORT_BACKOFF_MS: u64 = 2_000;
+
+/// What could not be posted yet, and when to try again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deferred {
+    /// What Telegram asked for, or a short backoff after a dropped connection.
+    pub after_ms: u64,
+    /// The pieces still to post, formatted as they were, in order.
+    pub pieces: Vec<String>,
+}
 
 /// One thing to say, in one chat.
 #[derive(Debug, Clone, Default)]
@@ -73,8 +86,12 @@ pub struct RenderOutcome {
     pub live_message_id: Option<i64>,
     /// The turn that message belongs to.
     pub live_turn_id: Option<String>,
+    /// The turn's pieces posted before its live message.
+    pub live_settled: usize,
     /// When that message was last edited.
     pub last_edit_ms: i64,
+    /// What is left to post once the chat may be written to again.
+    pub deferred: Option<Deferred>,
 }
 
 /// Puts messages on Telegram, and decides when not to.
@@ -118,12 +135,7 @@ impl TelegramRenderer {
         chat: &ChatState,
         token: &CancellationToken,
     ) -> RenderOutcome {
-        let mut outcome = RenderOutcome {
-            posted: None,
-            live_message_id: chat.live_message_id,
-            live_turn_id: chat.live_turn_id.clone(),
-            last_edit_ms: chat.last_edit_ms,
-        };
+        let mut outcome = Self::unchanged(chat);
 
         if request.kind == OutboundKind::Progress && !chat.prefs.progress {
             return outcome;
@@ -136,21 +148,87 @@ impl TelegramRenderer {
         };
         let pieces = chunk_message(&body, MAX_MESSAGE_CHARS);
 
-        // One piece, on the message this turn already owns: an edit.
-        if pieces.len() == 1 && owns(request, chat) {
-            let piece = pieces.first().map_or("", String::as_str);
-            self.edit(request, chat, piece, &mut outcome, token).await;
+        // The turn already owns a message, which holds piece `settled`; the ones
+        // before it are posted and final.
+        let settled = chat.live_settled;
+        if owns(request, chat) && pieces.len() > settled {
+            if pieces.len() == settled + 1 {
+                self.edit(request, chat, &pieces[settled], &mut outcome, token)
+                    .await;
+                return outcome;
+            }
+            // The answer outgrew its message: finish that one and post only
+            // what is new, rather than the whole answer again. A progress
+            // inside the debounce waits for the next one, which carries it.
+            if request.kind == OutboundKind::Progress
+                && self.clock.now_ms() - chat.last_edit_ms < self.edit_interval_ms
+            {
+                return outcome;
+            }
+            if let Some(message_id) = chat.live_message_id {
+                let finished = self
+                    .edit_text(
+                        request.chat_id,
+                        message_id,
+                        &pieces[settled],
+                        chat.prefs.markdown,
+                        token,
+                    )
+                    .await;
+                if let Err(error) = finished
+                    && !error
+                        .api()
+                        .is_some_and(super::api::TelegramApiError::is_not_modified)
+                {
+                    self.warn("telegram edit failed", &error);
+                }
+            }
+            outcome.live_message_id = None;
+            outcome.live_turn_id = None;
+            self.post_all(request, chat, &pieces[settled + 1..], &mut outcome, token)
+                .await;
+            if outcome.live_message_id.is_some() {
+                outcome.live_settled = pieces.len() - 1;
+            }
             return outcome;
         }
 
-        // Anything else posts, and whatever the turn owned stops being live —
-        // an answer that outgrew one message cannot keep collecting edits into
-        // it.
+        // Anything else posts. A progress keeps its last piece live, so the
+        // rest of the turn fills that one in.
         outcome.live_message_id = None;
         outcome.live_turn_id = None;
+        outcome.live_settled = 0;
         self.post_all(request, chat, &pieces, &mut outcome, token)
             .await;
+        if outcome.live_message_id.is_some() {
+            outcome.live_settled = pieces.len().saturating_sub(1);
+        }
         outcome
+    }
+
+    /// Posts the pieces a [`Deferred`] left, in order.
+    pub async fn resume(
+        &self,
+        request: &RenderRequest,
+        chat: &ChatState,
+        pieces: &[String],
+        token: &CancellationToken,
+    ) -> RenderOutcome {
+        let mut outcome = Self::unchanged(chat);
+        self.post_all(request, chat, pieces, &mut outcome, token)
+            .await;
+        outcome
+    }
+
+    fn unchanged(chat: &ChatState) -> RenderOutcome {
+        RenderOutcome {
+            posted: None,
+            live_message_id: chat.live_message_id,
+            live_turn_id: chat.live_turn_id.clone(),
+            live_settled: chat.live_settled,
+            last_edit_ms: chat.last_edit_ms,
+            deferred: None,
+        }
     }
 
     /// Rewrites a message this channel posted earlier. For a settled card, or
@@ -201,8 +279,9 @@ impl TelegramRenderer {
         token: &CancellationToken,
     ) {
         let last = pieces.len().saturating_sub(1);
+        let mut last_posted = None;
         for (index, piece) in pieces.iter().enumerate() {
-            let posted = self
+            let posted = match self
                 .post(
                     request,
                     chat,
@@ -216,20 +295,32 @@ impl TelegramRenderer {
                     },
                     token,
                 )
-                .await;
+                .await
+            {
+                Posted::Sent(id) => Some(id),
+                Posted::Dropped => None,
+                // The rest waits with it, so the pieces still land in order.
+                Posted::Later(after_ms) => {
+                    outcome.deferred = Some(Deferred {
+                        after_ms,
+                        pieces: pieces[index..].to_vec(),
+                    });
+                    break;
+                }
+            };
             if index == 0 {
                 outcome.posted = posted;
             }
+            last_posted = posted;
         }
 
-        // A `progress` claims the message it just posted, so the rest of the
+        // A `progress` claims the last message it posted, so the rest of the
         // turn fills it in. A `reply` never does: the turn is over.
         if request.kind == OutboundKind::Progress
-            && pieces.len() == 1
-            && let Some(first) = outcome.posted
+            && let Some(newest) = last_posted
             && let Some(turn_id) = &request.turn_id
         {
-            outcome.live_message_id = Some(first);
+            outcome.live_message_id = Some(newest);
             outcome.live_turn_id = Some(turn_id.clone());
             outcome.last_edit_ms = self.clock.now_ms();
         }
@@ -242,7 +333,7 @@ impl TelegramRenderer {
         text: &str,
         keyboard: Option<InlineKeyboardMarkup>,
         token: &CancellationToken,
-    ) -> Option<i64> {
+    ) -> Posted {
         match self
             .send(
                 request.chat_id,
@@ -254,10 +345,13 @@ impl TelegramRenderer {
             )
             .await
         {
-            Ok(message_id) => Some(message_id),
+            Ok(message_id) => Posted::Sent(message_id),
             Err(error) => {
-                if !self.retryable(&error, request.kind) {
-                    return None;
+                if let Some(after_ms) = later(&error, request.kind) {
+                    return Posted::Later(after_ms);
+                }
+                if !retryable(&error, request.kind) {
+                    return Posted::Dropped;
                 }
                 // Deliberately without a parse mode. The commonest reason a
                 // message is refused is a construct the formatter mis-escaped,
@@ -273,10 +367,13 @@ impl TelegramRenderer {
                     )
                     .await
                 {
-                    Ok(message_id) => Some(message_id),
+                    Ok(message_id) => Posted::Sent(message_id),
                     Err(retried) => {
+                        if let Some(after_ms) = later(&retried, request.kind) {
+                            return Posted::Later(after_ms);
+                        }
                         self.warn("telegram send failed", &retried);
-                        None
+                        Posted::Dropped
                     }
                 }
             }
@@ -397,7 +494,14 @@ impl TelegramRenderer {
         outcome: &mut RenderOutcome,
         token: &CancellationToken,
     ) {
-        if !self.retryable(error, request.kind) {
+        if let Some(after_ms) = later(error, request.kind) {
+            outcome.deferred = Some(Deferred {
+                after_ms,
+                pieces: vec![text.to_owned()],
+            });
+            return;
+        }
+        if !retryable(error, request.kind) {
             self.warn("telegram edit failed", error);
             return;
         }
@@ -427,37 +531,43 @@ impl TelegramRenderer {
             }
             Err(retried) => self.warn("telegram edit failed; posting the answer instead", &retried),
         }
-        outcome.posted = self
-            .post(request, chat, text, request.keyboard.clone(), token)
+        self.post_all(request, chat, &[text.to_owned()], outcome, token)
             .await;
-    }
-
-    /// Whether to try once more, or let this one go.
-    ///
-    /// A rate limit longer than a second is never waited out: the sleep would
-    /// sit on the chain every other conversation is queued behind.
-    fn retryable(&self, error: &BotApiError, kind: OutboundKind) -> bool {
-        let Some(api) = error.api() else {
-            return false;
-        };
-        if let Some(retry_after) = api.retry_after_sec
-            && retry_after > MAX_RETRY_AFTER_SEC
-        {
-            tracing::warn!(
-                channel = %self.channel_id,
-                kind = ?kind,
-                retry_after_sec = retry_after,
-                "telegram rate limited; dropped rather than stalling every chat"
-            );
-            return false;
-        }
-        kind != OutboundKind::Progress
     }
 
     fn warn(&self, message: &str, error: &BotApiError) {
         // Structured, and never the request URL — it carries the bot token.
         tracing::warn!(channel = %self.channel_id, error = %error, "{message}");
     }
+}
+
+/// How long to leave a send that may work later, or `None` to settle it now.
+/// A long rate limit is never waited out here: the sleep would sit on the
+/// chain every other conversation is queued behind.
+fn later(error: &BotApiError, kind: OutboundKind) -> Option<u64> {
+    if kind == OutboundKind::Progress {
+        return None;
+    }
+    match error.api() {
+        None => Some(TRANSPORT_BACKOFF_MS),
+        Some(api) => api
+            .retry_after_sec
+            .filter(|seconds| *seconds > MAX_RETRY_AFTER_SEC)
+            .map(|seconds| seconds.saturating_mul(1000)),
+    }
+}
+
+/// Whether to try once more at once, as plain text.
+fn retryable(error: &BotApiError, kind: OutboundKind) -> bool {
+    error.api().is_some() && kind != OutboundKind::Progress
+}
+
+/// How one send ended.
+enum Posted {
+    Sent(i64),
+    Dropped,
+    /// Worth trying again after this many milliseconds.
+    Later(u64),
 }
 
 /// The text to send without a parse mode. Only a body that came out of

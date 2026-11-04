@@ -72,6 +72,9 @@
                 "maximum": 9007199254740991
               }
             }
+          },
+          "continuedFrom": {
+            "type": "string"
           }
         },
         "required": [

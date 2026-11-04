@@ -1,15 +1,16 @@
 //! How much of a page the model actually gets, and where the cut lands.
 //!
-//! The registry truncates a result to `max_output_chars` and then fences it, and
-//! its truncation keeps the **head and the tail** with a marker between them
+//! The agent's dispatcher truncates a result to `max_output_chars` and then
+//! fences it, and its truncation keeps the **head and the tail** with a marker
+//! between them
 //! (`truncate_head_tail` in `darkwire-core`). For a search result that means
 //! losing the middle: the first extract's opening and the last one's closing
 //! paragraph, joined by a marker, which reads as a document with a hole in it.
 //! So the tool stays under the budget itself and does its own cut, at a line
 //! boundary, naming what was dropped and how to get it.
 //!
-//! Lengths are UTF-16 code units, because that is the unit the registry counts
-//! in. Counting bytes here would let a CJK page overshoot by a factor of three.
+//! Lengths are UTF-16 code units, because that is the unit the dispatcher
+//! counts in. Counting bytes here would let a CJK page overshoot by a factor of three.
 
 /// Room left for the scaffolding written after the share is computed: the
 /// `===== [1] url =====` separators, the `# Title` lines, the `> note:` lines

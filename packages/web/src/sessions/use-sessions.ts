@@ -41,7 +41,7 @@ import type { MutationHandle } from '@/components/crud/mutation.js';
 import { PAGE_SIZE } from '@/components/crud/use-pagination.js';
 import { toast } from '@/components/ui/toast.js';
 import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { queryKeys, refreshSessions } from '@/lib/query.js';
 
 /** Which column the sessions list is ordered by. Mirrors the server's `SessionOrderBy`. */
 export type SessionSortKey = 'updated' | 'created' | 'title';
@@ -90,7 +90,7 @@ export function useSessionPage(
 function useRefreshSessions(): () => void {
   const queryClient = useQueryClient();
   return () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() });
+    refreshSessions(queryClient);
   };
 }
 

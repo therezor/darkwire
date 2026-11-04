@@ -155,6 +155,22 @@ describe('a code block', () => {
     expect(container.querySelectorAll('code span[style]')).toHaveLength(0);
   });
 
+  it('resolves a reference link once the answer has finished', () => {
+    // The second paragraph settles the first before the definition arrives.
+    const opening = 'See [the docs][1].\n\nMore to say.\n\n';
+    const whole = `${opening}[1]: https://example.com/docs\n`;
+    const { rerender } = render(<Markdown text={opening} streaming />);
+    rerender(<Markdown text={whole} streaming />);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+
+    rerender(<Markdown text={whole} />);
+
+    expect(screen.getByRole('link', { name: 'the docs' })).toHaveAttribute(
+      'href',
+      'https://example.com/docs',
+    );
+  });
+
   it('labels a fence with no language rather than guessing at one', () => {
     render(<Markdown text={'```\nplain\n```'} />);
 

@@ -19,7 +19,6 @@ import {
 } from '@darkwire/protocol';
 
 import { useTurnStore } from '@/state/turn.js';
-import { readCursor, writeCursor } from '@/lib/cursor.js';
 import {
   approveTool,
   closeConnection,
@@ -88,6 +87,13 @@ const START = {
   provider: 'p',
 } as const;
 
+/** What the module sent after the handshake every socket opens with. */
+function spoken(): unknown[] {
+  return socket().sent.filter(
+    (frame) => (frame as { type: string }).type !== 'session.resume',
+  );
+}
+
 function open(sessionKey: string | undefined = 'web:1'): void {
   openConnection(sessionKey);
   socket().onopen?.();
@@ -114,22 +120,28 @@ describe('opening', () => {
     expect(useTurnStore.getState().sessionKey).toBe('web:7');
   });
 
-  it('sends no resume for a session this tab has never rendered', () => {
+  it('opens with a resume from 0, which the server attaches it by', () => {
     open('web:1');
 
-    // A cursor of zero means the REST history is the whole story; resuming
-    // from it would replay the same session a second time.
-    expect(socket().sent).toEqual([]);
+    // Nothing on screen yet: the server answers with the running turn, and
+    // REST supplies the stored history.
+    expect(socket().sent).toEqual([
+      { type: 'session.resume', sessionKey: 'web:1', lastSeq: 0 },
+    ]);
   });
 
-  it('resumes from the cursor a previous load left behind', () => {
-    writeCursor('web:1', 12);
-
+  it('resumes a reconnect from the last frame it applied', () => {
     open('web:1');
+    deliver(START);
+    deliver({ type: 'assistant.delta', turnId: 't1', text: 'hi' });
 
-    expect(socket().sent).toEqual([
-      { type: 'session.resume', sessionKey: 'web:1', lastSeq: 12 },
-    ]);
+    socket().onopen?.();
+
+    expect(socket().sent.at(-1)).toEqual({
+      type: 'session.resume',
+      sessionKey: 'web:1',
+      lastSeq: 2,
+    });
   });
 
   it('takes the session the server minted when the URL named none', () => {
@@ -151,7 +163,6 @@ describe('opening', () => {
 describe('switching', () => {
   it('resumes rather than switches, so a live turn is picked up', () => {
     open('web:1');
-    writeCursor('web:2', 5);
 
     switchSession('web:2');
 
@@ -160,7 +171,7 @@ describe('switching', () => {
     expect(socket().sent.at(-1)).toEqual({
       type: 'session.resume',
       sessionKey: 'web:2',
-      lastSeq: 5,
+      lastSeq: 0,
     });
     expect(useTurnStore.getState().sessionKey).toBe('web:2');
   });
@@ -170,7 +181,7 @@ describe('switching', () => {
 
     switchSession('web:1');
 
-    expect(socket().sent).toEqual([]);
+    expect(spoken()).toEqual([]);
   });
 
   it('does nothing when the URL catches up with a session the server minted', () => {
@@ -328,7 +339,7 @@ describe('speaking', () => {
       },
     ]);
 
-    const sent = socket().sent[0];
+    const sent = spoken()[0];
     expect(sent).toMatchObject({
       type: 'user.message',
       sessionKey: 'web:1',
@@ -365,7 +376,7 @@ describe('speaking', () => {
 
     stopTurn();
 
-    expect(socket().sent).toEqual([{ type: 'turn.stop', sessionKey: 'web:1' }]);
+    expect(spoken()).toEqual([{ type: 'turn.stop', sessionKey: 'web:1' }]);
   });
 
   it('sends what is typed during a run to that run', () => {
@@ -418,7 +429,7 @@ describe('speaking', () => {
     stopTurn();
 
     // A click that lands as `t1` ends must not stop the queued turn after it.
-    expect(socket().sent).toEqual([
+    expect(spoken()).toEqual([
       { type: 'turn.stop', sessionKey: 'web:1', turnId: 't1' },
     ]);
   });
@@ -429,37 +440,30 @@ describe('speaking', () => {
     regenerateTurn();
     regenerateTurn(3);
 
-    expect(socket().sent).toEqual([
+    expect(spoken()).toEqual([
       { type: 'turn.regenerate', sessionKey: 'web:1' },
       { type: 'turn.regenerate', sessionKey: 'web:1', seq: 3 },
     ]);
   });
 
   it('keeps the question on screen while the turn it started is re-run', () => {
-    // A cursor, so the open resumes and the replay below answers it.
-    writeCursor('web:1', 0);
     open('web:1');
     // The stored question and the answer it produced, as a fetch would supply
     // them. Regenerating deletes both server-side, so anything still on screen
     // afterwards is there because this client put it there.
-    deliver({
-      type: 'session.replay',
-      sessionKey: 'web:1',
-      complete: false,
-      messages: [
-        {
-          id: 'm1',
-          sessionKey: 'web:1',
-          seq: 3,
-          createdAtMs: 0,
-          turnId: 't1',
-          message: {
-            role: 'user',
-            content: [{ type: 'text', text: 'why is the sky blue?' }],
-          },
+    useTurnStore.getState().mergeHistory([
+      {
+        id: 'm1',
+        sessionKey: 'web:1',
+        seq: 3,
+        createdAtMs: 0,
+        turnId: 't1',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'why is the sky blue?' }],
         },
-      ],
-    });
+      },
+    ]);
 
     regenerateTurn(3);
 
@@ -478,26 +482,20 @@ describe('speaking', () => {
   });
 
   it('does not lose the question to the truncation the server announces', () => {
-    writeCursor('web:1', 0);
     open('web:1');
-    deliver({
-      type: 'session.replay',
-      sessionKey: 'web:1',
-      complete: false,
-      messages: [
-        {
-          id: 'm1',
-          sessionKey: 'web:1',
-          seq: 3,
-          createdAtMs: 0,
-          turnId: 't1',
-          message: {
-            role: 'user',
-            content: [{ type: 'text', text: 'why is the sky blue?' }],
-          },
+    useTurnStore.getState().mergeHistory([
+      {
+        id: 'm1',
+        sessionKey: 'web:1',
+        seq: 3,
+        createdAtMs: 0,
+        turnId: 't1',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'why is the sky blue?' }],
         },
-      ],
-    });
+      },
+    ]);
 
     regenerateTurn(3);
     // What `#rewind` broadcasts: the question is deleted, and mid-regenerate the
@@ -520,7 +518,7 @@ describe('speaking', () => {
 
     editMessage(3, 'a better question');
 
-    const [frame] = socket().sent;
+    const [frame] = spoken();
     expect(frame).toMatchObject({
       type: 'user.edit',
       sessionKey: 'web:1',
@@ -636,27 +634,6 @@ describe('speaking', () => {
 });
 
 describe('listening', () => {
-  it('writes the cursor on every frame, because a reload arrives without warning', () => {
-    open('web:1');
-
-    deliver({
-      type: 'session.status',
-      workspaceId: 'default',
-      sessionKey: 'web:1',
-      busy: true,
-      queueDepth: 0,
-    });
-    deliver({
-      type: 'session.status',
-      workspaceId: 'default',
-      sessionKey: 'web:1',
-      busy: false,
-      queueDepth: 0,
-    });
-
-    expect(readCursor('web:1')).toBe(2);
-  });
-
   it('hands every frame to its subscribers, and stops on unsubscribe', () => {
     const seen: string[] = [];
     open('web:1');
@@ -742,51 +719,7 @@ describe('a message too large to send', () => {
 });
 
 describe('resuming', () => {
-  it('keeps its live turn when another tab’s resume fell outside the ring', () => {
-    open('web:1');
-    deliver(START);
-    deliver({ type: 'assistant.delta', turnId: 't1', text: 'still here' });
-
-    deliver({
-      type: 'session.replay',
-      sessionKey: 'web:1',
-      complete: false,
-      resumingTurnId: 't1',
-      messages: [],
-    });
-
-    expect(useTurnStore.getState().transcript).toMatchObject([
-      { kind: 'turn', parts: [{ kind: 'text', text: 'still here' }] },
-    ]);
-    expect(useTurnStore.getState().lastSeq).toBe(3);
-  });
-
   it('counts from the server’s number again after a restart', () => {
-    writeCursor('web:1', 12);
-    open('web:1');
-
-    deliver({
-      type: 'connected',
-      workspaceId: 'default',
-      protocolVersion: 2,
-      sessionKey: 'web:1',
-      serverTimeMs: Date.now(),
-      lastSeq: 0,
-    });
-    deliver({
-      type: 'session.replay',
-      sessionKey: 'web:1',
-      complete: false,
-      messages: [],
-    });
-
-    // The next resume asks from 1, a seq this server did send.
-    expect(useTurnStore.getState().lastSeq).toBe(1);
-    expect(readCursor('web:1')).toBe(1);
-  });
-
-  it('keeps the boundary below a restarted server’s count mid-turn', () => {
-    writeCursor('web:1', 12);
     open('web:1');
     deliver(START);
 
@@ -798,8 +731,28 @@ describe('resuming', () => {
       serverTimeMs: Date.now(),
       lastSeq: 0,
     });
+    deliver({ type: 'session.replay', sessionKey: 'web:1', complete: false });
 
-    expect(readCursor('web:1')).toBe(0);
+    // The next resume asks from a seq this server did send.
+    expect(useTurnStore.getState().lastSeq).toBe(2);
+  });
+
+  it('keeps only what storage cannot describe after an incomplete replay', () => {
+    open('web:1');
+    deliver(START);
+    deliver({ type: 'assistant.delta', turnId: 't1', text: 'done' });
+    deliver({
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+
+    deliver({ type: 'session.replay', sessionKey: 'web:1', complete: false });
+
+    // The finished turn goes: storage brings it back, or does not, if it was
+    // cleared while this page was away.
+    expect(useTurnStore.getState().transcript).toEqual([]);
   });
 });
 

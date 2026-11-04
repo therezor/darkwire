@@ -319,7 +319,8 @@ the code; an extension manifest names a _path_, so hashing it would approve a
 pointer. Editing any file — including the one `command` runs, adding one,
 removing one, renaming one — moves the digest and revokes the approval
 automatically. Nobody has to remember to re-approve, because they cannot avoid
-it.
+it. A symlink is hashed by where it points, and one that leads outside the
+install directory is refused.
 
 Bounded at 4,096 files and 64 MB, refused above with a message saying so.
 

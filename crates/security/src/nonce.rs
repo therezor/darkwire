@@ -246,19 +246,27 @@ pub fn wrap_tool_output(
     let tag = tool_output_tag(options.nonce)?;
     let name = UNSAFE_NAME_CHARS.replace_all(options.tool_name, "_");
 
-    // Matches an opening *or* closing delimiter, case-insensitively; the nonce is
-    // hex so folding case cannot collide with a different turn's tag. Escaping
-    // both forms means content cannot appear to start a second envelope either.
-    let delimiter = compile(&format!("(?i)<(/?)({})", regex::escape(&tag)));
+    // An opening *or* closing delimiter, matched case-insensitively; the nonce
+    // is hex so folding case cannot collide with a different turn's tag.
+    // Escaping both forms means content cannot appear to start a second
+    // envelope either. ASCII folding keeps every byte offset in place.
+    let folded = content.to_ascii_lowercase();
+    let needle = tag.to_ascii_lowercase();
     let mut forged_delimiters = 0;
     let mut first_index = None;
-    let escaped = delimiter.replace_all(content, |captures: &regex::Captures<'_>| {
-        forged_delimiters += 1;
-        if first_index.is_none() {
-            first_index = captures.get(0).map(|m| m.start());
+    let mut escaped = String::with_capacity(content.len());
+    let mut copied = 0;
+    for (at, _) in folded.match_indices('<') {
+        let rest = &folded[at + 1..];
+        if rest.strip_prefix('/').unwrap_or(rest).starts_with(&needle) {
+            forged_delimiters += 1;
+            first_index.get_or_insert(at);
+            escaped.push_str(&content[copied..=at]);
+            escaped.push('\\');
+            copied = at + 1;
         }
-        format!("<\\{}{}", &captures[1], &captures[2])
-    });
+    }
+    escaped.push_str(&content[copied..]);
 
     let mut findings = Vec::new();
     if let Some(byte_index) = first_index {

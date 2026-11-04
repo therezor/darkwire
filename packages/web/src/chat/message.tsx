@@ -324,13 +324,25 @@ function TurnMessage({
   return (
     <article className="stack turn">
       {pieces.map((piece) => {
+        // What the user typed into the running turn, drawn as what it is: a
+        // message of theirs. No seq, so it offers Copy alone.
         if (piece.kind === 'steer') {
           return (
-            <TurnParts
+            <UserMessage
               key={piece.part.id}
-              parts={[piece.part]}
-              streaming={false}
-              onApprove={onApprove}
+              item={{
+                kind: 'user',
+                id: piece.part.id,
+                clientMessageId: undefined,
+                turnId: turn.id,
+                seq: undefined,
+                text: piece.part.text,
+                attachments: [],
+                pending: false,
+                refused: undefined,
+                steering: false,
+              }}
+              onAction={onAction}
             />
           );
         }
@@ -367,7 +379,7 @@ function TurnMessage({
           <AlertCircle />
           <span>
             {turn.failure.message}
-            {turn.failure.retryable && ' Sending the message again may work.'}
+            {turn.failure.retryable && ` ${t('chat.retryMayWork')}`}
           </span>
         </p>
       )}

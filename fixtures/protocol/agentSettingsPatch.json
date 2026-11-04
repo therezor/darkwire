@@ -25,6 +25,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -119,6 +120,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -202,6 +204,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -286,6 +289,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -362,6 +366,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -455,6 +460,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -539,6 +545,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",
@@ -630,6 +637,7 @@
               "subagentTimeoutMs": 0,
               "visionEnabled": true,
               "toolsEnabled": true,
+              "autoCompact": true,
               "exec": {
                 "timeoutMs": 0,
                 "pathAppend": "",

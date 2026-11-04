@@ -40,6 +40,7 @@ function turn(parts: TurnItem['parts']): TurnItem {
     done: true,
     failure: undefined,
     authoritative: false,
+    watched: false,
   };
 }
 

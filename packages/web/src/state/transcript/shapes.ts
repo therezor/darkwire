@@ -259,10 +259,15 @@ export interface TurnItem {
    *
    * Here so a top-level tool call can be told apart from a subagent's call of
    * the same id — see `SubagentPart.sessionKey`. Empty on a turn rebuilt from
-   * storage or reconstructed from a mid-turn resume, neither of which can
-   * contain a nested call anyway.
+   * storage or reconstructed from a mid-turn resume until something names it.
    */
   readonly sessionKey: string;
+  /**
+   * This page saw the turn's `turn.start`, so its parts are the whole turn.
+   * False on a turn rebuilt from storage, seated by a replay, or reopened by a
+   * status: a replayed `turn.start` rebuilds one of those from its frames.
+   */
+  readonly watched: boolean;
   readonly parts: readonly TurnPart[];
   readonly stopReason: StopReason | undefined;
   /**

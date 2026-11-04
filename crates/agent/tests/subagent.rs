@@ -737,10 +737,10 @@ async fn a_cycle_is_refused_as_a_tool_result_rather_than_a_failed_turn() {
         ],
         subagents: vec![binding("researcher")],
         resolve_loop: Some(resolver.clone()),
-        agent: Some(darkwire_agent::LoopAgent {
+        agent: darkwire_agent::LoopAgent {
             id: "researcher".to_owned(),
             ..darkwire_agent::LoopAgent::default()
-        }),
+        },
         ..Setup::default()
     });
     let child = Harness::build(Setup::with(vec![ScriptedTurn::text("never runs")]));
@@ -789,4 +789,47 @@ async fn a_delegation_is_a_whole_turn_and_never_runs_beside_another() {
     // One after the other, so the wall time is the sum rather than the max.
     assert!(started.elapsed() >= Duration::from_secs(2));
     assert_eq!(events_of(&events, "tool.result").len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn stop_reaches_a_delegation_still_waiting_in_the_batch() {
+    // A stopped child answers "stopped early" as a success, so the token is
+    // the only thing that tells the next delegation not to start.
+    let resolver = MapResolver::new();
+    let parent = Harness::build(Setup {
+        turns: vec![
+            ScriptedTurn::calls(vec![
+                tool_call("c1", "ask_researcher", &json!({"task": "one"})),
+                tool_call("c2", "ask_researcher", &json!({"task": "two"})),
+            ]),
+            ScriptedTurn::text("done"),
+        ],
+        subagents: vec![binding("researcher")],
+        resolve_loop: Some(resolver.clone()),
+        ..Setup::default()
+    });
+    let child = Harness::build(Setup::with(vec![
+        ScriptedTurn::text("answer").after(1_000),
+        ScriptedTurn::text("second answer"),
+    ]));
+    resolver.insert("researcher", child.agent_loop.clone());
+
+    let token = tokio_util::sync::CancellationToken::new();
+    let turn = parent.agent_loop.run(
+        darkwire_agent::TurnInput::new("web:1", "delegate twice"),
+        &token,
+    );
+    let stop = async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        token.cancel();
+    };
+    let ((events, result), ()) = tokio::join!(turn.collect(), stop);
+
+    assert_eq!(result.expect("a turn").stop_reason, StopReason::Aborted);
+    let results = events_of(&events, "tool.result");
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[1]["content"],
+        json!(darkwire_agent::CANCELLED_TOOL_RESULT)
+    );
 }

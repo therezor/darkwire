@@ -42,22 +42,24 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
+use darkwire_agent::{
+    AgentEvent, CompactRequest, SteeringMessage, SteeringQueue, TurnInput, TurnResult,
+};
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{FileDetails, file_part, text_part};
 use darkwire_core::session_store::{
-    ReadMessages, StoredMessageRecord, TruncateResult, to_stored_message,
+    ReadMessages, SessionRecord, StoredMessageRecord, TruncateResult, to_stored_message,
 };
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, is_steer};
-use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason, StoredMessage};
 use darkwire_protocol::tools::ExecRule;
 use darkwire_protocol::uuid::new_uuid;
 use darkwire_protocol::ws::{
-    Attachment, ClientMessage, ConnectedEvent, ConnectedTag, EditMessage, ErrorCode, ErrorEvent,
-    ErrorTag, MessageAck, MessageAckTag, MessageQueued, MessageQueuedTag, Notice, NoticeKind,
-    NoticeTag, NotificationBody, PongEvent, PongTag, ProtocolVersion, RegenerateMessage, Sequenced,
-    ServerMessage, SessionReplay, SessionReplayTag, SessionReset, SessionResetTag, SessionStatus,
+    Attachment, ClientMessage, CompactSessionMessage, ConnectedEvent, ConnectedTag, EditMessage,
+    ErrorCode, ErrorEvent, ErrorTag, MessageAck, MessageAckTag, MessageQueued, MessageQueuedTag,
+    Notice, NoticeKind, NoticeTag, NotificationBody, PongEvent, PongTag, ProtocolVersion,
+    RegenerateMessage, Sequenced, ServerMessage, SessionCompacted, SessionCompactedTag,
+    SessionReplay, SessionReplayTag, SessionReset, SessionResetTag, SessionStatus,
     SessionStatusTag, SessionTruncated, SessionTruncatedTag, SteerMessage, ToolsChanged, TurnEnd,
     TurnEndTag, UserMessageRequest,
 };
@@ -77,6 +79,33 @@ use crate::exec_rules::RuleWriter;
 use crate::replay::{MAX_REPLAY_BYTES, ReplayBuffer};
 use crate::turn_log::TurnLog;
 use darkwire_core::db::blocking;
+
+/// How full a conversation's window has to be, in percent, before the next
+/// message summarises it into a new session first.
+pub const AUTO_COMPACT_PERCENT: u64 = 90;
+
+/// The error code a failed compaction is reported under.
+fn compaction_code(error: &WireError) -> ErrorCode {
+    match error.kind {
+        ErrorKind::InvalidInput => ErrorCode::BadRequest,
+        ErrorKind::NotFound => ErrorCode::NotFound,
+        ErrorKind::Config => ErrorCode::NotConfigured,
+        ErrorKind::Provider | ErrorKind::Network | ErrorKind::RateLimited | ErrorKind::Timeout => {
+            ErrorCode::ProviderError
+        }
+        _ => ErrorCode::Internal,
+    }
+}
+
+/// A key for the session that continues `session_key`, kept in its channel's
+/// namespace and its chat, so the channel still owns it.
+fn continued_key(session_key: &str, id: &str) -> String {
+    let prefix: Vec<&str> = session_key.splitn(3, ':').take(2).collect();
+    if prefix.len() < 2 {
+        return id.to_owned();
+    }
+    format!("{}:{id}", prefix.join(":"))
+}
 
 /// How many messages one session may hold while a turn runs.
 ///
@@ -181,11 +210,27 @@ pub trait TurnRunner: Send + Sync {
     /// Starts a turn, whose events the hub forwards and whose cancellation is
     /// the one `turn.stop` fires.
     fn run(&self, input: TurnInput, parent: &CancellationToken) -> Box<dyn TurnHandle>;
-    /// Adds a message to the running turn without starting another.
-    ///
-    /// `false` when the turn can no longer read it. `id` comes back on the
-    /// `steer` frame the loop emits once it has written it.
-    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool;
+
+    /// Summarises a session into a new one. A runner that cannot refuses.
+    fn compact<'a>(
+        &'a self,
+        request: &'a CompactRequest,
+        token: &'a CancellationToken,
+    ) -> BoxFuture<'a, Result<SessionRecord>> {
+        let _ = (request, token);
+        Box::pin(async {
+            Err(WireError::new(
+                ErrorKind::Internal,
+                "This agent cannot summarise a conversation.",
+            ))
+        })
+    }
+
+    /// Whether a nearly full conversation is summarised before the next
+    /// message runs.
+    fn auto_compact(&self) -> bool {
+        false
+    }
 }
 
 /// Why an id did not name an agent that could run.
@@ -324,6 +369,8 @@ pub enum HubEvent {
     SessionReplay(SessionReplay),
     /// A suffix of the conversation was dropped.
     SessionTruncated(SessionTruncated),
+    /// The conversation carries on in another session.
+    SessionCompacted(SessionCompacted),
     /// A notification, addressed to whoever is looking.
     Notification(NotificationBody),
     /// The tool list changed.
@@ -348,6 +395,9 @@ impl HubEvent {
             HubEvent::SessionReset(event) => ServerMessage::SessionReset(Sequenced { seq, event }),
             HubEvent::SessionReplay(event) => {
                 ServerMessage::SessionReplay(Sequenced { seq, event })
+            }
+            HubEvent::SessionCompacted(event) => {
+                ServerMessage::SessionCompacted(Sequenced { seq, event })
             }
             HubEvent::SessionTruncated(event) => {
                 ServerMessage::SessionTruncated(Sequenced { seq, event })
@@ -379,6 +429,8 @@ struct Connection {
     session_key: Arc<Mutex<String>>,
     /// No human on the other end. See [`ConnectOptions::unattended`].
     unattended: bool,
+    /// See [`ConnectOptions::awaits_resume`].
+    awaits_resume: bool,
     /// Mutable: a password change carries it to the caller's new session.
     login: Option<Login>,
     /// The transport closed it. Frames it sent before that still run as this
@@ -419,18 +471,6 @@ struct Continuation {
     after_seq: i64,
 }
 
-/// A steer this hub accepted and the loop has not written yet.
-///
-/// Held here rather than trusted to the loop's queue, because only the hub
-/// can deliver it another way: a turn that ends without reading it runs it as
-/// the next turn, for the connection that sent it.
-#[derive(Debug, Clone)]
-struct HeldSteer {
-    id: String,
-    content: String,
-    connection_id: String,
-}
-
 /// The turn that is running, and how to stop it.
 ///
 /// Set by the drain that pops the turn, before the loop exists, so a second
@@ -438,19 +478,12 @@ struct HeldSteer {
 struct RunningTurn {
     turn_id: String,
     token: CancellationToken,
-    /// The loop this turn started on, so a steer reaches the loop that is
-    /// running it. `None` until the loop has been resolved.
-    runner: Option<Arc<dyn TurnRunner>>,
     /// The connection that submitted it.
     connection_id: String,
     /// The last row a branch may copy while this turn runs: everything the
     /// turn's finished steps wrote, or everything before it until one has.
     /// `None` until the turn has started.
     committed: Option<u64>,
-    /// Handed to the loop, and not yet seen on a `steer` frame.
-    steers: Vec<HeldSteer>,
-    /// Sent before the loop was resolved. Handed over once it is.
-    early_steers: Vec<HeldSteer>,
 }
 
 struct SessionState {
@@ -472,19 +505,12 @@ struct SessionState {
     acked: IndexMap<String, String>,
     /// A regenerate or an edit is rewriting the history off the runtime. No
     /// turn starts until it is done, so none runs against a history that is
-    /// about to change.
+    /// about to change. A compaction holds the same claim.
     rewinding: bool,
-}
-
-impl SessionState {
-    /// Messages waiting to run: the queue, and each steer the running turn
-    /// has not read, since an unread one runs as a turn of its own.
-    fn waiting(&self) -> usize {
-        self.queue.len()
-            + self.running.as_ref().map_or(0, |running| {
-                running.steers.len() + running.early_steers.len()
-            })
-    }
+    /// Stops a compaction under way, for a `turn.stop` sent while it runs.
+    compacting: Option<CancellationToken>,
+    /// The last `context.usage`: what the next request costs and the window.
+    usage: Option<(u64, u64)>,
 }
 
 /// Everything the hub mutates, behind one lock.
@@ -528,6 +554,12 @@ pub struct ConnectOptions {
     /// what carries the user's chosen workspace across that gap. Moving a
     /// session that does exist is `PATCH /api/sessions/:key`, never a frame.
     pub workspace_id: Option<String>,
+    /// The client sends `session.resume` before it wants frames.
+    ///
+    /// Such a connection is attached by that resume rather than on connect, in
+    /// the same step that picks its replay, so no live frame reaches it ahead
+    /// of the frames it missed.
+    pub awaits_resume: bool,
     /// How much may sit queued for this connection before it is hung up on.
     pub max_buffered_bytes: Option<usize>,
     /// How much of a resume's replay may sit queued, apart from the live
@@ -550,12 +582,23 @@ pub struct Login {
     pub expires_at_ms: i64,
 }
 
+/// Frames the replay ring keeps per session: enough for a reconnect to pick up
+/// across turns. A reload of a running turn reads the turn log instead.
+pub const DEFAULT_REPLAY_FRAMES: usize = 512;
+
+/// Bytes of the running turn kept whole for a reload. Adjacent deltas merge, so
+/// what spends it is tool output.
+pub const DEFAULT_TURN_LOG_BYTES: usize = 16 * 1024 * 1024;
+
 /// How the hub is built.
 #[derive(Clone)]
 pub struct SessionHubOptions {
-    /// Read for the replay ring and turn-log sizes when a session is first
-    /// seen.
-    pub config: Config,
+    /// Frames the replay ring keeps per session. `None` is
+    /// [`DEFAULT_REPLAY_FRAMES`]; a test shrinks it to reach the fallback.
+    pub replay_frames: Option<usize>,
+    /// Bytes of the running turn kept whole. `None` is
+    /// [`DEFAULT_TURN_LOG_BYTES`]; a test shrinks it to overflow the log.
+    pub turn_log_bytes: Option<usize>,
     /// The loop to start the next turn on, resolved once per turn.
     pub loop_for: LoopResolver,
     /// Which agent an id actually names.
@@ -577,6 +620,10 @@ pub struct SessionHubOptions {
     pub max_queue_depth: Option<usize>,
     /// How many sessions keep their replay ring in memory.
     pub max_sessions: Option<usize>,
+    /// The steering queue the loops read. The hub opens a session's queue
+    /// before its turn starts and closes it after, so it alone decides what an
+    /// unread steer becomes.
+    pub steering: Arc<SteeringQueue>,
 }
 
 // The hub
@@ -605,6 +652,7 @@ pub struct SessionHub {
     new_id: IdSource,
     max_queue_depth: usize,
     max_sessions: usize,
+    steering: Arc<SteeringQueue>,
     expiry: ExpiryWatch,
 }
 
@@ -757,10 +805,8 @@ impl SessionHub {
                 sessions: LruCache::unbounded(),
                 connections: HashMap::new(),
             }),
-            replay_buffer_size: usize::try_from(options.config.server.replay_buffer_size)
-                .unwrap_or(usize::MAX),
-            turn_log_max_bytes: usize::try_from(options.config.server.turn_log_max_bytes)
-                .unwrap_or(usize::MAX),
+            replay_buffer_size: options.replay_frames.unwrap_or(DEFAULT_REPLAY_FRAMES),
+            turn_log_max_bytes: options.turn_log_bytes.unwrap_or(DEFAULT_TURN_LOG_BYTES),
             loop_for: options.loop_for,
             resolve_agent_id: options.resolve_agent_id,
             store: options.store,
@@ -770,6 +816,7 @@ impl SessionHub {
             new_id,
             max_queue_depth: options.max_queue_depth.unwrap_or(DEFAULT_MAX_QUEUE_DEPTH),
             max_sessions: options.max_sessions.unwrap_or(DEFAULT_MAX_SESSIONS),
+            steering: options.steering,
             expiry: ExpiryWatch::default(),
         })
     }
@@ -914,6 +961,7 @@ impl SessionHub {
                     .saturating_add(max_buffered_bytes)
             }),
             channel: options.channel.unwrap_or_else(|| "web".to_owned()),
+            awaits_resume: options.awaits_resume,
             agent_id: options.agent_id,
             workspace_id: options.workspace_id,
             session_key: Arc::clone(&session_key),
@@ -992,10 +1040,13 @@ impl SessionHub {
         // Nothing to report for a session with no row and no workspace asked
         // for: the switcher keeps the user's own choice until there is one.
         let workspace_id = stored.or_else(|| connection.workspace_id.clone());
+        let attach = !connection.awaits_resume;
         self.session(&mut inner, &key);
         let last_seq = match inner.sessions.get_mut(&key) {
             Some(state) => {
-                state.clients.push(id.to_owned());
+                if attach {
+                    state.clients.push(id.to_owned());
+                }
                 state.seq
             }
             None => 0,
@@ -1239,6 +1290,7 @@ impl SessionHub {
                 .await;
             }
             ClientMessage::Steer(message) => self.steer(connection_id, message).await,
+            ClientMessage::CompactSession(message) => self.compact(connection_id, &message),
             ClientMessage::NewSession(message) => {
                 {
                     let mut inner = self.inner.lock();
@@ -1368,6 +1420,11 @@ impl SessionHub {
             connection.workspace_id = Some(workspace_id.clone());
         }
 
+        // A nearly full session is summarised first. The message waits in its
+        // queue under the claim, so it moves with the conversation and runs
+        // first in the new session, or here if the summary fails.
+        let compacting = self.needs_compacting(&message.session_key).await
+            && self.begin_rewind(&message.session_key);
         self.enqueue(
             connection_id,
             &message.session_key,
@@ -1376,6 +1433,11 @@ impl SessionHub {
             message.agent_id.clone(),
         )
         .await;
+        if compacting {
+            let hub = Arc::clone(self);
+            let session_key = message.session_key.clone();
+            tokio::spawn(async move { hub.compact_for_message(&session_key).await });
+        }
     }
 
     /// The queue rules, in the one place that has them.
@@ -1393,34 +1455,10 @@ impl SessionHub {
         client_message_id: Option<String>,
         agent_id: Option<String>,
     ) {
-        self.enqueue_turn(
-            connection_id,
-            session_key,
-            content,
-            client_message_id,
-            agent_id,
-            None,
-        )
-        .await;
-    }
-
-    /// [`Self::enqueue`], with the continuation only a regenerate asks for.
-    async fn enqueue_turn(
-        self: &Arc<Self>,
-        connection_id: &str,
-        session_key: &str,
-        content: Content,
-        client_message_id: Option<String>,
-        agent_id: Option<String>,
-        continuation: Option<Continuation>,
-    ) {
         let queued = {
             let mut inner = self.inner.lock();
             self.session(&mut inner, session_key);
-            let depth = inner
-                .sessions
-                .peek(session_key)
-                .map_or(0, SessionState::waiting);
+            let depth = self.waiting(&inner, session_key);
             if depth >= self.max_queue_depth {
                 drop(inner);
                 self.refuse_full(connection_id, depth, client_message_id);
@@ -1433,7 +1471,7 @@ impl SessionHub {
                 content,
                 client_message_id,
                 agent_id,
-                continuation,
+                None,
             )
         };
 
@@ -1591,9 +1629,9 @@ impl SessionHub {
         .await
         .ok()
         .flatten();
-        self.end_rewind(&message.session_key);
 
         let Some((rerun, cut)) = found else {
+            self.end_rewind(&message.session_key);
             self.error(
                 connection_id,
                 ErrorCode::BadRequest,
@@ -1618,7 +1656,7 @@ impl SessionHub {
                 }),
             ),
         };
-        self.enqueue_turn(
+        self.rerun(
             connection_id,
             &message.session_key,
             content,
@@ -1629,92 +1667,131 @@ impl SessionHub {
             message.client_message_id.clone(),
             None,
             continuation,
-        )
-        .await;
+        );
+    }
+
+    /// Queues a rewind's rerun ahead of whatever another tab sent while the
+    /// claim was held, then releases the claim and starts it.
+    ///
+    /// Not through the depth cap: the history is already cut, and refusing
+    /// now would leave the question deleted with nothing to answer it.
+    fn rerun(
+        self: &Arc<Self>,
+        connection_id: &str,
+        session_key: &str,
+        content: Content,
+        client_message_id: Option<String>,
+        agent_id: Option<String>,
+        continuation: Option<Continuation>,
+    ) {
+        {
+            let mut inner = self.inner.lock();
+            self.push_turn(
+                &mut inner,
+                connection_id,
+                session_key,
+                content,
+                client_message_id,
+                agent_id,
+                continuation,
+            );
+            if let Some(state) = inner.sessions.get_mut(session_key) {
+                if let Some(rerun) = state.queue.pop_back() {
+                    state.queue.push_front(rerun);
+                }
+                state.rewinding = false;
+            }
+        }
+        self.drain(session_key);
+    }
+
+    /// Messages waiting to run on a session: its queue, and each steer the
+    /// running turn has not read, since an unread one runs as a turn of its own.
+    fn waiting(&self, inner: &HubInner, session_key: &str) -> usize {
+        inner
+            .sessions
+            .peek(session_key)
+            .map_or(0, |state| state.queue.len())
+            + self.steering.pending(session_key)
     }
 
     /// Hands a correction to the running turn, or runs it as the next one.
     ///
-    /// Never silently dropped. With no turn to read it, or a loop that refuses
-    /// it, it is an ordinary message under the same `clientMessageId`.
-    /// Accepted, it is tracked until the loop's `steer` frame names it, and a
-    /// turn that ends first hands it back to the queue. So it counts against
-    /// the queue bound from the start, and past it is refused as a message is.
+    /// Never silently dropped. With no turn to read it, it is an ordinary
+    /// message under the same `clientMessageId`. Accepted, it is in the queue
+    /// the hub closes when the turn ends, and whatever is left there runs next.
+    /// So it counts against the queue bound from the start.
     async fn steer(self: &Arc<Self>, connection_id: &str, message: SteerMessage) {
-        let held = HeldSteer {
-            id: message
-                .client_message_id
-                .clone()
-                .unwrap_or_else(|| (self.new_id)()),
-            content: message.content,
-            connection_id: connection_id.to_owned(),
-        };
+        let id = message
+            .client_message_id
+            .clone()
+            .unwrap_or_else(|| (self.new_id)());
         let key = message.session_key;
-
-        // Tracked before it is handed over, so the frame that marks it read
-        // cannot arrive ahead of the record it clears.
-        let runner = {
+        {
             let mut inner = self.inner.lock();
-            let state = inner.sessions.get_mut(&key);
-            let depth = state.as_deref().map_or(0, SessionState::waiting);
-            let running = state.and_then(|state| state.running.as_mut());
-            if running.is_some() && depth >= self.max_queue_depth {
+            if let Some(sent) = message.client_message_id.as_deref() {
+                let known = inner
+                    .sessions
+                    .peek(&key)
+                    .and_then(|state| state.acked.get(sent))
+                    .cloned();
+                if let Some(known) = known {
+                    // A resend after a dropped socket. One that ran as a turn
+                    // is acked again, as a message is; one still queued, or
+                    // already read, is answered by its `steer` frame.
+                    if known != sent {
+                        inner.emit(
+                            &key,
+                            HubEvent::MessageAck(MessageAck {
+                                tag: MessageAckTag,
+                                session_key: key.clone(),
+                                message_id: known,
+                                client_message_id: Some(sent.to_owned()),
+                            }),
+                        );
+                    }
+                    return;
+                }
+            }
+            let running = inner
+                .sessions
+                .peek(&key)
+                .is_some_and(|state| state.running.is_some());
+            let depth = self.waiting(&inner, &key);
+            if running && depth >= self.max_queue_depth {
                 drop(inner);
                 self.refuse_full(connection_id, depth, message.client_message_id);
                 return;
             }
-            match running {
-                None => None,
-                Some(running) => match running.runner.clone() {
-                    None => {
-                        running.early_steers.push(held);
-                        return;
+            // Under the hub lock, as the close at turn end is: a push either
+            // lands before it and comes back from it, or is refused after.
+            let accepted = running
+                && self.steering.push(
+                    &key,
+                    SteeringMessage {
+                        id: id.clone(),
+                        content: message.content.clone(),
+                        sender: connection_id.to_owned(),
+                    },
+                );
+            if accepted {
+                if let Some(state) = inner.sessions.get_mut(&key) {
+                    state.acked.insert(id.clone(), id);
+                    while state.acked.len() > MAX_TRACKED_CLIENT_MESSAGE_IDS {
+                        state.acked.shift_remove_index(0);
                     }
-                    Some(runner) => {
-                        running.steers.push(held.clone());
-                        Some(runner)
-                    }
-                },
-            }
-        };
-
-        // The loop the turn started on, not the current one: after a
-        // reconfigure those differ, and the queue the running loop drains is
-        // the only one it will ever read.
-        if let Some(runner) = runner {
-            if runner.steer(&key, &held.id, &held.content) {
-                return;
-            }
-            // Refused because the turn ended in between, and the turn's end
-            // has already run it as the next turn: only one of the two may.
-            if !self.untrack_steer(&key, &held.id) {
+                }
                 return;
             }
         }
         self.enqueue(
-            &held.connection_id,
+            connection_id,
             &key,
-            Content::Text(held.content),
-            Some(held.id),
+            Content::Text(message.content),
+            Some(id),
             None,
         )
         .await;
-    }
-
-    /// Stops tracking a steer. `false` when it was no longer tracked, because
-    /// the turn ending took it.
-    fn untrack_steer(&self, session_key: &str, id: &str) -> bool {
-        let mut inner = self.inner.lock();
-        let Some(running) = inner
-            .sessions
-            .get_mut(session_key)
-            .and_then(|state| state.running.as_mut())
-        else {
-            return false;
-        };
-        let before = running.steers.len();
-        running.steers.retain(|steer| steer.id != id);
-        running.steers.len() != before
     }
 
     /// Replaces a message and re-runs from it. Same guards as a regenerate.
@@ -1755,10 +1832,10 @@ impl SessionHub {
         })
         .await
         .unwrap_or(Edited::NotEditable);
-        self.end_rewind(&message.session_key);
 
         match outcome {
             Edited::NotEditable => {
+                self.end_rewind(&message.session_key);
                 self.error(
                     connection_id,
                     ErrorCode::BadRequest,
@@ -1769,6 +1846,7 @@ impl SessionHub {
                 return;
             }
             Edited::Empty => {
+                self.end_rewind(&message.session_key);
                 self.error(
                     connection_id,
                     ErrorCode::BadRequest,
@@ -1783,14 +1861,14 @@ impl SessionHub {
             }
             Edited::Rewound(None) => {}
         }
-        self.enqueue(
+        self.rerun(
             connection_id,
             &message.session_key,
             to_content(&message.content, &message.attachments),
             message.client_message_id.clone(),
             message.agent_id.clone(),
-        )
-        .await;
+            None,
+        );
     }
 
     /// Claims a session for a rewind, or `false` when a turn is running or
@@ -1816,6 +1894,209 @@ impl SessionHub {
         if let Some(state) = self.inner.lock().sessions.get_mut(session_key) {
             state.rewinding = false;
         }
+    }
+
+    /// Summarises the conversation into a new session, on request.
+    ///
+    /// The summary runs on a task of its own: it can take a minute, and this
+    /// connection's pings and its `turn.stop` must not wait behind it.
+    fn compact(self: &Arc<Self>, connection_id: &str, message: &CompactSessionMessage) {
+        if matches!((self.loop_for)(None), Ok(None)) {
+            self.error(
+                connection_id,
+                ErrorCode::NotConfigured,
+                NO_MODEL_MESSAGE,
+                false,
+            );
+            return;
+        }
+        if !self.begin_rewind(&message.session_key) {
+            self.error(
+                connection_id,
+                ErrorCode::SessionBusy,
+                "A turn is running on this session. Stop it, then try again.",
+                true,
+            );
+            return;
+        }
+        let hub = Arc::clone(self);
+        let connection_id = connection_id.to_owned();
+        let session_key = message.session_key.clone();
+        let instructions = message.instructions.clone();
+        tokio::spawn(async move {
+            if let Err(error) = hub.compact_claimed(&session_key, instructions).await {
+                hub.error(
+                    &connection_id,
+                    compaction_code(&error),
+                    &error.message,
+                    error.retryable,
+                );
+            }
+        });
+    }
+
+    /// Summarises a claimed session into a new one and moves everything on it
+    /// there, letting the claim go on every path.
+    ///
+    /// Messages that queued meanwhile move with it, in order, and run there
+    /// first.
+    async fn compact_claimed(
+        self: &Arc<Self>,
+        session_key: &str,
+        instructions: Option<String>,
+    ) -> Result<String> {
+        let token = CancellationToken::new();
+        if let Some(state) = self.inner.lock().sessions.get_mut(session_key) {
+            state.compacting = Some(token.clone());
+        }
+        let new_key = continued_key(session_key, &(self.new_id)());
+        let compacted = match self.runner_for(session_key).await {
+            Ok(runner) => {
+                let request = CompactRequest {
+                    session_key: session_key.to_owned(),
+                    new_key: new_key.clone(),
+                    instructions,
+                };
+                runner.compact(&request, &token).await
+            }
+            Err(error) => Err(error),
+        };
+
+        let clients = {
+            let mut inner = self.inner.lock();
+            let mut waiting = VecDeque::new();
+            let mut acked = IndexMap::new();
+            let mut clients = Vec::new();
+            if let Some(state) = inner.sessions.get_mut(session_key) {
+                state.compacting = None;
+                state.rewinding = false;
+                if compacted.is_ok() {
+                    waiting = std::mem::take(&mut state.queue);
+                    acked = std::mem::take(&mut state.acked);
+                    clients.clone_from(&state.clients);
+                    // Measured before the summary, and true of nothing now.
+                    state.usage = None;
+                }
+            }
+            if let Err(error) = compacted {
+                drop(inner);
+                self.drain(session_key);
+                return Err(error);
+            }
+            inner.emit(
+                session_key,
+                HubEvent::SessionCompacted(SessionCompacted {
+                    tag: SessionCompactedTag,
+                    session_key: session_key.to_owned(),
+                    continued_key: new_key.clone(),
+                }),
+            );
+            self.session(&mut inner, &new_key);
+            if let Some(state) = inner.sessions.get_mut(&new_key) {
+                state.queue.extend(waiting);
+                // So a resend of a message that moved is acked, not run twice.
+                state.acked.extend(acked);
+            }
+            clients
+        };
+        for client in clients {
+            self.move_to(&client, &new_key).await;
+        }
+        self.drain(&new_key);
+        Ok(new_key)
+    }
+
+    /// Whether a message about to run on this session should wait for it to
+    /// be summarised first.
+    ///
+    /// Only an idle session is checked: a message queued behind a running turn
+    /// runs where it is. A conversation the hub has no usage for yet, which is
+    /// the first message after a restart, is left alone until a turn reports
+    /// one.
+    async fn needs_compacting(&self, session_key: &str) -> bool {
+        let full = {
+            let inner = self.inner.lock();
+            inner.sessions.peek(session_key).is_some_and(|state| {
+                state.running.is_none()
+                    && state.queue.is_empty()
+                    && !state.rewinding
+                    && state.usage.is_some_and(|(used, window)| {
+                        used.saturating_mul(100) >= window.saturating_mul(AUTO_COMPACT_PERCENT)
+                    })
+            })
+        };
+        if !full {
+            return false;
+        }
+        let store = Arc::clone(&self.store);
+        let key = session_key.to_owned();
+        let origin = blocking(move || store.get_session(&key))
+            .await
+            .ok()
+            .flatten()
+            .map(|record| record.origin);
+        let delegated = origin.as_deref().is_none_or(|origin| {
+            origin == darkwire_protocol::automation::AUTOMATION_ORIGIN
+                || origin == darkwire_protocol::subagent::SUBAGENT_ORIGIN
+        });
+        !delegated
+            && self
+                .runner_for(session_key)
+                .await
+                .is_ok_and(|runner| runner.auto_compact())
+    }
+
+    /// Summarises a session a message is waiting on, and says how it went.
+    async fn compact_for_message(self: &Arc<Self>, session_key: &str) {
+        match self.compact_claimed(session_key, None).await {
+            Ok(new_key) => self.notice(
+                &new_key,
+                NoticeKind::Compacted,
+                "This session was near the end of its context window, so it was \
+                 summarised into this new one.",
+            ),
+            Err(error) => self.notice(
+                session_key,
+                NoticeKind::Compacted,
+                &format!(
+                    "This session is near the end of its context window and could not be \
+                     summarised: {}",
+                    error.message
+                ),
+            ),
+        }
+    }
+
+    /// A notice about the session rather than about any turn on it.
+    fn notice(&self, session_key: &str, kind: NoticeKind, message: &str) {
+        self.inner.lock().emit(
+            session_key,
+            HubEvent::Agent(AgentEvent::from(Notice {
+                tag: NoticeTag,
+                kind,
+                message: message.to_owned(),
+                turn_id: None,
+                call_id: None,
+            })),
+        );
+    }
+
+    /// The runner a turn on this session would run on.
+    async fn runner_for(&self, session_key: &str) -> Result<Arc<dyn TurnRunner>> {
+        let store = Arc::clone(&self.store);
+        let key = session_key.to_owned();
+        let stored = blocking(move || store.get_session(&key))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|record| record.agent_id);
+        let resolver = Arc::clone(&self.resolve_agent_id);
+        let requested = agent_for_turn(stored.as_deref(), None, &|agent_id| {
+            resolver(Some(agent_id)).miss.is_none()
+        });
+        let resolution = (self.resolve_agent_id)(requested.as_deref());
+        (self.loop_for)(Some(&resolution.agent_id))?
+            .ok_or_else(|| WireError::new(ErrorKind::Config, NO_MODEL_MESSAGE))
     }
 
     /// Says that a suffix of the conversation was dropped.
@@ -1867,18 +2148,18 @@ impl SessionHub {
                 return false;
             };
             let token = CancellationToken::new();
+            // Open before the turn exists, so a steer sent the moment it is
+            // announced is accepted.
+            self.steering.open(session_key);
             state.running = Some(RunningTurn {
                 turn_id: next.id.clone(),
                 token: token.clone(),
-                runner: None,
                 connection_id: next.connection_id.clone(),
                 // A continuation writes no question, so what the cut left is
                 // final before its first step.
                 committed: next
                     .continuation
                     .and_then(|continuation| u64::try_from(continuation.after_seq).ok()),
-                steers: Vec::new(),
-                early_steers: Vec::new(),
             });
             (next, token)
         };
@@ -1934,6 +2215,12 @@ impl SessionHub {
                 );
                 running.token.cancel();
             }
+            if turn_id.is_none()
+                && !unattended
+                && let Some(compacting) = state.compacting.as_ref()
+            {
+                compacting.cancel();
+            }
             state.queue.len() != before
         };
         if withdrawn {
@@ -1971,15 +2258,8 @@ impl SessionHub {
                         .as_ref()
                         .is_some_and(|running| running.turn_id == turn.id) =>
                 {
-                    state
-                        .running
-                        .take()
-                        .map(|running| {
-                            let mut unread = running.early_steers;
-                            unread.extend(running.steers);
-                            unread
-                        })
-                        .unwrap_or_default()
+                    state.running = None;
+                    self.steering.close(&session_key)
                 }
                 _ => Vec::new(),
             };
@@ -1990,7 +2270,7 @@ impl SessionHub {
             for steer in unread {
                 self.push_turn(
                     &mut inner,
-                    &steer.connection_id,
+                    &steer.sender,
                     &session_key,
                     Content::Text(steer.content),
                     Some(steer.id),
@@ -2111,14 +2391,6 @@ impl SessionHub {
                 // The handle's own token as well as the parent: a runner is
                 // free to hand back one that is not a child of it.
                 running.token = running_turn.token().clone();
-                running.runner = Some(Arc::clone(&runner));
-                // The loop opened its queue before `run` returned, so these
-                // are accepted. One that is not stays tracked, and is run as
-                // the next turn when this one ends.
-                for steer in std::mem::take(&mut running.early_steers) {
-                    runner.steer(session_key, &steer.id, &steer.content);
-                    running.steers.push(steer);
-                }
             }
             let status = inner
                 .sessions
@@ -2286,6 +2558,8 @@ impl SessionHub {
                 running: None,
                 acked: IndexMap::new(),
                 rewinding: false,
+                compacting: None,
+                usage: None,
             },
         );
         // Excluded from its own eviction: nothing has attached to it yet, so by
@@ -2334,149 +2608,70 @@ impl SessionHub {
         {
             let mut inner = self.inner.lock();
             self.session(&mut inner, session_key);
-            let previous = inner
-                .connections
-                .get(connection_id)
-                .filter(|connection| !connection.closing)
-                .map(Connection::session_key);
-            if let Some(previous) = previous
-                && previous != session_key
-            {
-                if let Some(state) = inner.sessions.get_mut(&previous) {
-                    state.clients.retain(|id| id != connection_id);
-                }
-                if let Some(connection) = inner.connections.get(connection_id) {
-                    session_key.clone_into(&mut connection.session_key.lock());
-                }
-                if let Some(state) = inner.sessions.get_mut(session_key) {
-                    state.clients.push(connection_id.to_owned());
-                }
-            }
+            inner.attach(connection_id, session_key);
         }
         self.announce_status(session_key).await;
     }
 
-    /// Rebuilds a reconnecting client.
+    /// Attaches a client and sends what it missed.
     ///
-    /// Three answers, and the first two are the original pair. Covered by the
-    /// ring: the events after `last_seq` verbatim, which is strictly more than
-    /// storage holds — it includes the deltas of a turn still running. Past the
-    /// ring with nothing running: the stored tail instead, `complete: false`,
-    /// and the client refetches the rest from REST. Never both, because a stored
-    /// assistant message and the deltas that produced it are the same text
-    /// twice.
+    /// The attach and the choice of frames happen under one lock, and the
+    /// frames are queued before the lock is let go, so no live frame reaches
+    /// the connection ahead of its replay.
     ///
-    /// The third is past the ring *while a turn is running*, which is the
-    /// ordinary outcome of reloading during a delegation — a subagent spends a
-    /// frame per token and the ring is counted in frames. Here the answer is
-    /// both, and it is legal because the log names the one turn the two sources
-    /// overlap on: `resuming_turn_id` tells the client to drop that turn from the
-    /// tail it was just handed and rebuild it from the frames, which are the
-    /// whole of it. The rest of the tail is history the frames say nothing about.
+    /// Three answers. Covered by the ring: the frames after `last_seq`,
+    /// `complete: true`. A fresh attach (`last_seq` 0) or a gap past the ring:
+    /// `complete: false`, and the client fetches the stored history itself;
+    /// if a turn is running and its log is whole, `resuming_turn_id` names it
+    /// and the log's frames follow, since storage does not hold a turn that has
+    /// not finished. A log that overran its budget holds a middle, and a middle
+    /// over a stored history would render a turn that began halfway through,
+    /// so then nothing follows.
     async fn resume(self: &Arc<Self>, connection_id: &str, session_key: &str, last_seq: u64) {
-        self.move_to(connection_id, session_key).await;
-
-        let (complete, resuming) = {
-            let inner = self.inner.lock();
+        {
+            let mut inner = self.inner.lock();
+            self.session(&mut inner, session_key);
+            inner.attach(connection_id, session_key);
             let Some(state) = inner.sessions.peek(session_key) else {
                 return;
             };
-            let complete = state.ring.covers(last_seq);
-            // Only consulted when the ring falls short: while the ring covers the
-            // gap it is already sending these frames, and sending them twice
-            // from two places would be the duplicate this whole path exists to
-            // avoid.
-            //
-            // `complete` is the whole question: a log that overran its byte
-            // budget holds a *middle*, and replaying a middle over a stored tail
-            // would render a turn that began halfway through.
-            let resuming = if complete {
+            let complete = last_seq > 0 && state.ring.covers(last_seq);
+            let resuming = if complete || !state.turn_log.complete() {
                 None
-            } else if state.turn_log.complete() {
-                state.turn_log.open_turn_id().map(str::to_owned)
             } else {
-                None
+                state.turn_log.open_turn_id().map(str::to_owned)
             };
-            (complete, resuming)
-        };
-
-        let messages = if complete {
-            Vec::new()
-        } else {
-            let store = Arc::clone(&self.store);
-            let key = session_key.to_owned();
-            blocking(move || Ok(tail(&store, &key)))
-                .await
-                .unwrap_or_default()
-        };
-
-        // To the resuming connection alone, like the frames that follow it.
-        // Another tab on the session is not missing anything, and one watching
-        // a live turn would read `complete: false` as an order to rebuild it.
-        // Stamped with the current seq rather than a new one: a number no
-        // other tab receives would leave a gap that makes their next resume
-        // look incomplete.
-        {
-            let seq = self
-                .inner
-                .lock()
-                .sessions
-                .peek(session_key)
-                .map_or(0, |state| state.seq);
+            let frames: Vec<ServerMessage> = if complete {
+                state.ring.after(last_seq).messages
+            } else if resuming.is_some() {
+                state.turn_log.frames().to_vec()
+            } else {
+                Vec::new()
+            };
+            // Stamped with the current seq rather than a new one: a number no
+            // other tab receives would leave a gap in their next resume.
             let replay = HubEvent::SessionReplay(SessionReplay {
                 tag: SessionReplayTag,
                 session_key: session_key.to_owned(),
-                messages,
                 complete,
-                // Only ever alongside `complete: false`: a client told the
-                // replay was whole has nothing to rebuild from a second source.
                 resuming_turn_id: resuming.clone(),
             })
-            .sequenced(seq);
-            if let Some(text) = encode(&replay) {
-                self.inner
-                    .lock()
-                    .send_text(connection_id, text, Budget::Replay);
+            .sequenced(state.seq);
+            if !complete {
+                tracing::info!(session_key, last_seq, resuming_turn_id = ?resuming, "resume outside the replay buffer");
+            }
+            // Re-sends, not new events: the same frames with the same `seq`.
+            // Not counted against the live budget, which one replay may
+            // legitimately exceed.
+            let texts: Vec<Arc<str>> = std::iter::once(replay)
+                .chain(frames)
+                .filter_map(|frame| encode(&frame))
+                .collect();
+            for text in texts {
+                inner.send_text(connection_id, text, Budget::Replay);
             }
         }
-
-        if !complete {
-            tracing::info!(
-                session_key,
-                last_seq,
-                resuming_turn_id = ?resuming,
-                "resume fell outside the replay buffer"
-            );
-            if resuming.is_none() {
-                return;
-            }
-        }
-
-        // Re-sends, not new events: the same frames with the same `seq`, to the
-        // one connection that missed them. They therefore arrive *after* an
-        // envelope carrying a higher number, which is why a client tracks the
-        // maximum `seq` it has seen rather than the last one it was handed.
-        //
-        // Not counted against the live budget. A replay is bounded already, by
-        // the ring and the turn log, and it can legitimately be larger than the
-        // socket's budget: counting it closed the socket, and the client's
-        // resume asked for the same replay again.
-        let frames: Vec<ServerMessage> = {
-            let inner = self.inner.lock();
-            let Some(state) = inner.sessions.peek(session_key) else {
-                return;
-            };
-            if resuming.is_none() {
-                state.ring.after(last_seq).messages
-            } else {
-                state.turn_log.frames().to_vec()
-            }
-        };
-        let texts: Vec<Arc<str>> = frames.iter().filter_map(encode).collect();
-        let mut inner = self.inner.lock();
-        for text in texts {
-            inner.send_text(connection_id, text, Budget::Replay);
-        }
+        self.announce_status(session_key).await;
     }
 
     /// Says where a session stands, with its workspace read fresh from the
@@ -2621,6 +2816,12 @@ impl HubInner {
         state.seq += 1;
         let message = event.sequenced(state.seq);
         state.turn_log.push(&message);
+        if let ServerMessage::ContextUsage(usage) = &message {
+            state.usage = Some((
+                usage.event.estimated_tokens,
+                usage.event.context_window_tokens,
+            ));
+        }
         if let Some(running) = state.running.as_mut() {
             match &message {
                 // Only a turn that wrote a question moves the boundary here. A
@@ -2632,11 +2833,6 @@ impl HubInner {
                 }
                 ServerMessage::StepEnd(step) if step.event.turn_id == running.turn_id => {
                     running.committed = Some(step.event.last_seq);
-                }
-                ServerMessage::Steer(steer) if steer.event.turn_id == running.turn_id => {
-                    if let Some(id) = steer.event.client_message_id.as_deref() {
-                        running.steers.retain(|held| held.id != id);
-                    }
                 }
                 _ => {}
             }
@@ -2663,6 +2859,31 @@ impl HubInner {
         let clients = state.clients.clone();
         for connection_id in clients {
             self.send_text(&connection_id, Arc::clone(text), Budget::Live);
+        }
+    }
+
+    /// Puts a connection on `session_key`, off whatever session it was on.
+    fn attach(&mut self, connection_id: &str, session_key: &str) {
+        let Some(previous) = self
+            .connections
+            .get(connection_id)
+            .filter(|connection| !connection.closing)
+            .map(Connection::session_key)
+        else {
+            return;
+        };
+        if previous != session_key {
+            if let Some(state) = self.sessions.get_mut(&previous) {
+                state.clients.retain(|id| id != connection_id);
+            }
+            if let Some(connection) = self.connections.get(connection_id) {
+                session_key.clone_into(&mut connection.session_key.lock());
+            }
+        }
+        if let Some(state) = self.sessions.get_mut(session_key)
+            && !state.clients.iter().any(|id| id == connection_id)
+        {
+            state.clients.push(connection_id.to_owned());
         }
     }
 

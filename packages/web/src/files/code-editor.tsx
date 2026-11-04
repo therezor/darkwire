@@ -79,7 +79,9 @@ export function CodeEditor({
       void (async () => {
         try {
           const { highlight } = await import('@/chat/markdown/highlight.js');
-          const lines = await highlight(value, language, resolved);
+          const lines = await highlight(value, language, resolved, {
+            remember: false,
+          });
           if (!cancelled && lines !== undefined) {
             setHighlighted({ code: value, theme: resolved, lines });
           }

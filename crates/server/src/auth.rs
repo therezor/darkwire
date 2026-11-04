@@ -22,7 +22,7 @@ use darkwire_protocol::config::{Config, is_loopback_host};
 
 use crate::auth_store::{AuthSession, AuthStore};
 use crate::errors::HttpError;
-use crate::routes::AppState;
+use crate::routes::{AppState, on_store};
 use crate::signing::{MEDIA_SECRET_NAME, MediaClaim, verify_media_token};
 
 /// The cookie a browser session travels in.
@@ -245,7 +245,14 @@ pub async fn require_session(
     mut request: Request,
     next: Next,
 ) -> Result<Response, HttpError> {
-    let session = authenticate(&state.config, &state.auth, request.headers())?;
+    if !state.config.server.auth.enabled {
+        return Ok(next.run(request).await);
+    }
+    let headers = request.headers().clone();
+    let session = on_store(&state, move |deps| {
+        Ok(authenticate(&deps.config, &deps.auth, &headers))
+    })
+    .await??;
     // Recorded even when it is `None`, which is what authentication being off
     // for the whole server looks like: the handler asks for a session and
     // correctly finds none, rather than seeing a stale one from elsewhere.
@@ -280,7 +287,14 @@ pub async fn require_signature(
                 .map(|(_, value)| value.to_owned())
         });
 
-    let claim = verify_signed(&state.auth, token.as_deref(), state.clock.as_ref())?;
+    let claim = on_store(&state, move |deps| {
+        Ok(verify_signed(
+            &deps.auth,
+            token.as_deref(),
+            deps.clock.as_ref(),
+        ))
+    })
+    .await??;
     let mut request = Request::from_parts(parts, body);
     request.extensions_mut().insert(claim);
     Ok(next.run(request).await)

@@ -90,7 +90,7 @@ impl DnsResolver for Counting {
     }
 }
 
-/// A server whose hostname is pinned to loopback and exempt from classification.
+/// A server whose hostname is pinned to loopback, with loopback on the list.
 struct Local {
     server: MockServer,
     host: String,
@@ -105,7 +105,7 @@ impl Local {
             server,
             host: host.to_owned(),
             resolver: resolves_to(host, &[LOOPBACK]),
-            policy: only(&[host]),
+            policy: only(&[host, "127.0.0.1"]),
         }
     }
 
@@ -172,7 +172,6 @@ async fn accepts_a_public_host_and_pins_what_the_resolver_returned() {
     assert_eq!(target.host, "example.com");
     assert_eq!(target.url.as_str(), "https://example.com/a?b=c");
     assert_eq!(target.addresses, [PUBLIC]);
-    assert!(!target.exempt);
     assert_eq!(target, target.clone());
 }
 
@@ -298,18 +297,16 @@ async fn an_entry_unlocks_loopback_and_private_but_never_link_local() {
         "blocked range",
     );
 
-    let exempt = only(&["127.0.0.1"]);
+    let listed = only(&["127.0.0.1"]);
     assert!(
-        validate_target("http://127.0.0.1:11434/", &exempt, &resolver)
+        validate_target("http://127.0.0.1:11434/", &listed, &resolver)
             .await
-            .unwrap()
-            .exempt
+            .is_ok()
     );
     let routable = validate_target("https://8.8.8.8/", &strict, &resolver)
         .await
         .unwrap();
     assert_eq!(routable.addresses, [ip("8.8.8.8")]);
-    assert!(!routable.exempt);
 }
 
 /// The tightening this shape exists for. The list this replaced skipped
@@ -393,17 +390,33 @@ async fn reports_resolution_failures_as_network_errors() {
 }
 
 #[tokio::test]
-async fn an_allow_listed_name_skips_classification_but_is_still_pinned() {
-    let policy = only(&[".internal"]);
+async fn a_listed_name_reaches_a_private_address_only_when_its_block_is_listed() {
+    let resolver = resolves_to("ollama.internal", &[ip("10.0.0.5")]);
+    expect_blocked(
+        validate_target("http://ollama.internal/", &only(&[".internal"]), &resolver).await,
+        "blocked range",
+    );
+
     let target = validate_target(
         "http://ollama.internal/",
-        &policy,
-        &resolves_to("ollama.internal", &[ip("10.0.0.5")]),
+        &only(&[".internal", "10.0.0.0/8"]),
+        &resolver,
     )
     .await
     .unwrap();
-    assert!(target.exempt);
     assert_eq!(target.addresses, [ip("10.0.0.5")]);
+}
+
+#[tokio::test]
+async fn a_listed_name_reaches_a_public_address_on_its_own() {
+    let target = validate_target(
+        "https://api.example.com/",
+        &only(&["api.example.com"]),
+        &resolves_to("api.example.com", &[PUBLIC]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(target.addresses, [PUBLIC]);
 }
 
 #[tokio::test]
@@ -423,7 +436,7 @@ async fn the_system_resolver_answers_for_localhost() {
         .await,
         "blocked range",
     );
-    let loopback = only(&["localhost"]);
+    let loopback = only(&["localhost", "127.0.0.1", "::1"]);
     let target = validate_target("http://localhost:11434/", &loopback, &resolver)
         .await
         .unwrap();
@@ -554,7 +567,7 @@ async fn re_resolves_each_hop_rather_than_reusing_the_first_pin() {
     let resolver = Counting {
         calls: AtomicUsize::new(0),
     };
-    let policy = only(&["first.test", "elsewhere.test"]);
+    let policy = only(&["first.test", "elsewhere.test", "127.0.0.1"]);
     let result = guarded_fetch(
         &format!("http://first.test:{port}/"),
         GuardedFetchOptions::new(&policy, &resolver),
@@ -590,7 +603,7 @@ async fn drops_credentials_when_the_origin_changes_and_keeps_them_otherwise() {
     let resolver = StaticResolver::new()
         .with("example.test", &[LOOPBACK])
         .with("attacker.test", &[LOOPBACK]);
-    let policy = only(&["example.test", "attacker.test"]);
+    let policy = only(&["example.test", "attacker.test", "127.0.0.1"]);
     let mut headers = HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_static("Bearer secret"));
     headers.insert("Cookie", HeaderValue::from_static("session=1"));
@@ -706,7 +719,7 @@ async fn wraps_a_transport_failure() {
     let port = listener.local_addr().unwrap().port();
     drop(listener);
     let resolver = resolves_to("closed.test", &[LOOPBACK]);
-    let policy = only(&["closed.test"]);
+    let policy = only(&["closed.test", "127.0.0.1"]);
     let error = guarded_fetch(
         &format!("http://closed.test:{port}/"),
         GuardedFetchOptions::new(&policy, &resolver),

@@ -5,7 +5,7 @@
     reason = "a fixture that does not hold is a failing test either way"
 )]
 
-use darkwire::bottom_pane::{BottomPane, SelectView, ViewKey};
+use darkwire::bottom_pane::{BottomPane, SelectView};
 use darkwire::header::HeaderView;
 use darkwire::pickers::MenuAnswer;
 use darkwire::pickers::palette::CommandChoice;
@@ -139,10 +139,10 @@ fn a_spinner_is_drawn_while_a_turn_runs() {
 fn a_view_takes_the_keys_the_composer_would_have_had() {
     let mut pane = pane(24);
     let (answer, _receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
 
     assert!(pane.has_view());
-    assert_eq!(pane.offer_key(&Key::char('a')), ViewKey::Consumed);
+    assert!(pane.offer_key(&Key::char('a')));
     assert_eq!(pane.typing(), "", "the key reached the composer as well");
 }
 
@@ -150,7 +150,7 @@ fn a_view_takes_the_keys_the_composer_would_have_had() {
 fn a_view_that_answered_is_taken_away() {
     let mut pane = pane(24);
     let (answer, receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
 
     pane.offer_key(&Key::named(KeyName::Enter));
 
@@ -170,19 +170,19 @@ fn a_view_nobody_is_waiting_on_goes_without_a_key() {
     // is gone, and the next key belongs to the composer.
     let mut pane = pane(24);
     let (answer, receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
 
     drop(receiver);
 
     assert!(!pane.has_view());
-    assert_eq!(pane.offer_key(&Key::char('a')), ViewKey::PassThrough);
+    assert!(!pane.offer_key(&Key::char('a')));
 }
 
 #[test]
 fn a_cancelled_view_answers_nothing_and_still_goes() {
     let mut pane = pane(24);
     let (answer, receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
 
     pane.offer_key(&Key::named(KeyName::Escape));
 
@@ -193,7 +193,7 @@ fn a_cancelled_view_answers_nothing_and_still_goes() {
 #[test]
 fn a_key_reaches_the_composer_when_nothing_is_stacked_over_it() {
     let mut pane = pane(24);
-    assert_eq!(pane.offer_key(&Key::char('a')), ViewKey::PassThrough);
+    assert!(!pane.offer_key(&Key::char('a')));
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn a_view_is_drawn_under_the_composer_and_not_over_it() {
         .expect("the composer's rule");
 
     let (answer, _receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
     let after = rows(&mut pane, 40);
 
     let first = after
@@ -267,7 +267,7 @@ fn a_short_window_still_draws_the_composer_under_an_open_menu() {
     // and shrinking that one clipped the composer off the bottom here.
     let mut pane = pane(8);
     let (answer, _receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
     let drawn = rows(&mut pane, 40);
 
     assert!(drawn.len() < 8, "the pane took the whole window: {drawn:?}");
@@ -281,7 +281,7 @@ fn a_short_window_still_draws_the_composer_under_an_open_menu() {
 fn an_open_menu_asks_its_question_on_the_row_the_composer_had() {
     let mut pane = pane(24);
     let (answer, _receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
     pane.offer_key(&Key::char('s'));
     let drawn = rows(&mut pane, 40);
 
@@ -306,7 +306,7 @@ fn the_composer_comes_back_when_the_menu_closes() {
     let mut pane = pane(24);
     pane.editor_mut().set_text("half a message");
     let (answer, _receiver) = tokio::sync::oneshot::channel();
-    pane.push_view(Box::new(menu(answer)));
+    pane.push_view(menu(answer));
     assert!(!rows(&mut pane, 40).iter().any(|row| row.contains("half a")));
 
     pane.offer_key(&Key::named(KeyName::Escape));

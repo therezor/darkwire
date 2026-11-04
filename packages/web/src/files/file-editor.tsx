@@ -76,6 +76,10 @@ export function FileEditor({
 
   const loaded = file.data;
   const content = draft ?? loaded?.content ?? '';
+  // Read by the save's success handler, which closes over the draft as it
+  // was when the save started.
+  const latestDraft = useRef(draft);
+  latestDraft.current = draft;
   const dirty = draft !== undefined && draft !== loaded?.content;
 
   useEffect(() => {
@@ -92,10 +96,13 @@ export function FileEditor({
         loaded.modifiedAtMs,
       );
     },
-    onSuccess: (written) => {
+    onSuccess: (written, text) => {
       setConflict(false);
-      setDraft(undefined);
-      setEditing(false);
+      // Keystrokes typed while the save was in flight stay in the buffer.
+      if (latestDraft.current === text) {
+        setDraft(undefined);
+        setEditing(false);
+      }
       // Both: the text query holds the new `modifiedAtMs` the next save has to
       // match, and the listing holds the size and time in the row behind this.
       void queryClient.invalidateQueries({

@@ -13,13 +13,10 @@
 //! down an area. A widget that measures one thing and draws another leaves a
 //! gap or loses its last row.
 
-use crossterm::cursor::SetCursorStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::Widget;
-
-use crate::wrap::wrap_lines;
 
 /// Something that can say how tall it is and draw itself.
 pub trait Renderable {
@@ -35,19 +32,6 @@ pub trait Renderable {
     /// the common case: only the composer has one.
     fn cursor_pos(&self, _area: Rect) -> Option<(u16, u16)> {
         None
-    }
-
-    /// The shape the caret takes while this owns it.
-    fn cursor_style(&self, _area: Rect) -> SetCursorStyle {
-        SetCursorStyle::DefaultUserShape
-    }
-}
-
-impl Renderable for () {
-    fn render(&self, _area: Rect, _buffer: &mut Buffer) {}
-
-    fn desired_height(&self, _width: u16) -> u16 {
-        0
     }
 }
 
@@ -69,23 +53,6 @@ impl Renderable for Vec<Line<'static>> {
 
     fn desired_height(&self, _width: u16) -> u16 {
         u16::try_from(self.len()).unwrap_or(u16::MAX)
-    }
-}
-
-/// Logical lines folded to whatever width they are asked for.
-///
-/// The difference from a bare `Vec<Line>` is where the folding happens. These
-/// are the lines as they were written, so a resize asks again and gets however
-/// many rows the new width needs. Pre-folded rows would keep the old width.
-pub struct Wrapped(pub Vec<Line<'static>>);
-
-impl Renderable for Wrapped {
-    fn render(&self, area: Rect, buffer: &mut Buffer) {
-        draw_rows(&wrap_lines(&self.0, area.width), area, buffer);
-    }
-
-    fn desired_height(&self, width: u16) -> u16 {
-        u16::try_from(wrap_lines(&self.0, width).len()).unwrap_or(u16::MAX)
     }
 }
 
@@ -115,10 +82,6 @@ impl<T: Renderable + ?Sized> Renderable for &T {
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         (**self).cursor_pos(area)
     }
-
-    fn cursor_style(&self, area: Rect) -> SetCursorStyle {
-        (**self).cursor_style(area)
-    }
 }
 
 impl<T: Renderable + ?Sized> Renderable for Box<T> {
@@ -132,10 +95,6 @@ impl<T: Renderable + ?Sized> Renderable for Box<T> {
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         (**self).cursor_pos(area)
-    }
-
-    fn cursor_style(&self, area: Rect) -> SetCursorStyle {
-        (**self).cursor_style(area)
     }
 }
 
@@ -153,13 +112,6 @@ impl<T: Renderable> Renderable for Option<T> {
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         self.as_ref().and_then(|inner| inner.cursor_pos(area))
-    }
-
-    fn cursor_style(&self, area: Rect) -> SetCursorStyle {
-        self.as_ref()
-            .map_or(SetCursorStyle::DefaultUserShape, |inner| {
-                inner.cursor_style(area)
-            })
     }
 }
 
@@ -184,27 +136,8 @@ impl<'a> Column<'a> {
     }
 
     /// Adds a child below the ones already there.
-    #[must_use]
-    pub fn with(mut self, child: impl Renderable + 'a) -> Self {
-        self.children.push(Box::new(child));
-        self
-    }
-
-    /// Adds a child below the ones already there.
     pub fn push(&mut self, child: impl Renderable + 'a) {
         self.children.push(Box::new(child));
-    }
-
-    /// How many children there are.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Whether there is nothing to draw.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.children.is_empty()
     }
 }
 
@@ -233,14 +166,6 @@ impl Renderable for Column<'_> {
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         self.child_areas(area)
             .find_map(|(child, child_area)| child.cursor_pos(child_area))
-    }
-
-    fn cursor_style(&self, area: Rect) -> SetCursorStyle {
-        self.child_areas(area)
-            .find(|(child, child_area)| child.cursor_pos(*child_area).is_some())
-            .map_or(SetCursorStyle::DefaultUserShape, |(child, child_area)| {
-                child.cursor_style(child_area)
-            })
     }
 }
 

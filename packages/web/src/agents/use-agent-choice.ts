@@ -36,7 +36,7 @@ import { useEffect } from 'react';
 import { DEFAULT_AGENT_ID, type AgentSummary } from '@darkwire/protocol';
 
 import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { queryKeys, refreshSessions } from '@/lib/query.js';
 import { useAgentsQuery, useSessionRow } from '@/lib/queries.js';
 import { useAgent } from './agent-context.js';
 
@@ -127,7 +127,7 @@ export function useAgentChoice(sessionKey: string | undefined): AgentChoice {
       api.moveSessionToAgent(sessionKey ?? '', agentId),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.session(updated.key), updated);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() });
+      refreshSessions(queryClient);
       // The switcher follows the conversation rather than claiming to have set
       // it — see `adopt` in the context.
       adopt(updated.agentId ?? DEFAULT_AGENT_ID);

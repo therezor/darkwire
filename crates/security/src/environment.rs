@@ -267,8 +267,15 @@ pub fn assert_environment_policy(container: &EnvironmentDefinition) -> Result<()
 /// the moment the gateway has to filter by the socket's owner and would be
 /// filtering something that can rewrite itself.
 pub fn assert_gateway_compatible(container: &EnvironmentDefinition) -> Result<()> {
-    let uid = container.user.split(':').next().unwrap_or_default();
-    if uid.is_empty() || uid == "0" || !uid.bytes().all(|c| c.is_ascii_digit()) {
+    // Compared as numbers, the way the runtime reads them: "065532" is the
+    // proxy's uid and "00" is root.
+    let uid = container
+        .user
+        .split(':')
+        .next()
+        .filter(|uid| !uid.is_empty() && uid.bytes().all(|c| c.is_ascii_digit()))
+        .and_then(|uid| uid.parse::<u32>().ok());
+    if uid.is_none_or(|uid| uid == 0) {
         return Err(policy_error(
             container,
             format!(
@@ -282,7 +289,7 @@ pub fn assert_gateway_compatible(container: &EnvironmentDefinition) -> Result<()
             ),
         ));
     }
-    if uid == crate::egress::PROXY_UID {
+    if uid.map(|uid| uid.to_string()).as_deref() == Some(crate::egress::PROXY_UID) {
         return Err(policy_error(
             container,
             format!(

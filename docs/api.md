@@ -205,8 +205,9 @@ parameters `?session=` and `?agent=`.
 | `user.edit`       | Rewrites a user message and re-runs from it.                                                               |
 | `session.new`     | Starts a session.                                                                                          |
 | `session.switch`  | Rebinds this socket.                                                                                       |
-| `session.resume`  | `{ lastSeq }`: replays what was missed.                                                                    |
+| `session.resume`  | `{ lastSeq }`: attaches the socket and replays what was missed. The first frame of every socket.           |
 | `tool.approve`    | Answers an approval prompt, with a scope and an optional `exec` rule to save.                              |
+| `session.compact` | Summarises the session into a new one, with optional `instructions`. Refused while a turn runs.            |
 
 ### Server → client
 
@@ -230,8 +231,12 @@ parked for another answer. See [Tools & permissions](tools.md#answering).
 
 Session and connection: `connected` · `pong` · `error` · `message.ack` ·
 `message.queued` · `context.usage` · `session.status` · `session.reset` ·
-`session.replay` · `session.truncated` · `notification` ·
+`session.replay` · `session.truncated` · `session.compacted` · `notification` ·
 `tools.changed` · `steer`
+
+`session.compacted` says the conversation carries on in `continuedKey`. It is sequenced on
+the old session, so a tab that was away learns of it from the replay. By the time it
+arrives the server has moved every connection on the old session to the new one.
 
 `steer` comes from the loop, once it has written the guidance into the turn, so it
 carries the `turnId` that read it and the sender's `clientMessageId`. A `turn.steer` the
@@ -253,46 +258,43 @@ reporting it would move a meter that is describing somebody else's history.
 
 ### Sequencing and replay
 
-Every session-scoped server event carries a monotonic `seq`. A reconnecting tab sends
-`session.resume { lastSeq }` and the server replays from a per-session ring buffer
-(`server.replayBufferSize`, default 512) — so a refresh mid-answer rebuilds the in-flight
-turn instead of losing it.
+Every session-scoped server event carries a monotonic `seq`. A socket that names its
+session opens with `session.resume { lastSeq }`, and the server attaches it by that frame:
+it picks the frames to replay and queues them under the same lock that attaches the
+socket, so no live frame can arrive ahead of the ones it missed. `lastSeq` is the last
+frame the page applied: a reconnect asks for its gap, and a page with nothing on screen,
+a fresh tab, a reload or a switch, asks with `0`.
 
 `connected`, `pong` and `error` are the only unsequenced frames; they are addressed to one
 client rather than to the session.
 
-A socket that joins a session while a turn runs also gets that session's `session.status`
-straight after `connected`, stamped with the current `seq` rather than a new one. It never
-saw the turn start, and without it a fresh tab offers no Stop. `connected` and
-`session.status` leave `workspaceId` out for a session that has no row yet: it is in no
-workspace until its first message, and a client keeps its own choice until then.
+A socket that joins a session while a turn runs also gets that session's `session.status`,
+stamped with the current `seq` rather than a new one, so a fresh tab offers Stop.
+`connected` and `session.status` leave `workspaceId` out for a session that has no row
+yet: it is in no workspace until its first message, and a client keeps its own choice
+until then.
 
-Past the ring the answer is `session.replay { complete: false }` and the stored tail. **512
-frames is not many** — every nested delta of a delegation is one — so this is the ordinary
-outcome of reloading during a subagent, not a corner case.
+The answer is always a `session.replay` first, and it takes one of three shapes:
 
-The ring is not the only thing retained, and this is the case the second structure exists
-for. The server also keeps the turn that is _running_, whole, from its `turn.start`
-(`server.turnLogMaxBytes`, default 16 MiB). Adjacent deltas of the same part are merged
-into one frame as they are retained, so a hundred thousand tokens of answer costs one
-entry and the budget is spent on tool output rather than on length. When a resume falls
-past the ring while such a turn is open, the reply is both halves at once —
-`session.replay { complete: false, resumingTurnId, messages }` followed by that turn's own
-frames:
+- **Covered by the ring** (a per-session buffer of 512 frames): `complete: true`, and the
+  frames after `lastSeq` follow.
+- **A fresh attach, or a gap past the ring, with a turn running**: `complete: false` and
+  `resumingTurnId`, followed by that turn's own frames, in full. The server keeps the
+  running turn whole from its `turn.start` (up to 16 MiB; adjacent deltas of one part are
+  merged as they are kept, so length costs little and tool output is what spends it).
+  Storage cannot describe a turn that has not finished; these frames can, including every
+  nested `subagent.event`. The client drops whatever it held for that turn and rebuilds it
+  from them.
+- **Anything else**: `complete: false` and nothing after it.
 
-- **`messages`** is the stored tail, and it is history as usual.
-- **`resumingTurnId`** names the one turn the two sources overlap on. Its finished
-  iterations are in the tail _and_ in the frames. The frames are the fuller account: they
-  carry the iteration still streaming, and they carry the `subagent.event`s of every
-  delegation, which never enter the parent session's history at all. A client drops that
-  turn from the tail it was just handed **and** from whatever it still holds itself, then
-  rebuilds it from the frames. The user message that opened the turn is not dropped — no
-  frame recreates it.
-
-`resumingTurnId` is only ever set alongside `complete: false`; a covered resume is already
-sending those frames from the ring. It is also absent when nothing is running, and when
-the log overran its budget — a half-log would render a turn that began in the middle, so
-the server falls back to the stored tail alone rather than replaying part of one.
+On `complete: false` the client keeps only what storage cannot describe, an unfinished turn
+and a pending bubble, and fetches the stored history to merge underneath. Dropping the
+finished items is what keeps a `/clear` or an edit made while the page was away from
+coming back. **512 frames is not many** (every nested delta of a delegation is one), so
+the second shape is the ordinary outcome of reloading during a subagent. A turn whose log
+outgrew its budget is not replayed, since a half-log would render a turn that began in the
+middle; the page picks it up from the moment it attached, and refetches storage's whole
+copy when the turn ends.
 
 A client is still expected to render a `subagent.event` whose delegating `tool.call` it
 never saw: the wrapper carries `agentId` and `label` so the card can name itself, and that

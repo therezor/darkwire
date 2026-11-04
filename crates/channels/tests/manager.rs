@@ -1313,3 +1313,43 @@ async fn the_hard_cap_drops_the_oldest_progress_then_notice_then_anything() {
     expected.extend(replies.into_iter().skip(1));
     assert_eq!(channel.sent_texts(), expected);
 }
+
+// A conversation summarised into a new session
+
+#[tokio::test]
+async fn follows_a_conversation_into_the_session_it_was_summarised_into() {
+    let hub = ScriptedHub::silent();
+    let (manager, channel) = started(Arc::clone(&hub), Spec::default()).await;
+    channel.publish("4471", "hello");
+    flush().await;
+
+    hub.only()
+        .emit(darkwire_protocol::ServerMessage::SessionCompacted(
+            darkwire_protocol::Sequenced {
+                seq: 0,
+                event: darkwire_protocol::SessionCompacted {
+                    tag: darkwire_protocol::SessionCompactedTag,
+                    session_key: "loopback:4471".to_owned(),
+                    continued_key: "loopback:4471:next".to_owned(),
+                },
+            },
+        ));
+    flush().await;
+    // The channel still knows the old key, and its next message follows.
+    channel.publish("4471", "and then");
+    flush().await;
+
+    let frames = hub.messages();
+    assert_eq!(
+        frames.last().and_then(|frame| frame.session_key.as_deref()),
+        Some("loopback:4471:next")
+    );
+    assert_eq!(
+        hub.connections().len(),
+        1,
+        "no second connection was opened"
+    );
+    let notice = channel.sent.lock().last().cloned().expect("a notice");
+    assert_eq!(notice.metadata["continuedKey"], json!("loopback:4471:next"));
+    manager.stop().await;
+}

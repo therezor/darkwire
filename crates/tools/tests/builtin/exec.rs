@@ -83,15 +83,11 @@ async fn reports_both_streams() {
 }
 
 #[tokio::test]
-async fn records_argv_and_the_validated_paths_for_the_audit_log() {
+async fn records_argv_for_the_audit_log() {
     let ws = TestWorkspace::new();
     fs::write(ws.root().join("data.txt"), "x").unwrap();
     let result = ok(json!({"argv": ["cat", "./data.txt"]}), ws.context()).await;
     assert_eq!(result.details.get("exitCode"), Some(&json!(0)));
-    assert_eq!(
-        result.details.get("paths"),
-        Some(&json!([ws.root().join("data.txt").to_string_lossy()]))
-    );
     assert_eq!(
         result.details.get("argv"),
         Some(&json!(["cat", "./data.txt"]))
@@ -113,11 +109,14 @@ async fn reports_a_program_that_does_not_exist() {
 }
 
 #[tokio::test]
-async fn refuses_a_shell() {
+async fn runs_a_shell_program_string() {
     let ws = TestWorkspace::new();
-    let error = run(json!({"argv": ["bash", "-c", "echo pwned"]}), ws.context()).await;
-    assert_eq!(error.kind, Some(ErrorKind::PermissionDenied));
-    assert!(error.content.contains("shell"));
+    let result = ok(
+        json!({"argv": ["sh", "-c", "echo one | tr a-z A-Z"]}),
+        ws.context(),
+    )
+    .await;
+    assert!(result.content.contains("ONE"));
 }
 
 #[tokio::test]
@@ -132,10 +131,16 @@ async fn refuses_a_shell_script_when_shells_are_switched_off() {
 }
 
 #[tokio::test]
-async fn refuses_an_argument_reaching_outside_the_workspace() {
+async fn reaches_a_path_outside_the_workspace() {
     let ws = TestWorkspace::new();
-    let error = run(json!({"argv": ["cat", "../../etc/passwd"]}), ws.context()).await;
-    assert_eq!(error.kind, Some(ErrorKind::JailEscape));
+    let outside = ws.root().parent().unwrap().join("outside.txt");
+    fs::write(&outside, "beyond").unwrap();
+    let result = ok(
+        json!({"argv": ["cat", outside.to_string_lossy()]}),
+        ws.context(),
+    )
+    .await;
+    assert!(result.content.contains("beyond"));
 }
 
 #[tokio::test]
@@ -212,7 +217,6 @@ fn reconciles_the_two_timeouts() {
         env: indexmap::IndexMap::new(),
         timeout_ms,
         max_output_bytes: 1,
-        paths: Vec::new(),
     };
     assert_eq!(effective_timeout(&plan(0), None), 0);
     assert_eq!(effective_timeout(&plan(0), Some(0)), 0);

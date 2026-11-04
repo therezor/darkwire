@@ -13,7 +13,7 @@
 //! so "the agent produced an HTML file and the user opened it" is a path that
 //! needs closing rather than a hypothetical.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -22,14 +22,15 @@ use axum::extract::{Extension, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, body};
+use cap_std::fs::Dir;
 use darkwire_core::ids::{DEFAULT_WORKSPACE_ID, WORKSPACES_ROOT_ID};
-use darkwire_core::{ErrorKind, WireError, ensure_dir};
+use darkwire_core::{ErrorKind, WireError};
 use darkwire_protocol::rest::{
     CreateDirectoryRequest, FileEntry, FileListResponse, FileTextResponse, FileWriteRequest,
     MoveFileRequest, SignedUrl, SignedUrlRequest, UploadResponse,
 };
 use darkwire_protocol::ws::ErrorCode;
-use darkwire_security::jail::{JailOptions, WorkspaceJail};
+use darkwire_security::jail::{JailOptions, WorkspaceJail, escape_refusal, led_outside};
 use garde::Validate;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -114,11 +115,14 @@ pub async fn delete(
     let jail = jail_for(&state, &query.workspace)?;
 
     blocking(move || {
-        let absolute = jail.resolve(&query.path)?;
-        let metadata = metadata_or_404(&absolute, &query.path)?;
+        let (root, inside) = beneath(&jail, &query.path)?;
+        let metadata = root
+            .metadata(&inside)
+            .map_err(|_| HttpError::not_found(format!("No such file: {}", query.path)))?;
 
         if !metadata.is_dir() {
-            std::fs::remove_file(&absolute).map_err(internal)?;
+            root.remove_file(&inside)
+                .map_err(|error| fs_error(error, &query.path))?;
             return Ok(StatusCode::NO_CONTENT.into_response());
         }
 
@@ -127,8 +131,9 @@ pub async fn delete(
         // looping over names would otherwise empty a tree. So the contents go
         // only when the caller said the word that means exactly that; an empty
         // directory has no contents to lose and needs no ceremony.
-        let count = std::fs::read_dir(&absolute)
-            .map_err(internal)?
+        let count = root
+            .read_dir(&inside)
+            .map_err(|error| fs_error(error, &query.path))?
             .flatten()
             .count();
         if count > 0 && query.recursive != Some(true) {
@@ -138,7 +143,8 @@ pub async fn delete(
             );
         }
 
-        std::fs::remove_dir_all(&absolute).map_err(internal)?;
+        root.remove_dir_all(&inside)
+            .map_err(|error| fs_error(error, &query.path))?;
         Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await
@@ -165,11 +171,11 @@ pub async fn upload(
     let workspace = query.workspace.clone();
     blocking(move || {
         let absolute = jail.resolve(&query.path)?;
-        if let Some(parent) = absolute.parent() {
-            ensure_dir(parent)?;
-        }
+        let (root, inside) = beneath(&jail, &query.path)?;
+        create_parent(&root, &inside, &query.path)?;
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        std::fs::write(&absolute, &bytes).map_err(internal)?;
+        root.write(&inside, &bytes)
+            .map_err(|error| fs_error(error, &query.path))?;
 
         let path = relative(&jail, &absolute)?;
         let response = UploadResponse {
@@ -265,10 +271,10 @@ pub async fn write(State(state): State<AppState>, request: Body) -> Result<Respo
             }
         }
 
-        if let Some(parent) = absolute.parent() {
-            ensure_dir(parent)?;
-        }
-        std::fs::write(&absolute, body.content.as_bytes()).map_err(internal)?;
+        let (root, inside) = beneath(&jail, &body.path)?;
+        create_parent(&root, &inside, &body.path)?;
+        root.write(&inside, body.content.as_bytes())
+            .map_err(|error| fs_error(error, &body.path))?;
 
         // Read the metadata again rather than computing the entry from the
         // content: the size on disk is the byte length after UTF-8 encoding,
@@ -295,7 +301,9 @@ pub async fn mkdir(State(state): State<AppState>, request: Body) -> Result<Respo
             )));
         }
 
-        std::fs::create_dir_all(&absolute).map_err(internal)?;
+        let (root, inside) = beneath(&jail, &body.path)?;
+        root.create_dir_all(&inside)
+            .map_err(|error| fs_error(error, &body.path))?;
         Ok((StatusCode::CREATED, Json(entry_of(&jail, &absolute)?)).into_response())
     })
     .await
@@ -347,7 +355,9 @@ pub async fn move_entry(
             )));
         }
 
-        if let Err(error) = std::fs::rename(&source, &target) {
+        let (root, from) = beneath(&jail, &body.from)?;
+        let (_, to) = beneath(&jail, &body.to)?;
+        if let Err(error) = root.rename(&from, &root, &to) {
             // The one case worth naming: a directory cannot be moved inside
             // itself, and the raw error tells the operator nothing.
             if is_invalid_input(&error) {
@@ -356,7 +366,7 @@ pub async fn move_entry(
                     body.from
                 )));
             }
-            return Err(internal(error));
+            return Err(fs_error(error, &body.from));
         }
 
         Ok(Json(entry_of(&jail, &target)?).into_response())
@@ -560,6 +570,42 @@ async fn bounded(request: Body, limit: usize) -> Result<body::Bytes, HttpError> 
             format!("Request body is larger than {limit} bytes"),
         )
     })
+}
+
+/// The workspace root as a capability, and `path` beneath it.
+///
+/// A change goes through this pair rather than through the path the jail
+/// resolved: the jail's verdict holds for the moment it looked, and an open by
+/// name follows a symlink swapped in after that, such as one an agent in a
+/// container keeps flipping. The pair refuses a path that leads out as the
+/// operation happens.
+fn beneath(jail: &WorkspaceJail, path: &str) -> Result<(Dir, PathBuf), HttpError> {
+    let accepted = jail.accept(path)?;
+    let root = jail.open_root().map_err(internal)?;
+    let inside = jail.beneath(&accepted);
+    Ok((root, inside))
+}
+
+/// The directory `inside` goes in, made if it is missing.
+fn create_parent(root: &Dir, inside: &Path, path: &str) -> Result<(), HttpError> {
+    match inside
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        Some(parent) => root
+            .create_dir_all(parent)
+            .map_err(|error| fs_error(error, path)),
+        None => Ok(()),
+    }
+}
+
+/// A failure of a call through [`beneath`], with a path that led outside named
+/// as the refusal it is.
+fn fs_error(error: std::io::Error, path: &str) -> HttpError {
+    if led_outside(&error) {
+        return HttpError::from(escape_refusal(path));
+    }
+    internal(error)
 }
 
 /// Filesystem metadata, with "does not exist" turned into the 404 it is.

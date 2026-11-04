@@ -923,6 +923,15 @@
     text-align: center;
   }
 
+  /* The way back to the conversation this one was summarised from. An aside,
+   * like the notice above: it says where the history went, nothing more. */
+  .chat__continued {
+    padding: var(--space-2) var(--space-4) 0;
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+    text-align: center;
+  }
+
   /* ── Tasks ─────────────────────────────────────────────────── */
 
   /* The plan, above the composer and inside the same measure. A `details` rather

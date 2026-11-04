@@ -75,7 +75,9 @@ async fn a_request_the_ladder_rewrote_is_not_a_sample() {
     let harness = Harness::build(Setup {
         turns: vec![ScriptedTurn {
             usage: Some(usage(1_000)),
-            degraded: true,
+            degraded: vec![
+                "This model cannot read images, so the images were left out.".to_owned(),
+            ],
             ..ScriptedTurn::text("hi")
         }],
         ..Setup::default()

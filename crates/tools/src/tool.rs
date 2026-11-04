@@ -43,7 +43,7 @@ use darkwire_protocol::{
     AgentSettings, CommandPolicy, ToolAnnotations, ToolDefinition, ToolPermission, ToolRisk,
     ToolSource, protocol_generator,
 };
-use darkwire_security::{WorkspaceJail, WrappedToolOutput};
+use darkwire_security::WorkspaceJail;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -132,10 +132,6 @@ pub struct ToolContext {
     /// `None` is a call with no conversation behind it — a one-shot path or a
     /// test — where the tool refuses rather than writing nowhere.
     pub tasks: Option<Arc<dyn TaskPort>>,
-    /// This turn's tool-output nonce. When present the registry fences every
-    /// result in it; `None` is the bare registry — the CLI's one-shot paths and
-    /// tests — where nothing is sent to a model.
-    pub nonce: Option<String>,
     /// What this turn may reach on the web, already scoped to its agent's
     /// egress policy. `None` is an install with no web layer, where both web
     /// tools refuse rather than pretending; an agent whose egress is switched
@@ -160,7 +156,6 @@ impl ToolContext {
             automation: None,
             discovery: None,
             tasks: None,
-            nonce: None,
             web: None,
         }
     }
@@ -189,7 +184,6 @@ impl std::fmt::Debug for ToolContext {
             .field("automation", &self.automation.is_some())
             .field("discovery", &self.discovery.is_some())
             .field("tasks", &self.tasks.is_some())
-            .field("nonce", &self.nonce.is_some())
             .field("web", &self.web.is_some())
             .finish_non_exhaustive()
     }
@@ -251,35 +245,27 @@ impl From<&str> for ToolOutput {
 
 /// The outcome of one call, ready to become a `tool` message.
 ///
-/// One type serves two layers. A tool fills `content`, `is_error`, `kind` and
-/// `details` — [`ToolExecution::ok`] and [`ToolExecution::error`] are the two
-/// constructors it needs. The registry fills the rest: it stamps `name`,
-/// measures `duration_ms`, truncates `content` to the configured budget and,
-/// when the context carries a nonce, fences the truncated text into
-/// `envelope`. The agent must not repeat either step: truncating an envelope
-/// cuts its closing delimiter off, and a tool result the model cannot see the
-/// end of is one it reads as continuing into the conversation.
+/// A tool fills `content`, `is_error`, `kind` and `details` through
+/// [`ToolExecution::ok`] and [`ToolExecution::error`]; the registry stamps
+/// `name` and `duration_ms`. Truncating and fencing belong to the agent's
+/// dispatcher alone.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolExecution {
     /// The tool that ran. Empty until the registry stamps it.
     pub name: String,
-    /// The plain result text, truncated to the budget. What the UI shows.
+    /// The plain result text.
     pub content: String,
     /// Whether the call failed.
     pub is_error: bool,
     /// Present only on failure. `Aborted` is a cancellation, not an error to
     /// show.
     pub kind: Option<ErrorKind>,
-    /// Whether `content` was cut down to `config.max_output_chars`.
+    /// Whether the tool already cut `content` down itself.
     pub truncated: bool,
     /// Wall time the call took, from the injected clock.
     pub duration_ms: u64,
     /// Audit context from the handler. Not sent to the model.
     pub details: Map<String, Value>,
-    /// `content` fenced in this turn's delimiter, with what detection found.
-    /// The `text` is what the `tool` message carries; `None` when the context
-    /// had no nonce.
-    pub envelope: Option<WrappedToolOutput>,
 }
 
 impl ToolExecution {
@@ -293,7 +279,6 @@ impl ToolExecution {
             truncated: false,
             duration_ms: 0,
             details: Map::new(),
-            envelope: None,
         }
     }
 

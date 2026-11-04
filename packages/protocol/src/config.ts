@@ -253,6 +253,12 @@ export const AgentSettingsSchema = z.object({
    */
   toolsEnabled: z.boolean().default(true),
   /**
+   * Whether a conversation at 90% of `contextWindowTokens` is summarised into
+   * a new session before the next message runs, rather than going on until
+   * the oldest turns are left out of every request.
+   */
+  autoCompact: z.boolean().default(true),
+  /**
    * What the `exec` tool may run for this agent, and for how long.
    *
    * Whether the agent has `exec` at all is the permission map's answer, like
@@ -394,38 +400,17 @@ export const ServerConfigSchema = z.object({
    * entry with a port matches only that port.
    */
   allowedHosts: z.array(z.string()).default([]),
+  /**
+   * Reverse proxies whose `X-Forwarded-For` names the caller, as addresses or
+   * CIDR blocks.
+   *
+   * The login throttle and the rate limits key on the caller's address, which
+   * behind a proxy is the proxy's for every request. Only a peer listed here is
+   * believed, so a client cannot name an address of its choosing. An entry that
+   * is neither is ignored.
+   */
+  trustedProxies: z.array(z.string()).default([]),
   auth: AuthConfigSchema.prefault({}),
-  /**
-   * How many server events to retain per session so a reconnecting tab can
-   * replay an in-flight turn from its last `seq` instead of losing it.
-   *
-   * A count of *frames*, and a turn that streams a long answer spends one per
-   * token — so this is not the knob that decides whether a reload comes back to
-   * the whole turn. `turnLogMaxBytes` is. This one decides how far back a
-   * *reconnect* can pick up across turns, which is a much smaller ask.
-   */
-  replayBufferSize: z.number().int().nonnegative().default(512),
-  /**
-   * The budget for retaining the turn that is running, whole, so a reload comes
-   * back to all of it — including every nested subagent step.
-   *
-   * Bytes rather than frames because frames are not the cost: the log merges
-   * adjacent deltas of the same part, so a hundred-thousand-token answer is one
-   * entry, and what is actually retained is tool output. A turn that reads fifty
-   * large files is the shape that reaches this; a turn that writes for ten
-   * minutes is not.
-   *
-   * Held only while a turn is open, and only by the session running it, so the
-   * ceiling is the number of concurrent turns rather than the number of
-   * sessions. Past it the log stops retaining and says so, and a resume falls
-   * back to the stored tail alone — the behaviour before the log existed. `0`
-   * disables it outright.
-   */
-  turnLogMaxBytes: z
-    .number()
-    .int()
-    .nonnegative()
-    .default(16 * 1024 * 1024),
 });
 
 /**

@@ -162,6 +162,10 @@ literal! {
     /// The `type` of a [`SteerMessage`].
     pub struct SteerTag = "turn.steer";
 }
+literal! {
+    /// The `type` of a [`CompactSessionMessage`].
+    pub struct CompactSessionTag = "session.compact";
+}
 
 /// Keep-alive.
 #[derive(
@@ -396,6 +400,25 @@ pub struct EditMessage {
     pub client_message_id: Option<String>,
 }
 
+/// Summarise the conversation into a new session that opens with the summary.
+///
+/// Refused while a turn runs or waits. Every connection on the session follows
+/// it to the new one, which `session.compacted` announces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct CompactSessionMessage {
+    /// Always `session.compact`.
+    #[serde(rename = "type")]
+    pub tag: CompactSessionTag,
+    /// The conversation.
+    #[garde(length(utf16, min = 1))]
+    pub session_key: String,
+    /// What the summary should keep or leave out, in the user's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+}
+
 tagged_union! {
     /// Anything a client may send.
     pub enum ClientMessage by "type" {
@@ -419,6 +442,8 @@ tagged_union! {
         ToolApprove(ToolApproveMessage) = "tool.approve",
         /// Steer the turn.
         Steer(SteerMessage) = "turn.steer",
+        /// Summarise into a new session.
+        CompactSession(CompactSessionMessage) = "session.compact",
     }
 }
 
@@ -525,6 +550,10 @@ literal! {
 literal! {
     /// The `type` of a [`SessionTruncated`].
     pub struct SessionTruncatedTag = "session.truncated";
+}
+literal! {
+    /// The `type` of a [`SessionCompacted`].
+    pub struct SessionCompactedTag = "session.compacted";
 }
 literal! {
     /// The `type` of a [`NotificationBody`].
@@ -880,6 +909,12 @@ pub enum NoticeKind {
     /// The model stopped at its output token limit, so the answer or a tool
     /// call is cut short.
     LengthCut,
+    /// The agent the turn runs on was deleted, switched off or stopped
+    /// building while the turn ran, so the turn stopped.
+    AgentRemoved,
+    /// The conversation was near the end of its window, so it was summarised
+    /// into a new session before this message ran there.
+    Compacted,
 }
 
 /// An advisory.
@@ -1145,9 +1180,13 @@ pub struct SessionReset {
     pub session_key: String,
 }
 
-/// Replayed history after `session.resume`, so a reconnecting client can
-/// restore completed messages before the live deltas resume.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
+/// The answer to `session.resume`, ahead of any frames it replays.
+///
+/// `complete: true`: the frames after `last_seq` follow. `false`, which is also
+/// the answer to a fresh attach (`last_seq` 0): the client fetches the stored
+/// history itself, and when `resuming_turn_id` is set the running turn's frames
+/// follow, in full, and define that turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub struct SessionReplay {
@@ -1157,22 +1196,10 @@ pub struct SessionReplay {
     /// The conversation.
     #[garde(length(utf16, min = 1))]
     pub session_key: String,
-    /// The stored tail.
-    #[garde(dive)]
-    pub messages: Vec<StoredMessage>,
-    /// False when `last_seq` fell outside the ring buffer and history was
-    /// trimmed.
+    /// Whether the frames that follow are everything after `last_seq`.
     #[serde(default = "crate::json::yes")]
     pub complete: bool,
-    /// A turn whose frames follow this one, in full, and which they define.
-    ///
-    /// Only ever set alongside `complete: false`, the one case where a client
-    /// is handed storage *and* frames — legal because storage cannot describe
-    /// a turn that has not ended. The named turn is the exception: its
-    /// finished iterations *are* in the tail, and the frames repeat them, so a
-    /// client drops whatever it holds for this turn and rebuilds it from the
-    /// frames. Absent means the tail is history and the frames continue from
-    /// its end.
+    /// The running turn whose frames follow, in full.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]
     pub resuming_turn_id: Option<String>,
@@ -1312,6 +1339,24 @@ pub type TurnEndEvent = Sequenced<TurnEnd>;
 pub type SubagentEvent = Sequenced<SubagentEventBody>;
 /// `context.usage`, sequenced.
 pub type ContextUsageEvent = Sequenced<ContextUsage>;
+/// The conversation was summarised into `continued_key`, which carries on from
+/// here. Sequenced on the old session, so a connection that was away when it
+/// happened learns of it from the replay and follows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct SessionCompacted {
+    /// Always `session.compacted`.
+    #[serde(rename = "type")]
+    pub tag: SessionCompactedTag,
+    /// The conversation that was summarised.
+    #[garde(length(utf16, min = 1))]
+    pub session_key: String,
+    /// The one that carries on.
+    #[garde(length(utf16, min = 1))]
+    pub continued_key: String,
+}
+
 /// `step.end`, sequenced.
 pub type StepEndEvent = Sequenced<StepEnd>;
 /// `session.status`, sequenced.
@@ -1322,6 +1367,8 @@ pub type SessionResetEvent = Sequenced<SessionReset>;
 pub type SessionReplayEvent = Sequenced<SessionReplay>;
 /// `session.truncated`, sequenced.
 pub type SessionTruncatedEvent = Sequenced<SessionTruncated>;
+/// `session.compacted`, sequenced.
+pub type SessionCompactedEvent = Sequenced<SessionCompacted>;
 /// `notification`, sequenced.
 pub type NotificationEvent = Sequenced<NotificationBody>;
 /// `tools.changed`, sequenced.
@@ -1374,6 +1421,8 @@ tagged_union! {
         SessionReplay(SessionReplayEvent) = "session.replay",
         /// A suffix was dropped.
         SessionTruncated(SessionTruncatedEvent) = "session.truncated",
+        /// The conversation carries on in another session.
+        SessionCompacted(SessionCompactedEvent) = "session.compacted",
         /// A notification.
         Notification(NotificationEvent) = "notification",
         /// The tool list changed.
@@ -1414,6 +1463,7 @@ impl ServerMessage {
             Self::SessionReset(e) => Some(e.seq),
             Self::SessionReplay(e) => Some(e.seq),
             Self::SessionTruncated(e) => Some(e.seq),
+            Self::SessionCompacted(e) => Some(e.seq),
             Self::Notification(e) => Some(e.seq),
             Self::ToolsChanged(e) => Some(e.seq),
             Self::Steer(e) => Some(e.seq),

@@ -30,10 +30,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use darkwire_core::history::truncate_head_tail;
 use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::{ToolDefinition, ToolPermission, ToolPermissions, ToolSource};
-use darkwire_security::{WrapToolOutputOptions, wrap_tool_output};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
@@ -44,11 +42,6 @@ use crate::tool::{AnyTool, BoxFuture, ToolContext, ToolExecution};
 /// How a registry is built.
 #[derive(Clone, Default)]
 pub struct ToolRegistryOptions {
-    /// Wall-clock cap on a single tool call. `0` disables it.
-    ///
-    /// Comes from `agent.toolTimeoutMs`. Measured on tokio's timer, which tests
-    /// pause instead of waiting.
-    pub timeout_ms: u64,
     /// Measures each call. Defaults to the host clock.
     pub clock: Option<Arc<dyn Clock>>,
 }
@@ -119,7 +112,6 @@ struct Registration {
 
 struct State {
     tools: IndexMap<String, Registration>,
-    timeout_ms: u64,
     cached: Option<Arc<[ToolDefinition]>>,
     revision: u64,
     listeners: Vec<(ListenerId, Listener)>,
@@ -137,7 +129,6 @@ impl std::fmt::Debug for ToolRegistry {
         let state = self.state.lock();
         f.debug_struct("ToolRegistry")
             .field("tools", &state.tools.keys().collect::<Vec<_>>())
-            .field("timeout_ms", &state.timeout_ms)
             .field("revision", &state.revision)
             .finish_non_exhaustive()
     }
@@ -150,7 +141,7 @@ impl Default for ToolRegistry {
 }
 
 impl ToolRegistry {
-    /// An empty registry with no timeout, on the host clock.
+    /// An empty registry on the host clock.
     pub fn new() -> ToolRegistry {
         ToolRegistry::with_options(ToolRegistryOptions::default())
     }
@@ -160,7 +151,6 @@ impl ToolRegistry {
         ToolRegistry {
             state: Mutex::new(State {
                 tools: IndexMap::new(),
-                timeout_ms: options.timeout_ms,
                 cached: None,
                 revision: 0,
                 listeners: Vec::new(),
@@ -227,22 +217,6 @@ impl ToolRegistry {
         for listener in listeners {
             listener();
         }
-    }
-
-    /// The per-call wall-clock cap. `0` is none.
-    pub fn timeout_ms(&self) -> u64 {
-        self.state.lock().timeout_ms
-    }
-
-    /// The one mutable setting on a registry.
-    ///
-    /// An agent's `toolTimeoutMs` is editable in the settings panel, and the
-    /// alternative — building a new registry when it changes — would throw away
-    /// every MCP and extension registration on it, which is far more than the
-    /// operator asked to change. A call already in flight keeps the timeout it
-    /// started under; the timer is armed at entry and never re-read.
-    pub fn set_timeout_ms(&self, ms: u64) {
-        self.state.lock().timeout_ms = ms;
     }
 
     /// Registers a tool under its own name.
@@ -450,7 +424,10 @@ impl ToolRegistry {
         permissions: Option<&ToolPermissions>,
     ) -> ToolExecution {
         let started = self.clock.monotonic();
-        let (tool, timeout_ms) = {
+        // The calling agent's own cap, read per call. Measured on tokio's timer,
+        // which tests pause instead of waiting.
+        let timeout_ms = ctx.config.tool_timeout_ms;
+        let tool = {
             let state = self.state.lock();
             let tool = state
                 .tools
@@ -472,15 +449,14 @@ impl ToolRegistry {
                         format!("No tool named {}. Available: {available}", call.name),
                     ),
                     started,
-                    ctx,
                 );
             };
-            (tool, state.timeout_ms)
+            tool
         };
 
         let raw = match parse_arguments(call.arguments_json.as_deref()) {
             Ok(raw) => raw,
-            Err(error) => return self.finish(call, error.into(), started, ctx),
+            Err(error) => return self.finish(call, error.into(), started),
         };
 
         // Checked before the handler is entered rather than left to the race
@@ -492,7 +468,6 @@ impl ToolRegistry {
                 call,
                 ToolExecution::error(ErrorKind::Aborted, format!("Tool {} aborted", call.name)),
                 started,
-                ctx,
             );
         }
 
@@ -533,43 +508,19 @@ impl ToolRegistry {
                 )
             }
         };
-        self.finish(call, execution, started, ctx)
+        self.finish(call, execution, started)
     }
 
-    /// Stamps, measures, truncates and fences one outcome.
+    /// Stamps and measures one outcome.
     fn finish(
         &self,
         call: &ToolInvocation,
         mut execution: ToolExecution,
         started: Duration,
-        ctx: &ToolContext,
     ) -> ToolExecution {
         let elapsed = self.clock.monotonic().saturating_sub(started);
         execution.name.clone_from(&call.name);
         execution.duration_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
-
-        let budget = usize::try_from(ctx.config.max_output_chars).unwrap_or(usize::MAX);
-        let capped = truncate_head_tail(&execution.content, budget);
-        execution.truncated = capped.truncated;
-        execution.content = capped.text;
-
-        if let Some(nonce) = &ctx.nonce {
-            match wrap_tool_output(
-                &execution.content,
-                &WrapToolOutputOptions::new(&call.name, nonce),
-            ) {
-                Ok(wrapped) => execution.envelope = Some(wrapped),
-                Err(error) => {
-                    // A nonce this turn cannot fence with is a defect upstream,
-                    // not something the model can act on; the call still
-                    // reports rather than the turn dying.
-                    execution = ToolExecution::error(ErrorKind::Internal, error.message)
-                        .with_details(error.details);
-                    execution.name.clone_from(&call.name);
-                    execution.duration_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
-                }
-            }
-        }
 
         if execution.is_aborted() {
             // An abort is the user pressing Stop. Logged at debug, not warn, or

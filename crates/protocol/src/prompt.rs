@@ -271,15 +271,10 @@ pub const COMMAND_POLICY_HEADING: &str = "## Running commands";
 /// the default names neither: the host label is a fact a model tends to act on
 /// wrongly in a container, and the generated shell paragraph said little on a
 /// POSIX box beyond "a shell exists".
-///
-/// "may be refused" rather than "is refused" because it depends on where the
-/// turn lands: the exec guard refuses an argument pointing out of the workspace
-/// on the host, and in a container there is nothing outside the workspace
-/// mounted to point at.
 pub const DEFAULT_PLATFORM_TEMPLATE: &str = "## Running commands
 
 `exec` runs with the workspace root as its working directory, so pass relative
-arguments. Paths outside the workspace may be refused.
+arguments.
 
 The file tools always act on the workspace on this machine, whatever `exec`
 does. Prefer them where they are simpler or more reliable than a command.";

@@ -1199,6 +1199,11 @@ const CLIENT_FRAMES: readonly Json[] = [
     content: 'shorter',
     clientMessageId: 'c-steer',
   },
+  {
+    type: 'session.compact',
+    sessionKey: 'web:abc',
+    instructions: 'keep the file names',
+  },
 ];
 
 const SERVER_FRAMES: readonly Json[] = [
@@ -1365,7 +1370,6 @@ const SERVER_FRAMES: readonly Json[] = [
     type: 'session.replay',
     seq: 57,
     sessionKey: 'web:abc',
-    messages: [STORED_MESSAGE],
     complete: false,
     resumingTurnId: 't1',
   },
@@ -1375,6 +1379,12 @@ const SERVER_FRAMES: readonly Json[] = [
     sessionKey: 'web:abc',
     upToSeq: 3,
     messages: [STORED_MESSAGE],
+  },
+  {
+    type: 'session.compacted',
+    seq: 58,
+    sessionKey: 'web:abc',
+    continuedKey: 'web:abc:def',
   },
   {
     type: 'notification',

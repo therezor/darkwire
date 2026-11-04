@@ -47,7 +47,8 @@ when [lazy discovery](#lazy-discovery) is on, and is registered only then.
 | `web_search`  | `query`, `count?`, `read?`, `recent?`, `site?`, `region?` | `network` | Searches the web and reads the top results. See below.                                      |
 
 All file paths resolve inside the workspace jail; see [Security](security.md). `exec`
-takes an argv array, never a command string.
+takes an argv array, never a command string, and on the host it reaches any path the
+operator's user can.
 
 `grep` and `find` are the only tools that leave anything out: both skip what
 `.gitignore` skips, and `.git` itself. `ls` hides nothing, because it answers what is in
@@ -180,7 +181,7 @@ from the snippets. Three, because one source is an opinion and two that agree is
 coincidence. `read: 0` gives the list alone.
 
 Both stay inside the agent's `maxOutputChars`. The tool computes its own budget and cuts
-at a line boundary, naming what it dropped, because the registry's own truncation keeps
+at a line boundary, naming what it dropped, because the dispatcher's own truncation keeps
 the head **and** the tail: a result that overflowed would come back with its middle
 removed. When the budget cannot carry three extracts, it reads fewer and says so.
 
@@ -453,7 +454,7 @@ narrower one written by hand.
 `pwsh` and the rest) is capped at `exec.shell`. A wildcard rule cannot lift it, because
 `bash *` covers every program there is. Only a rule naming the exact command, such as
 `allow bash ci.sh`, decides a shell call on its own, and `shell: deny` refuses every shell
-whatever the rules say. On the host the guard refuses the `-c` family regardless.
+whatever the rules say.
 
 **A wildcard on a program that runs programs allows everything.** `allow env *`,
 `allow sudo *`, `allow python *` and `allow xargs *` each grant any command. The rules

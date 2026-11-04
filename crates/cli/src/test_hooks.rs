@@ -69,7 +69,7 @@ pub fn vault(paths: &WirePaths) -> Option<Arc<Mutex<CredentialVault>>> {
     let random = Arc::new(OsRandom);
     let key_file = KeyFileStore::new(paths.key_file.clone());
     let stores: [&dyn KeyStore; 1] = [&key_file];
-    let resolved = resolve_vault_key(&stores, random.as_ref()).ok()?;
+    let resolved = resolve_vault_key(&stores, random.as_ref(), paths.vault_file.exists()).ok()?;
     let opened = CredentialVault::open(&paths.vault_file, &resolved.key, random).ok()?;
     Some(Arc::new(Mutex::new(opened)))
 }

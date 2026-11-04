@@ -464,6 +464,7 @@ impl TurnCollector {
                 | ServerMessage::SessionReset(_)
                 | ServerMessage::SessionReplay(_)
                 | ServerMessage::SessionTruncated(_)
+                | ServerMessage::SessionCompacted(_)
                 | ServerMessage::Notification(_)
                 | ServerMessage::ToolsChanged(_)
                 | ServerMessage::Steer(_) => {}

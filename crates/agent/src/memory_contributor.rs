@@ -28,6 +28,7 @@
 
 use std::path::Path;
 
+use darkwire_core::db::blocking;
 use darkwire_core::memory::{Memory, index_line, read_memories};
 use darkwire_protocol::json::js_trim;
 use darkwire_protocol::{DEFAULT_MEMORY_TEMPLATE, render_prompt_template};
@@ -115,7 +116,11 @@ impl ContextContributor for MemoryContributor {
         context: &'a StaticPromptContext,
     ) -> BoxFuture<'a, Option<String>> {
         Box::pin(async move {
-            let memories = read_memories(Path::new(&context.workspace_root));
+            // Up to two hundred files, so off the runtime's workers.
+            let root = context.workspace_root.clone();
+            let memories = blocking(move || Ok(read_memories(Path::new(&root))))
+                .await
+                .unwrap_or_default();
             if memories.is_empty() {
                 return None;
             }

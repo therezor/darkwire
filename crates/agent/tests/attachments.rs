@@ -17,7 +17,7 @@ use darkwire_agent::attachments::{
     AttachmentCache, MAX_INLINE_TEXT_BYTES, MaterialiseOptions, materialise_attachments,
     materialise_file_part,
 };
-use darkwire_core::messages::{FileDetails, file_part, text_part, user_message};
+use darkwire_core::messages::{FileDetails, file_part, user_message};
 use darkwire_protocol::{ChatMessage, ContentPart, FilePart, ImagePart};
 use darkwire_security::{JailOptions, WorkspaceJail};
 use tempfile::TempDir;
@@ -220,7 +220,8 @@ fn a_cached_attachment_still_spends_the_request_budget() {
             text_of(&user.content).contains("aaaa")
         })
         .collect();
-    assert_eq!(inlined, [true, true, false]);
+    // Newest first: the oldest copy is the one left as a path.
+    assert_eq!(inlined, [false, true, true]);
 }
 
 #[test]
@@ -367,39 +368,6 @@ fn a_message_with_nothing_to_do_comes_back_unchanged() {
         None,
     );
     assert_eq!(out, messages);
-}
-
-#[test]
-fn a_legacy_relative_image_url_is_replaced_rather_than_retried() {
-    // Every provider silently failed on these and the degradation ladder then
-    // stripped them, so the turn appeared to succeed without the image.
-    let fixture = Fixture::new();
-    let message = ChatMessage::User(user_message(vec![
-        text_part("look at this"),
-        ContentPart::Image(ImagePart {
-            tag: darkwire_protocol::ImageTag,
-            mime_type: "image/png".to_owned(),
-            data: None,
-            url: Some("/api/media/abc123".to_owned()),
-        }),
-    ]));
-
-    let out = materialise_attachments(
-        vec![message],
-        &fixture.jail,
-        MaterialiseOptions::default(),
-        None,
-    );
-    let ChatMessage::User(user) = &out[0] else {
-        panic!("a user message")
-    };
-    assert!(text_of(&user.content).contains("predates workspace attachments"));
-    assert!(
-        !user
-            .content
-            .iter()
-            .any(|p| matches!(p, ContentPart::Image(_)))
-    );
 }
 
 #[test]

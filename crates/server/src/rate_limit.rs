@@ -14,7 +14,6 @@
 //! general limiter is not asking for unlimited password attempts.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -66,7 +65,14 @@ struct Bucket {
 pub struct RateLimiter {
     quota: Quota,
     clock: Arc<dyn Clock>,
-    buckets: Mutex<HashMap<String, Bucket>>,
+    buckets: Mutex<Buckets>,
+}
+
+/// Every caller's bucket, and when expired ones were last dropped.
+#[derive(Default)]
+struct Buckets {
+    by_key: HashMap<String, Bucket>,
+    swept_ms: i64,
 }
 
 impl RateLimiter {
@@ -75,7 +81,7 @@ impl RateLimiter {
         Arc::new(RateLimiter {
             quota,
             clock,
-            buckets: Mutex::new(HashMap::new()),
+            buckets: Mutex::new(Buckets::default()),
         })
     }
 
@@ -90,11 +96,18 @@ impl RateLimiter {
         let mut buckets = self.buckets.lock();
 
         // The map is only ever read by key, so expired entries cost memory and
-        // nothing else. Dropping them here keeps a long-lived process from
-        // holding one entry per address it has ever seen.
-        buckets.retain(|_, bucket| now.saturating_sub(bucket.started_ms) < self.quota.window_ms);
+        // nothing else. Dropping them once a window keeps a long-lived process
+        // from holding one entry per address it has ever seen, without a full
+        // scan on every request.
+        if now.saturating_sub(buckets.swept_ms) >= self.quota.window_ms {
+            let window_ms = self.quota.window_ms;
+            buckets
+                .by_key
+                .retain(|_, bucket| now.saturating_sub(bucket.started_ms) < window_ms);
+            buckets.swept_ms = now;
+        }
 
-        let bucket = buckets.entry(key.to_owned()).or_insert(Bucket {
+        let bucket = buckets.by_key.entry(key.to_owned()).or_insert(Bucket {
             used: 0,
             started_ms: now,
         });
@@ -112,7 +125,7 @@ impl RateLimiter {
     /// Forgets every count. The composition root calls this when the settings
     /// that configure the limit are saved.
     pub fn reset(&self) {
-        self.buckets.lock().clear();
+        self.buckets.lock().by_key.clear();
     }
 }
 
@@ -120,7 +133,7 @@ impl std::fmt::Debug for RateLimiter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RateLimiter")
             .field("quota", &self.quota)
-            .field("tracked", &self.buckets.lock().len())
+            .field("tracked", &self.buckets.lock().by_key.len())
             .finish_non_exhaustive()
     }
 }
@@ -195,9 +208,5 @@ where
 /// recorded peer — an in-process test service — shares one bucket, which is
 /// what a test wants and is unreachable over a socket.
 fn caller_key(request: &Request) -> String {
-    request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|info| info.0.ip())
-        .map_or_else(|| "local".to_owned(), |ip: IpAddr| ip.to_string())
+    crate::client_address::client_of(request.extensions())
 }

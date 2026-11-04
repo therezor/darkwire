@@ -1543,29 +1543,3 @@ fn a_pipe_prints_the_row_only_when_it_is_on() {
     assert!(!plain(&events).contains("88 out"));
     assert!(render(&events, |built| built.show_stats = true).contains("88 out"));
 }
-
-#[test]
-fn switching_it_on_tells_the_surface_so() {
-    // `/output stats on` has to reach the rows already drawn, and only the
-    // surface holding them can unfold those.
-    #[derive(Clone, Default)]
-    struct Switches(Arc<Mutex<Vec<bool>>>);
-    impl TranscriptSink for Switches {
-        fn emit(&mut self, event: TranscriptEvent) {
-            if let TranscriptEvent::StatsShown(shown) = event {
-                self.0.lock().unwrap().push(shown);
-            }
-        }
-    }
-
-    let seen = Switches::default();
-    let mut renderer = TurnRenderer::new(TurnRendererOptions {
-        colors: Some(false),
-        t: Translations::default(),
-        ..TurnRendererOptions::new(Box::new(seen.clone()))
-    });
-    renderer.set_stats_shown(true);
-    renderer.set_stats_shown(false);
-
-    assert_eq!(*seen.0.lock().unwrap(), [true, false]);
-}

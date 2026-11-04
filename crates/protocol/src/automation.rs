@@ -73,9 +73,7 @@ pub struct EverySchedule {
 /// "when does this fire" a question with three inputs — the job's zone, the
 /// scheduler's default, and the zone the reader's browser rendered the answer
 /// in. One install-wide zone means the expression is read
-/// against the same clock the next-run line is printed against. A job stored
-/// by an older build may still carry `tz`; the store strips it on open, because
-/// this shape refuses unknown keys rather than ignoring them.
+/// against the same clock the next-run line is printed against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

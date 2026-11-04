@@ -19,7 +19,7 @@ use crate::cursor::{
 use crate::errors::HttpError;
 use crate::notifications::{ListNotifications, NotificationAfter};
 use crate::queries::{IdParams, NotificationListQuery};
-use crate::routes::AppState;
+use crate::routes::{AppState, on_store};
 use crate::schema::validated;
 
 /// A stored count as the wire carries it.
@@ -57,12 +57,21 @@ pub async fn list(
 
     // One more than asked for: the extra row is what decides whether a cursor
     // is issued, and it is dropped rather than returned.
-    let rows = state.notifications.list(&ListNotifications {
+    let filter = ListNotifications {
         limit: Some(i64::from(query.limit) + 1),
         offset: query.offset.map(i64::from),
         after,
         unread_only,
-    })?;
+    };
+    let (rows, unread_count, total) = on_store(&state, move |deps| {
+        let store = &deps.notifications;
+        Ok((
+            store.list(&filter)?,
+            store.unread_count()?,
+            store.count(unread_only)?,
+        ))
+    })
+    .await?;
 
     let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
     let page = paginate(
@@ -81,12 +90,12 @@ pub async fn list(
         notifications: page.rows,
         // Always the whole total, never the count of what this page happened to
         // contain: the badge counts what is waiting, not what is on screen.
-        unread_count: as_u64(state.notifications.unread_count()?),
+        unread_count: as_u64(unread_count),
         next_cursor: page.next_cursor,
         // A different number from `unread_count` whenever the filter is off,
         // and the pager needs this one: how many rows it is paging through, not
         // how many of them are still unread.
-        total: as_u64(state.notifications.count(unread_only)?),
+        total: as_u64(total),
     }))
 }
 
@@ -95,9 +104,9 @@ pub async fn read(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<Json<Notification>, HttpError> {
-    let updated = state
-        .notifications
-        .mark_read(&params.id)?
+    let id = params.id.clone();
+    let updated = on_store(&state, move |deps| deps.notifications.mark_read(&id))
+        .await?
         .ok_or_else(|| HttpError::not_found(format!("No notification \"{}\"", params.id)))?;
     // The updated row rather than a 204, so a client can reconcile one item
     // instead of refetching a list it is in the middle of scrolling.
@@ -106,7 +115,7 @@ pub async fn read(
 
 /// Marks every notification read.
 pub async fn read_all(State(state): State<AppState>) -> Result<StatusCode, HttpError> {
-    state.notifications.mark_all_read()?;
+    on_store(&state, |deps| deps.notifications.mark_all_read()).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -115,7 +124,8 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<StatusCode, HttpError> {
-    if !state.notifications.delete(&params.id)? {
+    let id = params.id.clone();
+    if !on_store(&state, move |deps| deps.notifications.delete(&id)).await? {
         return Err(HttpError::not_found(format!(
             "No notification \"{}\"",
             params.id
@@ -131,7 +141,7 @@ pub async fn delete(
 /// here is a confirmation — that belongs to the UI, which is where a person is
 /// standing. The server's job is to do exactly what was asked.
 pub async fn delete_all(State(state): State<AppState>) -> Result<StatusCode, HttpError> {
-    state.notifications.delete_all()?;
+    on_store(&state, |deps| deps.notifications.delete_all()).await?;
     // 204 like its siblings. The count went nowhere useful: a client that just
     // emptied the list refetches it, and a number it cannot act on is a number
     // it would have to invent a use for.

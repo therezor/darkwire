@@ -539,10 +539,9 @@ fn a_credential_write_drops_the_cached_catalogue_too() {
 // ------------------------------------------------------- the channel rebuild
 
 #[test]
-fn a_settings_save_asks_the_composition_root_to_rebuild_the_channels() {
-    // `config.channels` is where a channel is turned on, and the manager fixes
-    // its factories at construction — so a save means a new manager, and only
-    // the composition root knows one exists.
+fn only_a_save_that_moves_a_channel_rebuilds_the_channels() {
+    // A rebuild restarts the bot and closes its connections, so a save that
+    // touched anything else would orphan a reply a chat is waiting on.
     let dir = tempfile::tempdir().unwrap();
     let rebuilds = Arc::new(Mutex::new(0usize));
     let counted = Arc::clone(&rebuilds);
@@ -559,6 +558,12 @@ fn a_settings_save_asks_the_composition_root_to_rebuild_the_channels() {
 
     port.apply_settings(patch(
         serde_json::json!({"ui": {"timezone": "Europe/Berlin"}}),
+    ))
+    .unwrap();
+    assert_eq!(*rebuilds.lock(), 0);
+
+    port.apply_settings(patch(
+        serde_json::json!({"channels": {"sendProgress": false}}),
     ))
     .unwrap();
     assert_eq!(*rebuilds.lock(), 1);

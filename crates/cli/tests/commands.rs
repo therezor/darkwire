@@ -1843,6 +1843,37 @@ async fn branch_forks_and_attaches_to_the_fork() {
     assert_eq!(h.runtime().store().message_count("cli:1").unwrap(), 1);
 }
 
+#[tokio::test]
+async fn compact_refuses_a_session_nobody_has_spoken_in() {
+    let mut h = Harness::bare("cli:1");
+    let outcome = h.run("/compact").await;
+
+    assert!(matches!(outcome, SlashOutcome::Continue), "{outcome:?}");
+    assert!(
+        h.text().contains("nothing to summarise yet"),
+        "{}",
+        h.text()
+    );
+}
+
+#[tokio::test]
+async fn compact_needs_a_model_to_summarise_with() {
+    let h = Harness::bare("cli:1");
+    let store = h.runtime().store();
+    store
+        .ensure_session("cli:1", CreateSession::default())
+        .unwrap();
+    store
+        .append("cli:1", said("first"), &AppendOptions::default())
+        .unwrap();
+
+    let mut h = h;
+    let outcome = h.run("/compact").await;
+
+    assert!(matches!(outcome, SlashOutcome::Continue), "{outcome:?}");
+    assert_eq!(h.runtime().store().message_count("cli:1").unwrap(), 1);
+}
+
 // /workspaces
 
 // /messages, /sessions, /session, /delete

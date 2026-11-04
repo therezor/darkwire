@@ -339,7 +339,7 @@ export class ReconnectingSocket {
   }
 
   private write(socket: SocketLike, message: ClientMessage): void {
-    // A `user.message` waits in `unacked` and goes again on the next socket.
+    // A tracked frame waits in `unacked` and goes again on the next socket.
     const requeue = untilAcked(message) === undefined;
     if (socket.readyState === CLOSING || socket.readyState === CLOSED) {
       if (requeue) this.hold(message);
@@ -461,9 +461,15 @@ export function socketUrl(
     : `${base}?session=${encodeURIComponent(sessionKey)}`;
 }
 
-/** The id a frame is kept under until its ack, for a frame that has one. */
+/**
+ * The id a frame is kept under until the server answers it, for a frame that
+ * has one. A steer is answered by its `steer` frame, or by an ack when it ran
+ * as a turn of its own.
+ */
 function untilAcked(message: ClientMessage): string | undefined {
-  return message.type === 'user.message' ? message.clientMessageId : undefined;
+  return message.type === 'user.message' || message.type === 'turn.steer'
+    ? message.clientMessageId
+    : undefined;
 }
 
 function defaultCreate(url: string): SocketLike {

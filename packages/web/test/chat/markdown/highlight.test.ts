@@ -13,7 +13,8 @@
  * whoever picked the theme.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   LANGUAGES,
@@ -21,6 +22,17 @@ import {
   resetHighlighter,
   resolveLanguage,
 } from '@/chat/markdown/highlight.js';
+
+// The real engine, wrapped only so one test can make it fail once.
+vi.mock('@shikijs/engine-javascript', async (importOriginal) => {
+  const actual = await importOriginal<{
+    createJavaScriptRegexEngine: typeof createJavaScriptRegexEngine;
+  }>();
+  return {
+    ...actual,
+    createJavaScriptRegexEngine: vi.fn(actual.createJavaScriptRegexEngine),
+  };
+});
 
 afterEach(() => {
   resetHighlighter();
@@ -130,6 +142,16 @@ describe('highlight', () => {
     expect(second).toBe(first);
   });
 
+  it('leaves a buffer being edited out of the cache', async () => {
+    const first = await highlight('let b = 2;', 'typescript', 'dark', {
+      remember: false,
+    });
+    const second = await highlight('let b = 2;', 'typescript', 'dark');
+
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
+  });
+
   it('evicts the oldest blocks once the source budget is spent', async () => {
     const big = (tag: string): string =>
       `// ${tag}\n${'const a = 1;\n'.repeat(8_000)}`;
@@ -143,6 +165,19 @@ describe('highlight', () => {
     const again = await highlight(big('first'), 'typescript', 'dark');
     expect(again).toEqual(first);
     expect(again).not.toBe(first);
+  });
+
+  it('tries again after a load that failed', async () => {
+    vi.mocked(createJavaScriptRegexEngine).mockImplementationOnce(() => {
+      throw new Error('offline');
+    });
+
+    await expect(highlight('const a = 1;', 'ts', 'dark')).rejects.toThrow(
+      'offline',
+    );
+    await expect(
+      highlight('const a = 1;', 'ts', 'dark'),
+    ).resolves.toBeDefined();
   });
 
   it('shares one grammar between a name and its aliases', async () => {

@@ -54,9 +54,9 @@ only on Windows, because the model does not know which host it is on.
 ### The stated limit
 
 **A workspace is an organisational boundary, not a security boundary, wherever `exec` is
-enabled on the host.** A spawned child process does not honour the jail's clamping. This
-is why the exec guard _refuses_ out-of-workspace path arguments rather than resolving them
-inside — refusal is the only honest answer when the thing being constrained can walk out.
+enabled on the host.** A spawned child process does not honour the jail's clamping, and
+`exec` reaches any path the operator's user can. The [command rules](tools.md#command-rules)
+and approvals are what stand between the model and the machine.
 
 An agent that must be genuinely confined gets an [environment](environments.md).
 
@@ -67,29 +67,30 @@ An agent that must be genuinely confined gets an [environment](environments.md).
 **Stops:** command injection.
 
 `guard_exec` takes an `argv` vector and produces a validated plan for
-`Command::new(argv[0])`. **There is no shell, ever** — not a default that something
-could switch off, but no shell anywhere in the path a command takes.
+`Command::new(argv[0])`. DarkWire never puts a shell in the path a command takes. A
+shell runs only when the model names one as the program, and then it is a shell call
+like any other.
 
 There is deliberately **no deny-list of shell metacharacters**. With no shell there is no
 string for `$(...)`, backticks or `| sh` to be interpreted in, so scanning for them blocks
-nothing and breaks honest commands — a commit message containing `$HOME`, a grep for a
-pipe character.
+nothing and breaks honest commands, such as a commit message containing `$HOME` or a grep
+for a pipe character.
 
 What actually constrains the child:
 
-- **Shell binaries refused when the agent's `exec.shell` is `deny`**, and on the host the
-  `-c` family refused whatever it is.
-- **Every path-shaped argument classified and refused** if it points outside the
-  workspace. This is the one place in DarkWire that refuses rather than clamping, for the
-  reason above.
-- **An environment allow-list** — `PATH`, `HOME`, `LANG`, `TZ` by default — so the child
+- **A shell is its own permission.** A call to `bash`, `sh` or another shell, directly or
+  behind a launcher such as `env` or `timeout`, is capped at the agent's `exec.shell`
+  (default `ask`) and refused when it is `deny`. `bash -c` is a shell call like `bash
+script.sh`.
+- **An environment allow-list** (`PATH`, `HOME`, `LANG`, `TZ` by default), so the child
   inherits what it needs and nothing holding a token.
 - **An output budget enforced while the child writes**, not after it exits, so a runaway
   process cannot fill memory before the cap notices.
 
-Inside a confined environment the `-c` ban and the path ban lift together; see
-[Environments](environments.md) for why that is not a
-weakening.
+Paths are not checked. A child runs as the operator's user and reaches whatever that
+user can, through a script or a program's own defaults as easily as through an argument,
+so refusing `/etc/passwd` as an argument would only refuse the honest spelling. The
+working directory is the workspace root, so relative arguments resolve there.
 
 Which commands run unattended is not the guard's to decide. That is the agent's
 [command rules](tools.md#command-rules), checked before the call runs. The guard decides
@@ -125,10 +126,14 @@ config carries, and it has two states:
   so a destination the policy rejects never becomes a DNS query the caller chose. An
   empty list reaches nothing, which is `mode: none`.
 
-A matched entry also lifts the loopback and private refusals for the destination it
-matched: naming `10.0.0.0/8` is the operator saying they know what is there, and a model
-cannot edit config. **It never lifts link-local, multicast, the unspecified address or
-the reserved prefixes**, and an entry naming one of those is refused when the config is
+An address or block entry also lifts the loopback and private refusals for the addresses
+it covers: naming `10.0.0.0/8` is the operator saying they know what is there, and a model
+cannot edit config. **A name entry admits public addresses only.** Whoever answers for a
+name decides where it points, so a name that resolved to `127.0.0.1` would otherwise
+reach whatever listens there. To reach a service on this host or the LAN by name, list
+its address or block as well: `localhost` with `127.0.0.1` and `::1`, or `.internal` with
+`10.0.0.0/8`. **Nothing lifts link-local, multicast, the unspecified address or the
+reserved prefixes**, and an entry naming one of those is refused when the config is
 read. That last part matters because the sandbox gateway's packet filter has no notion
 of the blocked table, so an entry that reached a rule would be a hole with nothing
 behind it.
@@ -292,7 +297,9 @@ anybody looked at.
 
 Editing any file, adding one, removing one or renaming one moves the digest and
 revokes the approval, and the next reconcile refuses with a sentence naming the
-drift. Nobody has to remember to re-approve.
+drift. Nobody has to remember to re-approve. A symlink is hashed by where it
+points, so repointing one moves the digest too, and a link that leads outside the
+install directory is refused: its target is code nobody approved.
 
 **There is a process boundary, and it buys less than it sounds like it does.**
 An extension is a child process talking to the host over a pipe, so nothing the
@@ -378,9 +385,16 @@ not clear them.
 | One address                                 | 4 failures | doubles from 1s | 15 minutes |
 | The account, wherever the attempt came from | 4 failures | doubles from 1s | 30 seconds |
 
-The per-address scope handles one host hammering the form. The account scope is the one a
-botnet cannot spread out of: every guess lands in the same bucket regardless of origin,
-capping the aggregate rate at roughly two a minute however many addresses are in play.
+The per-address scope handles one host hammering the form. Every guess also lands in the
+account bucket, wherever it came from, but its lock holds only an address that has failed
+before. An address with a clean record is let through, so guesses spread over a botnet
+cannot lock the owner out. The price is one guess per fresh address per hour, against a
+password that needs millions. An IPv6 address counts as its /64, since one host is often
+handed a whole /64.
+
+The address is the socket peer. Behind a reverse proxy, list the proxy in
+[`server.trustedProxies`](configuration.md#servertrustedproxies) so its `X-Forwarded-For`
+names the caller. No other peer's header is read.
 
 It caps _low_ deliberately. On a single-account server an unbounded lockout is a denial of
 service an attacker can trigger on purpose, so the operator's worst case is half a minute

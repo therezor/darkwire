@@ -87,7 +87,7 @@ pub enum FinishReason {
 pub struct ChatRequest {
     /// The model id as configured, provider prefix included.
     pub model: String,
-    /// Already windowed and legal: `history_for_llm` has run. An adapter
+    /// Already windowed and legal by the agent's history window. An adapter
     /// encodes what it is given and never edits history, because the
     /// alignment rules that keep tool results paired live in one place and
     /// this is not it.
@@ -176,12 +176,13 @@ pub struct ChatResult {
     /// the rate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_token_ms: Option<f64>,
-    /// Whether the degradation ladder rewrote the request before it succeeded.
+    /// What the degradation ladder removed before the request succeeded, in
+    /// words for a person. Empty when nothing was.
     ///
-    /// The usage then describes a smaller request than the one the caller
-    /// built, so a caller comparing the two has to know.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub degraded: bool,
+    /// Non-empty, the usage describes a smaller request than the one the
+    /// caller built, so a caller comparing the two has to know.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded: Vec<String>,
 }
 
 /// A streaming event.
@@ -197,7 +198,7 @@ pub enum ChatStreamEvent {
     /// A slice of the model's thinking.
     Reasoning(String),
     /// The whole result. Exactly one, last.
-    Done(ChatResult),
+    Done(Box<ChatResult>),
 }
 
 /// A provider: one endpoint, answering many requests.

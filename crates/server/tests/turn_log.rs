@@ -387,17 +387,16 @@ fn charges_a_merged_delta_for_its_text_not_for_a_new_entry() {
 }
 
 #[test]
-fn charges_text_in_the_units_the_client_counts() {
-    // A budget measured in UTF-8 bytes would be a different budget for the same
-    // answer depending on the language it is written in.
+fn charges_text_in_encoded_bytes() {
+    // The replay cap is in bytes, so a log counted in any smaller unit could
+    // pass its own budget and still overrun the cap on a CJK-heavy turn.
     let mut log = TurnLog::new(BIG);
     log.push(&start(1, TURN));
     log.push(&delta(2, "ab", TURN));
     let after_first = log.retained_bytes();
-    // One astral-plane character is two UTF-16 code units and four UTF-8 bytes.
-    log.push(&delta(3, "\u{1F600}", TURN));
+    log.push(&delta(3, "\u{4F60}\u{1F600}", TURN));
 
-    assert_eq!(log.retained_bytes() - after_first, 2);
+    assert_eq!(log.retained_bytes() - after_first, 7);
 }
 
 #[test]

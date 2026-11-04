@@ -52,6 +52,7 @@ fn harness() -> Harness {
             session_key: SESSION.to_owned(),
             live_message_id: None,
             live_turn_id: None,
+            live_settled: 0,
             last_edit_ms: 0,
             prefs: RenderPrefs::default(),
             pending: None,

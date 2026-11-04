@@ -19,9 +19,9 @@ use darkwire_providers::testkit::{
 };
 use darkwire_providers::{
     BackoffOptions, BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent,
-    DEFAULT_DEGRADATION_STEPS, MAX_TRUNCATIONS, NoticeKind, ProviderError, ProviderErrorReason,
-    ProviderSpec, ResilienceNotice, ResilienceOptions, ToolChoice, backoff_delay_ms,
-    synthesise_stream, truncate_oldest_turns, with_resilience,
+    DEFAULT_DEGRADATION_STEPS, MAX_RETRY_AFTER_MS, ProviderError, ProviderErrorReason,
+    ProviderSpec, ResilienceOptions, ToolChoice, backoff_delay_ms, synthesise_stream,
+    with_resilience,
 };
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -51,35 +51,17 @@ fn ok(text: &str) -> ScriptedStep {
     ScriptedStep::Result(result_of(text))
 }
 
-type Notices = Arc<Mutex<Vec<ResilienceNotice>>>;
-
 /// Wraps with a pinned schedule: `jitter = 1` puts full-jitter backoff at its
-/// ceiling, so the delays are values rather than ranges.
-fn wrap(inner: Arc<ScriptedProvider>) -> (Arc<dyn ChatProvider>, Notices) {
-    let notices: Notices = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&notices);
-    let provider = with_resilience(
+/// ceiling, so the waits are values rather than ranges, read off the paused
+/// clock.
+fn wrap(inner: Arc<ScriptedProvider>) -> Arc<dyn ChatProvider> {
+    with_resilience(
         inner,
         ResilienceOptions {
             jitter: Some(Arc::new(|| 1.0)),
-            on_notice: Some(Arc::new(move |notice| sink.lock().unwrap().push(notice))),
             ..ResilienceOptions::default()
         },
-    );
-    (provider, notices)
-}
-
-fn delays(notices: &Notices) -> Vec<u64> {
-    notices
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|notice| notice.delay_ms)
-        .collect()
-}
-
-fn kinds(notices: &Notices) -> Vec<NoticeKind> {
-    notices.lock().unwrap().iter().map(|n| n.kind).collect()
+    )
 }
 
 #[tokio::test(start_paused = true)]
@@ -92,38 +74,34 @@ async fn backs_off_exponentially_and_gives_up_after_the_attempt_cap() {
             err(ProviderErrorReason::Server, "boom"),
         ],
     );
-    let (provider, notices) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let started = tokio::time::Instant::now();
     let error = provider
         .chat(&request(), &CancellationToken::new())
         .await
         .unwrap_err();
     assert!(error.message.contains("boom"));
-    // Three attempts, two waits: 500 then 1000, and the paused clock shows
-    // they were actually waited.
-    assert_eq!(delays(&notices), vec![500, 1000]);
+    // Three attempts, two waits, 500 then 1000, on the paused clock.
     assert_eq!(started.elapsed(), Duration::from_millis(1500));
     assert_eq!(inner.seen().len(), 3);
-    assert!(notices.lock().unwrap().iter().all(|n| n.attempt >= 1));
 }
 
 #[tokio::test(start_paused = true)]
 async fn stops_immediately_on_an_error_repeating_cannot_fix() {
     let inner = ScriptedProvider::new(spec(), vec![err(ProviderErrorReason::Auth, "bad key")]);
-    let (provider, notices) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let error = provider
         .chat(&request(), &CancellationToken::new())
         .await
         .unwrap_err();
     assert!(error.message.contains("bad key"));
-    assert!(delays(&notices).is_empty());
     assert_eq!(inner.seen().len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
 async fn never_retries_an_abort() {
     let inner = ScriptedProvider::new(spec(), vec![err(ProviderErrorReason::Aborted, "cancelled")]);
-    let (provider, notices) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let error = provider
         .chat(&request(), &CancellationToken::new())
         .await
@@ -132,7 +110,7 @@ async fn never_retries_an_abort() {
         ProviderError::reason_of(&error),
         ProviderErrorReason::Aborted
     );
-    assert!(delays(&notices).is_empty());
+    assert_eq!(inner.seen().len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -149,7 +127,7 @@ async fn classifies_an_untyped_failure_before_deciding() {
             ok("recovered"),
         ],
     );
-    let (provider, _) = wrap(inner);
+    let provider = wrap(inner);
     let result = provider
         .chat(&request(), &CancellationToken::new())
         .await
@@ -169,8 +147,14 @@ fn honours_retry_after_over_its_own_schedule_up_to_the_ceiling() {
             .with_retry_after_ms(Some(retry_after))
     };
     let server = ProviderError::new(ProviderErrorReason::Server, "x");
+    // Asked for explicitly, a wait past the jittered ceiling is honoured, up
+    // to its own.
     assert_eq!(backoff_delay_ms(1, &rate_limited(2000), &options), 2000);
-    assert_eq!(backoff_delay_ms(1, &rate_limited(90_000), &options), 8000);
+    assert_eq!(backoff_delay_ms(1, &rate_limited(20_000), &options), 20_000);
+    assert_eq!(
+        backoff_delay_ms(1, &rate_limited(90_000), &options),
+        MAX_RETRY_AFTER_MS
+    );
     assert_eq!(backoff_delay_ms(4, &server, &options), 4000);
     assert_eq!(backoff_delay_ms(9, &server, &options), 8000);
     let quarter = BackoffOptions {
@@ -189,23 +173,21 @@ async fn the_default_jitter_lands_in_the_upper_half() {
         spec(),
         vec![err(ProviderErrorReason::Server, "boom"), ok("ok")],
     );
-    let notices: Notices = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&notices);
     let provider = with_resilience(
         inner,
         ResilienceOptions {
             random: Some(Arc::new(darkwire_security::testkit::FixedRandom::constant(
                 0,
             ))),
-            on_notice: Some(Arc::new(move |notice| sink.lock().unwrap().push(notice))),
             ..ResilienceOptions::default()
         },
     );
+    let started = tokio::time::Instant::now();
     provider
         .chat(&request(), &CancellationToken::new())
         .await
         .unwrap();
-    assert_eq!(delays(&notices), vec![250]);
+    assert_eq!(started.elapsed(), Duration::from_millis(250));
     assert!(format!("{:?}", ResilienceOptions::default()).contains("ResilienceOptions"));
 }
 
@@ -215,7 +197,7 @@ async fn aborting_during_backoff_ends_the_turn_rather_than_retrying() {
         spec(),
         vec![err(ProviderErrorReason::Server, "boom"), ok("never")],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let token = CancellationToken::new();
     let cancel = token.clone();
     tokio::spawn(async move {
@@ -236,8 +218,9 @@ async fn drops_reasoning_effort_without_spending_a_retry_or_a_wait() {
             ok("ok"),
         ],
     );
-    let (provider, notices) = wrap(Arc::clone(&inner));
-    provider
+    let provider = wrap(Arc::clone(&inner));
+    let started = tokio::time::Instant::now();
+    let result = provider
         .chat(
             &ChatRequest {
                 reasoning_effort: Some(ReasoningEffort::High),
@@ -252,11 +235,10 @@ async fn drops_reasoning_effort_without_spending_a_retry_or_a_wait() {
     assert_eq!(seen[1].reasoning_effort, None);
     // Only the one thing the provider objected to.
     assert_eq!(seen[1].tool_choice, Some(ToolChoice::Auto));
-    assert!(delays(&notices).is_empty());
-    assert_eq!(kinds(&notices), vec![NoticeKind::Degraded]);
+    assert_eq!(started.elapsed(), Duration::ZERO);
     assert_eq!(
-        notices.lock().unwrap()[0].message,
-        "retrying without reasoning_effort"
+        result.degraded,
+        ["This model does not take a reasoning effort, so that setting was left out."]
     );
 }
 
@@ -269,7 +251,7 @@ async fn drops_the_effort_under_its_other_name_and_skips_a_step_blamed_elsewhere
             ok("ok"),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     provider
         .chat(
             &ChatRequest {
@@ -289,7 +271,7 @@ async fn drops_the_effort_under_its_other_name_and_skips_a_step_blamed_elsewhere
             ok("ok"),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     provider
         .chat(
             &ChatRequest {
@@ -319,7 +301,7 @@ async fn walks_the_whole_ladder_on_a_bare_400() {
             err(ProviderErrorReason::InvalidRequest, "400"),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let error = provider
         .chat(
             &ChatRequest {
@@ -358,7 +340,7 @@ async fn drops_the_cache_key_before_anything_that_costs_the_answer() {
             ok("ok"),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     provider
         .chat(
             &ChatRequest {
@@ -387,7 +369,7 @@ async fn merges_a_trailing_user_turn_for_a_strict_alternation_endpoint() {
             ok("ok"),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     provider
         .chat(
             &ChatRequest {
@@ -423,12 +405,11 @@ fn the_ladder_is_ordered_and_every_step_declines_an_empty_request() {
             "drop_reasoning_effort",
             "drop_tool_choice",
             "strip_images",
-            "truncate_turns",
         ]
     );
     for step in &DEFAULT_DEGRADATION_STEPS {
         assert!((step.apply)(&request()).is_none(), "{}", step.id);
-        assert!(!step.description.is_empty());
+        assert!(!step.notice.is_empty());
     }
     let merge = DEFAULT_DEGRADATION_STEPS
         .iter()
@@ -441,16 +422,6 @@ fn the_ladder_is_ordered_and_every_step_declines_an_empty_request() {
         })
         .is_none()
     );
-    let truncate = DEFAULT_DEGRADATION_STEPS
-        .iter()
-        .find(|s| s.id == "truncate_turns")
-        .unwrap();
-    let too_long = ProviderError::new(ProviderErrorReason::ContextLength, "x");
-    assert!((truncate.applies)(&too_long, &request()));
-    assert!(!(truncate.applies)(
-        &ProviderError::new(ProviderErrorReason::Server, "x"),
-        &request()
-    ));
     assert!(format!("{:?}", DEFAULT_DEGRADATION_STEPS[0]).contains("drop_prompt_cache_key"));
 }
 
@@ -460,7 +431,7 @@ async fn does_not_degrade_an_error_no_repair_addresses() {
         spec(),
         vec![err(ProviderErrorReason::ContentFilter, "refused")],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let error = provider
         .chat(
             &ChatRequest {
@@ -473,139 +444,6 @@ async fn does_not_degrade_an_error_no_repair_addresses() {
         .unwrap_err();
     assert!(error.message.contains("refused"));
     assert_eq!(inner.seen().len(), 1);
-}
-
-fn long(marker: &str) -> ChatMessage {
-    common::user(&format!("{marker} ").repeat(60))
-}
-
-#[test]
-fn truncate_keeps_the_system_prompt_and_the_newest_turn() {
-    let messages = vec![
-        common::system("rules"),
-        long("a"),
-        long("b"),
-        long("c"),
-        long("d"),
-    ];
-    let kept = truncate_oldest_turns(&messages).unwrap();
-    assert_eq!(kept[0], common::system("rules"));
-    assert_eq!(kept.last(), messages.last());
-    assert!(kept.len() < messages.len());
-}
-
-#[test]
-fn truncate_cuts_the_same_history_whether_or_not_turns_carry_reasoning() {
-    let thought = "x".repeat(4000);
-    let plain = vec![
-        common::system("rules"),
-        long("a"),
-        common::assistant("answered"),
-        long("b"),
-        common::assistant("answered"),
-        long("c"),
-    ];
-    let thinking: Vec<ChatMessage> = plain
-        .iter()
-        .map(|message| match message {
-            ChatMessage::Assistant(_) => common::assistant_with("answered", vec![], Some(&thought)),
-            other => other.clone(),
-        })
-        .collect();
-    assert_eq!(
-        truncate_oldest_turns(&thinking).map(|k| k.len()),
-        truncate_oldest_turns(&plain).map(|k| k.len())
-    );
-}
-
-#[test]
-fn truncate_keeps_the_question_and_the_trailing_runtime_turn() {
-    let question = common::user("what did the migration change?");
-    let runtime = common::user("<system-reminder>\n## Live state\n</system-reminder>");
-    let kept = truncate_oldest_turns(&[
-        common::system("rules"),
-        long("a"),
-        long("b"),
-        long("c"),
-        question.clone(),
-        runtime.clone(),
-    ])
-    .unwrap();
-    assert!(kept.contains(&question));
-    assert_eq!(kept.last(), Some(&runtime));
-
-    let kept = truncate_oldest_turns(&[
-        common::system("rules"),
-        long("a"),
-        long("b"),
-        long("c"),
-        runtime.clone(),
-    ])
-    .unwrap();
-    assert_eq!(kept.last(), Some(&runtime));
-}
-
-#[test]
-fn truncate_keeps_the_question_on_a_later_iteration_of_its_turn() {
-    // The bulk sits after the question, so only the floor stops the cut
-    // from reaching it.
-    let question = common::user("what did the migration change?");
-    let runtime = common::user("<system-reminder>\n## Live state\n</system-reminder>");
-    let messages = vec![
-        common::system("rules"),
-        common::user("hi"),
-        common::assistant("hello"),
-        question.clone(),
-        common::assistant_with("", vec![common::call("c1", "read", "{}")], None),
-        common::tool("c1", "read", &"x".repeat(4000)),
-        runtime.clone(),
-    ];
-    let kept = truncate_oldest_turns(&messages).unwrap();
-    assert!(kept.contains(&question));
-    assert_eq!(kept.last(), Some(&runtime));
-    assert!(kept.len() < messages.len());
-
-    // The same without the trailing runtime turn.
-    let kept = truncate_oldest_turns(&messages[..messages.len() - 1]).unwrap();
-    assert!(kept.contains(&question));
-}
-
-#[test]
-fn truncate_never_leaves_a_tool_result_without_its_assistant() {
-    let messages = vec![
-        long("old"),
-        common::assistant_with("", vec![common::call("c1", "read", "{}")], None),
-        common::tool("c1", "read", &"x".repeat(400)),
-        long("newer"),
-        long("newest"),
-    ];
-    let kept = truncate_oldest_turns(&messages).unwrap();
-    let mut declared = std::collections::HashSet::new();
-    for message in &kept {
-        match message {
-            ChatMessage::Assistant(assistant) => {
-                declared.extend(assistant.tool_calls.iter().map(|c| c.id.clone()));
-            }
-            ChatMessage::Tool(tool) => assert!(declared.contains(&tool.tool_call_id)),
-            _ => {}
-        }
-    }
-}
-
-#[test]
-fn truncate_declines_when_there_is_nothing_to_drop() {
-    assert!(truncate_oldest_turns(&[]).is_none());
-    assert!(truncate_oldest_turns(&[common::user("only")]).is_none());
-    assert!(truncate_oldest_turns(&[common::system("rules"), common::user("only")]).is_none());
-    // The survivors would all be orphaned tool results.
-    assert!(
-        truncate_oldest_turns(&[
-            common::user(&"x".repeat(500)),
-            common::tool("orphan", "read", &"y".repeat(500)),
-            common::tool("orphan2", "read", &"z".repeat(500)),
-        ])
-        .is_none()
-    );
 }
 
 /// A provider that logs when it emits, so interleaving is observable.
@@ -660,7 +498,7 @@ impl ChatProvider for Interleaving {
                         order.lock().unwrap().push("emit:b".into());
                         Some((Ok(ChatStreamEvent::Text("b".into())), 2))
                     }
-                    (2, _) => Some((Ok(ChatStreamEvent::Done(result_of("ab"))), 3)),
+                    (2, _) => Some((Ok(ChatStreamEvent::Done(Box::new(result_of("ab")))), 3)),
                     _ => None,
                 }
             }
@@ -734,10 +572,13 @@ async fn retries_a_stream_that_failed_before_saying_anything() {
         spec(),
         vec![
             err(ProviderErrorReason::Overloaded, "busy"),
-            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(result_of("second")))]),
+            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(Box::new(result_of(
+                "second",
+            ))))]),
         ],
     );
-    let (provider, notices) = wrap(inner);
+    let provider = wrap(inner);
+    let started = tokio::time::Instant::now();
     let collected = collect(provider.stream(request(), CancellationToken::new()))
         .await
         .unwrap();
@@ -746,7 +587,7 @@ async fn retries_a_stream_that_failed_before_saying_anything() {
         collected.done.unwrap().message.content,
         vec![text_part("second")]
     );
-    assert_eq!(delays(&notices), vec![500]);
+    assert_eq!(started.elapsed(), Duration::from_millis(500));
 }
 
 #[tokio::test(start_paused = true)]
@@ -755,10 +596,10 @@ async fn degrades_a_stream_the_same_way_as_a_single_request() {
         spec(),
         vec![
             err_param(ProviderErrorReason::UnsupportedParam, "reasoning_effort"),
-            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(result_of("ok")))]),
+            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(Box::new(result_of("ok"))))]),
         ],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     collect(provider.stream(
         ChatRequest {
             reasoning_effort: Some(ReasoningEffort::High),
@@ -782,7 +623,7 @@ async fn says_when_the_request_that_succeeded_was_not_the_one_built() {
             ok("ok"),
         ],
     );
-    let (provider, _) = wrap(degraded);
+    let provider = wrap(degraded);
     let effort = ChatRequest {
         reasoning_effort: Some(ReasoningEffort::High),
         ..request()
@@ -791,38 +632,38 @@ async fn says_when_the_request_that_succeeded_was_not_the_one_built() {
         .chat(&effort, &CancellationToken::new())
         .await
         .unwrap();
-    assert!(result.degraded);
+    assert_eq!(result.degraded.len(), 1);
 
     let streamed = ScriptedProvider::new(
         spec(),
         vec![
             err_param(ProviderErrorReason::UnsupportedParam, "reasoning_effort"),
-            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(result_of("ok")))]),
+            ScriptedStep::Events(vec![Ok(ChatStreamEvent::Done(Box::new(result_of("ok"))))]),
         ],
     );
-    let (provider, _) = wrap(streamed);
+    let provider = wrap(streamed);
     let collected = collect(provider.stream(effort, CancellationToken::new()))
         .await
         .unwrap();
-    assert!(collected.done.unwrap().degraded);
+    assert_eq!(collected.done.unwrap().degraded.len(), 1);
 
     // A retry sends the same request again, so it is not a degradation.
     let retried = ScriptedProvider::new(
         spec(),
         vec![err(ProviderErrorReason::RateLimit, "slow down"), ok("ok")],
     );
-    let (provider, _) = wrap(retried);
+    let provider = wrap(retried);
     let result = provider
         .chat(&request(), &CancellationToken::new())
         .await
         .unwrap();
-    assert!(!result.degraded);
+    assert!(result.degraded.is_empty());
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_stream_that_exhausts_recovery_raises_the_error() {
     let inner = ScriptedProvider::new(spec(), vec![err(ProviderErrorReason::Auth, "bad key")]);
-    let (provider, _) = wrap(inner);
+    let provider = wrap(inner);
     let error = collect(provider.stream(request(), CancellationToken::new()))
         .await
         .unwrap_err();
@@ -838,7 +679,7 @@ async fn falls_back_to_a_single_response_when_the_stream_cannot_be_parsed() {
             ok("whole answer"),
         ],
     );
-    let (provider, notices) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     let mut stream = provider.stream(request(), CancellationToken::new());
     while let Some(event) = stream.next().await {
@@ -847,7 +688,7 @@ async fn falls_back_to_a_single_response_when_the_stream_cannot_be_parsed() {
     assert_eq!(events[0], ChatStreamEvent::Text("whole answer".into()));
     assert!(matches!(events[1], ChatStreamEvent::Done(_)));
     assert_eq!(events.len(), 2);
-    assert_eq!(kinds(&notices), vec![NoticeKind::Fallback]);
+    assert_eq!(inner.seen().len(), 2);
 
     // And the fallback's own failure is the error the consumer sees.
     let inner = ScriptedProvider::new(
@@ -857,7 +698,7 @@ async fn falls_back_to_a_single_response_when_the_stream_cannot_be_parsed() {
             err(ProviderErrorReason::Auth, "bad key"),
         ],
     );
-    let (provider, _) = wrap(inner);
+    let provider = wrap(inner);
     let error = collect(provider.stream(request(), CancellationToken::new()))
         .await
         .unwrap_err();
@@ -880,7 +721,7 @@ async fn passes_list_models_and_close_straight_through() {
             supports_reasoning: None,
         }],
     );
-    let (provider, _) = wrap(Arc::clone(&inner));
+    let provider = wrap(Arc::clone(&inner));
     assert_eq!(provider.id(), inner.id());
     assert_eq!(provider.spec(), inner.spec());
     let models = provider
@@ -908,7 +749,7 @@ fn synthesise_stream_replays_a_result_as_events() {
         vec![
             ChatStreamEvent::Reasoning("because".into()),
             ChatStreamEvent::Text("answer".into()),
-            ChatStreamEvent::Done(result.clone()),
+            ChatStreamEvent::Done(Box::new(result.clone())),
         ]
     );
 
@@ -921,101 +762,29 @@ fn synthesise_stream_replays_a_result_as_events() {
     };
     assert_eq!(
         synthesise_stream(&tool_only),
-        vec![ChatStreamEvent::Done(tool_only.clone())]
+        vec![ChatStreamEvent::Done(Box::new(tool_only.clone()))]
     );
 }
 
-/// A long conversation: the system prompt, `turns` answered questions, and
-/// the question being asked now.
-fn conversation(turns: usize) -> Vec<ChatMessage> {
-    let mut messages = vec![common::system("rules")];
-    for index in 0..turns {
-        messages.push(long(&format!("q{index}")));
-        messages.push(common::assistant("answered"));
-    }
-    messages.push(common::user("the question"));
-    messages
-}
-
 #[tokio::test(start_paused = true)]
-async fn truncation_repeats_shrinking_the_request_each_time() {
-    let too_long = || err(ProviderErrorReason::ContextLength, "too long");
-    let inner = ScriptedProvider::new(spec(), vec![too_long(), too_long(), ok("fits")]);
-    let (provider, notices) = wrap(Arc::clone(&inner));
-    let result = provider
-        .chat(
-            &ChatRequest {
-                messages: conversation(40),
-                ..request()
-            },
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(result.message.content, vec![text_part("fits")]);
-
-    let sizes: Vec<usize> = inner.seen().iter().map(|r| r.messages.len()).collect();
-    assert_eq!(sizes.len(), 3);
-    assert!(sizes[0] > sizes[1] && sizes[1] > sizes[2], "{sizes:?}");
-    // Two cuts, one notice: the second says nothing the first did not.
-    assert_eq!(kinds(&notices), vec![NoticeKind::Degraded]);
-    for request in inner.seen() {
-        assert_eq!(request.messages.first(), Some(&common::system("rules")));
-        assert_eq!(request.messages.last(), Some(&common::user("the question")));
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn truncation_stops_at_its_cap_on_a_window_that_never_fits() {
-    let steps = (0..=MAX_TRUNCATIONS)
-        .map(|_| err(ProviderErrorReason::ContextLength, "too long"))
-        .collect();
-    let inner = ScriptedProvider::new(spec(), steps);
-    let (provider, notices) = wrap(Arc::clone(&inner));
+async fn a_request_too_long_for_the_model_fails_without_a_second_try() {
+    // The loop already windows history to the configured context, so this is
+    // a wrong setting, and cutting more would hide it.
+    let inner = ScriptedProvider::new(
+        spec(),
+        vec![
+            err(ProviderErrorReason::ContextLength, "too long"),
+            ok("never"),
+        ],
+    );
+    let provider = wrap(Arc::clone(&inner));
     let error = provider
-        .chat(
-            &ChatRequest {
-                messages: conversation(200),
-                ..request()
-            },
-            &CancellationToken::new(),
-        )
+        .chat(&request(), &CancellationToken::new())
         .await
         .unwrap_err();
     assert_eq!(
         ProviderError::reason_of(&error),
         ProviderErrorReason::ContextLength
     );
-    assert_eq!(inner.seen().len(), 1 + MAX_TRUNCATIONS as usize);
-    assert_eq!(kinds(&notices), vec![NoticeKind::Degraded]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn truncation_stops_at_the_current_turn_before_its_cap() {
-    let steps = (0..=MAX_TRUNCATIONS)
-        .map(|_| err(ProviderErrorReason::ContextLength, "too long"))
-        .collect();
-    let inner = ScriptedProvider::new(spec(), steps);
-    let (provider, _) = wrap(Arc::clone(&inner));
-    let error = provider
-        .chat(
-            &ChatRequest {
-                messages: conversation(1),
-                ..request()
-            },
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(
-        ProviderError::reason_of(&error),
-        ProviderErrorReason::ContextLength
-    );
-    let seen = inner.seen();
-    assert!(seen.len() < 1 + MAX_TRUNCATIONS as usize, "{}", seen.len());
-    // The floor held: the last request still asks the question.
-    assert_eq!(
-        seen.last().unwrap().messages.last(),
-        Some(&common::user("the question"))
-    );
+    assert_eq!(inner.seen().len(), 1);
 }

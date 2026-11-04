@@ -257,6 +257,7 @@ pub fn control_frame_of(
         ClientMessage::Steer(body) => Ok(ChannelControlFrame::Steer(body)),
         ClientMessage::Regenerate(body) => Ok(ChannelControlFrame::Regenerate(body)),
         ClientMessage::Edit(body) => Ok(ChannelControlFrame::Edit(body)),
+        ClientMessage::CompactSession(body) => Ok(ChannelControlFrame::Compact(body)),
         other => Err(format!(
             "The frame \"{}\" is not one a channel may send.",
             client_tag(&other)
@@ -276,6 +277,7 @@ fn client_tag(message: &ClientMessage) -> &'static str {
         ClientMessage::ResumeSession(_) => "session.resume",
         ClientMessage::ToolApprove(_) => "tool.approve",
         ClientMessage::Steer(_) => "turn.steer",
+        ClientMessage::CompactSession(_) => "session.compact",
     }
 }
 

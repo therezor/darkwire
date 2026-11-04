@@ -2111,7 +2111,7 @@ describe('choosing an environment', () => {
         'Running commands for Researcher',
       );
       expect((box as HTMLTextAreaElement).value).toContain(
-        'Paths outside the workspace may be refused',
+        'The file tools always act on the workspace',
       );
     });
 
@@ -2126,7 +2126,7 @@ describe('choosing an environment', () => {
         'Running commands for Researcher',
       );
       expect((box as HTMLTextAreaElement).value).toContain(
-        'Paths outside the workspace may be refused',
+        'The file tools always act on the workspace',
       );
       expect(
         screen.getByText(/One default wherever it runs/),

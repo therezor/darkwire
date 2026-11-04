@@ -27,7 +27,6 @@ import type { ClientMessage, ServerMessage } from '@darkwire/protocol';
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
 import { resetConnection } from '@/lib/connection.js';
-import { writeCursor } from '@/lib/cursor.js';
 import { useTurnStore } from '@/state/turn.js';
 import { createQueryClient } from '@/lib/query.js';
 import { stubApi, stubFetch, testQueryClient } from '@testkit/render.js';
@@ -1746,7 +1745,7 @@ describe('the approval gate', () => {
 });
 
 describe('a mid-stream reload', () => {
-  it('resumes from the cursor and rebuilds the turn from the replay buffer', async () => {
+  it('rebuilds the running turn from its frames after a reload', async () => {
     mount();
     await connect();
 
@@ -1767,8 +1766,7 @@ describe('a mid-stream reload', () => {
     const applied = useTurnStore.getState().lastSeq;
     expect(applied).toBeGreaterThan(0);
 
-    // The reload: every scrap of in-memory state goes, and `sessionStorage`
-    // does not. That asymmetry is the whole mechanism.
+    // The reload: every scrap of in-memory state goes.
     cleanup();
     resetConnection();
     act(() => {
@@ -1782,12 +1780,8 @@ describe('a mid-stream reload', () => {
       resumed.onopen?.();
     });
 
-    // The handshake leads with the cursor, before anything else it might have
-    // buffered — and the cursor is *not* the last frame this tab applied. It is
-    // the last one before the turn started, because the transcript that held
-    // everything after it has just been destroyed. Resuming from `applied`
-    // would ask the ring for what came after the frames the reload forgot,
-    // which is nothing, and the half-written turn would be unrecoverable.
+    // A page with nothing on screen resumes from 0, and the server answers with
+    // the running turn's frames, in full.
     expect(socket().sent[0]).toEqual({
       type: 'session.resume',
       sessionKey: SESSION,
@@ -1803,13 +1797,14 @@ describe('a mid-stream reload', () => {
         serverTimeMs: Date.now(),
         lastSeq: applied,
       },
-      // The ring covered the gap, so the frames themselves follow.
       {
         type: 'session.replay',
         sessionKey: SESSION,
-        messages: [],
-        complete: true,
+        complete: false,
+        resumingTurnId: 't1',
       },
+      START,
+      { type: 'assistant.delta', turnId: 't1', text: 'Half an answer' },
       { type: 'assistant.delta', turnId: 't1', text: ' and the rest of it.' },
       { type: 'turn.end', turnId: 't1', stopReason: 'complete', iterations: 1 },
     );
@@ -1820,6 +1815,28 @@ describe('a mid-stream reload', () => {
   });
 
   it('rebuilds from storage when the resume fell outside the ring', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [
+        200,
+        {
+          sessionKey: SESSION,
+          messages: [
+            {
+              id: 'm1',
+              sessionKey: SESSION,
+              seq: 1,
+              createdAtMs: 1,
+              turnId: 't1',
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'the original question' }],
+              },
+            },
+          ],
+        },
+      ],
+    });
     mount();
     await connect();
     deliver(START, {
@@ -1851,32 +1868,91 @@ describe('a mid-stream reload', () => {
         serverTimeMs: Date.now(),
         lastSeq: before + 50,
       },
-      {
-        type: 'session.replay',
-        sessionKey: SESSION,
-        complete: false,
-        messages: [
-          {
-            id: 'm1',
-            sessionKey: SESSION,
-            seq: 1,
-            createdAtMs: 1,
-            turnId: 't1',
-            message: {
-              role: 'user',
-              content: [{ type: 'text', text: 'the original question' }],
-            },
-          },
-        ],
-      },
+      { type: 'session.replay', sessionKey: SESSION, complete: false },
     );
 
-    // `complete: false` is the server saying "I cannot cover the gap" — the
-    // stored tail replaces the transcript rather than being appended to it.
+    // `complete: false` is the server saying "I cannot cover the gap": the
+    // stored history replaces the transcript rather than being appended to it.
     expect(
       await screen.findByText('the original question'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/lost text/)).not.toBeInTheDocument();
+  });
+});
+
+describe('storage behind an incomplete replay', () => {
+  const ANSWERED = {
+    sessionKey: SESSION,
+    messages: [
+      {
+        id: 'm1',
+        sessionKey: SESSION,
+        seq: 1,
+        createdAtMs: 1,
+        turnId: 't1',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'the question' }],
+        },
+      },
+      {
+        id: 'm2',
+        sessionKey: SESSION,
+        seq: 2,
+        createdAtMs: 2,
+        turnId: 't1',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'The whole answer.' }],
+          toolCalls: [],
+        },
+      },
+    ],
+  };
+
+  it('is merged back even when it comes back unchanged', async () => {
+    // An unchanged refetch returns the same object, which an effect keyed on
+    // it never sees. The merge is called directly instead.
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [200, ANSWERED],
+    });
+    mount();
+    expect(await screen.findByText('The whole answer.')).toBeInTheDocument();
+    await connect();
+
+    deliver({ type: 'session.replay', sessionKey: SESSION, complete: false });
+
+    expect(await screen.findByText('The whole answer.')).toBeInTheDocument();
+    expect(screen.getByText('the question')).toBeInTheDocument();
+  });
+
+  it('fills in a turn this page joined mid-answer once it ends', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [
+        200,
+        { sessionKey: SESSION, messages: [] },
+      ],
+    });
+    mount();
+    await connect();
+    // No `turn.start`: the page attached after the turn began.
+    deliver({ type: 'assistant.delta', turnId: 't1', text: 'answer.' });
+    expect(await screen.findByText(/answer\./)).toBeInTheDocument();
+
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [200, ANSWERED],
+    });
+    deliver({
+      type: 'turn.end',
+      turnId: 't1',
+      stopReason: 'complete',
+      iterations: 1,
+    });
+
+    expect(await screen.findByText('The whole answer.')).toBeInTheDocument();
   });
 });
 
@@ -1913,9 +1989,6 @@ describe('a turn storage has only part of', () => {
       ...BASE_ROUTES,
       '/api/sessions/web%3A1/messages': [200, STORED],
     });
-    // A reload: this tab had the conversation on screen, with its boundary
-    // before the turn.
-    writeCursor(SESSION, 0);
     mount();
 
     // Storage answers first, and builds the turn as if it had ended.
@@ -1937,8 +2010,8 @@ describe('a turn storage has only part of', () => {
       {
         type: 'session.replay',
         sessionKey: SESSION,
-        messages: [],
-        complete: true,
+        complete: false,
+        resumingTurnId: 't1',
       },
       { ...START, firstSeq: 1 },
       { type: 'assistant.delta', turnId: 't1', text: 'The first message.' },
@@ -1963,7 +2036,6 @@ describe('a turn storage has only part of', () => {
       ...BASE_ROUTES,
       '/api/sessions/web%3A1/messages': [200, STORED],
     });
-    writeCursor(SESSION, 0);
     mount();
     expect(await screen.findByText('The first message.')).toBeInTheDocument();
 
@@ -1993,8 +2065,8 @@ describe('a turn storage has only part of', () => {
       {
         type: 'session.replay',
         sessionKey: SESSION,
-        messages: [],
-        complete: true,
+        complete: false,
+        resumingTurnId: 't1',
       },
       { ...START, firstSeq: 1 },
       { type: 'assistant.delta', turnId: 't1', text: 'The first message.' },
@@ -2157,18 +2229,95 @@ describe('reworking a session', () => {
     });
   });
 
-  it('edits a message and re-runs from it', async () => {
-    const user = userEvent.setup();
-    // A cursor, so the open resumes and the replay below answers it.
-    writeCursor(SESSION, 0);
+  it('links back to the conversation it was summarised from', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1': [
+        200,
+        {
+          key: 'web:1',
+          title: 'Trip plans (continued)',
+          messageCount: 2,
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          continuedFrom: 'web:0',
+        },
+      ],
+      '/api/sessions/web%3A0': [
+        200,
+        {
+          key: 'web:0',
+          title: 'Trip plans',
+          messageCount: 2,
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+      ],
+    });
+    mount();
+    await connect();
+
+    expect(
+      await screen.findByRole('link', { name: 'Continued from Trip plans' }),
+    ).toHaveAttribute('href', '/sessions/web%3A0');
+  });
+
+  it('follows its conversation to the session it was summarised into', async () => {
     mount();
     await connect();
 
     deliver({
-      type: 'session.replay',
+      type: 'session.compacted',
       sessionKey: SESSION,
-      complete: false,
+      continuedKey: `${SESSION}:next`,
+    });
+
+    await waitFor(() => {
+      expect(framesOf('session.resume').at(-1)).toMatchObject({
+        sessionKey: `${SESSION}:next`,
+      });
+    });
+  });
+
+  it('forgets the cached history of a conversation another tab cleared', async () => {
+    const client = testQueryClient();
+    mount(`/sessions/${encodeURIComponent(SESSION)}`, client);
+    await connect();
+    const key = ['sessions', SESSION, 'messages'];
+    client.setQueryData(key, {
+      sessionKey: SESSION,
       messages: [
+        {
+          id: 'row-1',
+          sessionKey: SESSION,
+          seq: 1,
+          createdAtMs: 1,
+          turnId: 't1',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'the cleared question' }],
+          },
+        },
+      ],
+      subagentRuns: {},
+    });
+
+    deliver({ type: 'session.reset', sessionKey: SESSION });
+
+    await waitFor(() => {
+      expect(JSON.stringify(client.getQueryData(key) ?? null)).not.toContain(
+        'the cleared question',
+      );
+    });
+  });
+
+  it('edits a message and re-runs from it', async () => {
+    const user = userEvent.setup();
+    mount();
+    await connect();
+
+    act(() => {
+      useTurnStore.getState().mergeHistory([
         {
           id: 'm1',
           sessionKey: SESSION,
@@ -2180,7 +2329,7 @@ describe('reworking a session', () => {
             content: [{ type: 'text', text: 'the first question' }],
           },
         },
-      ],
+      ]);
     });
 
     await user.click(
@@ -2206,15 +2355,11 @@ describe('reworking a session', () => {
     // editor has no attachment affordance -- so a corrected typo silently threw
     // away every file on the message and the next answer was about nothing.
     const user = userEvent.setup();
-    writeCursor(SESSION, 0);
     mount();
     await connect();
 
-    deliver({
-      type: 'session.replay',
-      sessionKey: SESSION,
-      complete: false,
-      messages: [
+    act(() => {
+      useTurnStore.getState().mergeHistory([
         {
           id: 'm1',
           sessionKey: SESSION,
@@ -2235,7 +2380,7 @@ describe('reworking a session', () => {
             ],
           },
         },
-      ],
+      ]);
     });
 
     await user.click(

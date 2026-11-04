@@ -18,12 +18,11 @@
 //!    every call into it goes through [`tokio::task::spawn_blocking`], or one
 //!    login would stall every other request sharing the worker.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::State;
 use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse as _, Response};
@@ -38,9 +37,10 @@ use crate::auth::{
     clear_session_cookie, cookie_secure, scheme_and_host, session_cookie, session_of,
 };
 use crate::auth_store::IssuedToken;
+use crate::client_address::client_of;
 use crate::errors::HttpError;
-use crate::login_throttle::{Admission, ThrottleBlock};
-use crate::routes::AppState;
+use crate::login_throttle::{Admission, LoginThrottle, ThrottleBlock};
+use crate::routes::{AppState, on_store};
 use crate::schema::parse_body;
 
 /// The body cap on the routes an anonymous caller can reach.
@@ -59,17 +59,10 @@ const SETUP_LABEL: &str = "setup";
 
 // Shared decisions
 
-/// Who is being throttled.
-///
-/// The peer address, which is the only identity available before a credential
-/// has been checked. A request with no recorded peer — an in-process test
-/// service — shares one bucket, which is what a test wants and is unreachable
-/// over a socket.
+/// Who is being throttled: the caller's address, the only identity available
+/// before a credential has been checked.
 fn caller(parts: &Parts) -> String {
-    parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map_or_else(|| "local".to_owned(), |info| info.0.ip().to_string())
+    client_of(&parts.extensions)
 }
 
 /// The response a throttled caller gets.
@@ -157,6 +150,16 @@ fn require_auth_enabled(state: &AppState) -> Result<(), HttpError> {
     }
 }
 
+/// One step of the login throttle, run on the blocking pool like every store.
+async fn throttle<T, F>(state: &AppState, address: &str, step: F) -> Result<T, HttpError>
+where
+    F: FnOnce(&LoginThrottle, &str) -> darkwire_core::Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let address = address.to_owned();
+    Ok(on_store(state, move |deps| step(&deps.login_throttle, &address)).await?)
+}
+
 // The routes
 
 /// Exchange the username and password for a session.
@@ -171,7 +174,7 @@ pub async fn login(
     // must not be able to spend 50 ms and 19 MiB of the server's budget per
     // request — a throttle that still does the expensive work is an amplifier.
     let address = caller(&parts);
-    if let Some(block) = state.login_throttle.check(&address)? {
+    if let Some(block) = throttle(&state, &address, LoginThrottle::check).await? {
         return Ok(throttled(&block));
     }
 
@@ -180,7 +183,7 @@ pub async fn login(
     // Counted as a failure before the hash, and in the same step as a second
     // look at the lock. Guesses sent in parallel all passed the check above
     // while each other's hashes ran; this is where they meet the count.
-    let created = match state.login_throttle.admit(&address)? {
+    let created = match throttle(&state, &address, LoginThrottle::admit).await? {
         Admission::Refused(block) => return Ok(throttled(&block)),
         Admission::Admitted(created) => created,
     };
@@ -202,16 +205,17 @@ pub async fn login(
         // half failed hands over the other half.
         return Err(HttpError::unauthorized("Incorrect username or password"));
     }
-    state.login_throttle.succeed(&address)?;
+    throttle(&state, &address, LoginThrottle::succeed).await?;
 
-    let issued = state.auth.issue(WEB_LABEL)?;
+    let issued = on_store(&state, |deps| deps.auth.issue(WEB_LABEL)).await?;
     Ok(session_response(&parts, &issued, state.clock.now_ms()))
 }
 
 /// Revoke the presented session.
 pub async fn logout(State(state): State<AppState>, parts: Parts) -> Result<Response, HttpError> {
     if let Some(session) = session_of(&parts.extensions) {
-        state.auth.revoke_by_id(&session.id)?;
+        let id = session.id.clone();
+        on_store(&state, move |deps| deps.auth.revoke_by_id(&id)).await?;
     }
     let (scheme, host) = scheme_and_host(&parts);
     // 204 rather than a body: there is nothing to say, and inventing an
@@ -244,7 +248,7 @@ pub async fn me(
         // Only when authentication is on. With it off there is no account, and
         // reporting the name of one would describe a login that does not exist.
         username: if auth_enabled {
-            Some(state.auth.username()?)
+            Some(on_store(&state, |deps| deps.auth.username()).await?)
         } else {
             None
         },
@@ -258,7 +262,8 @@ pub async fn setup_status(
     // With authentication off there is nothing to claim: the server is
     // reachable without a credential by design, and offering a setup screen
     // would be asking for a password that would never be checked.
-    let required = state.config.server.auth.enabled && !state.auth.has_password()?;
+    let required = state.config.server.auth.enabled
+        && !on_store(&state, |deps| deps.auth.has_password()).await?;
     Ok(Json(SetupStatusResponse { required }))
 }
 
@@ -269,7 +274,7 @@ pub async fn setup_claim(
     body: Body,
 ) -> Result<Response, HttpError> {
     require_auth_enabled(&state)?;
-    if state.auth.has_password()? {
+    if on_store(&state, |deps| deps.auth.has_password()).await? {
         // Not a 401 either: the code is not wrong, the install is already
         // claimed and the caller should be logging in with the password.
         return Err(HttpError::bad_request(
@@ -282,16 +287,17 @@ pub async fn setup_claim(
     // against the same aggregate. Two independent counters would let an
     // attacker have both budgets.
     let address = caller(&parts);
-    if let Some(block) = state.login_throttle.check(&address)? {
+    if let Some(block) = throttle(&state, &address, LoginThrottle::check).await? {
         return Ok(throttled(&block));
     }
 
     let request: SetupClaimRequest = credential_body(body).await?;
-    let created = match state.login_throttle.admit(&address)? {
+    let created = match throttle(&state, &address, LoginThrottle::admit).await? {
         Admission::Refused(block) => return Ok(throttled(&block)),
         Admission::Admitted(created) => created,
     };
-    if !state.auth.consume_setup_code(&request.code)? {
+    let code = request.code.clone();
+    if !on_store(&state, move |deps| deps.auth.consume_setup_code(&code)).await? {
         if let Some(block) = created {
             return Ok(throttled(&block));
         }
@@ -301,9 +307,9 @@ pub async fn setup_claim(
             "Incorrect or already-used setup code",
         ));
     }
-    state.login_throttle.succeed(&address)?;
+    throttle(&state, &address, LoginThrottle::succeed).await?;
 
-    let issued = state.auth.issue(SETUP_LABEL)?;
+    let issued = on_store(&state, |deps| deps.auth.issue(SETUP_LABEL)).await?;
     Ok(session_response(&parts, &issued, state.clock.now_ms()))
 }
 
@@ -325,8 +331,8 @@ pub async fn setup_password(
     // wizard unfinishable; afterwards, the session is a credential an injected
     // script in a page full of model-authored markdown can spend, and the old
     // password is the thing it cannot produce.
-    if state.auth.has_password()? {
-        if let Some(block) = state.login_throttle.check(&address)? {
+    if on_store(&state, |deps| deps.auth.has_password()).await? {
+        if let Some(block) = throttle(&state, &address, LoginThrottle::check).await? {
             return Ok(throttled(&block));
         }
         let Some(current) = request.current_password.clone() else {
@@ -334,7 +340,7 @@ pub async fn setup_password(
                 "The current password is required to change it",
             ));
         };
-        let created = match state.login_throttle.admit(&address)? {
+        let created = match throttle(&state, &address, LoginThrottle::admit).await? {
             Admission::Refused(block) => return Ok(throttled(&block)),
             Admission::Admitted(created) => created,
         };
@@ -347,7 +353,7 @@ pub async fn setup_password(
             }
             return Err(HttpError::unauthorized("Incorrect current password"));
         }
-        state.login_throttle.succeed(&address)?;
+        throttle(&state, &address, LoginThrottle::succeed).await?;
     }
 
     let auth = Arc::clone(&state.auth);

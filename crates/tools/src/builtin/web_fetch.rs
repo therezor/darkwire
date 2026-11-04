@@ -114,7 +114,7 @@ impl ToolHandler for WebFetch {
                     .with_detail("kind", format!("{:?}", page.kind).to_lowercase()));
             }
 
-            // The registry truncates to the budget by keeping the head *and*
+            // The dispatcher truncates to the budget by keeping the head *and*
             // the tail, so a page that overflows comes back with its middle
             // removed. Cutting here, at a line boundary, is what keeps the
             // result readable and recoverable.

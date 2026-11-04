@@ -100,7 +100,15 @@ export const SUBAGENT_TASK = 'find the note file';
  */
 export const SUBAGENT_HELD_TASK = 'inspect the folder and hold';
 
+/** What the fake model answers a request for a summary with. */
+export const SUMMARY = 'So far: the user asked for a long answer and got one.';
+
 export const ROUTES: readonly Route[] = [
+  {
+    // The question a summary request ends on, so `/compact` has an answer.
+    match: /^Summarise the conversation so far/,
+    turns: [{ text: SUMMARY }],
+  },
   {
     // Prose, a fenced block and a reasoning trace: the three things the
     // transcript renders differently from each other.

@@ -141,6 +141,7 @@ export interface AgentEntryForm {
    */
   readonly visionEnabled: boolean;
   readonly toolsEnabled: boolean;
+  readonly autoCompact: boolean;
   readonly toolTimeoutSeconds: string;
   /**
    * Per agent, like everything else here. These two were the default agent's
@@ -269,6 +270,7 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     reasoningEffort: entry.reasoningEffort ?? '',
     visionEnabled: entry.visionEnabled,
     toolsEnabled: entry.toolsEnabled,
+    autoCompact: entry.autoCompact,
     toolTimeoutSeconds: msToSeconds(toolTimeoutMs),
     maxToolIterations: String(entry.maxToolIterations),
     loopWallTimeoutSeconds: msToSeconds(entry.loopWallTimeoutMs),
@@ -430,6 +432,7 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     // a later change to the default it had already been shown disagreeing with.
     visionEnabled: form.visionEnabled,
     toolsEnabled: form.toolsEnabled,
+    autoCompact: form.autoCompact,
     lazyDiscovery: form.lazyDiscovery,
     // Sent whole, every time. The merge replaces `agents.list.*` wholesale, so
     // this is also the only way a tool can be removed from an agent — a patch
@@ -709,6 +712,7 @@ export function toNewAgentPatch(
           // vision switched on.
           visionEnabled: template.visionEnabled,
           toolsEnabled: template.toolsEnabled,
+          autoCompact: template.autoCompact,
           lazyDiscovery: template.lazyDiscovery,
           pinnedTools: [...template.pinnedTools],
           approvalTimeoutMs: template.approvalTimeoutMs,

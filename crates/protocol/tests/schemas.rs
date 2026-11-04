@@ -45,6 +45,7 @@ const UNREGISTERED: &[&str] = &[
     "SessionReset",
     "SessionReplay",
     "SessionTruncated",
+    "SessionCompacted",
     "NotificationBody",
     "ToolsChanged",
     "Steer",

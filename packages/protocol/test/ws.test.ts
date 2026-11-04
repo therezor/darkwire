@@ -10,7 +10,6 @@ import {
   UserMessageRequestSchema,
   isSequencedServerMessage,
 } from '#src/ws.js';
-import { ChatMessageSchema } from '#src/messages.js';
 
 /** Reads the `type` literal off a discriminated-union variant. */
 function variantTypes(
@@ -251,7 +250,6 @@ describe('session replay', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 's',
-      messages: [],
       complete: false,
     });
     expect(parsed).toMatchObject({ complete: false });
@@ -262,12 +260,8 @@ describe('session replay', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 's',
-      messages: [],
     });
     expect(parsed).toMatchObject({ complete: true });
-    // Absent, rather than defaulted: no key at all is what every replay before
-    // the in-flight turn log carried, and it means the tail is history that
-    // nothing about to arrive overlaps.
     expect(parsed).not.toHaveProperty('resumingTurnId');
   });
 
@@ -276,53 +270,10 @@ describe('session replay', () => {
       type: 'session.replay',
       seq: 9,
       sessionKey: 's',
-      messages: [],
       complete: false,
       resumingTurnId: 't1',
     });
     expect(parsed).toMatchObject({ resumingTurnId: 't1' });
-  });
-
-  it('carries stored messages with their tool-call pairing intact', () => {
-    const assistant = ChatMessageSchema.parse({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'calling' }],
-      toolCalls: [
-        { id: 'call_1', name: 'read', argumentsJson: '{"path":"a.txt"}' },
-      ],
-    });
-    const tool = ChatMessageSchema.parse({
-      role: 'tool',
-      toolCallId: 'call_1',
-      name: 'read',
-      content: 'contents',
-    });
-
-    const parsed = ServerMessageSchema.parse({
-      type: 'session.replay',
-      seq: 1,
-      sessionKey: 's',
-      messages: [
-        {
-          id: 'm1',
-          sessionKey: 's',
-          seq: 1,
-          createdAtMs: 1,
-          message: assistant,
-        },
-        { id: 'm2', sessionKey: 's', seq: 2, createdAtMs: 2, message: tool },
-      ],
-    });
-
-    expect(parsed.type).toBe('session.replay');
-    if (parsed.type !== 'session.replay') throw new Error('unreachable');
-    const [first, second] = parsed.messages;
-    expect(
-      first!.message.role === 'assistant' && first!.message.toolCalls[0]?.id,
-    ).toBe('call_1');
-    expect(second!.message.role === 'tool' && second!.message.toolCallId).toBe(
-      'call_1',
-    );
   });
 });
 

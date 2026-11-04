@@ -10,8 +10,8 @@
 //! canonical messages onto the wire, decode the wire back into a canonical
 //! `AssistantMessage`, and turn a non-2xx response into a typed provider
 //! error. It does not retry, does not degrade, does not truncate history and
-//! does not repair anything. Those belong to `with_resilience` and to
-//! `history_for_llm`, in one place each, rather than smeared across every
+//! does not repair anything. Those belong to `with_resilience` and to the
+//! agent's history window, in one place each, rather than smeared across every
 //! adapter that will follow.
 //!
 //! The first of those three lives next door, in `wire_encode`, because the
@@ -800,7 +800,7 @@ impl Inner {
                 .map_or_else(|| request.model.clone(), str::to_owned),
             generation_ms: None,
             first_token_ms: None,
-            degraded: false,
+            degraded: Vec::new(),
         })
     }
 
@@ -1018,20 +1018,21 @@ impl StreamState {
         // rounds once, and rounding here would lose most of a millisecond per
         // request to no one's benefit.
         let timings = self.first_content_at.zip(self.last_content_at);
-        self.pending.push_back(ChatStreamEvent::Done(ChatResult {
-            message: assistant_of(
-                std::mem::take(&mut self.text),
-                std::mem::take(&mut self.reasoning),
-                tool_calls,
-            ),
-            finish_reason: decode_finish_reason(self.finish_reason.as_deref(), has_tool_calls),
-            usage: self.usage,
-            model: std::mem::take(&mut self.model),
-            generation_ms: timings.map(|(first, last)| ms_of(last.saturating_sub(first))),
-            first_token_ms: timings
-                .map(|(first, _)| ms_of(first.saturating_sub(self.requested_at))),
-            degraded: false,
-        }));
+        self.pending
+            .push_back(ChatStreamEvent::Done(Box::new(ChatResult {
+                message: assistant_of(
+                    std::mem::take(&mut self.text),
+                    std::mem::take(&mut self.reasoning),
+                    tool_calls,
+                ),
+                finish_reason: decode_finish_reason(self.finish_reason.as_deref(), has_tool_calls),
+                usage: self.usage,
+                model: std::mem::take(&mut self.model),
+                generation_ms: timings.map(|(first, last)| ms_of(last.saturating_sub(first))),
+                first_token_ms: timings
+                    .map(|(first, _)| ms_of(first.saturating_sub(self.requested_at))),
+                degraded: Vec::new(),
+            })));
     }
 
     /// One frame's payload, folded into the accumulators.

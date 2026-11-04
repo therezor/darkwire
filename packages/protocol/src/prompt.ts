@@ -396,7 +396,7 @@ export const COMMAND_POLICY_HEADING = '## Running commands';
  * too would nest a section inside a section.
  */
 export const DEFAULT_PLATFORM_NOTES = `\`exec\` runs with the workspace root as its working directory, so pass relative
-arguments. Paths outside the workspace may be refused.
+arguments.
 
 The file tools always act on the workspace on this machine, whatever \`exec\`
 does. Prefer them where they are simpler or more reliable than a command.`;

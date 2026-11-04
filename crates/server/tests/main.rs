@@ -20,6 +20,7 @@ mod auth_store;
 mod automation_port;
 mod automation_store;
 mod boot;
+mod client_address;
 mod context;
 mod cursor;
 mod ddl_parity;

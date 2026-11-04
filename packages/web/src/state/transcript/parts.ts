@@ -146,6 +146,7 @@ export function orphanTurn(turnId: string): TurnItem {
     kind: 'turn',
     id: turnId,
     sessionKey: '',
+    watched: false,
     parts: [],
     stopReason: undefined,
     firstSeq: undefined,

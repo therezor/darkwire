@@ -23,6 +23,9 @@ use crate::render::indented;
 pub struct StreamController {
     /// Whatever followed the last newline, escapes and all.
     tail: String,
+    /// The tail's width in columns, kept so a chunk is measured on its own
+    /// rather than with a long unbroken line before it.
+    tail_width: usize,
     /// Lines that have ended, not yet taken.
     lines: Vec<String>,
     /// Whether the next chunk starts a line.
@@ -39,6 +42,7 @@ impl StreamController {
     pub fn new() -> Self {
         Self {
             tail: String::new(),
+            tail_width: 0,
             lines: Vec::new(),
             at_line_start: true,
         }
@@ -68,14 +72,20 @@ impl StreamController {
         };
         // A tab or a bell would be measured as a column, drawn as nothing and
         // printed raw into the scrollback. The renderer's own styles stay.
-        let body = expand_controls(&body, visible_width(&self.tail));
+        let body = expand_controls(&body, self.tail_width);
         self.at_line_start = darkwire_tui::strip_ansi(&body).ends_with('\n');
 
-        self.tail.push_str(&body);
-        while let Some(at) = self.tail.find('\n') {
-            let line: String = self.tail.drain(..=at).collect();
-            self.lines.push(line.trim_end_matches('\n').to_owned());
+        // The tail holds no newline, so only the new text is searched.
+        let mut rest = body.as_str();
+        let mut ended = false;
+        while let Some(at) = rest.find('\n') {
+            self.tail.push_str(&rest[..at]);
+            self.lines.push(std::mem::take(&mut self.tail));
+            rest = &rest[at + 1..];
+            ended = true;
         }
+        self.tail.push_str(rest);
+        self.tail_width = visible_width(rest) + if ended { 0 } else { self.tail_width };
     }
 
     /// Settles whatever line is open, if one is.
@@ -84,6 +94,7 @@ impl StreamController {
             return;
         }
         let line = std::mem::take(&mut self.tail);
+        self.tail_width = 0;
         self.lines.push(line);
         self.at_line_start = true;
     }

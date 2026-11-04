@@ -19,7 +19,7 @@ use darkwire_core::message_bus::{
 };
 use darkwire_core::messages::text_part;
 use darkwire_core::session_store::CreateSession;
-use darkwire_protocol::ApprovalScope;
+use darkwire_protocol::{ApprovalScope, ClientMessage};
 use serde_json::{Map, Value, json};
 
 use super::console_double::FakeConsole;
@@ -452,6 +452,37 @@ async fn choosing_a_model_is_refused_for_a_non_administrator() {
 
     assert!(bot.console.models_set().is_empty());
     assert!(bot.api.said("administrator"), "{:?}", bot.api.texts());
+
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn the_workspace_manager_is_refused_to_a_non_administrator() {
+    // It moves every session in the install, web ones included.
+    let block = json!({
+        "allowlist": [USER.to_string(), OTHER.to_string()],
+        "admins": [USER.to_string()],
+        "pollTimeoutSec": 1,
+    });
+    let bot = start(block, ScriptedHub::silent()).await;
+    bot.api.push(message_update("/workspace", OTHER, None));
+    flush().await;
+    assert!(bot.api.said("administrator"), "{:?}", bot.api.texts());
+
+    // A menu the admin opened, pressed by somebody else in the same chat.
+    bot.api.push(message_update("/workspace", USER, None));
+    flush().await;
+    let token = first_token(&bot);
+    let before = bot.api.texts().len();
+    bot.api.push(callback_update(&token, OTHER, Some(USER)));
+    flush().await;
+    let after = bot.api.texts();
+    assert!(
+        after[before..]
+            .iter()
+            .any(|text| text.contains("administrator")),
+        "{after:?}"
+    );
 
     bot.manager.stop().await;
 }
@@ -1066,6 +1097,114 @@ async fn a_malformed_approval_detail_renders_as_an_ordinary_notice() {
         "{body:?}"
     );
 
+    bot.manager.stop().await;
+}
+
+// A conversation summarised into a new session
+
+#[tokio::test]
+async fn compact_asks_the_hub_to_summarise_this_chats_conversation() {
+    let bot = bot().await;
+
+    bot.api
+        .push(message_update("/compact keep the names", USER, None));
+    flush().await;
+
+    let frames = bot.hub.only().frames();
+    let ClientMessage::CompactSession(frame) = &frames.last().expect("a frame").frame else {
+        panic!("expected session.compact, got {:?}", frames.last());
+    };
+    assert_eq!(frame.session_key, "telegram:4471");
+    assert_eq!(frame.instructions.as_deref(), Some("keep the names"));
+    bot.manager.stop().await;
+}
+
+#[tokio::test]
+async fn the_chat_follows_its_conversation_to_the_summary() {
+    let bot = bot().await;
+    let mut metadata = Map::new();
+    metadata.insert("continuedKey".to_owned(), json!("telegram:4471:next"));
+    deliver(&bot, OutboundKind::Notice, "Summarised.", metadata).await;
+
+    bot.api.push(message_update("hello again", USER, None));
+    flush().await;
+
+    let messages = bot.hub.messages();
+    assert_eq!(
+        messages
+            .last()
+            .and_then(|frame| frame.session_key.as_deref()),
+        Some("telegram:4471:next")
+    );
+    bot.manager.stop().await;
+}
+
+// Waiting out a failure
+
+async fn deliver_to(bot: &Bot, chat: i64, text: &str) {
+    bot.manager.bus().publish_outbound(OutboundMessageInput {
+        channel_id: "telegram".to_owned(),
+        session_key: format!("telegram:{chat}"),
+        target: chat.to_string(),
+        content: vec![text_part(text)],
+        kind: OutboundKind::Reply,
+        metadata: Map::new(),
+        id: None,
+    });
+    flush().await;
+}
+
+fn sent(bot: &Bot) -> Vec<(i64, String)> {
+    bot.api
+        .bodies("sendMessage")
+        .iter()
+        .map(|body| {
+            (
+                body["chat_id"].as_i64().unwrap_or_default(),
+                body["text"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rate_limited_chat_waits_on_its_own_while_others_carry_on() {
+    let bot = bot().await;
+    bot.api.rate_limit("sendMessage", 5);
+    bot.api.reply(
+        "sendMessage",
+        CannedAnswer::ok(&json!({ "message_id": 7, "chat": { "id": USER, "type": "private" } })),
+    );
+
+    deliver_to(&bot, USER, "first").await;
+    deliver_to(&bot, GROUP, "elsewhere").await;
+    deliver_to(&bot, USER, "second").await;
+    // The other chat was not held up, and this one kept its order.
+    assert_eq!(
+        sent(&bot),
+        [(USER, "first".to_owned()), (GROUP, "elsewhere".to_owned())]
+    );
+
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    assert_eq!(
+        sent(&bot)[2..],
+        [(USER, "first".to_owned()), (USER, "second".to_owned())]
+    );
+    bot.manager.stop().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_still_failing_after_three_tries_is_dropped() {
+    let bot = bot().await;
+    bot.api.rate_limit("sendMessage", 5);
+
+    deliver_to(&bot, USER, "doomed").await;
+    tokio::time::sleep(std::time::Duration::from_mins(1)).await;
+    assert_eq!(bot.api.count("sendMessage"), 3);
+
+    // The chat takes messages again, at once.
+    deliver_to(&bot, USER, "next").await;
+    assert_eq!(bot.api.count("sendMessage"), 4);
     bot.manager.stop().await;
 }
 

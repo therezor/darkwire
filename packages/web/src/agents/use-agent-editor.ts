@@ -228,6 +228,7 @@ export function useAgentEditor({
   const switches = {
     visionEnabled: bindToggle('visionEnabled'),
     toolsEnabled: bindToggle('toolsEnabled'),
+    autoCompact: bindToggle('autoCompact'),
     lazyDiscovery: bindToggle('lazyDiscovery'),
     environmentAlwaysUseOwn: bindToggle('environmentAlwaysUseOwn'),
   } satisfies Record<string, Toggle>;

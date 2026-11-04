@@ -228,6 +228,28 @@ fn a_tab_becomes_spaces_counted_from_where_its_line_began() {
 }
 
 #[test]
+fn a_long_line_in_small_pieces_keeps_its_column() {
+    let mut stream = StreamController::new();
+    for _ in 0..10_001 {
+        stream.push("x", 0);
+    }
+    stream.push("\ty\n", 0);
+
+    let rows = texts(&stream.take_all());
+    assert_eq!(rows, vec![format!("{}   y", "x".repeat(10_001))]);
+}
+
+#[test]
+fn a_chunk_that_ends_a_line_starts_the_next_column_afresh() {
+    let mut stream = StreamController::new();
+    stream.push("abcdef", 0);
+    stream.push("gh\nz", 0);
+    stream.push("\tq\n", 0);
+
+    assert_eq!(texts(&stream.take_all()), vec!["abcdefgh", "z   q"]);
+}
+
+#[test]
 fn a_control_character_never_reaches_a_row() {
     let mut stream = StreamController::new();
     stream.push("ding\u{7}\r\n", 0);

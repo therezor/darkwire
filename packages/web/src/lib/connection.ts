@@ -13,13 +13,12 @@
  * route: navigating to Settings and back should not drop a turn in flight, and
  * the shell — the router's root — is the only component that never remounts.
  *
- * ## Who resumes
+ * ## Resuming
  *
- * `open()` dials without a `session.resume`. A first connection has nothing to
- * resume: `lastSeq` is 0, and asking to replay from 0 would ask for the whole
- * ring, which is the same conversation the REST history is already loading.
- * Every *re*-connection sends one, because that is the case the ring exists
- * for — a tab that reloaded mid-turn rebuilds the in-flight answer from it.
+ * Every socket that names its session opens with `session.resume`, and the
+ * server attaches it by that frame. `lastSeq` is the last frame this page
+ * applied: a reconnect gets what it missed, and a page with nothing on screen
+ * (0) gets the running turn, if any, while REST supplies the stored history.
  */
 
 import {
@@ -33,7 +32,6 @@ import {
 
 import type { Transcript } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
-import { readCursor, writeCursor } from './cursor.js';
 import {
   ReconnectingSocket,
   socketUrl,
@@ -66,42 +64,12 @@ let socket: ReconnectingSocket | undefined;
 /** The session the *URL* asked for, which is not always the one attached yet. */
 let requested: string | undefined;
 /**
- * The last `seq` at which everything before it was in storage.
- *
- * Frozen for the length of a turn, because a turn in flight is precisely the
- * state storage does not hold. See `handleMessage`, which is the only writer,
- * and `cursor.ts`, which is where it goes.
- */
-let durableSeq = 0;
-/**
- * The cursor last written, as `sessionKey seq`. The boundary is frozen for a
- * whole turn, so without this every token rewrote the same value.
- */
-let writtenCursor: string | undefined;
-/**
- * What a *page load* resumes from, as opposed to a reconnect.
- *
- * `undefined` means this tab has no record of the session it just attached to,
- * which is a first visit and not a reload.
- */
-let resumeFloor: number | undefined;
-/** Whether the socket has been open before. See `onOpen`. */
-let reconnecting = false;
-/**
  * The session a switch moved to, until a frame from it arrives.
  *
  * Deltas name no session, so a frame the old session sent before the switch
  * reached the server would otherwise land on the new transcript.
  */
 let switchingTo: string | undefined;
-/**
- * The session this tab asked to resume, until its `session.replay` arrives.
- *
- * An incomplete replay rebuilds the transcript, and one answering another
- * tab's resume must not rebuild this one.
- */
-let resuming: string | undefined;
-
 /**
  * Subscribe to every parsed frame.
  *
@@ -152,7 +120,7 @@ export function resumeConnection(): void {
 /** Opens the socket on `sessionKey`, or on a server-minted one when absent. */
 export function openConnection(sessionKey: string | undefined): void {
   requested = sessionKey;
-  if (sessionKey !== undefined) attachWithCursor(sessionKey);
+  if (sessionKey !== undefined) useTurnStore.getState().attach(sessionKey);
 
   socket ??= new ReconnectingSocket({
     url: () =>
@@ -163,40 +131,15 @@ export function openConnection(sessionKey: string | undefined): void {
     onStatus: handleStatus,
     onMessage: handleMessage,
     onOpen: (send) => {
-      // A new socket: nothing is in flight from before, and a resume sent on
-      // the old one is not waiting for an answer any more.
+      // A new socket: nothing is in flight from before.
       switchingTo = undefined;
-      resuming = undefined;
       const { sessionKey: attached, lastSeq } = useTurnStore.getState();
       if (attached === undefined) return;
-
-      // Two openings, two different questions, and the same frame answers both.
-      //
-      // A *reconnect* keeps its page: the transcript is still on screen and the
-      // gap is only what arrived while the socket was down, which is `lastSeq`.
-      // Asking for anything earlier would re-deliver frames already applied,
-      // and a delta applied twice is text rendered twice.
-      //
-      // A *page load* has no transcript at all, so the gap is everything
-      // storage cannot supply — the boundary `handleMessage` has been keeping,
-      // read back out of `sessionStorage`. Absent means this tab has never
-      // rendered this conversation, and there the REST history is the whole
-      // story: replaying a ring full of completed turns on top of it would
-      // render each of them twice.
-      if (reconnecting) {
-        if (lastSeq > 0) {
-          resuming = attached;
-          send({ type: 'session.resume', sessionKey: attached, lastSeq });
-        }
-      } else if (resumeFloor !== undefined) {
-        resuming = attached;
-        send({
-          type: 'session.resume',
-          sessionKey: attached,
-          lastSeq: resumeFloor,
-        });
-      }
-      reconnecting = true;
+      // Always first, and the server attaches this socket by it. A reconnect
+      // asks for what arrived while it was down; a page that has nothing on
+      // screen asks with 0, and gets the running turn while REST supplies the
+      // rest.
+      send({ type: 'session.resume', sessionKey: attached, lastSeq });
     },
     onSignedOut: () => {
       for (const listener of signedOutListeners) listener();
@@ -216,7 +159,6 @@ export function closeConnection(): void {
   socket = undefined;
   requested = undefined;
   switchingTo = undefined;
-  resuming = undefined;
 }
 
 /**
@@ -247,39 +189,15 @@ export function switchSession(sessionKey: string): void {
     return;
   }
   requested = sessionKey;
-  const lastSeq = attachWithCursor(sessionKey);
+  useTurnStore.getState().attach(sessionKey);
 
   if (socket === undefined) return;
   if (socket.status === 'open') {
     switchingTo = sessionKey;
-    resuming = sessionKey;
-    socket.send({ type: 'session.resume', sessionKey, lastSeq });
+    socket.send({ type: 'session.resume', sessionKey, lastSeq: 0 });
     return;
   }
   socket.reconnectNow();
-}
-
-/**
- * Attaches to a session and restores the cursor this tab last had on it.
- *
- * The cursor is what makes a reload different from a fresh visit: without it,
- * `lastSeq` is 0 and the in-flight turn the user was watching is unrecoverable,
- * because storage does not hold a half-written answer.
- */
-function attachWithCursor(sessionKey: string): number {
-  const store = useTurnStore.getState();
-  store.attach(sessionKey);
-
-  const cursor = readCursor(sessionKey);
-  store.applySeq(cursor ?? 0);
-  // The stored cursor is this tab's new floor for the session it just attached
-  // to. Carrying the previous session's number across would freeze the wrong
-  // boundary — and for a session with no stored cursor, zero is the honest
-  // answer: nothing here is recoverable from storage yet.
-  durableSeq = cursor ?? 0;
-  writtenCursor = undefined;
-  resumeFloor = cursor;
-  return useTurnStore.getState().lastSeq;
 }
 
 /**
@@ -396,6 +314,17 @@ export function sendUserMessage(
  * queued one began. Unnamed stops whatever is running, which is the best a
  * tab that was never told the id can do.
  */
+/** Asks for the conversation to be summarised into a new session. */
+export function compactSession(instructions: string | undefined): void {
+  const { sessionKey } = useTurnStore.getState();
+  if (sessionKey === undefined) return;
+  socket?.send({
+    type: 'session.compact',
+    sessionKey,
+    ...(instructions === undefined ? {} : { instructions }),
+  });
+}
+
 export function stopTurn(): void {
   const { sessionKey, runningTurnId } = useTurnStore.getState();
   if (sessionKey === undefined) return;
@@ -541,12 +470,7 @@ export function resetConnection(): void {
   socket?.close();
   socket = undefined;
   requested = undefined;
-  durableSeq = 0;
-  writtenCursor = undefined;
-  resumeFloor = undefined;
-  reconnecting = false;
   switchingTo = undefined;
-  resuming = undefined;
   listeners.clear();
   signedOutListeners.clear();
   noticeListeners.clear();
@@ -605,6 +529,7 @@ function sessionOf(message: ServerMessage): string | undefined {
     case 'session.reset':
     case 'session.replay':
     case 'session.truncated':
+    case 'session.compacted':
     case 'steer':
       return message.sessionKey;
     default:
@@ -616,8 +541,11 @@ function handleMessage(message: ServerMessage): void {
   // Before anything else: an ack for a message sent from another session's
   // screen still means the socket can stop re-sending it.
   // A refusal ends it the same way: the server will not take it on a retry.
+  // A steer is answered once the turn has written it.
   if (
-    (message.type === 'message.ack' || message.type === 'error') &&
+    (message.type === 'message.ack' ||
+      message.type === 'error' ||
+      message.type === 'steer') &&
     message.clientMessageId !== undefined
   ) {
     socket?.acknowledge(message.clientMessageId);
@@ -631,53 +559,7 @@ function handleMessage(message: ServerMessage): void {
     return;
   }
 
-  const store = useTurnStore.getState();
-  if (message.type === 'session.replay') {
-    const asked = resuming === message.sessionKey;
-    if (asked) resuming = undefined;
-    // Only the seq: the rebuild it carries was for another tab.
-    if (!message.complete && !asked) {
-      store.applySeq(message.seq);
-      return;
-    }
-  }
-  store.apply(message);
-
-  // Written here rather than on a schedule: the whole value of the cursor is
-  // that it is correct at an arbitrary moment, because the moment it has to
-  // survive — a reload — arrives without warning. See `cursor.ts`.
-  //
-  // The value is *not* `lastSeq`, and the difference is the whole of what makes
-  // a reload recoverable. `lastSeq` means "the last frame I applied", which is
-  // the right question for a reconnect: the page is still there, the transcript
-  // is still in memory, and the gap is only what arrived while the socket was
-  // down. A reload asks a different question — the transcript is gone, and
-  // storage cannot supply the turn that has not finished. Resuming from
-  // `lastSeq` there asks the ring for the frames *after* the ones this tab has
-  // just forgotten, which is nothing, and the in-flight turn is lost.
-  //
-  // So what is persisted is the boundary between the two sources: the last
-  // point at which everything before it is in storage. That is exactly "not
-  // mid-turn", which the store already knows as `busy`.
-  const { sessionKey, lastSeq, busy } = useTurnStore.getState();
-  if (!busy) durableSeq = lastSeq;
-  // A restarted server counts from zero, and a boundary above its count names
-  // frames it never sent.
-  if (message.type === 'connected') {
-    durableSeq = Math.min(durableSeq, message.lastSeq);
-  }
-  // Written even when the boundary is still zero. A zero *entry* is the record
-  // that this tab has rendered this conversation, and the only case that
-  // produces one is a turn that started before any other frame arrived — which
-  // is a session's first turn, and the one a reload would otherwise lose
-  // outright. `cursor.ts` is where the absence and the zero are told apart.
-  if (sessionKey !== undefined) {
-    const cursor = `${sessionKey} ${String(durableSeq)}`;
-    if (cursor !== writtenCursor) {
-      writeCursor(sessionKey, durableSeq);
-      writtenCursor = cursor;
-    }
-  }
+  useTurnStore.getState().apply(message);
 
   // A connection-scoped error has no turn to attach to, so it has nowhere to
   // render — a toast is the only place it can be seen at all.

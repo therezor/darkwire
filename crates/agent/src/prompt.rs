@@ -179,14 +179,11 @@ pub struct PromptAgent {
     /// Empty falls back to `DarkWire`. Fills `{{name}}`.
     pub label: String,
     /// This agent's live-state template. Empty means the built-in.
-    pub live_prompt: Option<String>,
+    pub live_prompt: String,
     /// This agent's wrap-up sentence. Empty means the built-in.
-    pub wrap_up_prompt: Option<String>,
+    pub wrap_up_prompt: String,
     /// Whether `system_prompt` is the static half or the entire system message.
-    ///
-    /// Absent is `Template`, so a caller that predates raw mode keeps the
-    /// assembly it had.
-    pub prompt_mode: Option<PromptMode>,
+    pub prompt_mode: PromptMode,
     /// This agent's whole static prompt, as a template.
     ///
     /// Empty means the built-in, which is what keeps an install that never
@@ -494,11 +491,8 @@ fn values(pairs: impl IntoIterator<Item = (&'static str, String)>) -> IndexMap<S
 ///
 /// **The container built-in is empty, and that is the point.** Everything it
 /// used to say was either unactionable or a repair of the confusion the rest of
-/// it caused. The host built-in stays because the exec guard there refuses an
-/// argument pointing outside the workspace, and a model not told that burns an
-/// iteration learning it; in a container that guard is off. What is left is the
-/// definition's own half, which is the only part neither this repo nor the
-/// model can work out.
+/// it caused. What is left is the definition's own half, which is the only part
+/// neither this repo nor the model can work out.
 fn command_policy(host: &Host, workspace_id: &str, tools: Option<&PromptTools>) -> String {
     // No tools, no commands, nothing to say about where they land. First,
     // because every line below describes running one — including the sentence
@@ -986,9 +980,7 @@ pub fn build_raw_prompt(options: &BuildRawPrompt<'_>) -> String {
     let mut live = live_values(
         context,
         options.time_zone,
-        options
-            .agent
-            .and_then(|agent| agent.wrap_up_prompt.as_deref()),
+        options.agent.map(|agent| agent.wrap_up_prompt.as_str()),
         options.nonce,
     );
 

@@ -237,6 +237,7 @@
       "noSession": "No session {{key}}",
       "noWorkspace": "No workspace {{id}}",
       "notYours": "Message {{seq}} is not one of yours",
+      "nothingToCompact": "nothing to summarise yet",
       "nowhereToMove": "there is nowhere else to move them. Make another workspace first",
       "usageEdit": "usage: /edit <text>",
       "usageEffort": "no such level. Pick one of {{levels}}, or default",
@@ -249,6 +250,7 @@
       "agent": "show agents, or move this session onto one",
       "branch": "fork this session here and carry on in the fork",
       "clear": "forget this session's history",
+      "compact": "summarise this session into a new one that carries on from the summary",
       "context": "what the next turn would send to the model",
       "delete": "drop the last exchange, question and answer both",
       "edit": "replace the last thing you said and run it again",
@@ -284,6 +286,7 @@
       "tools": "how the next tool’s output arrives"
     },
     "notes": {
+      "compacted": "summarised into {{key}}",
       "contextEstimated": "estimated from characters until the model replies",
       "contextMeasured": "the provider's count at the last reply, plus an estimate of what was added since",
       "created": "created {{id}}",

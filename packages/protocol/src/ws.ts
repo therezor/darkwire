@@ -13,7 +13,7 @@
  * Every server event that belongs to a turn carries a monotonic `seq`, unique
  * per session and never reused. A reconnecting tab sends
  * `session.resume { lastSeq }` and the server replays everything after it from
- * the ring buffer (`server.replayBufferSize`), so a page refresh mid-stream
+ * the ring buffer, so a page refresh mid-stream
  * rebuilds the in-flight turn instead of losing it. Session-scoped rather than
  * turn-scoped because the client needs one cursor, not one per turn.
  *
@@ -250,6 +250,19 @@ export const EditMessageSchema = z.object({
   clientMessageId: z.string().optional(),
 });
 
+/**
+ * Summarise the conversation into a new session that opens with the summary.
+ *
+ * Refused while a turn runs or waits. Every tab on the session follows it to
+ * the new one, which is announced by `session.compacted`.
+ */
+export const CompactSessionMessageSchema = z.object({
+  type: z.literal('session.compact'),
+  sessionKey: z.string().min(1),
+  /** What the summary should keep or leave out, in the user's words. */
+  instructions: z.string().optional(),
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   PingMessageSchema,
   UserMessageRequestSchema,
@@ -261,6 +274,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   ResumeSessionMessageSchema,
   ToolApproveMessageSchema,
   SteerMessageSchema,
+  CompactSessionMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -490,6 +504,16 @@ export const NoticeKindSchema = z.enum([
    * is cut short.
    */
   'length_cut',
+  /**
+   * The agent the turn runs on was deleted, switched off or stopped building
+   * while the turn ran, so the turn stopped.
+   */
+  'agent_removed',
+  /**
+   * The conversation was near the end of its window, so it was summarised into
+   * a new session before this message ran there.
+   */
+  'compacted',
 ]);
 export type NoticeKind = z.infer<typeof NoticeKindSchema>;
 
@@ -703,31 +727,18 @@ export const SessionResetEventSchema = z.object({
 });
 
 /**
- * Replayed history after `session.resume`, so a reconnecting client can restore
- * completed messages before the live deltas resume.
+ * The answer to `session.resume`, ahead of any frames it replays.
+ *
+ * `complete: true`: the frames after `lastSeq` follow. `false`, which is also
+ * the answer to a fresh attach (`lastSeq: 0`): the client fetches the stored
+ * history itself, and when `resumingTurnId` is set the running turn's frames
+ * follow, in full, and define that turn.
  */
 export const SessionReplayEventSchema = z.object({
   type: z.literal('session.replay'),
   seq,
   sessionKey: z.string().min(1),
-  messages: z.array(StoredMessageSchema),
-  /** False when `lastSeq` fell outside the ring buffer and history was trimmed. */
   complete: z.boolean().default(true),
-  /**
-   * A turn whose frames follow this one, in full, and which they define.
-   *
-   * Only ever set alongside `complete: false`, which is the one case where a
-   * client is handed storage *and* frames — legal precisely because storage
-   * cannot describe a turn that has not ended, so the two cannot restate the
-   * same text. The named turn is the exception to that: its finished iterations
-   * *are* in the tail, and the frames repeat them. Hence "define" rather than
-   * "extend" — a client drops whatever it holds for this turn, from the tail it
-   * has just been given and from its own screen alike, and rebuilds it from the
-   * frames.
-   *
-   * Absent means what it always meant: the tail is history and the frames, if
-   * any, continue from its end.
-   */
   resumingTurnId: z.string().min(1).optional(),
 });
 
@@ -748,6 +759,18 @@ export const SessionTruncatedEventSchema = z.object({
   /** Everything after this `seq` is gone. */
   upToSeq: z.number().int().nonnegative(),
   messages: z.array(StoredMessageSchema),
+});
+
+/**
+ * The conversation was summarised into `continuedKey`, which carries on from
+ * here. Sequenced on the old session, so a tab that was away when it happened
+ * learns of it from the replay and follows.
+ */
+export const SessionCompactedEventSchema = z.object({
+  type: z.literal('session.compacted'),
+  seq,
+  sessionKey: z.string().min(1),
+  continuedKey: z.string().min(1),
 });
 
 export const NotificationEventSchema = z.object({
@@ -808,6 +831,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   SessionResetEventSchema,
   SessionReplayEventSchema,
   SessionTruncatedEventSchema,
+  SessionCompactedEventSchema,
   NotificationEventSchema,
   ToolsChangedEventSchema,
   SteerEventSchema,

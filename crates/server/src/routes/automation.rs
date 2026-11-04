@@ -33,7 +33,7 @@ use crate::cursor::{
 };
 use crate::errors::HttpError;
 use crate::queries::{IdParams, PageQuery};
-use crate::routes::AppState;
+use crate::routes::{AppState, on_store};
 use crate::runtime::ServerRuntime;
 use crate::scheduler::{SchedulerPort, first_run_at};
 use crate::schema::{parse_body, validated};
@@ -144,10 +144,10 @@ fn refresh(state: &AppState) {
 }
 
 /// The job, or a 404 — never a silently empty answer standing in for one.
-fn require_job(state: &AppState, id: &str) -> Result<AutomationJob, HttpError> {
-    state
-        .automation
-        .get_job(id)?
+async fn require_job(state: &AppState, id: &str) -> Result<AutomationJob, HttpError> {
+    let key = id.to_owned();
+    on_store(state, move |deps| deps.automation.get_job(&key))
+        .await?
         .ok_or_else(|| HttpError::not_found(format!("No automation job \"{id}\"")))
 }
 
@@ -156,7 +156,7 @@ pub async fn list(
     State(state): State<AppState>,
 ) -> Result<Json<AutomationJobListResponse>, HttpError> {
     Ok(Json(AutomationJobListResponse {
-        jobs: state.automation.list_jobs()?,
+        jobs: on_store(&state, |deps| deps.automation.list_jobs()).await?,
     }))
 }
 
@@ -178,7 +178,7 @@ pub async fn create(
         &timezone,
     )?;
 
-    let created = state.automation.create_job(&CreateJobInput {
+    let input = CreateJobInput {
         name: request.name,
         schedule: request.schedule,
         payload: request.payload,
@@ -187,7 +187,8 @@ pub async fn create(
         next_run_at_ms,
         // Absent: the operator made this one through the panel.
         created_by: None,
-    })?;
+    };
+    let created = on_store(&state, move |deps| deps.automation.create_job(&input)).await?;
     refresh(&state);
     Ok((StatusCode::CREATED, Json(created)))
 }
@@ -197,7 +198,7 @@ pub async fn get(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<Json<AutomationJob>, HttpError> {
-    Ok(Json(require_job(&state, &params.id)?))
+    Ok(Json(require_job(&state, &params.id).await?))
 }
 
 /// Changes a scheduled job.
@@ -207,7 +208,7 @@ pub async fn update(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<AutomationJob>, HttpError> {
     let request: UpdateAutomationJob = read_json("body", body)?;
-    let existing = require_job(&state, &params.id)?;
+    let existing = require_job(&state, &params.id).await?;
     require_workspace(
         state.runtime.as_ref(),
         request.payload.as_ref().and_then(payload_workspace),
@@ -231,17 +232,16 @@ pub async fn update(
         None
     };
 
-    let updated = state.automation.update_job(
-        &params.id,
-        &UpdateJobInput {
-            name: request.name,
-            schedule: request.schedule,
-            payload: request.payload,
-            enabled: request.enabled,
-            delete_after_run: request.delete_after_run,
-            next_run_at_ms,
-        },
-    )?;
+    let input = UpdateJobInput {
+        name: request.name,
+        schedule: request.schedule,
+        payload: request.payload,
+        enabled: request.enabled,
+        delete_after_run: request.delete_after_run,
+        next_run_at_ms,
+    };
+    let id = params.id.clone();
+    let updated = on_store(&state, move |deps| deps.automation.update_job(&id, &input)).await?;
     let job = updated
         .ok_or_else(|| HttpError::not_found(format!("No automation job \"{}\"", params.id)))?;
     refresh(&state);
@@ -253,7 +253,8 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<StatusCode, HttpError> {
-    if !state.automation.delete_job(&params.id)? {
+    let id = params.id.clone();
+    if !on_store(&state, move |deps| deps.automation.delete_job(&id)).await? {
         return Err(HttpError::not_found(format!(
             "No automation job \"{}\"",
             params.id
@@ -268,7 +269,7 @@ pub async fn run(
     State(state): State<AppState>,
     Path(params): Path<IdParams>,
 ) -> Result<(StatusCode, Json<AutomationRun>), HttpError> {
-    require_job(&state, &params.id)?;
+    require_job(&state, &params.id).await?;
     let scheduler = require_scheduler(&state)?;
     // A job that is already running fails with `conflict`, which the one error
     // mapping already turns into a 409; there is nothing to re-raise here.
@@ -284,7 +285,7 @@ pub async fn runs(
     Path(params): Path<IdParams>,
     query: Result<Query<PageQuery>, QueryRejection>,
 ) -> Result<Json<AutomationRunListResponse>, HttpError> {
-    require_job(&state, &params.id)?;
+    require_job(&state, &params.id).await?;
     let query = read_query(query)?;
     assert_one_paging_mode(query.cursor.as_deref(), query.offset)?;
 
@@ -302,14 +303,19 @@ pub async fn runs(
     let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
     // One more than asked for, so "is there another page" is answered by what
     // came back rather than by a second count query.
-    let rows = state.automation.list_runs(
-        &params.id,
-        &ListRuns {
-            limit: Some(i64::from(query.limit) + 1),
-            offset: query.offset.map(i64::from),
-            after,
-        },
-    )?;
+    let filter = ListRuns {
+        limit: Some(i64::from(query.limit) + 1),
+        offset: query.offset.map(i64::from),
+        after,
+    };
+    let id = params.id.clone();
+    let (rows, total) = on_store(&state, move |deps| {
+        Ok((
+            deps.automation.list_runs(&id, &filter)?,
+            deps.automation.count_runs(&id)?,
+        ))
+    })
+    .await?;
 
     let page = paginate(
         rows,
@@ -330,6 +336,6 @@ pub async fn runs(
         // schedule produces a few hundred runs a day, and "of 288" is the part
         // a page of rows cannot say. Unlike sessions there is one ordering, so
         // the cursor stays valid whatever the caller asked for.
-        total: as_u64(state.automation.count_runs(&params.id)?),
+        total: as_u64(total),
     }))
 }

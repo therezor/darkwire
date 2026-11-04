@@ -200,38 +200,15 @@ pub fn truncate_head_tail(text: &str, max_chars: usize) -> Truncation {
     }
 }
 
-/// The default for [`HistoryOptions::max_messages`].
+/// How many stored messages a request window keeps at most.
 pub const DEFAULT_MAX_HISTORY_MESSAGES: usize = 500;
 
-/// The cap the loop applies to a single tool result before it enters history.
+/// Where a request's window of `messages` begins.
 ///
-/// 8k characters is roughly 2k tokens: large enough for a substantial file or
-/// command output, small enough that three of them in one turn cannot crowd out
-/// the conversation in a 64k window.
-pub const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 8_000;
-
-/// How [`history_for_llm`] windows a history. `0` disables a limit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HistoryOptions {
-    /// Most recent messages to keep.
-    pub max_messages: usize,
-    /// Cap on each `tool` result, in UTF-16 code units.
-    pub max_tool_result_chars: usize,
-}
-
-impl Default for HistoryOptions {
-    fn default() -> Self {
-        Self {
-            max_messages: DEFAULT_MAX_HISTORY_MESSAGES,
-            max_tool_result_chars: DEFAULT_MAX_TOOL_RESULT_CHARS,
-        }
-    }
-}
-
-/// Where [`history_for_llm`]'s window begins: steps 1 to 3, as an index.
-///
-/// For a caller that needs the position rather than a copy of the messages.
-/// The window is always a suffix, so the index is all there is to it.
+/// Order matters: keep the most recent `max_messages` (`0` keeps all), then
+/// start at the first `user` message so the window opens on a whole turn
+/// (skipped when there is none), then align to a legal tool-call boundary,
+/// because the second step can strand a `tool` result whose call it cut.
 pub fn history_window_start<M: Borrow<ChatMessage>>(messages: &[M], max_messages: usize) -> usize {
     let mut start = 0;
     if max_messages > 0 && messages.len() > max_messages {
@@ -247,47 +224,4 @@ pub fn history_window_start<M: Borrow<ChatMessage>>(messages: &[M], max_messages
     }
 
     start + find_legal_start(&messages[start..])
-}
-
-/// Builds the message list for a provider request.
-///
-/// Order matters and is not interchangeable:
-///
-///  1. Keep the most recent `max_messages`.
-///  2. Start at the first `user` message, so the window opens on a complete
-///     turn rather than mid-exchange. Skipped entirely when the window contains
-///     no user message, since dropping everything would be worse than starting
-///     mid-turn.
-///  3. Align to a legal tool-call boundary, *after* step 2, because step 2 is
-///     itself capable of stranding a `tool` result whose `assistant` it just
-///     cut.
-///  4. Truncate tool results.
-///
-/// The system prompt is not handled here. The loop owns `messages[0]` and
-/// rewrites it each iteration to keep the static half cache-stable, so any
-/// `system` message that reached storage is dropped by step 2 rather than
-/// competing with it.
-pub fn history_for_llm(messages: &[ChatMessage], options: &HistoryOptions) -> Vec<ChatMessage> {
-    let window = &messages[history_window_start(messages, options.max_messages)..];
-
-    if options.max_tool_result_chars == 0 {
-        return window.to_vec();
-    }
-
-    window
-        .iter()
-        .map(|message| match message {
-            ChatMessage::Tool(tool) => {
-                let result = truncate_head_tail(&tool.content, options.max_tool_result_chars);
-                if !result.truncated {
-                    return message.clone();
-                }
-                let mut truncated = tool.clone();
-                truncated.content = result.text;
-                truncated.truncated = true;
-                ChatMessage::Tool(truncated)
-            }
-            other => other.clone(),
-        })
-        .collect()
 }

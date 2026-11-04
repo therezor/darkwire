@@ -164,6 +164,7 @@ you meant.
 | `/rename <title>`             | Rename this session                        |
 | `/delete [key]`               | Delete one, defaulting to this one         |
 | `/branch [ref]`               | Fork up to `<ref>` and attach to the fork  |
+| `/compact [instructions]`     | Summarise into a new session and attach    |
 
 A session is written when you say something in it, not when you start one. `/new`,
 `/session <key>` and the prompt you get on launch all move you to a name; the row appears

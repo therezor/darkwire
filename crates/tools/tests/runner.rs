@@ -31,7 +31,6 @@ fn plan(argv: &[&str], max_output_bytes: u64) -> ExecPlan {
         env,
         timeout_ms: 0,
         max_output_bytes,
-        paths: Vec::new(),
     }
 }
 
@@ -115,18 +114,40 @@ async fn caps_output_while_the_child_writes_and_keeps_the_head() {
 }
 
 #[tokio::test]
-async fn an_endless_writer_is_stopped_by_the_cap_when_nobody_keeps_the_rest() {
-    // Without a tee the pipe is closed once the budget is spent, so `yes`
-    // dies of EPIPE rather than running until the timeout.
+async fn a_chatty_child_finishes_past_the_cap() {
+    // More than a pipe buffer, in many writes: closing the pipe at the cap
+    // would kill the shell with SIGPIPE before it reached the last line.
+    let script =
+        "i=0; while [ $i -lt 2000 ]; do printf '%0100d\\n' 0; i=$((i+1)); done; echo finished >&2";
     let outcome = tokio::time::timeout(
-        Duration::from_secs(10),
-        LocalRunner::new().run(request(plan(&["yes"], 32), 0)),
+        Duration::from_secs(20),
+        LocalRunner::new().run(request(plan(&["sh", "-c", script], 32), 0)),
     )
     .await
-    .expect("the cap should end the run")
+    .expect("the run should end with the command")
     .unwrap();
     assert!(outcome.truncated);
     assert_eq!(outcome.stdout.len(), 32);
+    assert_eq!(outcome.code, Some(0), "{:?}", outcome.signal);
+    assert!(outcome.stderr.contains("finished"));
+}
+
+#[tokio::test]
+async fn a_background_process_holding_stdout_does_not_hold_the_run() {
+    // `sleep` inherits stdout and outlives the shell. The run returns once the
+    // shell has exited and the pipe grace has passed, and leaves it running.
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        LocalRunner::new().run(request(
+            plan(&["sh", "-c", "sleep 20 & echo started"], 1024),
+            0,
+        )),
+    )
+    .await
+    .expect("the run should not wait for the background process")
+    .unwrap();
+    assert_eq!(outcome.code, Some(0));
+    assert_eq!(outcome.stdout, "started\n");
 }
 
 #[tokio::test]

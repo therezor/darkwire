@@ -35,7 +35,7 @@ import {
   sendUserMessage,
   stopTurn,
 } from '@/lib/connection.js';
-import { CONVERSATION_GC_MS, queryKeys } from '@/lib/query.js';
+import { CONVERSATION_GC_MS, queryKeys, refreshSessions } from '@/lib/query.js';
 import { useSessionRow } from '@/lib/queries.js';
 import { useTranslation } from 'react-i18next';
 import { useTurnStore } from '@/state/turn.js';
@@ -113,7 +113,7 @@ export function ChatRoute(): JSX.Element {
     mutationFn: ({ key, seq }: { key: string; seq: number }) =>
       api.branchSession(key, seq),
     onSuccess: (fork) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() });
+      refreshSessions(queryClient);
       void navigate({
         to: '/sessions/$sessionKey',
         params: { sessionKey: fork.key },
@@ -208,6 +208,9 @@ export function ChatRoute(): JSX.Element {
 
   return (
     <div className="chat">
+      {stored.data?.continuedFrom !== undefined && (
+        <ContinuedFrom sessionKey={stored.data.continuedFrom} />
+      )}
       {empty ? (
         <div className="transcript__viewport">
           {/* The key, so the card names the agent *this* conversation runs on
@@ -332,6 +335,25 @@ function useConversationGeneration(sessionKey: string | undefined): number {
     return generation;
   }
   return seen.generation;
+}
+
+/** A link back to the conversation this one was summarised from. */
+function ContinuedFrom({
+  sessionKey,
+}: {
+  readonly sessionKey: string;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const title = useSessionRow(sessionKey).data?.title;
+  return (
+    <p className="chat__continued">
+      <Link to="/sessions/$sessionKey" params={{ sessionKey }}>
+        {title === undefined || title === ''
+          ? t('chat.continuedFromEarlier')
+          : t('chat.continuedFrom', { title })}
+      </Link>
+    </p>
+  );
 }
 
 /** The one part of the chat screen that follows the transcript per token. */

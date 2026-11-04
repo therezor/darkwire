@@ -769,18 +769,16 @@ impl McpSession for SdkSession {
         let mut params = CallToolRequestParams::new(name.to_owned());
         params.arguments = Some(args.into_iter().collect());
         Box::pin(async move {
-            if options.timeout_ms == 0 {
-                return tokio::select! {
-                    () = options.token.cancelled() => Err(WireError::aborted("MCP tools/call")),
-                    result = self.peer.call_tool(params) => result.map(call_result).map_err(service_error),
-                };
-            }
-            // A tool reporting progress is a tool that is working. The timeout
-            // is for a server that has stopped answering, not for one doing
-            // something slow and saying so.
-            let request_options =
+            // One path with or without a timeout, so a stopped turn always
+            // tells the server to stop too. A tool reporting progress is a tool
+            // that is working: the timeout is for a server that has stopped
+            // answering, not for one doing something slow and saying so.
+            let request_options = if options.timeout_ms == 0 {
+                PeerRequestOptions::no_options()
+            } else {
                 PeerRequestOptions::with_timeout(Duration::from_millis(options.timeout_ms))
-                    .reset_timeout_on_progress();
+                    .reset_timeout_on_progress()
+            };
             let handle = self
                 .peer
                 .send_request_with_option(

@@ -25,13 +25,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use darkwire_core::ErrorKind;
-use darkwire_protocol::{AgentSettings, ToolSource};
+use darkwire_protocol::AgentSettings;
 use darkwire_security::{JailOptions, WorkspaceJail};
 use serde_json::{Map, Value};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
-use crate::registry::{ToolInvocation, ToolRegistry};
 use crate::tool::{AnyTool, Tool, ToolContext, is_tool_name};
 
 /// A temporary workspace with a jail and a context around it.
@@ -139,9 +138,6 @@ pub struct ToolConformance {
     pub context: Box<dyn Fn() -> (TestWorkspace, ToolContext) + Send + Sync>,
     /// Arguments the tool accepts and can execute against `context()`.
     pub valid_args: Map<String, Value>,
-    /// Arguments producing more output than `config.max_output_chars`. Omit
-    /// only if the tool cannot be made to produce a large result.
-    pub large_output_args: Option<Map<String, Value>>,
 }
 
 struct Property {
@@ -367,28 +363,6 @@ pub async fn assert_execution(suite: &ToolConformance) {
         execution.is_error && execution.kind.is_some(),
         "{name} reported a failure without a kind"
     );
-
-    if let Some(large) = &suite.large_output_args {
-        let (_ws, ctx) = (suite.context)();
-        let registry = ToolRegistry::new();
-        registry
-            .register(Arc::clone(tool), ToolSource::Builtin)
-            .unwrap_or_else(|error| panic!("register: {error}"));
-        let mut config = (*ctx.config).clone();
-        config.max_output_chars = 200;
-        let ctx = ctx.with_config(config);
-        let call =
-            ToolInvocation::with_json(&name, serde_json::to_string(large).unwrap_or_default());
-        let execution = registry.execute_scoped(&call, &ctx, None).await;
-        assert!(!execution.is_error, "{name} failed: {}", execution.content);
-        assert!(execution.truncated, "{name} was not truncated");
-        // The truncation marker names how much was dropped, so the result is
-        // the budget plus that one line rather than exactly the budget.
-        assert!(
-            execution.content.encode_utf16().count() < 400,
-            "{name} exceeded its budget"
-        );
-    }
 }
 
 /// The whole suite, in order.

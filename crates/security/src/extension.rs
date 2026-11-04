@@ -281,11 +281,10 @@ fn unreadable(
 /// an approval nobody trusted. The sort key is UTF-16 code units, which is the
 /// order the approvals already recorded were computed in.
 ///
-/// Symlinks are not walked in either direction: a symlinked directory is a loop
-/// waiting to happen and a way to pull an arbitrary subtree of the host into the
-/// digest, and a symlinked file is content that lives outside the bytes being
-/// approved. Existing approvals were computed this way, so following either
-/// would move every digest.
+/// Symlinks are not followed, but they are not invisible either: a link's
+/// target text goes into the digest, so adding or retargeting one revokes the
+/// approval, and a link that resolves outside the directory is refused, since
+/// its bytes are code nobody approved.
 pub fn extension_digest(dir: &Path) -> Result<String> {
     let root = std::fs::canonicalize(std::path::absolute(dir)?)?;
     let mut lines: Vec<String> = Vec::new();
@@ -293,13 +292,11 @@ pub fn extension_digest(dir: &Path) -> Result<String> {
 
     for entry in walkdir::WalkDir::new(&root).follow_links(false) {
         let entry = entry.map_err(|error| unreadable(dir, &root, error))?;
-        if !entry.file_type().is_file() {
+        let kind = entry.file_type();
+        if !kind.is_file() && !kind.is_symlink() {
             continue;
         }
-        let content =
-            std::fs::read(entry.path()).map_err(|error| unreadable(dir, entry.path(), error))?;
-        bytes += u64::try_from(content.len()).unwrap_or(u64::MAX);
-        if lines.len() >= MAX_EXTENSION_FILES || bytes > MAX_EXTENSION_BYTES {
+        if lines.len() >= MAX_EXTENSION_FILES {
             return Err(too_large(dir));
         }
         let relative = entry
@@ -310,6 +307,29 @@ pub fn extension_digest(dir: &Path) -> Result<String> {
             .map(|component| component.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("/");
+        if kind.is_symlink() {
+            let target = std::fs::read_link(entry.path())
+                .map_err(|error| unreadable(dir, entry.path(), error))?;
+            let resolved = std::fs::canonicalize(entry.path());
+            if resolved.as_ref().is_ok_and(|path| !path.starts_with(&root)) {
+                return Err(WireError::new(
+                    ErrorKind::Config,
+                    format!(
+                        "Extension file {relative} links outside the extension, to code nobody \
+                         approved."
+                    ),
+                )
+                .with_detail("file", relative));
+            }
+            lines.push(format!("{relative}\0link:{}", target.to_string_lossy()));
+            continue;
+        }
+        let content =
+            std::fs::read(entry.path()).map_err(|error| unreadable(dir, entry.path(), error))?;
+        bytes += u64::try_from(content.len()).unwrap_or(u64::MAX);
+        if bytes > MAX_EXTENSION_BYTES {
+            return Err(too_large(dir));
+        }
         lines.push(format!("{relative}\0{}", sha256_hex(&content)));
     }
 

@@ -59,8 +59,20 @@ fn a_token_is_short_whatever_it_points_at() {
         None,
     );
 
-    assert!(token.len() <= 6, "{token:?}");
-    assert!(token.len() < 64);
+    // A per-process prefix of up to seven characters, a dot, then the counter.
+    assert!(token.len() <= 14, "{token:?}");
+}
+
+#[test]
+fn a_restarted_bot_does_not_reuse_an_earlier_process_s_tokens() {
+    // The counter starts at one again, so without the prefix a button left in
+    // the chat from before would name whatever the new process filed first.
+    let (before, _) = store();
+    let (after, _) = store();
+    let old = before.put(4471, session("telegram:4471:old"), None);
+    let new = after.put(4471, session("telegram:4471:new"), None);
+    assert_ne!(old, new);
+    assert!(matches!(after.take(&old, 4471), CallbackLookup::Refused(_)));
 }
 
 #[test]

@@ -308,8 +308,6 @@ where
     menu: Arc<dyn PickerMenu>,
     app_rx: mpsc::UnboundedReceiver<AppEvent>,
     rows: Vec<PaletteRow>,
-    /// What the bar at the bottom says, for a session that is replaced.
-    view: HeaderView,
     /// The palette's answer, while one is open.
     ///
     /// The palette is a picker like any other. What is different is that
@@ -413,7 +411,6 @@ where
             menu,
             app_rx,
             rows: crate::commands::palette_rows(&session.runtime),
-            view: session.view(),
             palette: None,
             palette_items: Vec::new(),
             t: Translations::new(session.t.locale()),
@@ -623,7 +620,7 @@ where
             }
             Typed::Complete => self.complete(),
             Typed::Palette => self.open_palette(),
-            Typed::Leave | Typed::Redraw | Typed::ToggleTools | Typed::ToggleStats => {}
+            Typed::Leave | Typed::Redraw => {}
         }
         None
     }
@@ -652,7 +649,7 @@ where
                     Placement::Prompt => self
                         .widget
                         .bottom_mut()
-                        .push_view(Box::new(SelectView::new(select, answer))),
+                        .push_view(SelectView::new(select, answer)),
                     // A list as long as the install is old, filtered by typing.
                     // Five rows of it under the composer is a filter applied
                     // blind, so it takes the window a listing takes.
@@ -969,7 +966,6 @@ where
             while let Ok(event) = self.chunks.try_recv() {
                 self.widget.handle_event(&event);
             }
-            self.view = view.clone();
             self.widget.set_view(view.clone());
             self.draw();
         })
@@ -1005,15 +1001,10 @@ where
             }
             let width = self.tui.size().map_or(80, |size| size.width);
             let header = startup_header(view, usize::from(width), &self.theme, &self.t, true);
-            self.view = view.clone();
             self.widget.set_view(view.clone());
             self.widget.reopen(&header, history);
             self.draw();
         })
-    }
-
-    fn take_stats_shown(&mut self) -> BoxFut<'_, Option<bool>> {
-        Box::pin(std::future::ready(self.widget.take_stats_toggle()))
     }
 
     fn close(&mut self) -> BoxFut<'_, ()> {

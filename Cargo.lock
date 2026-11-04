@@ -1354,6 +1354,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64 0.23.1",
+ "cap-std",
  "chrono",
  "darkwire-agent",
  "darkwire-core",

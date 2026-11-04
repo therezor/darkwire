@@ -43,7 +43,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::errors::{ProviderError, ProviderErrorReason};
 use crate::registry::{MaxTokensParam, ProviderSpec};
-use crate::resilience::{NoticeKind, ResilienceNotice, ResilienceOptions, with_resilience};
+use crate::resilience::{ResilienceOptions, with_resilience};
 use crate::types::{
     BoxFuture, ChatProvider, ChatRequest, ChatResult, ChatStreamEvent, FinishReason, empty_usage,
 };
@@ -146,7 +146,7 @@ impl ChatProvider for ScriptedProvider {
                 ScriptedStep::Events(events) => {
                     for event in events {
                         if let Ok(ChatStreamEvent::Done(result)) = event {
-                            return Ok(result);
+                            return Ok(*result);
                         }
                     }
                     Ok(result_of(""))
@@ -162,7 +162,7 @@ impl ChatProvider for ScriptedProvider {
     ) -> BoxStream<'static, Result<ChatStreamEvent>> {
         let events: Vec<Result<ChatStreamEvent>> = match self.next(&request) {
             Err(error) | Ok(ScriptedStep::Error(error)) => vec![Err(error)],
-            Ok(ScriptedStep::Result(result)) => vec![Ok(ChatStreamEvent::Done(result))],
+            Ok(ScriptedStep::Result(result)) => vec![Ok(ChatStreamEvent::Done(Box::new(result)))],
             Ok(ScriptedStep::Events(events)) => events,
         };
         futures::stream::iter(events).boxed()
@@ -191,7 +191,7 @@ pub fn result_of(text: &str) -> ChatResult {
         model: "test-model".to_owned(),
         generation_ms: None,
         first_token_ms: None,
-        degraded: false,
+        degraded: Vec::new(),
     }
 }
 
@@ -747,7 +747,7 @@ pub async fn collect(mut events: BoxStream<'static, Result<ChatStreamEvent>>) ->
         match event? {
             ChatStreamEvent::Text(text) => collected.text.push(text),
             ChatStreamEvent::Reasoning(text) => collected.reasoning.push(text),
-            ChatStreamEvent::Done(result) => collected.done = Some(result),
+            ChatStreamEvent::Done(result) => collected.done = Some(*result),
         }
     }
     Ok(collected)
@@ -773,14 +773,9 @@ fn base_request(model: &str) -> ChatRequest {
     }
 }
 
-/// The provider wrapped in resilience with a pinned schedule, and the notices
-/// it emitted.
-fn resilient(
-    provider: Arc<dyn ChatProvider>,
-) -> (Arc<dyn ChatProvider>, Arc<Mutex<Vec<ResilienceNotice>>>) {
-    let notices = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&notices);
-    let wrapped = with_resilience(
+/// The provider wrapped in resilience with a pinned schedule.
+fn resilient(provider: Arc<dyn ChatProvider>) -> Arc<dyn ChatProvider> {
+    with_resilience(
         provider,
         ResilienceOptions {
             // `jitter = 1` pins full-jitter backoff to its ceiling, so a
@@ -789,11 +784,9 @@ fn resilient(
             jitter: Some(Arc::new(|| 1.0)),
             max_delay_ms: Some(10),
             base_delay_ms: Some(1),
-            on_notice: Some(Arc::new(move |notice| sink.lock().unwrap().push(notice))),
             ..ResilienceOptions::default()
         },
-    );
-    (wrapped, notices)
+    )
 }
 
 /// The provider conformance suite.
@@ -1023,19 +1016,14 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                 200,
                 &completion(CompletionOptions::text("second time")),
             ));
-        let (provider, notices) = resilient(create(&server));
+        let provider = resilient(create(&server));
         let result = provider
             .chat(&base, &CancellationToken::new())
             .await
             .expect("chat");
         assert_eq!(result.message.content, vec![text_part("second time")]);
-        let notices = notices.lock().unwrap();
-        assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].kind, NoticeKind::Retry);
-        // The header was read as two seconds; the wait itself is clamped by
-        // the suite's ceiling so the test does not spend them.
-        assert_eq!(notices[0].error.retry_after_ms, Some(2000));
-        assert_eq!(notices[0].delay_ms, Some(10));
+        // A retry repeats the request; it removes nothing.
+        assert!(result.degraded.is_empty());
         assert_eq!(server.calls().len(), 2);
     }
 
@@ -1046,7 +1034,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
             401,
             &error_body(&json!({"message": "bad key", "code": "invalid_api_key"})),
         ));
-        let (provider, _) = resilient(create(&server));
+        let provider = resilient(create(&server));
         let result = provider.chat(&base, &CancellationToken::new()).await;
         let error = ProviderError::of(&result.expect_err("401 fails"));
         assert_eq!(error.reason, ProviderErrorReason::Auth);
@@ -1070,7 +1058,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                 200,
                 &completion(CompletionOptions::text("degraded but answered")),
             ));
-        let (provider, notices) = resilient(create(&server));
+        let provider = resilient(create(&server));
         let result = provider
             .chat(
                 &ChatRequest {
@@ -1088,49 +1076,24 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
         let calls = server.calls();
         assert_eq!(calls[0].body["reasoning_effort"], json!("high"));
         assert!(calls[1].body.get("reasoning_effort").is_none());
-        // A degradation is a repair, not a transient failure: it must not
-        // spend the retry budget, and it must not wait before trying the fixed
-        // request.
-        let kinds: Vec<NoticeKind> = notices.lock().unwrap().iter().map(|n| n.kind).collect();
-        assert_eq!(kinds, vec![NoticeKind::Degraded]);
+        // What was removed, said once, for the loop to show.
+        assert_eq!(result.degraded.len(), 1);
+        assert!(result.degraded[0].contains("reasoning effort"));
     }
 
-    // Drops the oldest turns when the request exceeds the context window.
+    // Leaves a request too long for the model to fail: the loop windows
+    // history to the configured context, so this is a wrong setting.
     {
-        let mut long = vec![ChatMessage::System(system_message("You are DarkWire."))];
-        for index in 0..12 {
-            long.push(ChatMessage::User(user_message(
-                format!("question {index} ").repeat(40),
-            )));
-        }
         let server = ScriptedServer::start().await;
-        server
-            .push(ScriptedResponse::json(
-                400,
-                &error_body(&json!({"message": "too long", "code": "context_length_exceeded"})),
-            ))
-            .push(ScriptedResponse::json(
-                200,
-                &completion(CompletionOptions::text("fits now")),
-            ));
-        let (provider, _) = resilient(create(&server));
-        let result = provider
-            .chat(
-                &ChatRequest {
-                    messages: long,
-                    ..base.clone()
-                },
-                &CancellationToken::new(),
-            )
-            .await
-            .expect("chat");
-        assert_eq!(result.message.content, vec![text_part("fits now")]);
-        let calls = server.calls();
-        let before = calls[0].body["messages"].as_array().unwrap().len();
-        let after = calls[1].body["messages"].as_array().unwrap();
-        assert!(after.len() < before);
-        // The system prompt is instructions, not conversation; it survives.
-        assert_eq!(after[0]["role"], json!("system"));
+        server.push(ScriptedResponse::json(
+            400,
+            &error_body(&json!({"message": "too long", "code": "context_length_exceeded"})),
+        ));
+        let provider = resilient(create(&server));
+        let result = provider.chat(&base, &CancellationToken::new()).await;
+        let error = ProviderError::of(&result.expect_err("too long fails"));
+        assert_eq!(error.reason, ProviderErrorReason::ContextLength);
+        assert_eq!(server.calls().len(), 1);
     }
 
     // Falls back to a single response when the event stream cannot be read.
@@ -1145,7 +1108,7 @@ pub async fn provider_conformance(model: &str, create: &CreateProvider) {
                 200,
                 &completion(CompletionOptions::text("answered without streaming")),
             ));
-        let (provider, _) = resilient(create(&server));
+        let provider = resilient(create(&server));
         let collected = collect(provider.stream(base.clone(), CancellationToken::new()))
             .await
             .expect("stream");

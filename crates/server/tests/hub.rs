@@ -15,19 +15,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use darkwire_agent::{AgentEvent, TurnInput, TurnResult};
+use darkwire_agent::{AgentEvent, CompactRequest, SteeringQueue, TurnInput, TurnResult};
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{AssistantOptions, assistant_message, user_message};
-use darkwire_core::session_store::AppendOptions;
+use darkwire_core::session_store::{AppendOptions, CreateSession, SessionRecord};
 use darkwire_core::testkit::ManualClock;
 use darkwire_core::{Clock, Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
-use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
 use darkwire_protocol::tools::{ApprovalScope, CommandPolicy, ToolRisk};
 use darkwire_protocol::ws::{
-    AssistantDelta, AssistantDeltaTag, ErrorCode, ErrorEvent, ErrorTag, NoticeKind, NoticeTag,
-    NotificationTag, PROTOCOL_VERSION, ServerMessage, Steer, SteerEventTag, StepEnd, StepEndTag,
-    ToolApprovalRequest, ToolApprovalRequestTag, TurnEnd, TurnEndTag, TurnStart, TurnStartTag,
+    AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, ErrorCode, ErrorEvent,
+    ErrorTag, NoticeKind, NoticeTag, NotificationTag, PROTOCOL_VERSION, ServerMessage, Steer,
+    SteerEventTag, StepEnd, StepEndTag, ToolApprovalRequest, ToolApprovalRequestTag, TurnEnd,
+    TurnEndTag, TurnStart, TurnStartTag,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
@@ -37,6 +37,7 @@ use darkwire_server::hub::{
     Login, MAX_INBOUND_FRAMES, Outbound, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
 };
 use futures::FutureExt as _;
+use indexmap::IndexMap;
 use parking_lot::Mutex;
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
@@ -158,10 +159,14 @@ impl TurnHandle for ScriptedHandle {
 #[derive(Default)]
 struct ScriptedRunner {
     turns: Mutex<Vec<Arc<TurnControl>>>,
-    /// Every steer handed over, as `(session, id, content)`.
-    steers: Mutex<Vec<(String, String, String)>>,
-    /// Refuse every steer, as a loop whose turn has already ended does.
-    refuse_steers: std::sync::atomic::AtomicBool,
+    /// Where a compaction creates its session.
+    store: Mutex<Option<Arc<SessionStore>>>,
+    compactions: Mutex<Vec<CompactRequest>>,
+    /// Fails the next compaction with this.
+    refuse_compaction: Mutex<Option<WireError>>,
+    /// Holds every compaction until notified.
+    hold_compaction: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    auto: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptedRunner {
@@ -196,14 +201,30 @@ impl TurnRunner for ScriptedRunner {
         })
     }
 
-    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
-        if self.refuse_steers.load(Ordering::SeqCst) {
-            return false;
-        }
-        self.steers
-            .lock()
-            .push((session_key.to_owned(), id.to_owned(), content.to_owned()));
-        true
+    fn compact<'a>(
+        &'a self,
+        request: &'a CompactRequest,
+        token: &'a CancellationToken,
+    ) -> BoxFuture<'a, Result<SessionRecord>> {
+        Box::pin(async move {
+            self.compactions.lock().push(request.clone());
+            let hold = self.hold_compaction.lock().clone();
+            if let Some(hold) = hold {
+                tokio::select! {
+                    () = hold.notified() => {}
+                    () = token.cancelled() => return Err(WireError::aborted("Summary")),
+                }
+            }
+            if let Some(error) = self.refuse_compaction.lock().take() {
+                return Err(error);
+            }
+            let store = self.store.lock().clone().expect("a store");
+            store.ensure_session(&request.new_key, CreateSession::default())
+        })
+    }
+
+    fn auto_compact(&self) -> bool {
+        self.auto.load(Ordering::SeqCst)
     }
 }
 
@@ -277,6 +298,8 @@ impl TestClient {
 struct Harness {
     hub: Arc<SessionHub>,
     runner: Arc<ScriptedRunner>,
+    /// The queue the hub pushes steers into, as a loop would read it.
+    steering: Arc<SteeringQueue>,
     store: Arc<SessionStore>,
     approvals: Arc<HubApprovalGate>,
     ids: Arc<AtomicU64>,
@@ -284,8 +307,8 @@ struct Harness {
 
 #[derive(Default)]
 struct HarnessOptions {
-    replay_buffer_size: Option<u64>,
-    turn_log_max_bytes: Option<u64>,
+    replay_buffer_size: Option<usize>,
+    turn_log_max_bytes: Option<usize>,
     /// Agent ids an operator has configured, and whether each is enabled.
     agents: Vec<(&'static str, bool)>,
     max_queue_depth: Option<usize>,
@@ -300,14 +323,6 @@ struct HarnessOptions {
 }
 
 fn harness(options: &HarnessOptions) -> Harness {
-    let mut config = Config::default();
-    if let Some(size) = options.replay_buffer_size {
-        config.server.replay_buffer_size = size;
-    }
-    if let Some(bytes) = options.turn_log_max_bytes {
-        config.server.turn_log_max_bytes = bytes;
-    }
-
     let db = Database::in_memory().unwrap();
     let store_ids = AtomicU64::new(0);
     let store = Arc::new(
@@ -319,6 +334,8 @@ fn harness(options: &HarnessOptions) -> Harness {
         .unwrap(),
     );
     let runner: Arc<ScriptedRunner> = Arc::new(ScriptedRunner::default());
+    *runner.store.lock() = Some(Arc::clone(&store));
+    let steering = Arc::new(SteeringQueue::new());
     let approvals = Arc::new(HubApprovalGate::new(HubApprovalGateOptions::default()));
     let ids = Arc::new(AtomicU64::new(0));
 
@@ -328,7 +345,8 @@ fn harness(options: &HarnessOptions) -> Harness {
     let unbuildable = options.unbuildable;
 
     let hub = SessionHub::new(SessionHubOptions {
-        config,
+        replay_frames: options.replay_buffer_size,
+        turn_log_bytes: options.turn_log_max_bytes,
         store: Arc::clone(&store),
         approvals: Arc::clone(&approvals),
         loop_for: Arc::new(move |agent_id| {
@@ -372,11 +390,13 @@ fn harness(options: &HarnessOptions) -> Harness {
         }),
         max_queue_depth: options.max_queue_depth,
         max_sessions: options.max_sessions,
+        steering: Arc::clone(&steering),
     });
 
     Harness {
         hub,
         runner,
+        steering,
         store,
         approvals,
         ids,
@@ -1045,6 +1065,64 @@ async fn a_message_queued_behind_a_failed_rewind_still_runs() {
     );
     until_turns(&h, 1).await;
     h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_regenerate_runs_before_a_message_sent_during_its_rewind() {
+    let h = harness(&HarnessOptions::default());
+    let rewinding = h.plain();
+    let asking = h.plain();
+    rewinding.until_seen("connected").await;
+    asking.until_seen("connected").await;
+
+    h.store
+        .ensure_session(
+            SESSION,
+            darkwire_core::session_store::CreateSession::default(),
+        )
+        .unwrap();
+    for message in [
+        ChatMessage::User(user_message("the question")),
+        ChatMessage::Assistant(assistant_message("an answer", AssistantOptions::default())),
+    ] {
+        h.store
+            .append(SESSION, message, &AppendOptions::default())
+            .unwrap();
+    }
+
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = {
+        let store = Arc::clone(&h.store);
+        std::thread::spawn(move || {
+            let guard = store.database().lock();
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
+            drop(guard);
+        })
+    };
+    locked_rx.recv().unwrap();
+
+    rewinding.send(json!({ "type": "turn.regenerate", "sessionKey": SESSION }));
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    asking.send(user(SESSION, "from another tab"));
+    asking.until_seen("message.ack").await;
+
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    until_turns(&h, 1).await;
+    let text = |index: usize| {
+        darkwire_core::text_of(&ChatMessage::User(darkwire_core::user_message(
+            h.runner.turn(index).input.content.clone(),
+        )))
+    };
+    assert_eq!(text(0), "the question");
+    h.runner.turn(0).end();
+    until_turns(&h, 2).await;
+    assert_eq!(text(1), "from another tab");
+    h.runner.turn(1).end();
 }
 
 #[tokio::test]
@@ -2027,7 +2105,6 @@ async fn replays_exactly_what_a_reconnecting_client_missed() {
         panic!("expected a replay");
     };
     assert!(replay.event.complete);
-    assert!(replay.event.messages.is_empty());
     // A client told the replay was whole has nothing to rebuild from a second
     // source.
     assert_eq!(replay.event.resuming_turn_id, None);
@@ -2149,7 +2226,6 @@ async fn rebuilds_from_storage_when_the_resume_falls_outside_the_ring() {
         panic!("expected a replay");
     };
     assert!(!replay.event.complete);
-    assert_eq!(replay.event.messages.len(), 2);
     // Nothing is running, so there is no open turn to name.
     assert_eq!(replay.event.resuming_turn_id, None);
 }
@@ -2203,7 +2279,6 @@ async fn replays_the_open_turn_in_full_when_the_resume_falls_outside_the_ring() 
         replay.event.resuming_turn_id.as_deref(),
         Some(&*turn.turn_id())
     );
-    assert!(!replay.event.messages.is_empty());
 
     reconnect.until_seen("turn.start").await;
     reconnect.until_count("assistant.delta", 1).await;
@@ -2357,6 +2432,96 @@ async fn names_no_turn_once_the_log_has_overrun_its_budget() {
 }
 
 #[tokio::test]
+async fn a_resuming_tab_gets_the_frames_it_missed_once_and_in_order() {
+    // A tab that names its session is attached by its resume, so a frame sent
+    // between the connect and the resume reaches it once, as replay, and
+    // never live ahead of the frames before it.
+    let h = harness(&HarnessOptions::default());
+    let first = h.plain();
+    first.until_seen("connected").await;
+    first.send(user(SESSION, "hello"));
+    until_turns(&h, 1).await;
+    let turn = h.runner.turn(0);
+    turn.start();
+    turn.delta("one ");
+    first.until_count("assistant.delta", 1).await;
+    let last_seen = seq(first.frames().last().unwrap());
+
+    let tab = h.connect(ConnectOptions {
+        awaits_resume: true,
+        ..ConnectOptions::default()
+    });
+    tab.until_seen("connected").await;
+    turn.delta("two ");
+    first.until_count("assistant.delta", 2).await;
+    tab.send(json!({
+        "type": "session.resume", "sessionKey": SESSION, "lastSeq": last_seen,
+    }));
+    tab.until_seen("session.replay").await;
+    turn.delta("three");
+    tab.until_count("assistant.delta", 2).await;
+    fence(&tab).await;
+
+    let text: String = tab
+        .of("assistant.delta")
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMessage::AssistantDelta(delta) => Some(delta.event.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text, "two three");
+    turn.end();
+}
+
+#[tokio::test]
+async fn a_fresh_attach_replays_only_the_running_turn() {
+    // `lastSeq: 0` is a tab with nothing on screen. Storage has the finished
+    // turns, so only the one still running comes as frames.
+    let h = harness(&HarnessOptions::default());
+    let first = h.plain();
+    first.until_seen("connected").await;
+    first.send(user(SESSION, "hello"));
+    until_turns(&h, 1).await;
+    let done = h.runner.turn(0);
+    done.start();
+    done.delta("finished");
+    done.end();
+    first.until_seen("turn.end").await;
+    first.send(user(SESSION, "again"));
+    until_turns(&h, 2).await;
+    let running = h.runner.turn(1);
+    running.start();
+    running.delta("in progress");
+    first.until_count("assistant.delta", 2).await;
+
+    let tab = h.connect(ConnectOptions {
+        awaits_resume: true,
+        ..ConnectOptions::default()
+    });
+    tab.until_seen("connected").await;
+    tab.send(json!({ "type": "session.resume", "sessionKey": SESSION, "lastSeq": 0 }));
+    tab.until_seen("session.replay").await;
+    tab.until_count("assistant.delta", 1).await;
+    fence(&tab).await;
+
+    let ServerMessage::SessionReplay(replay) = &tab.of("session.replay")[0] else {
+        panic!("expected a replay");
+    };
+    assert!(!replay.event.complete);
+    assert_eq!(
+        replay.event.resuming_turn_id.as_deref(),
+        Some(&*running.turn_id())
+    );
+    let ServerMessage::AssistantDelta(delta) = &tab.of("assistant.delta")[0] else {
+        panic!("expected a delta");
+    };
+    assert_eq!(delta.event.text, "in progress");
+    assert_eq!(tab.of("assistant.delta").len(), 1);
+    running.end();
+}
+
+#[tokio::test]
 async fn tells_a_client_that_has_seen_everything_that_it_missed_nothing() {
     let h = harness(&HarnessOptions::default());
     let client = h.plain();
@@ -2374,7 +2539,6 @@ async fn tells_a_client_that_has_seen_everything_that_it_missed_nothing() {
         panic!("expected a replay");
     };
     assert!(replay.event.complete);
-    assert!(replay.event.messages.is_empty());
 }
 
 #[tokio::test]
@@ -2446,6 +2610,17 @@ async fn started(h: &Harness, client: &TestClient) -> Arc<TurnControl> {
     turn
 }
 
+/// Waits until the session's steering queue holds `count`.
+async fn until_queued(h: &Harness, count: usize) {
+    for _ in 0..500 {
+        if h.steering.pending(SESSION) >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("{count} steers never queued");
+}
+
 fn steer(content: &str, id: &str) -> serde_json::Value {
     json!({
         "type": "turn.steer",
@@ -2469,15 +2644,11 @@ async fn steers_the_loop_the_turn_is_running_on_and_leaves_the_echo_to_it() {
     two.reset();
 
     one.send(steer("be brief", "s1"));
-    for _ in 0..500 {
-        if !h.runner.steers.lock().is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
+    until_queued(&h, 1).await;
+    let queued = h.steering.peek(SESSION).unwrap();
     assert_eq!(
-        *h.runner.steers.lock(),
-        vec![(SESSION.to_owned(), "s1".to_owned(), "be brief".to_owned())]
+        (queued.id.as_str(), queued.content.as_str()),
+        ("s1", "be brief")
     );
     // Not echoed on receipt: the loop says so once it has written it, which
     // is where it belongs in the transcript.
@@ -2490,6 +2661,8 @@ async fn steers_the_loop_the_turn_is_running_on_and_leaves_the_echo_to_it() {
         content: "be brief".to_owned(),
         client_message_id: Some("s1".to_owned()),
     });
+    // The loop pops what it wrote.
+    h.steering.pop(SESSION);
     one.until_seen("steer").await;
     two.until_seen("steer").await;
     turn.end();
@@ -2515,18 +2688,19 @@ async fn a_steer_with_no_turn_to_read_it_runs_as_the_next_turn() {
     assert_eq!(ack.event.client_message_id.as_deref(), Some("s1"));
     until_turns(&h, 1).await;
     assert!(client.of("error").is_empty());
-    assert!(h.runner.steers.lock().is_empty());
+    assert_eq!(h.steering.pending(SESSION), 0);
 }
 
 #[tokio::test]
-async fn a_steer_the_loop_refuses_runs_as_the_next_turn() {
+async fn a_steer_its_queue_refuses_runs_as_the_next_turn() {
     let h = harness(&HarnessOptions::default());
     let client = h.plain();
     client.until_seen("connected").await;
-    h.runner.refuse_steers.store(true, Ordering::SeqCst);
 
     client.send(user(SESSION, "hello"));
     let turn = started(&h, &client).await;
+    // As if the turn's queue had already closed.
+    let _ = h.steering.close(SESSION);
     client.reset();
     client.send(steer("and then this", "s1"));
     client.until_seen("message.queued").await;
@@ -2550,12 +2724,7 @@ async fn a_steer_the_turn_never_read_runs_after_it() {
     client.send(user(SESSION, "hello"));
     let turn = started(&h, &client).await;
     client.send(steer("one more thing", "s1"));
-    for _ in 0..500 {
-        if !h.runner.steers.lock().is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
+    until_queued(&h, 1).await;
     client.reset();
     // The turn ends without the loop ever writing it.
     turn.end();
@@ -2580,19 +2749,46 @@ async fn a_steer_sent_as_the_turn_is_handed_to_its_loop_still_arrives() {
     let client = h.plain();
     client.until_seen("connected").await;
 
-    // Sent the moment the turn exists, before the hub has its loop: held, and
-    // handed over once it has.
+    // Sent the moment the turn exists: its queue opened when the turn did.
     client.send(user(SESSION, "hello"));
     until_turns(&h, 1).await;
     client.send(steer("early", "s1"));
-    for _ in 0..500 {
-        if !h.runner.steers.lock().is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    assert_eq!(h.runner.steers.lock()[0].2, "early");
+    until_queued(&h, 1).await;
+    assert_eq!(h.steering.peek(SESSION).unwrap().content, "early");
     h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_steer_sent_again_after_a_dropped_socket_is_queued_once() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+
+    client.send(steer("be brief", "s1"));
+    until_queued(&h, 1).await;
+    client.send(steer("be brief", "s1"));
+    fence(&client).await;
+    assert_eq!(h.steering.pending(SESSION), 1);
+    turn.end();
+}
+
+#[tokio::test]
+async fn a_steer_sent_again_after_it_ran_as_a_turn_is_acked_not_run_twice() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.reset();
+
+    client.send(steer("hi", "s1"));
+    until_turns(&h, 1).await;
+    client.until_seen("message.ack").await;
+    client.send(steer("hi", "s1"));
+    client.until_count("message.ack", 2).await;
+    fence(&client).await;
+    assert_eq!(acked_ids(&client), ["s1", "s1"]);
+    assert_eq!(h.runner.count(), 1);
 }
 
 /// The client message ids of every ack a client was sent, in order.
@@ -2652,7 +2848,7 @@ async fn steers_past_the_queue_bound_are_refused_as_a_queued_message_is() {
     assert_eq!(error_codes(&client), [ErrorCode::SessionBusy; 3]);
     // Each refusal names the steer it refuses, so its bubble can stop waiting.
     assert_eq!(refused_ids(&client), ["s2", "s3", "s4"]);
-    assert_eq!(h.runner.steers.lock().len(), 2);
+    assert_eq!(h.steering.pending(SESSION), 2);
 
     // The turn ends without reading them. Both run, and nothing past the bound.
     client.reset();
@@ -3275,4 +3471,289 @@ async fn announces_a_cleared_conversation_to_every_attached_tab() {
     // And nothing at all for a session nobody has open.
     h.hub.session_cleared("never-opened");
     assert_eq!(h.hub.session_count(), 1);
+}
+
+// Compaction
+
+fn compact(session_key: &str) -> serde_json::Value {
+    json!({ "type": "session.compact", "sessionKey": session_key })
+}
+
+fn continued(client: &TestClient) -> String {
+    let ServerMessage::SessionCompacted(event) = &client.of("session.compacted")[0] else {
+        panic!("expected a session.compacted frame");
+    };
+    event.event.continued_key.clone()
+}
+
+async fn until_watchers(h: &Harness, session_key: &str, count: usize) {
+    for _ in 0..2_000 {
+        if h.hub.watchers(session_key) == count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("{session_key} never reached {count} watchers");
+}
+
+#[tokio::test]
+async fn compacting_moves_every_tab_to_the_new_session() {
+    let h = harness(&HarnessOptions::default());
+    let asking = h.plain();
+    let watching = h.plain();
+    asking.until_seen("connected").await;
+    watching.until_seen("connected").await;
+
+    asking.send(compact(SESSION));
+    watching.until_seen("session.compacted").await;
+
+    let new_key = continued(&watching);
+    assert!(new_key.starts_with("web:1:"), "{new_key}");
+    until_watchers(&h, &new_key, 2).await;
+    assert_eq!(h.hub.watchers(SESSION), 0);
+    assert_eq!(h.runner.compactions.lock()[0].session_key, SESSION);
+}
+
+#[tokio::test]
+async fn compacting_is_refused_while_a_turn_runs() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.reset();
+
+    client.send(compact(SESSION));
+    client.until_seen("error").await;
+
+    let ServerMessage::Error(error) = &client.of("error")[0] else {
+        panic!("expected an error frame");
+    };
+    assert_eq!(error.code, ErrorCode::SessionBusy);
+    assert!(h.runner.compactions.lock().is_empty());
+    turn.end();
+}
+
+#[tokio::test]
+async fn a_failed_compaction_leaves_everyone_where_they_were() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    *h.runner.refuse_compaction.lock() =
+        Some(WireError::new(ErrorKind::Provider, "the model is down"));
+
+    client.send(compact(SESSION));
+    client.until_seen("error").await;
+
+    let ServerMessage::Error(error) = &client.of("error")[0] else {
+        panic!("expected an error frame");
+    };
+    assert_eq!(error.message, "the model is down");
+    assert_eq!(h.hub.watchers(SESSION), 1);
+    // The claim is let go, so the conversation carries on where it was.
+    client.send(user(SESSION, "next"));
+    until_turns(&h, 1).await;
+    assert_eq!(h.runner.turn(0).input.session_key, SESSION);
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_message_sent_while_compacting_runs_in_the_new_session() {
+    let h = harness(&HarnessOptions::default());
+    let asking = h.plain();
+    let other = h.plain();
+    asking.until_seen("connected").await;
+    other.until_seen("connected").await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *h.runner.hold_compaction.lock() = Some(Arc::clone(&hold));
+
+    asking.send(compact(SESSION));
+    for _ in 0..2_000 {
+        if !h.runner.compactions.lock().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    other.send(user(SESSION, "while it summarised"));
+    other.until_seen("message.ack").await;
+    assert_eq!(h.runner.count(), 0, "held behind the compaction");
+
+    hold.notify_one();
+    until_turns(&h, 1).await;
+
+    let new_key = h.runner.compactions.lock()[0].new_key.clone();
+    assert_eq!(h.runner.turn(0).input.session_key, new_key);
+    h.runner.turn(0).end();
+}
+
+/// Runs one turn that reports `used` of a 1,000-token window.
+async fn fill(h: &Harness, client: &TestClient, used: u64) {
+    h.store
+        .ensure_session(SESSION, CreateSession::default())
+        .unwrap();
+    client.send(user(SESSION, "first"));
+    let turn = started(h, client).await;
+    turn.emit(ContextUsage {
+        tag: ContextUsageTag,
+        session_key: SESSION.to_owned(),
+        estimated_tokens: used,
+        context_window_tokens: 1_000,
+        breakdown: IndexMap::new(),
+        measured: false,
+    });
+    turn.end();
+    client.until_seen("turn.end").await;
+    client.reset();
+}
+
+#[tokio::test]
+async fn a_nearly_full_conversation_is_compacted_before_the_next_message() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    h.runner.auto.store(true, Ordering::SeqCst);
+    fill(&h, &client, 900).await;
+
+    client.send(user(SESSION, "second"));
+    until_turns(&h, 2).await;
+
+    let new_key = h.runner.compactions.lock()[0].new_key.clone();
+    assert_eq!(h.runner.turn(1).input.session_key, new_key);
+    client
+        .until("a compacted notice", |frames| {
+            frames.iter().any(|frame| {
+                matches!(frame, ServerMessage::Notice(notice)
+                    if notice.event.kind == NoticeKind::Compacted)
+            })
+        })
+        .await;
+    h.runner.turn(1).end();
+    client.until_seen("turn.end").await;
+
+    // The next message goes on in the new session, which has no usage yet.
+    client.send(user(&new_key, "third"));
+    until_turns(&h, 3).await;
+    assert_eq!(h.runner.turn(2).input.session_key, new_key);
+    assert_eq!(h.runner.compactions.lock().len(), 1);
+    h.runner.turn(2).end();
+}
+
+/// Holds every compaction until the returned handle is notified.
+fn hold(h: &Harness) -> Arc<tokio::sync::Notify> {
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *h.runner.hold_compaction.lock() = Some(Arc::clone(&hold));
+    hold
+}
+
+async fn until_compacting(h: &Harness) {
+    for _ in 0..2_000 {
+        if !h.runner.compactions.lock().is_empty() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("no compaction started");
+}
+
+#[tokio::test]
+async fn the_asking_tab_is_answered_while_the_summary_runs() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let _hold = hold(&h);
+
+    client.send(compact(SESSION));
+    until_compacting(&h).await;
+    client.send(json!({ "type": "ping" }));
+
+    client.until_seen("pong").await;
+}
+
+#[tokio::test]
+async fn the_asking_tab_can_stop_the_summary() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let _hold = hold(&h);
+
+    client.send(compact(SESSION));
+    until_compacting(&h).await;
+    client.send(json!({ "type": "turn.stop", "sessionKey": SESSION }));
+    client.until_seen("error").await;
+
+    // Let go, so the conversation carries on where it was.
+    *h.runner.hold_compaction.lock() = None;
+    client.send(user(SESSION, "next"));
+    until_turns(&h, 1).await;
+    assert_eq!(h.runner.turn(0).input.session_key, SESSION);
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_summary_outlives_the_tab_that_asked_for_it() {
+    let h = harness(&HarnessOptions::default());
+    let asking = h.plain();
+    let other = h.plain();
+    asking.until_seen("connected").await;
+    other.until_seen("connected").await;
+    let held = hold(&h);
+
+    asking.send(compact(SESSION));
+    until_compacting(&h).await;
+    asking.client.close();
+    held.notify_one();
+    other.until_seen("session.compacted").await;
+
+    let new_key = continued(&other);
+    other.send(user(&new_key, "carry on"));
+    until_turns(&h, 1).await;
+    assert_eq!(h.runner.turn(0).input.session_key, new_key);
+    h.runner.turn(0).end();
+}
+
+#[tokio::test]
+async fn a_message_resent_during_an_automatic_summary_runs_once() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    h.runner.auto.store(true, Ordering::SeqCst);
+    fill(&h, &client, 950).await;
+    let held = hold(&h);
+
+    let second = json!({
+        "type": "user.message", "sessionKey": SESSION, "content": "second",
+        "clientMessageId": "c-2",
+    });
+    client.send(second.clone());
+    until_compacting(&h).await;
+    client.send(second);
+    held.notify_one();
+    until_turns(&h, 2).await;
+    h.runner.turn(1).end();
+    client.until_seen("turn.end").await;
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+
+    assert_eq!(h.runner.count(), 2, "the resend did not run again");
+    let new_key = h.runner.compactions.lock()[0].new_key.clone();
+    assert_eq!(h.runner.turn(1).input.session_key, new_key);
+}
+
+#[tokio::test]
+async fn a_conversation_below_the_line_or_with_it_switched_off_is_left_alone() {
+    for (used, auto) in [(899, true), (950, false)] {
+        let h = harness(&HarnessOptions::default());
+        let client = h.plain();
+        client.until_seen("connected").await;
+        h.runner.auto.store(auto, Ordering::SeqCst);
+        fill(&h, &client, used).await;
+
+        client.send(user(SESSION, "second"));
+        until_turns(&h, 2).await;
+
+        assert!(h.runner.compactions.lock().is_empty(), "{used} {auto}");
+        assert_eq!(h.runner.turn(1).input.session_key, SESSION);
+        h.runner.turn(1).end();
+    }
 }

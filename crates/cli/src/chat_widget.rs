@@ -63,10 +63,6 @@ pub enum Typed {
     Reset,
     /// Show everything that has been said, over the whole window.
     Transcript,
-    /// Change whether the *next* tool's output arrives expanded.
-    ToggleTools,
-    /// Change whether the *next* turn's cost arrives shown.
-    ToggleStats,
 }
 
 /// Which kinds of run arrive folded away.
@@ -141,8 +137,6 @@ pub struct ChatWidget {
     /// area was at its cap. The run's cell is built from these and the rest.
     flushed: Vec<Line<'static>>,
     defaults: SummaryDefaults,
-    /// What a key last did to `/output stats`, waiting to be collected.
-    stats_toggled: Option<bool>,
     /// The tick the spinner is on, while a turn is thinking.
     thinking: Option<i64>,
     /// Whether the events arriving are a conversation that already happened.
@@ -174,7 +168,6 @@ impl ChatWidget {
             pending: Vec::new(),
             flushed: Vec::new(),
             defaults: SummaryDefaults::default(),
-            stats_toggled: None,
             thinking: None,
             replaying: false,
             running: false,
@@ -244,21 +237,6 @@ impl ChatWidget {
     /// The next line waiting, taken.
     pub fn take_queued(&mut self) -> Option<String> {
         self.bottom.take_queued()
-    }
-
-    /// Whether the cost of a turn reaches a reader.
-    #[must_use]
-    pub fn stats_shown(&self) -> bool {
-        !self.defaults.stats
-    }
-
-    /// What a key last did to that switch, answered once.
-    ///
-    /// One switch with two owners. A key sets it here, because a key is how
-    /// the reader asks; the renderer owns it the rest of the time, because
-    /// only the renderer decides whether a pipe sees the row at all.
-    pub fn take_stats_toggle(&mut self) -> Option<bool> {
-        self.stats_toggled.take()
     }
 
     // ------------------------------------------------------------ the turn
@@ -399,18 +377,6 @@ impl ChatWidget {
                 self.finish_active();
                 self.commit(Box::new(StatsCell::new(line, !self.defaults.stats)));
             }
-            // `/output reasoning off` and `ui.reasoning: hidden` are the same
-            // state reached two ways.
-            TranscriptEvent::ReasoningShown(shown) => {
-                self.defaults.reasoning = if *shown {
-                    ReasoningDisplay::Collapsed
-                } else {
-                    ReasoningDisplay::Hidden
-                };
-            }
-            // Set rather than flipped: this is the command's half of one
-            // switch arriving, and a flip here would undo what was asked for.
-            TranscriptEvent::StatsShown(shown) => self.defaults.stats = !*shown,
         }
     }
 
@@ -662,12 +628,11 @@ impl ChatWidget {
         }
         if is_ctrl(key, 'o') {
             self.defaults.tools = !self.defaults.tools;
-            return Typed::ToggleTools;
+            return Typed::Redraw;
         }
         if is_ctrl(key, 'y') {
             self.defaults.stats = !self.defaults.stats;
-            self.stats_toggled = Some(!self.defaults.stats);
-            return Typed::ToggleStats;
+            return Typed::Redraw;
         }
         if is_ctrl(key, 'l') {
             return Typed::Reset;

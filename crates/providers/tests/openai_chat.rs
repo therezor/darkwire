@@ -1002,7 +1002,7 @@ async fn drain(frames: &[Value], load_ms: u64, step_ms: u64) -> Option<ChatResul
     let mut result = None;
     while let Some(event) = events.next().await {
         if let ChatStreamEvent::Done(done) = event.unwrap() {
-            result = Some(done);
+            result = Some(*done);
         }
         clock.advance(Duration::from_millis(step_ms));
     }

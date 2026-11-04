@@ -57,7 +57,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.js';
 import { api } from '@/lib/api.js';
-import { queryKeys } from '@/lib/query.js';
+import { queryKeys, refreshSessions } from '@/lib/query.js';
 import { useSessionRow, useWorkspacesQuery } from '@/lib/queries.js';
 import { toast } from '@/components/ui/toast.js';
 import { folderLabel } from './folder.js';
@@ -112,7 +112,7 @@ export function WorkspacePicker({
       queryClient.setQueryData(queryKeys.session(updated.key), updated);
       // The unscoped prefix: the row leaves one workspace-scoped list and joins
       // another, so both have to refetch.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() });
+      refreshSessions(queryClient);
       // `sessionCount` on two workspace rows just moved. Deliberately *not*
       // `['files']` — file listings are keyed by workspace, so a move changes
       // which key is read rather than what is behind the old one.

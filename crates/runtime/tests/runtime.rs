@@ -249,7 +249,12 @@ mod shared_connection {
         }
         // The auth store and the scheduler live in the same file: whoever opened
         // the connection decides when the last reference goes.
-        assert!(install.database.column_names("sessions").is_ok());
+        assert!(
+            install
+                .database
+                .execute_batch("SELECT 1 FROM sessions")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -402,19 +407,6 @@ mod reconfigure {
         // Exact by source: an MCP server is one connection however many saves
         // happen.
         assert!(runtime.tools().has("mcp_files_read"));
-    }
-
-    #[test]
-    fn applies_a_new_tool_timeout_to_the_live_registry() {
-        let install = Install::with(&configured("llama3"));
-        let runtime = install.runtime().unwrap();
-        assert_eq!(runtime.tools().timeout_ms(), 0);
-        runtime
-            .reconfigure(&patch(json!({"agents": {"list": {"default": {
-                "model": "llama3", "provider": "ollama", "toolTimeoutMs": 9000,
-            }}}})))
-            .unwrap();
-        assert_eq!(runtime.tools().timeout_ms(), 9000);
     }
 
     #[test]
@@ -1201,7 +1193,12 @@ async fn close_stops_what_it_owns_and_leaves_a_borrowed_connection() {
     runtime.close().await;
     // The database is a shared handle: whoever opened it decides when the last
     // reference goes, which is the same contract a borrowed connection had.
-    assert!(install.database.column_names("sessions").is_ok());
+    assert!(
+        install
+            .database
+            .execute_batch("SELECT 1 FROM sessions")
+            .is_ok()
+    );
 }
 
 #[test]
@@ -1340,6 +1337,34 @@ mod live_settings {
         change: Change,
         turns: Vec<ScriptedTurn>,
     ) -> Vec<Vec<String>> {
+        run_live(config, None, change, turns).await.0
+    }
+
+    /// What each tool call answered, by call id.
+    fn results(events: &[darkwire_agent::AgentEvent]) -> Vec<(String, String)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                darkwire_agent::AgentEvent::Nested(
+                    darkwire_protocol::ws::NestedAgentEvent::ToolResult(result),
+                ) => Some((result.call_id.clone(), result.content.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// One turn on `agent` over `turns`: what the gate was asked, and how the
+    /// turn ended.
+    async fn run_live(
+        config: &Value,
+        agent: Option<&str>,
+        change: Change,
+        turns: Vec<ScriptedTurn>,
+    ) -> (
+        Vec<Vec<String>>,
+        darkwire_agent::TurnResult,
+        Vec<darkwire_agent::AgentEvent>,
+    ) {
         let install = Install::with(config);
         let gate = Arc::new(SavingGate {
             change,
@@ -1359,16 +1384,54 @@ mod live_settings {
         .unwrap();
         let _ = gate.runtime.set(Arc::downgrade(&runtime));
 
-        let agent_loop = runtime.require_loop().unwrap();
+        let agent_loop = runtime.loop_for(agent).unwrap().unwrap();
         let mut turn = AgentLoop::run(
             &agent_loop,
             TurnInput::new("web:live", "Run them."),
             &CancellationToken::new(),
         );
-        while turn.next_event().await.is_some() {}
-        turn.finish().await.unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = turn.next_event().await {
+            events.push(event);
+        }
+        let result = turn.finish().await.unwrap();
 
-        gate.asked.lock().unwrap().clone()
+        let asked = gate.asked.lock().unwrap().clone();
+        (asked, result, events)
+    }
+
+    /// The `worker` agent deleted.
+    fn delete_worker(_: &Config) -> ConfigPatch {
+        ConfigPatch {
+            agents: Some(AgentsConfigPatch {
+                list: Some(IndexMap::from([("worker".to_owned(), None)])),
+            }),
+            ..ConfigPatch::default()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_agent_deleted_mid_turn_refuses_the_rest_and_stops() {
+        let config = json!({
+            "agents": {"list": {
+                "default": {"model": "llama3", "provider": "ollama"},
+                "worker": {"model": "llama3", "provider": "ollama"},
+            }},
+            "providers": {"ollama": {"type": "ollama", "apiBase": "http://ollama.test/v1"}},
+        });
+        let (asked, result, _) = run_live(
+            &config,
+            Some("worker"),
+            delete_worker,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a"), echo("call-2", "b")]),
+                ScriptedTurn::text("Should never be asked for."),
+            ],
+        )
+        .await;
+        assert_eq!(asked, [vec!["echo".to_owned(), "a".to_owned()]]);
+        assert_eq!(result.stop_reason, darkwire_protocol::StopReason::Aborted);
+        assert_eq!(result.iterations, 1);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1455,6 +1518,41 @@ mod live_settings {
                 vec!["read".to_owned()],
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_delegation_after_a_save_mid_turn_still_reaches_the_subagent() {
+        // The save rebuilds the loop cache. The running turn holds the old
+        // loop, and its delegation must still find the researcher.
+        let config = json!({
+            "agents": {"list": {
+                "default": {
+                    "model": "llama3",
+                    "provider": "ollama",
+                    "subagents": [{"id": "researcher", "permission": "allow"}],
+                },
+                "researcher": {"model": "llama3", "provider": "ollama"},
+            }},
+            "providers": {"ollama": {"type": "ollama", "apiBase": "http://ollama.test/v1"}},
+        });
+        let (_, _, events) = run_live(
+            &config,
+            None,
+            allow_echo,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a")]),
+                ScriptedTurn::calls(vec![tool_call(
+                    "call-2",
+                    "ask_researcher",
+                    &json!({"task": "Look it up."}),
+                )]),
+                ScriptedTurn::text("Found it."),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        let answered = results(&events);
+        assert_eq!(answered[1], ("call-2".to_owned(), "Found it.".to_owned()));
     }
 
     #[tokio::test(flavor = "multi_thread")]

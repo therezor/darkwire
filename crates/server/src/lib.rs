@@ -25,6 +25,7 @@ pub mod auth_store;
 pub mod automation_port;
 pub mod automation_store;
 pub mod boot;
+pub mod client_address;
 pub mod context;
 pub mod cursor;
 pub mod errors;

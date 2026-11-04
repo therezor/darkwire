@@ -88,9 +88,8 @@ never drops a running turn.
   ring cannot do that on its own — it holds 512 frames and a subagent emits one per token
   — so the server keeps the running turn whole beside it and replays that instead,
   including every nested message; see [API](api.md#sequencing-and-replay). The bound is
-  `server.turnLogMaxBytes`, and a turn that outgrows it falls back to picking the run up
-  from the moment the tab reattaches. A second tab, which has no cursor and so asks for no
-  replay at all, does that too, and fills in the rest when the turn ends.
+  16 MiB, and a turn that outgrows it falls back to picking the run up from the moment the
+  tab reattaches, then fills in the rest from storage when the turn ends.
 - **Notices** badge prompt injection, degraded requests, provider fallback, truncated
   history, a denied approval, a fallback to another agent, and a turn that ran with tools
   switched off.
@@ -136,17 +135,18 @@ Type `/` in the composer and the completion list opens: arrow keys move, Enter o
 accepts, Escape closes. Focus never leaves the box, so the sentence you are part-way
 through is never interrupted.
 
-| Command              | What it does                                         |
-| -------------------- | ---------------------------------------------------- |
-| `/new`               | Starts a fresh session and goes to it                |
-| `/clear`             | Drops this session's transcript, keeping the session |
-| `/rename <title>`    | Retitles this session                                |
-| `/stop`              | Aborts the turn that is running                      |
-| `/branch`            | Forks at your last message and continues in the fork |
-| `/agent <id>`        | Which agent this session runs on                     |
-| `/model <id>`        | Which model this session's agent runs on             |
-| `/effort <level>`    | How hard that agent is asked to think                |
-| `/temperature <0-2>` | The sampling temperature that agent sends            |
+| Command              | What it does                                          |
+| -------------------- | ----------------------------------------------------- |
+| `/new`               | Starts a fresh session and goes to it                 |
+| `/clear`             | Drops this session's transcript, keeping the session  |
+| `/rename <title>`    | Retitles this session                                 |
+| `/stop`              | Aborts the turn that is running                       |
+| `/branch`            | Forks at your last message and continues in the fork  |
+| `/compact [text]`    | Summarises this session into a new one and goes to it |
+| `/agent <id>`        | Which agent this session runs on                      |
+| `/model <id>`        | Which model this session's agent runs on              |
+| `/effort <level>`    | How hard that agent is asked to think                 |
+| `/temperature <0-2>` | The sampling temperature that agent sends             |
 
 `/agent`, `/model` and `/effort` complete their argument as you type it, which is the
 browser's answer to the terminal's arrow-key menu and Telegram's picker keyboard.
@@ -167,6 +167,12 @@ Both take `default`, which is not the same as a low setting. `/effort off` sends
 parameter asking the model not to think; `/effort default` sends no reasoning parameter
 at all, which is the only thing that works against an endpoint that rejects the field.
 `/temperature 0` is a value in the same way: it is not an absence.
+
+`/compact` takes the rest of the line as instructions for the summary, such as "keep the
+file names". Every tab on the conversation follows it to the new session, which opens
+with the summary and links back to the conversation it continues. An agent with
+**Summarise when nearly full** on does the same by itself when the window is 90% full. See
+[Architecture](architecture.md#compaction).
 
 Two read differently from the terminal, on purpose. `/new` takes no title — nothing is
 stored until the first message, so there is nothing to title yet; use `/rename`.

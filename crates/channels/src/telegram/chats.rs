@@ -72,6 +72,9 @@ pub struct ChatState {
     pub live_message_id: Option<i64>,
     /// The turn that message belongs to, so a stale edit is not applied.
     pub live_turn_id: Option<String>,
+    /// How many of the turn's pieces were posted before its live message, for
+    /// an answer longer than one message.
+    pub live_settled: usize,
     /// When that message was last edited, for the per-chat debounce.
     pub last_edit_ms: i64,
     /// How this chat wants answers rendered.
@@ -126,6 +129,7 @@ impl ChatBook {
             session_key: default_session_key(channel_id, chat_id),
             live_message_id: None,
             live_turn_id: None,
+            live_settled: 0,
             last_edit_ms: 0,
             prefs: RenderPrefs::default(),
             pending: None,
@@ -156,6 +160,7 @@ impl ChatBook {
         // to.
         state.live_message_id = None;
         state.live_turn_id = None;
+        state.live_settled = 0;
         // A question asked of the old conversation is not a question about
         // this one.
         state.pending = None;

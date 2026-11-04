@@ -33,7 +33,6 @@
 //! held.
 
 use darkwire_core::Result;
-use darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 use darkwire_core::memory::{
     MAX_MEMORY_NAME_CHARS, MEMORY_DIRNAME, delete_memory_in, memory_slug, read_memory_in,
     save_memory_in,
@@ -112,8 +111,12 @@ impl ToolHandler for Memory {
                     .await?
                     .map_err(failed)?;
                     match found {
-                        Some(memory) => ToolOutput::text(with_paging_note(memory.content, &file))
-                            .with_detail("key", key),
+                        Some(memory) => ToolOutput::text(with_paging_note(
+                            memory.content,
+                            &file,
+                            ctx.config.max_output_chars,
+                        ))
+                        .with_detail("key", key),
                         None => ToolOutput::error(format!(
                             "No memory `{key}`. The keys are listed under Memory in your prompt."
                         )),
@@ -153,10 +156,11 @@ impl ToolHandler for Memory {
 }
 
 /// A memory longer than one tool result loses its middle on the way to the
-/// model. The note goes last, because the cut keeps the end.
-fn with_paging_note(content: String, file: &str) -> String {
-    let length = content.chars().count();
-    if length <= DEFAULT_MAX_TOOL_RESULT_CHARS {
+/// model. The note goes last, because the cut keeps the end. Counted in
+/// UTF-16 units, the unit the cut uses.
+fn with_paging_note(content: String, file: &str, budget: u64) -> String {
+    let length = content.encode_utf16().count();
+    if u64::try_from(length).unwrap_or(u64::MAX) <= budget {
         return content;
     }
     format!(

@@ -33,6 +33,7 @@ use tokio_util::sync::CancellationToken;
 use crate::auth_store::{Argon2Hasher, AuthStore, AuthStoreOptions, PasswordHasher};
 use crate::automation_store::AutomationStore;
 use crate::boot::assert_boot_policy;
+use crate::client_address::{TrustedProxies, resolve_client};
 use crate::errors::{HttpError, error_body};
 use crate::hosts::{HostPolicy, require_known_host};
 use crate::hub::SessionHub;
@@ -301,8 +302,13 @@ pub fn create_server(options: ServerOptions) -> Result<WireServer> {
     // The host check goes around all of it, the fallback included: a rebound
     // name that could still load the UI shell would be a page an attacker can
     // script against the API.
+    let proxies = Arc::new(TrustedProxies::new(&options.config.server.trusted_proxies));
     let router = router(state, global.as_ref())
         .fallback(axum::routing::any(not_found).with_state(ui))
+        .layer(axum::middleware::from_fn_with_state(
+            proxies,
+            resolve_client,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             hosts,
             require_known_host,

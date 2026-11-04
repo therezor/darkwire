@@ -273,8 +273,19 @@ impl darkwire_server::hub::TurnRunner for LoopRunner {
         Box::new(self.agent_loop.run(input, parent))
     }
 
-    fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
-        self.agent_loop.steer(session_key, id, content)
+    fn compact<'a>(
+        &'a self,
+        request: &'a darkwire_agent::CompactRequest,
+        token: &'a CancellationToken,
+    ) -> darkwire_providers::BoxFuture<
+        'a,
+        darkwire_core::Result<darkwire_core::session_store::SessionRecord>,
+    > {
+        Box::pin(self.agent_loop.compact(request, token))
+    }
+
+    fn auto_compact(&self) -> bool {
+        self.agent_loop.auto_compact()
     }
 }
 
@@ -730,6 +741,7 @@ impl ChannelHub for HubBridge {
             // A channel *can* answer an approval — somebody is reading the chat
             // — so it counts as a watcher, unlike a scheduled run.
             unattended: false,
+            awaits_resume: false,
             workspace_id: options.workspace_id,
             max_buffered_bytes: None,
             max_replayed_bytes: None,
@@ -953,7 +965,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     }
 
     let config = runtime.config();
-    let hub = build_hub(&runtime, &config, &approvals, &clock);
+    let hub = build_hub(&runtime, &approvals, &clock);
     watch.fill_hub(&hub);
 
     // The channel set before the adapter, because the adapter rebuilds through
@@ -1160,14 +1172,14 @@ fn publish_tool_changes(
 /// the delete.
 fn build_hub(
     runtime: &Arc<WireRuntime>,
-    config: &darkwire_protocol::Config,
     approvals: &Arc<HubApprovalGate>,
     clock: &Arc<SystemClock>,
 ) -> Arc<SessionHub> {
     let for_loop = Arc::clone(runtime);
     let resolver = Arc::clone(runtime);
     SessionHub::new(SessionHubOptions {
-        config: config.clone(),
+        replay_frames: None,
+        turn_log_bytes: None,
         loop_for: Arc::new(move |agent_id| {
             Ok(for_loop.loop_for(agent_id)?.map(|one| {
                 Arc::new(LoopRunner { agent_loop: one })
@@ -1193,6 +1205,7 @@ fn build_hub(
         new_id: None,
         max_queue_depth: None,
         max_sessions: None,
+        steering: Arc::clone(runtime.steering()),
     })
 }
 
@@ -1245,6 +1258,7 @@ fn build_scheduler(
                 channel: Some(options.channel),
                 agent_id: options.agent_id,
                 unattended: options.unattended,
+                awaits_resume: false,
                 workspace_id: options.workspace_id,
                 max_buffered_bytes: None,
                 max_replayed_bytes: None,

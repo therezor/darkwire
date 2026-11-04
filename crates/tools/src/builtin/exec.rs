@@ -28,12 +28,9 @@
 //!
 //! The description and the argument schema have to cover **both** placements,
 //! because they are computed once and the same definition is advertised to a
-//! host agent and a sandboxed one. Stating the host rules flatly — "there is no
-//! shell", "paths outside the workspace are errors" — puts them beside a Sandbox
-//! section telling a sandboxed agent to run `ddgr --json | jq`. Faced with the
-//! contradiction a model does the conservative thing and reports it cannot do
-//! the task at all, which is how "I can't search the internet" comes out of an
-//! agent holding a search tool.
+//! host agent and a sandboxed one. A rule stated for one placement alone sits
+//! beside a Sandbox section that contradicts it, and a model faced with the
+//! contradiction reports it cannot do the task at all.
 
 use std::sync::Arc;
 
@@ -60,7 +57,7 @@ use crate::tool::{
 struct ExecArgs {
     #[schemars(
         length(min = 1),
-        description = "Program and arguments as separate strings, e.g. [\"git\",\"status\",\"--short\"]. On the host there is no shell, so pipes, redirection and globs are not interpreted. In a sandbox there is one: [\"bash\",\"-lc\",\"a | b > c\"] works. Your instructions say which applies: a \"Sandbox\" section means the second."
+        description = "Program and arguments as separate strings, e.g. [\"git\",\"status\",\"--short\"]. Pipes, redirection and globs need a shell: [\"bash\",\"-lc\",\"a | b > c\"]."
     )]
     argv: Vec<String>,
     #[schemars(
@@ -82,9 +79,7 @@ impl ToolHandler for Exec {
         Box::pin(async move {
             assert_not_aborted(&ctx.token, "exec")?;
 
-            // Fails on a denied binary, a shell, or an argument reaching outside
-            // the workspace. `plan.paths` is what an approval prompt should
-            // display.
+            // Fails on an empty argv, a NUL byte, or a shell this agent denies.
             let plan = guard_exec(
                 &args.argv,
                 &ExecGuardOptions {
@@ -216,15 +211,6 @@ pub fn render_run(argv: &[String], plan: &ExecPlan, outcome: &RunOutcome) -> Too
             "argv",
             Value::Array(argv.iter().map(|a| Value::from(a.as_str())).collect()),
         )
-        .with_detail(
-            "paths",
-            Value::Array(
-                plan.paths
-                    .iter()
-                    .map(|path| Value::from(path.to_string_lossy().into_owned()))
-                    .collect(),
-            ),
-        )
         .with_detail("exitCode", outcome.code.map_or(Value::Null, Value::from))
         .with_detail(
             "signal",
@@ -242,7 +228,7 @@ pub fn exec_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
             "exec",
-            "Run a program and return its output. Arguments are passed as an argv array. On the host it runs in the workspace root on the real filesystem, so an argument pointing outside the workspace is refused rather than clamped: \"/etc/passwd\" and \"../x\" are errors, and there is no shell. In a sandbox it runs inside a container that mounts only the workspace: a shell is available, and absolute paths address the container rather than this machine. Your instructions carry a \"Sandbox\" section when that is the case, naming what the image holds.",
+            "Run a program and return its output. Arguments are passed as an argv array, with the workspace root as the working directory. On the host it runs on the real filesystem. In a sandbox it runs inside a container that mounts only the workspace, and your instructions carry a \"Sandbox\" section naming what the image holds.",
         )
         .risk(ToolRisk::Exec)
         .annotations(ToolAnnotations {

@@ -267,7 +267,7 @@ impl KeyStore for Fake {
 fn takes_the_first_store_that_has_a_key() {
     let first = Fake::new("first", Some(&KEY), true);
     let second = Fake::new("second", Some(&OTHER_KEY), true);
-    let resolved = resolve_vault_key(&[&first, &second], &OsRandom).unwrap();
+    let resolved = resolve_vault_key(&[&first, &second], &OsRandom, false).unwrap();
     assert_eq!(resolved.source, "first");
     assert!(!resolved.created);
     assert_eq!(resolved.key, KEY);
@@ -278,7 +278,7 @@ fn takes_the_first_store_that_has_a_key() {
 fn falls_through_to_a_store_that_has_one() {
     let empty = Fake::new("empty", None, true);
     let keyfile = Fake::new("keyfile", Some(&KEY), true);
-    let resolved = resolve_vault_key(&[&empty, &keyfile], &OsRandom).unwrap();
+    let resolved = resolve_vault_key(&[&empty, &keyfile], &OsRandom, false).unwrap();
     assert_eq!(resolved.source, "keyfile");
     assert_eq!(resolved.key, KEY);
 }
@@ -287,7 +287,8 @@ fn falls_through_to_a_store_that_has_one() {
 fn generates_and_persists_a_key_on_first_run() {
     let keychain = Fake::new("keychain", None, false);
     let keyfile = Fake::new("keyfile", None, true);
-    let resolved = resolve_vault_key(&[&keychain, &keyfile], &FixedRandom::constant(3)).unwrap();
+    let resolved =
+        resolve_vault_key(&[&keychain, &keyfile], &FixedRandom::constant(3), false).unwrap();
     assert_eq!(resolved.source, "keyfile");
     assert!(resolved.created);
     assert_eq!(resolved.key, vec![3u8; VAULT_KEY_BYTES]);
@@ -297,9 +298,25 @@ fn generates_and_persists_a_key_on_first_run() {
 #[test]
 fn fails_rather_than_running_with_a_key_nothing_stored() {
     let nope = Fake::new("nope", None, false);
-    let error = resolve_vault_key(&[&nope], &OsRandom).unwrap_err();
+    let error = resolve_vault_key(&[&nope], &OsRandom, false).unwrap_err();
     assert_eq!(error.kind, ErrorKind::Config);
     assert_eq!(error.details["stores"], json!(["nope"]));
+}
+
+#[test]
+fn never_mints_a_key_over_an_existing_vault() {
+    let locked = Fake::new("keychain", None, true);
+    let error = resolve_vault_key(&[&locked], &OsRandom, true).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Config);
+    assert!(error.message.contains("keychain is locked"));
+    assert!(locked.saved.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_existing_vault_still_opens_with_a_stored_key() {
+    let keychain = Fake::new("keychain", Some(&KEY), true);
+    let resolved = resolve_vault_key(&[&keychain], &OsRandom, true).unwrap();
+    assert_eq!(resolved.key, KEY);
 }
 
 #[test]
@@ -310,14 +327,17 @@ fn a_store_error_propagates() {
     #[cfg(unix)]
     chmod(&path, 0o600);
     let store = KeyFileStore::new(&path);
-    assert_eq!(kind_of(&resolve_vault_key(&[&store], &OsRandom)), "config");
+    assert_eq!(
+        kind_of(&resolve_vault_key(&[&store], &OsRandom, false)),
+        "config"
+    );
 }
 
 #[test]
 fn uses_real_randomness_by_default() {
     let collect = Fake::new("x", None, true);
-    resolve_vault_key(&[&collect], &OsRandom).unwrap();
-    resolve_vault_key(&[&collect], &OsRandom).unwrap();
+    resolve_vault_key(&[&collect], &OsRandom, false).unwrap();
+    resolve_vault_key(&[&collect], &OsRandom, false).unwrap();
     let saved = collect.saved.lock().unwrap();
     assert_ne!(saved[0], saved[1]);
 }
@@ -326,9 +346,9 @@ fn uses_real_randomness_by_default() {
 fn works_end_to_end_against_a_real_key_file() {
     let (_dir, base) = temp_base();
     let store = KeyFileStore::new(base.join("vault.key"));
-    let first = resolve_vault_key(&[&store], &OsRandom).unwrap();
+    let first = resolve_vault_key(&[&store], &OsRandom, false).unwrap();
     assert!(first.created);
-    let second = resolve_vault_key(&[&store], &OsRandom).unwrap();
+    let second = resolve_vault_key(&[&store], &OsRandom, false).unwrap();
     assert!(!second.created);
     assert_eq!(second.key, first.key);
 }

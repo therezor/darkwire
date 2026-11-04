@@ -16,11 +16,9 @@
 //!
 //! The constraint a confined backend has to honour, recorded here because it
 //! is the part that will bite: the guard computes `cwd` from the jail root and
-//! the environment from a host allow-list. Both are host-shaped. A runner that
-//! mounts the workspace elsewhere has to translate the working directory and
-//! every path in `plan.paths` to its own view — and once only the workspace is
-//! mounted, the guard's refuse-outside-the-workspace rule becomes redundant
-//! rather than wrong, so it stays.
+//! the environment from a host allow-list. Both are host-shaped, and a runner
+//! that mounts the workspace elsewhere has to translate the working directory
+//! to its own view.
 
 use std::pin::{Pin, pin};
 use std::process::Stdio;
@@ -40,6 +38,13 @@ use crate::tool::BoxFuture;
 
 /// Grace between asking a child to stop and insisting.
 pub const KILL_GRACE_MS: u64 = 2_000;
+
+/// How long the pipes are read after the command itself has exited.
+///
+/// A process the command started in the background inherits its stdout and
+/// keeps it open after the command is gone; waiting for that EOF would hold the
+/// turn until somebody pressed Stop.
+pub const PIPE_GRACE_MS: u64 = 500;
 
 /// Which pipe a chunk came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -157,11 +162,12 @@ pub struct PlacementRequest {
 ///  - **The environment is exactly the plan's.** The child inherits nothing
 ///    from this process: `env_clear` first, then the allow-listed map.
 ///  - **Output is capped while the child writes**, so a build that logs two
-///    megabytes returns its first megabyte rather than nothing, and finishes
-///    rather than being killed for talking too much.
-///  - **Completion is both pipes at EOF and the exit status**, not the exit
-///    alone: a process can exit before its pipes have flushed, and the last
-///    lines of a compiler's output are exactly the ones worth having.
+///    megabytes returns its first megabyte rather than nothing. The rest is
+///    read and dropped, so the child finishes rather than dying of `SIGPIPE`.
+///  - **Completion is the exit status, then the pipes for [`PIPE_GRACE_MS`]**:
+///    a process can exit before its pipes have flushed, and the last lines of a
+///    compiler's output are the ones worth having, but a background process
+///    that inherited a pipe must not hold the run open.
 ///  - **Cancellation reaches the child.** One token runs from the transport
 ///    through the loop and the registry to a `SIGTERM` here, which is the end
 ///    of the chain and the only place cancellation becomes a real process going
@@ -205,13 +211,10 @@ enum Stop {
     TimedOut,
 }
 
-/// Reads one pipe into its cap until EOF, or until the budget is spent and
-/// nobody is keeping the rest.
+/// Reads one pipe into its cap until EOF or until the run abandons it.
 ///
-/// Closing the pipe once the budget is spent is the point of the cap's boolean
-/// return: a command that has already written more than the model can be shown
-/// gets the same treatment `head` would give it, rather than being read to the
-/// end so its output can be thrown away.
+/// Past the budget the bytes are still read and dropped: closing the pipe
+/// instead would kill a chatty command with `SIGPIPE` halfway through its work.
 async fn drain(
     pipe: Option<impl AsyncRead + Unpin>,
     stream: OutputStream,
@@ -238,11 +241,35 @@ async fn drain(
         if let Some(tee) = tee {
             tee.write(stream, chunk).await;
         }
-        if !cap.push(chunk) && tee.is_none() {
-            break;
-        }
+        cap.push(chunk);
     }
     cap
+}
+
+/// The exit status, then the pipes for [`PIPE_GRACE_MS`] more before they are
+/// abandoned to whatever inherited them.
+async fn settle<O: Future>(
+    outputs: O,
+    child: &mut tokio::process::Child,
+    abandon: &CancellationToken,
+) -> (O::Output, std::io::Result<std::process::ExitStatus>) {
+    let mut outputs = pin!(outputs);
+    let mut drained = None;
+    let status = loop {
+        tokio::select! {
+            done = &mut outputs, if drained.is_none() => drained = Some(done),
+            status = child.wait() => break status,
+        }
+    };
+    if let Some(done) = drained {
+        return (done, status);
+    }
+    let grace = Duration::from_millis(PIPE_GRACE_MS);
+    if let Ok(done) = tokio::time::timeout(grace, &mut outputs).await {
+        return (done, status);
+    }
+    abandon.cancel();
+    (outputs.await, status)
 }
 
 /// The signal that ended a process, by name.
@@ -354,7 +381,7 @@ impl CommandRunner for LocalRunner {
                     &abandon,
                 ),
             );
-            let mut work = pin!(join(outputs, child.wait()));
+            let mut work = pin!(settle(outputs, &mut child, &abandon));
 
             let stop = async {
                 if timeout_ms == 0 {

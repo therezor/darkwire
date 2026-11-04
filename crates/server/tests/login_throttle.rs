@@ -125,10 +125,10 @@ fn an_attempt_is_counted_before_its_password_is_checked() {
         panic!("the attempt past the free ones is let through with the lock it created");
     };
     assert_eq!(created.retry_after_ms, 1_000);
-    let Admission::Refused(block) = built.throttle.admit("10.0.0.2").unwrap() else {
-        panic!("the next guess, from anywhere, is refused before it is hashed");
+    let Admission::Refused(block) = built.throttle.admit("10.0.0.1").unwrap() else {
+        panic!("the next guess is refused before it is hashed");
     };
-    assert_eq!(block.scope, ACCOUNT_SCOPE);
+    assert_eq!(block.retry_after_ms, 1_000);
 }
 
 #[test]
@@ -219,22 +219,53 @@ fn a_login_that_worked_forgives_both_scopes() {
 
 // the account scope
 
-/// The reason this module exists.
-///
-/// Every address here is used exactly once, so no per-address bucket ever
-/// reaches its free allowance and a per-address rate limit would see nothing at
-/// all. The account bucket is what notices.
+/// Every address here is used once, so no per-address bucket reaches its free
+/// allowance. The account bucket notices, and holds each of them.
 #[test]
-fn a_distributed_attack_no_per_address_bucket_would_catch_is_caught() {
+fn a_distributed_attack_is_held_by_the_account_lock() {
     let built = build();
     for index in 0..=FREE_ATTEMPTS {
         built.throttle.fail(&format!("10.0.0.{index}")).unwrap();
     }
 
-    // A brand new address, which has never failed and is refused anyway.
-    let block = built.throttle.check("203.0.113.7").unwrap().unwrap();
+    let block = built.throttle.check("10.0.0.0").unwrap().unwrap();
     assert_eq!(block.scope, ACCOUNT_SCOPE);
     assert!(block.retry_after_ms > 0);
+}
+
+/// Guesses spread over many addresses must not lock the owner out, so an
+/// address with no failure on record passes the account lock.
+#[test]
+fn a_clean_address_passes_the_account_lock() {
+    let built = build();
+    for index in 0..=FREE_ATTEMPTS {
+        built.throttle.fail(&format!("10.0.0.{index}")).unwrap();
+    }
+
+    assert_eq!(built.throttle.check("203.0.113.7").unwrap(), None);
+    assert!(matches!(
+        built.throttle.admit("203.0.113.7").unwrap(),
+        Admission::Admitted(_)
+    ));
+    // Now on record, it is held like the rest.
+    let block = built.throttle.check("203.0.113.7").unwrap().unwrap();
+    assert_eq!(block.scope, ACCOUNT_SCOPE);
+}
+
+/// A host handed a /64 must not get a clean record per address in it.
+#[test]
+fn an_ipv6_address_counts_as_its_slash_64() {
+    let built = build();
+    for index in 0..=FREE_ATTEMPTS {
+        built
+            .throttle
+            .fail(&format!("2001:db8:1:2::{index:x}"))
+            .unwrap();
+    }
+
+    let block = built.throttle.check("2001:db8:1:2::ffff").unwrap().unwrap();
+    assert!(block.retry_after_ms > 0);
+    assert_eq!(built.throttle.check("2001:db8:1:3::1").unwrap(), None);
 }
 
 /// An unbounded account lockout on a single-account server is a denial of
@@ -246,7 +277,7 @@ fn the_account_cap_is_far_below_the_per_address_ceiling() {
         built.throttle.fail(&format!("10.0.0.{index}")).unwrap();
     }
 
-    let block = built.throttle.check("203.0.113.7").unwrap().unwrap();
+    let block = built.throttle.check("10.0.0.7").unwrap().unwrap();
     assert!(block.retry_after_ms <= MAX_ACCOUNT_DELAY_MS);
     // The two caps are deliberately different orders of magnitude: an address
     // can be shared by a whole office, so locking one out for fifteen minutes

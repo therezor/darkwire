@@ -15,7 +15,7 @@ use std::sync::Arc;
 use darkwire_core::ErrorKind;
 use darkwire_security::{
     JailCheck, JailOptions, JailRejection, JailResolver, PathShape, WorkspaceJail, escape_refusal,
-    led_outside, path_shapes, single_jail,
+    led_outside, single_jail,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -105,7 +105,7 @@ fn matches_the_paths_fixture() {
                 "message": scrub(&message),
             }),
         };
-        let actual = json!({"check": check, "shapes": path_shapes(&input)});
+        let actual = json!({ "check": check });
         if actual != case["output"] {
             failures.push(format!(
                 "{}\n  expected {}\n  actual   {}",
@@ -392,33 +392,6 @@ fn errors_carry_the_kind_and_the_rejection() {
 
     let empty = jail.resolve("").unwrap_err();
     assert_eq!(empty.kind, ErrorKind::InvalidInput);
-}
-
-#[test]
-fn path_shapes_classify_without_resolving() {
-    assert_eq!(path_shapes("/etc/passwd"), [PathShape::Absolute]);
-    assert_eq!(path_shapes("~/.ssh/id_ed25519"), [PathShape::HomePrefix]);
-    assert_eq!(path_shapes("//server/share"), [PathShape::Unc]);
-    assert_eq!(path_shapes("C:\\Windows"), [PathShape::Drive]);
-    assert_eq!(path_shapes("../x"), [PathShape::Traversal]);
-    assert_eq!(path_shapes("a/../b"), [PathShape::Traversal]);
-    for input in [
-        "src/index.ts",
-        "./script.js",
-        "--format=json",
-        "https://example.com/a/b",
-    ] {
-        assert!(path_shapes(input).is_empty(), "{input}");
-    }
-}
-
-#[test]
-fn path_shapes_agree_with_what_check_reports() {
-    let ws = workspace();
-    let jail = jail_at(&ws.root);
-    for input in ["/etc/passwd", "~/x", "../x", "a/../b", "src/a.ts", "C:\\x"] {
-        assert_eq!(accept(&jail, input).rewrites, path_shapes(input), "{input}");
-    }
 }
 
 #[test]

@@ -16,8 +16,9 @@ use darkwire_channels::channel::{
 use darkwire_core::Result;
 use darkwire_core::message_bus::{OutboundKind, OutboundMessage};
 use darkwire_protocol::{
-    ApprovalScope, ClientMessage, EditMessage, EditTag, RegenerateMessage, RegenerateTag,
-    SteerMessage, SteerTag, StopTurnMessage, StopTurnTag, ToolApproveMessage, ToolApproveTag,
+    ApprovalScope, ClientMessage, CompactSessionMessage, CompactSessionTag, EditMessage, EditTag,
+    RegenerateMessage, RegenerateTag, SteerMessage, SteerTag, StopTurnMessage, StopTurnTag,
+    ToolApproveMessage, ToolApproveTag,
 };
 
 /// A channel that declares nothing beyond what it must.
@@ -99,15 +100,20 @@ fn every_frame() -> Vec<ChannelControlFrame> {
             agent_id: None,
             client_message_id: None,
         }),
+        ChannelControlFrame::Compact(CompactSessionMessage {
+            tag: CompactSessionTag,
+            session_key: "bare:1".to_owned(),
+            instructions: None,
+        }),
     ]
 }
 
 #[test]
-fn a_channel_may_send_exactly_five_kinds_of_frame() {
+fn a_channel_may_send_exactly_six_kinds_of_frame() {
     let tags: Vec<&str> = every_frame().iter().map(ChannelControlFrame::tag).collect();
 
     assert_eq!(tags, CHANNEL_CONTROL_TAGS);
-    assert_eq!(tags.len(), 5);
+    assert_eq!(tags.len(), 6);
 }
 
 #[test]
@@ -154,6 +160,9 @@ fn addressing_rewrites_the_key_into_every_frame_that_carries_one() {
             ClientMessage::Steer(body) => assert_eq!(body.session_key, "bare:rewritten"),
             ClientMessage::Regenerate(body) => assert_eq!(body.session_key, "bare:rewritten"),
             ClientMessage::Edit(body) => assert_eq!(body.session_key, "bare:rewritten"),
+            ClientMessage::CompactSession(body) => {
+                assert_eq!(body.session_key, "bare:rewritten");
+            }
             other => panic!("{tag} became {}", other.tag()),
         }
     }

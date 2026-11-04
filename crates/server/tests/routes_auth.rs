@@ -97,7 +97,8 @@ fn unclaimed(config: Config) -> Unclaimed {
     .expect("a fake runtime");
 
     let hub = SessionHub::new(SessionHubOptions {
-        config: config.clone(),
+        replay_frames: None,
+        turn_log_bytes: None,
         // Nothing is configured, which is the honest state of an install nobody
         // has finished setting up. Every frame but a turn still works.
         loop_for: Arc::new(|_| Ok(None)),
@@ -114,6 +115,7 @@ fn unclaimed(config: Config) -> Unclaimed {
         new_id: None,
         max_queue_depth: None,
         max_sessions: None,
+        steering: Arc::new(darkwire_agent::SteeringQueue::new()),
     });
 
     let built = create_server(ServerOptions {

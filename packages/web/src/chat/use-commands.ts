@@ -31,7 +31,7 @@ import { useAgent } from '@/agents/agent-context.js';
 import { useAgentChoice } from '@/agents/use-agent-choice.js';
 import { toast } from '@/components/ui/toast.js';
 import { api } from '@/lib/api.js';
-import { newSession, stopTurn } from '@/lib/connection.js';
+import { compactSession, newSession, stopTurn } from '@/lib/connection.js';
 import { queryKeys } from '@/lib/query.js';
 import { afterSettingsWrite } from '@/settings/use-settings.js';
 import { useTurnStore } from '@/state/turn.js';
@@ -103,6 +103,7 @@ export function useCommands(): RunCommand {
         const settings = await queryClient.query({
           queryKey: queryKeys.settings,
           queryFn: ({ signal }) => api.settings(signal),
+          staleTime: 0,
         });
         const saved = await api.patchSettings(
           agentSettingsPatch(settings.config, current, changes),
@@ -162,6 +163,7 @@ export function useCommands(): RunCommand {
           return fork.key;
         },
         stop: stopTurn,
+        compact: compactSession,
         chooseAgent: choose,
         extensionCommands: extensionCommands.map((command) => command.id),
         runExtensionCommand: async (id, args) => {

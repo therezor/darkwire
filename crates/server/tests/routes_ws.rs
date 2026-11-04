@@ -195,10 +195,25 @@ async fn connect_from(
         builder = builder.with_header("Origin", origin);
     }
     let (socket, _) = tokio_tungstenite::connect_async(builder).await?;
-    Ok(Connection {
+    let mut connection = Connection {
         socket,
         seen: Vec::new(),
-    })
+    };
+    // A tab that names its session resumes it first, as the web client does,
+    // and is attached once the replay that resume asked for has arrived.
+    if let Some(session) = query
+        .strip_prefix("?session=")
+        .and_then(|rest| rest.split('&').next())
+        .filter(|session| !session.is_empty())
+    {
+        connection
+            .send(&serde_json::json!({
+                "type": "session.resume", "sessionKey": session, "lastSeq": 0,
+            }))
+            .await;
+        connection.next_of("session.replay").await;
+    }
+    Ok(connection)
 }
 
 /// The status a failed handshake reported, or `None` if it failed some other

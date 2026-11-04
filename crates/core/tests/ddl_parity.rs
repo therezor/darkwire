@@ -90,7 +90,6 @@ fn all_ddl() -> Vec<&'static str> {
         .iter()
         .chain(workspace_store::SCHEMA)
         .copied()
-        .chain(session_store::TURN_STATS_LEDGER.iter().map(|(_, ddl)| *ddl))
         .collect()
 }
 
@@ -110,28 +109,6 @@ fn the_default_workspace_literal_is_the_default_workspace_id() {
     let literal = format!("DEFAULT '{DEFAULT_WORKSPACE_ID}'");
     assert!(session_store::SESSIONS_TABLE.contains(&literal));
     assert!(session_store::TURN_STATS_TABLE.contains(&literal));
-    assert!(session_store::TURN_STATS_LEDGER[0].1.contains(&literal));
-}
-
-#[test]
-fn the_ledger_names_exactly_the_five_columns_an_older_build_lacked() {
-    let columns: Vec<&str> = session_store::TURN_STATS_LEDGER
-        .iter()
-        .map(|(column, _)| *column)
-        .collect();
-    assert_eq!(
-        columns,
-        [
-            "workspace_id",
-            "error",
-            "generation_ms",
-            "generation_tokens",
-            "first_token_ms"
-        ]
-    );
-    for (column, ddl) in session_store::TURN_STATS_LEDGER {
-        assert!(ddl.starts_with(&format!("ALTER TABLE turn_stats ADD COLUMN {column} ")));
-    }
 }
 
 // (a) a fresh database matches sqlite_master.json
@@ -348,19 +325,6 @@ fn every_statement_the_typescript_constructors_ran_is_one_this_code_runs() {
         .map(|ddl| normalised(ddl))
         .collect();
     assert_eq!(actual, expected);
-
-    let ledger: Vec<&str> = ddl["ledger"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|entry| entry["store"] == "SessionStore")
-        .map(|entry| entry["sql"].as_str().unwrap())
-        .collect();
-    let ours: Vec<&str> = session_store::TURN_STATS_LEDGER
-        .iter()
-        .map(|(_, ddl)| *ddl)
-        .collect();
-    assert_eq!(ours, ledger);
 }
 
 #[test]

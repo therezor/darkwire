@@ -267,7 +267,7 @@ fn folding_a_tool_whose_head_already_went_out_keeps_the_head() {
         kind: LineKind::Notice,
         text: format!("output {at}"),
     });
-    assert_eq!(widget.handle_key(&key("\u{f}")), Typed::ToggleTools);
+    assert_eq!(widget.handle_key(&key("\u{f}")), Typed::Redraw);
     widget.handle_event(&TranscriptEvent::ToolBodyEnd);
 
     assert!(
@@ -437,7 +437,7 @@ fn ctrl_o_decides_how_the_next_tool_arrives_not_the_last_one() {
     widget.handle_event(&TranscriptEvent::ToolBodyEnd);
     let before = written(&mut widget);
 
-    assert_eq!(widget.handle_key(&key("\u{f}")), Typed::ToggleTools);
+    assert_eq!(widget.handle_key(&key("\u{f}")), Typed::Redraw);
 
     widget.handle_event(&TranscriptEvent::ToolBodyStart {
         summary: "second call".to_owned(),
@@ -472,7 +472,7 @@ fn what_a_turn_cost_is_hidden_by_default_and_kept_for_the_transcript() {
 #[test]
 fn ctrl_y_decides_whether_the_next_cost_is_written() {
     let mut widget = widget();
-    assert_eq!(widget.handle_key(&key("\u{19}")), Typed::ToggleStats);
+    assert_eq!(widget.handle_key(&key("\u{19}")), Typed::Redraw);
 
     widget.handle_event(&TranscriptEvent::Stats {
         line: "1.2k tokens".to_owned(),
@@ -480,29 +480,6 @@ fn ctrl_y_decides_whether_the_next_cost_is_written() {
     });
 
     assert_eq!(written(&mut widget), vec!["1.2k tokens"]);
-}
-
-#[test]
-fn ctrl_y_tells_the_renderer_what_it_did() {
-    let mut widget = widget();
-    assert!(widget.take_stats_toggle().is_none());
-
-    widget.handle_key(&key("\u{19}"));
-    assert_eq!(widget.take_stats_toggle(), Some(true));
-    assert!(
-        widget.take_stats_toggle().is_none(),
-        "the switch was reported twice"
-    );
-}
-
-#[test]
-fn the_output_command_sets_the_same_switch_a_key_does() {
-    let mut widget = widget();
-    widget.handle_event(&TranscriptEvent::StatsShown(true));
-    assert!(widget.stats_shown());
-
-    widget.handle_event(&TranscriptEvent::StatsShown(false));
-    assert!(!widget.stats_shown());
 }
 
 // ---------------------------------------------------------------- the keys
@@ -960,9 +937,7 @@ fn a_paste_with_a_menu_over_the_composer_goes_to_the_menu() {
     });
     widget
         .bottom_mut()
-        .push_view(Box::new(darkwire::bottom_pane::SelectView::new(
-            select, answer,
-        )));
+        .push_view(darkwire::bottom_pane::SelectView::new(select, answer));
 
     widget.paste("sec\n");
     widget.handle_key(&key("\r"));

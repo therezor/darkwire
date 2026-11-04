@@ -107,6 +107,12 @@ export function ModelSection({
           checked={switches.toolsEnabled.checked}
           onCheckedChange={switches.toolsEnabled.set}
         />
+        <SwitchRow
+          label={t('agents.autoCompact')}
+          hint={t('agents.autoCompactHint')}
+          checked={switches.autoCompact.checked}
+          onCheckedChange={switches.autoCompact.set}
+        />
       </FieldGrid>
     </Section>
   );

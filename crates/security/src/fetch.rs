@@ -110,10 +110,12 @@ pub enum EgressAllow {
     Public,
     /// Only what this list names. Empty reaches nothing.
     ///
-    /// A matched entry also lifts the loopback and private refusals for the
-    /// destination it matched: naming `10.0.0.0/8` is the operator saying they
-    /// know what is there. It never lifts link-local, multicast, unspecified or
-    /// reserved, and [`crate::parse_allow_entry`] refuses an entry naming one.
+    /// An address or block entry also lifts the loopback and private refusals
+    /// for the addresses it covers: naming `10.0.0.0/8` is the operator saying
+    /// they know what is there. A name never does, because whoever answers for
+    /// the name decides where it points. Nothing lifts link-local, multicast,
+    /// unspecified or reserved, and [`crate::parse_allow_entry`] refuses an
+    /// entry naming one.
     Only(AllowList),
 }
 
@@ -188,9 +190,6 @@ pub struct PinnedTarget {
     pub host: String,
     /// Validated and in connection order. The client may use only these.
     pub addresses: Vec<IpAddr>,
-    /// An allow-list entry named this host, which lifts the loopback and
-    /// private refusals for it. Never the hard-blocked ranges.
-    pub exempt: bool,
 }
 
 /// One request's worth of choices.
@@ -328,18 +327,25 @@ fn no_egress(policy: &NetworkPolicy, raw_url: &str) -> WireError {
     .with_detail("url", raw_url)
 }
 
-/// Whether a classified range may be reached, given what matched the host.
+/// Whether a classified range may be reached, given whether an address or
+/// block entry covers the address.
 ///
 /// Link-local (the cloud metadata endpoint), multicast, the unspecified address
 /// and the transition prefixes have no legitimate agent use, and **no entry
-/// unlocks them**. That is a deliberate tightening over the shape this replaced,
-/// where naming a host skipped classification wholesale and so an entry that
-/// resolved to 169.254.169.254 was reachable.
-///
-/// Loopback and private are reachable when an entry matched, because that is an
-/// operator naming a model server on this host or a service on the LAN.
-fn is_permitted(range: &AddressRange, matched: bool) -> bool {
-    !is_hard(range.category) && matched
+/// unlocks them**. Loopback and private are reachable when an entry covers the
+/// address itself, which is an operator naming a model server on this host or
+/// a service on the LAN. A name entry is not enough: a name that resolved to
+/// `127.0.0.1` would otherwise reach whatever listens there.
+fn is_permitted(range: &AddressRange, covered: bool) -> bool {
+    !is_hard(range.category) && covered
+}
+
+/// Whether the policy's list covers this address with an address or block.
+fn covers(policy: &NetworkPolicy, parsed: &ParsedIp) -> bool {
+    match &policy.allow {
+        EgressAllow::Public => false,
+        EgressAllow::Only(list) => list.match_address(parsed).is_some(),
+    }
 }
 
 /// An address as the resolver handed it back, in the form the table classifies.
@@ -359,12 +365,12 @@ fn is_hard(category: AddressCategory) -> bool {
 /// Refuses an address the policy does not admit, naming why.
 fn assert_address(
     parsed: &ParsedIp,
-    matched: bool,
+    covered: bool,
     host: &str,
     raw_url: &str,
     resolved: bool,
 ) -> Result<()> {
-    let Some(range) = classify_address(parsed).filter(|range| !is_permitted(range, matched)) else {
+    let Some(range) = classify_address(parsed).filter(|range| !is_permitted(range, covered)) else {
         return Ok(());
     };
     let message = if resolved {
@@ -426,28 +432,23 @@ pub async fn validate_target(
         assert_address(parsed, true, &host, raw_url, false)?;
     }
 
-    let matched = match &policy.allow {
-        EgressAllow::Public => false,
-        EgressAllow::Only(list) if list.is_empty() => {
+    if let EgressAllow::Only(list) = &policy.allow {
+        if list.is_empty() {
             return Err(no_egress(policy, raw_url));
         }
-        EgressAllow::Only(list) => {
-            if list.match_host(&host).is_none() {
-                return Err(not_allowed(policy, &host, raw_url));
-            }
-            true
+        if list.match_host(&host).is_none() {
+            return Err(not_allowed(policy, &host, raw_url));
         }
-    };
+    }
 
     if let Some(parsed) = literal {
-        // Re-checked with the match in hand, because loopback and private are
+        // Re-checked with the list in hand, because loopback and private are
         // unlocked by an entry and the first pass could not know there was one.
-        assert_address(&parsed, matched, &host, raw_url, false)?;
+        assert_address(&parsed, covers(policy, &parsed), &host, raw_url, false)?;
         return Ok(PinnedTarget {
             url,
             host,
             addresses: vec![parsed.to_ip_addr()],
-            exempt: matched,
         });
     }
 
@@ -478,14 +479,13 @@ pub async fn validate_target(
         };
         // Every address is checked, not just the first: the connection may use
         // any of them, so one blocked answer poisons the whole set.
-        assert_address(&parsed, matched, &host, raw_url, true)?;
+        assert_address(&parsed, covers(policy, &parsed), &host, raw_url, true)?;
     }
 
     Ok(PinnedTarget {
         url,
         host,
         addresses: answers,
-        exempt: matched,
     })
 }
 

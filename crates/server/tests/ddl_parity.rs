@@ -162,29 +162,6 @@ fn every_statement_the_typescript_constructors_ran_is_one_this_code_runs() {
 }
 
 #[test]
-fn the_created_by_ledger_names_exactly_the_two_columns_an_older_build_lacked() {
-    let ddl = fixture_json("ddl.json");
-    let ledger: Vec<&str> = ddl["ledger"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|entry| entry["store"] == "AutomationStore")
-        .map(|entry| entry["sql"].as_str().unwrap())
-        .collect();
-    let ours: Vec<&str> = automation_store::CREATED_BY_LEDGER
-        .iter()
-        .map(|(_, ddl)| *ddl)
-        .collect();
-    assert_eq!(ours, ledger);
-
-    let columns: Vec<&str> = automation_store::CREATED_BY_LEDGER
-        .iter()
-        .map(|(column, _)| *column)
-        .collect();
-    assert_eq!(columns, ["created_by_agent", "created_by_session"]);
-}
-
-#[test]
 fn the_partial_index_is_the_one_the_timer_reads() {
     // The predicate is what makes the index small on a mature table: every
     // fired one-shot and every disabled job sits at `next_run_at_ms = 0`.
@@ -212,36 +189,4 @@ fn the_column_list_comment_is_the_one_sqlite_already_stored() {
     ] {
         assert!(!ddl.contains("--"), "comment in DDL: {ddl}");
     }
-}
-
-#[test]
-fn an_older_database_without_the_created_by_columns_gains_them() {
-    let db = Database::in_memory().unwrap();
-    // The table as a build that predates attribution created it.
-    db.execute_batch(
-        "CREATE TABLE automation_jobs (
-           id               TEXT    PRIMARY KEY,
-           name             TEXT    NOT NULL,
-           schedule_json    TEXT    NOT NULL,
-           payload_json     TEXT    NOT NULL,
-           enabled          INTEGER NOT NULL DEFAULT 1,
-           delete_after_run INTEGER NOT NULL DEFAULT 0,
-           next_run_at_ms   INTEGER NOT NULL DEFAULT 0,
-           last_run_at_ms   INTEGER NOT NULL DEFAULT 0,
-           last_status      TEXT    NOT NULL DEFAULT 'pending',
-           last_error       TEXT    NOT NULL DEFAULT '',
-           run_count        INTEGER NOT NULL DEFAULT 0,
-           created_at_ms    INTEGER NOT NULL,
-           updated_at_ms    INTEGER NOT NULL
-         ) STRICT;",
-    )
-    .unwrap();
-
-    let clock = Arc::new(ManualClock::at(NOW));
-    let store = AutomationStore::new(db.clone(), clock, ids("j")).unwrap();
-    let columns = db.column_names("automation_jobs").unwrap();
-    assert!(columns.iter().any(|name| name == "created_by_agent"));
-    assert!(columns.iter().any(|name| name == "created_by_session"));
-    // And the store reads through them rather than failing.
-    assert_eq!(store.list_jobs().unwrap().len(), 0);
 }

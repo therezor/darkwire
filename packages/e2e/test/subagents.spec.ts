@@ -205,11 +205,9 @@ test.describe('a delegating agent', () => {
 /**
  * The reload that used to lose the run.
  *
- * Its own server, because the thing under test is what happens when the replay
- * ring cannot cover the gap — and with a ring of any size these scripted turns
- * fit inside it, so the fallback would never be reached. `replayBufferSize: 0`
- * makes every resume incomplete, which is what a real delegation does to a
- * ring of 512 within a second of streaming.
+ * Its own server, for the agents it configures. A reload resumes from 0, so
+ * the running turn comes back from the turn log, whole, however far the ring
+ * has moved on.
  *
  * Nothing transient is asserted. The subagent stops in a tool that does not
  * finish, so "a delegation is in flight" is a state the spec holds rather than
@@ -220,7 +218,6 @@ test.describe('reloading mid-delegation', () => {
   test.use({
     harnessOptions: {
       config: {
-        server: { replayBufferSize: 0 },
         agents: {
           list: {
             researcher: {

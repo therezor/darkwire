@@ -97,27 +97,35 @@ address.
 
 ## Resilience
 
-`with_resilience` decorates both streaming and non-streaming calls. Its retry ladder is
-declarative, six steps, and the order _is_ the policy — each step costs more than the one
+`with_resilience` decorates both streaming and non-streaming calls. Its repair ladder is
+declarative, five steps, and the order _is_ the policy: each step costs more than the one
 above it. It drops `prompt_cache_key`, then merges the trailing turn, then drops
-`reasoning_effort`, then `tool_choice`, then images, then the oldest turns: a cache-routing
-hint costs nothing, a message boundary costs little, `reasoning_effort` costs answer
-quality, an image costs information the user supplied, and a turn costs the conversation's
-memory. Each is tried only after the one above it has failed or does not apply.
+`reasoning_effort`, then `tool_choice`, then images. Each is tried only after the one above
+it has failed or does not apply, and each fires at most once per request.
+
+**What a step removed is said in the chat.** It travels on the result in plain words, and
+the loop shows each as a `degraded` notice, so "This model cannot read images, so the
+images were left out" sits above an answer that ignores the picture.
+
+**A request too long for the model is not cut further.** The loop already windows history
+to the agent's `contextWindowTokens`, so a context-length rejection means that setting is
+larger than the model takes. The turn ends with an error that says so.
+
+Transient failures (a rate limit, a 5xx, a dropped connection) are retried with jittered
+backoff up to 8 s. A provider's own `Retry-After` is honoured up to 60 s. An exhausted
+quota (`insufficient_quota`) is not retried, since waiting does not change it.
 
 **A stream that has already emitted output is never retried.** Retrying it would either
 duplicate text the user has read or silently replace it.
 
 Errors are typed. `ProviderError` carries a `reason`, and nothing in the codebase branches
-on a substring of a provider's message — a `notice` with kind `provider_fallback` or
-`degraded` tells the operator when a request was narrowed to succeed.
+on a substring of a provider's message.
 
 ## Token accounting
 
 One estimator, deliberately: `ceil(length / 4)`, with no tables and no allocation. It
-answers one question — "roughly how big is this?" — which the degradation ladder asks when
-deciding how many turns to drop after a context-length rejection. That runs on the failure
-path, so it must not be slower than the success path.
+answers one question, "roughly how big is this?", for the history window and the context
+meter, which calibrate it against the provider's own count after every request.
 
 **There is no exact tokenizer, and that is a decision rather than a gap.** A per-provider
 one would mean shipping megabytes of vocabulary per provider to sharpen an estimate that

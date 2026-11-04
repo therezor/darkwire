@@ -37,14 +37,14 @@ fn a_message_opens_an_exchange_with_a_blank_row_and_a_caret() {
 fn an_answer_is_the_rows_it_became() {
     let cell = AssistantCell::new(vec![row("one"), row("two")]);
     assert_eq!(texts(&cell.display_lines(40)), vec!["one", "two"]);
-    assert_eq!(cell.desired_height(40), 2);
+    assert_eq!(cell.display_lines(40).len(), 2);
 }
 
 #[test]
 fn an_answer_that_said_nothing_writes_nothing() {
     let cell = AssistantCell::new(Vec::new());
     assert!(cell.is_empty());
-    assert_eq!(cell.desired_height(40), 0);
+    assert_eq!(cell.display_lines(40).len(), 0);
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn a_folded_cell_writes_its_summary_and_keeps_its_body() {
         texts(&cell.transcript_lines(40)),
         vec!["┄ reasoning 4s", "first thought", "second thought"]
     );
-    assert_eq!(cell.desired_height(40), 1);
+    assert_eq!(cell.display_lines(40).len(), 1);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn an_expanded_cell_writes_its_body_too() {
         texts(&cell.display_lines(40)),
         vec!["ran a command", "output"]
     );
-    assert_eq!(cell.desired_height(40), 2);
+    assert_eq!(cell.display_lines(40).len(), 2);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn a_hidden_cost_writes_nothing_and_stays_in_the_transcript() {
     let cell = StatsCell::new("1.2k tokens", false);
 
     assert!(cell.display_lines(40).is_empty());
-    assert_eq!(cell.desired_height(40), 0);
+    assert_eq!(cell.display_lines(40).len(), 0);
     assert_eq!(texts(&cell.transcript_lines(40)), vec!["1.2k tokens"]);
 }
 

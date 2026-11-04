@@ -28,7 +28,6 @@
 //!    that job's afternoon evict a nightly job's entire year, which is
 //!    backwards: the sparse history is the one worth keeping.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use darkwire_core::clock::Clock;
@@ -108,27 +107,6 @@ pub const SCHEMA: &[&str] = &[
     AUTOMATION_JOBS_DUE_INDEX,
     AUTOMATION_RUNS_TABLE,
     AUTOMATION_RUNS_JOB_INDEX,
-];
-
-/// Columns added to a table an older build already created, in order.
-///
-/// `CREATE TABLE IF NOT EXISTS` does nothing to a table that exists, so a
-/// column added after the fact is invisible to anyone whose database predates
-/// it — and every read here would then fail with `storage`.
-///
-/// Deliberately not a migration framework. This repository has never needed
-/// one: every other table has been created whole, and the ledger is only for
-/// altering tables that already exist. This is that case, once, for two
-/// columns.
-pub const CREATED_BY_LEDGER: &[(&str, &str)] = &[
-    (
-        "created_by_agent",
-        "ALTER TABLE automation_jobs ADD COLUMN created_by_agent TEXT NOT NULL DEFAULT ''",
-    ),
-    (
-        "created_by_session",
-        "ALTER TABLE automation_jobs ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''",
-    ),
 ];
 
 const READ: RowReader = RowReader::new("automation");
@@ -238,15 +216,17 @@ fn status_str(status: RunStatus) -> &'static str {
     }
 }
 
-/// A status written by an older build becomes `pending` rather than failing the
-/// read — the same trade the notification level makes, for the same reason.
 fn read_status(row: &Row<'_>, column: &str) -> Result<RunStatus> {
-    Ok(match READ.string(row, column)?.as_str() {
-        "ok" => RunStatus::Ok,
-        "error" => RunStatus::Error,
-        "skipped" => RunStatus::Skipped,
-        _ => RunStatus::Pending,
-    })
+    match READ.string(row, column)?.as_str() {
+        "ok" => Ok(RunStatus::Ok),
+        "error" => Ok(RunStatus::Error),
+        "skipped" => Ok(RunStatus::Skipped),
+        "pending" => Ok(RunStatus::Pending),
+        other => Err(WireError::new(
+            ErrorKind::Storage,
+            format!("Unknown run status in {column}: {other}"),
+        )),
+    }
 }
 
 fn read_warnings(row: &Row<'_>) -> Vec<String> {
@@ -385,8 +365,7 @@ impl std::fmt::Debug for AutomationStore {
 }
 
 impl AutomationStore {
-    /// Creates the tables if they are not there, applies the column ledger, and
-    /// strips any legacy per-job timezone.
+    /// Creates the tables if they are not there.
     pub fn new(db: Database, clock: Arc<dyn Clock>, new_id: IdSource) -> Result<AutomationStore> {
         // Connection-level and idempotent. `SessionStore` already sets it on
         // the shared connection, but this store's cascade is the only thing
@@ -398,93 +377,7 @@ impl AutomationStore {
             db.execute_batch(statement)?;
         }
 
-        let store = AutomationStore { db, clock, new_id };
-        store.add_missing_columns()?;
-        store.drop_legacy_schedule_tz()?;
-        Ok(store)
-    }
-
-    fn add_missing_columns(&self) -> Result<()> {
-        let present = self.db.column_names("automation_jobs")?;
-        for (column, ddl) in CREATED_BY_LEDGER {
-            if !present.iter().any(|name| name == column) {
-                self.db.execute_batch(ddl)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Strips the per-job `tz` an older build wrote into `schedule_json`.
-    ///
-    /// Not cosmetic, and not deferrable. A cron schedule refuses unknown keys,
-    /// so a row still carrying `tz` does not parse with the key ignored — it
-    /// fails outright, and every job in the listing is dropped because one of
-    /// them is old. The panel would show an empty automation page on an install
-    /// that has jobs.
-    ///
-    /// Rewriting rather than tolerating on read, because a blob nobody rewrites
-    /// keeps the stale field until someone edits that job by hand — and the
-    /// next reader of the row has to know a rule that is written down nowhere
-    /// in it.
-    ///
-    /// The log line is the point of collecting the zones. A job written
-    /// `0 9 * * *` in `Europe/Kyiv` now fires at 09:00 in the install's zone,
-    /// which is a different instant; an operator who is told which zones were
-    /// dropped can go and check the jobs that moved. Silence here would be the
-    /// same change made invisibly.
-    fn drop_legacy_schedule_tz(&self) -> Result<()> {
-        let candidates: Vec<(String, String)> = {
-            let guard = self.db.lock();
-            let mut statement = guard.prepare_cached(
-                r#"SELECT id, schedule_json FROM automation_jobs WHERE schedule_json LIKE '%"tz"%'"#,
-            )?;
-            let mut rows = statement.query([])?;
-            let mut found = Vec::new();
-            while let Some(row) = rows.next()? {
-                found.push((READ.string(row, "id")?, READ.string(row, "schedule_json")?));
-            }
-            found
-        };
-        if candidates.is_empty() {
-            return Ok(());
-        }
-
-        let mut zones = BTreeSet::new();
-        let mut changed = 0_u64;
-        for (id, raw) in candidates {
-            // Unreadable JSON is a different defect and not one this pass
-            // invented. Leaving it is what lets the schema report it against
-            // the job it is on.
-            let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(&raw) else {
-                continue;
-            };
-            let Some(tz) = object.shift_remove("tz") else {
-                continue;
-            };
-            if let Value::String(zone) = &tz
-                && !zone.is_empty()
-            {
-                zones.insert(zone.clone());
-            }
-            let rewritten = serde_json::to_string(&Value::Object(object)).map_err(|error| {
-                WireError::new(ErrorKind::Storage, format!("Unwritable schedule: {error}"))
-            })?;
-            self.db.lock().execute(
-                "UPDATE automation_jobs SET schedule_json = ? WHERE id = ?",
-                params![&rewritten, &id],
-            )?;
-            changed += 1;
-        }
-
-        if changed > 0 {
-            let zones: Vec<&str> = zones.iter().map(String::as_str).collect();
-            tracing::warn!(
-                jobs = changed,
-                zones = ?zones,
-                "dropped per-job automation timezones; these jobs now use the install timezone (ui.timezone) and may fire at a different instant",
-            );
-        }
-        Ok(())
+        Ok(AutomationStore { db, clock, new_id })
     }
 
     // Jobs

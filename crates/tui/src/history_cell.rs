@@ -21,11 +21,6 @@ pub trait HistoryCell {
     /// The rows that go to the scrollback.
     fn display_lines(&self, width: u16) -> Vec<Line<'static>>;
 
-    /// How many rows [`HistoryCell::display_lines`] will return.
-    fn desired_height(&self, width: u16) -> u16 {
-        u16::try_from(self.display_lines(width).len()).unwrap_or(u16::MAX)
-    }
-
     /// The rows with nothing folded away, for the full transcript.
     fn transcript_lines(&self, width: u16) -> Vec<Line<'static>> {
         self.display_lines(width)
@@ -37,34 +32,7 @@ impl<T: HistoryCell + ?Sized> HistoryCell for Box<T> {
         (**self).display_lines(width)
     }
 
-    fn desired_height(&self, width: u16) -> u16 {
-        (**self).desired_height(width)
-    }
-
     fn transcript_lines(&self, width: u16) -> Vec<Line<'static>> {
         (**self).transcript_lines(width)
-    }
-}
-
-/// Rows that are already what they will be, hiding nothing.
-pub struct PlainCell {
-    lines: Vec<Line<'static>>,
-}
-
-impl PlainCell {
-    /// A cell of exactly these rows.
-    #[must_use]
-    pub fn new(lines: Vec<Line<'static>>) -> Self {
-        Self { lines }
-    }
-}
-
-impl HistoryCell for PlainCell {
-    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        self.lines.clone()
-    }
-
-    fn desired_height(&self, _width: u16) -> u16 {
-        u16::try_from(self.lines.len()).unwrap_or(u16::MAX)
     }
 }

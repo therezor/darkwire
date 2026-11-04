@@ -309,27 +309,6 @@ fn another_thread_waits_its_turn() {
 }
 
 #[test]
-fn column_names_lists_the_table_in_declaration_order() {
-    let db = Database::in_memory().unwrap();
-    db.execute_batch("CREATE TABLE t (b INTEGER, a TEXT, c BLOB)")
-        .unwrap();
-    assert_eq!(db.column_names("t").unwrap(), ["b", "a", "c"]);
-    assert!(db.column_names("missing").unwrap().is_empty());
-}
-
-#[test]
-fn column_names_refuses_anything_that_is_not_a_bare_table_name() {
-    let db = Database::in_memory().unwrap();
-    for bad in ["t); DROP TABLE t; --", "a b", "t.x"] {
-        let error = db.column_names(bad).unwrap_err();
-        assert_eq!(error.kind, ErrorKind::Internal);
-        assert_eq!(error.details["table"], bad);
-    }
-    // An empty name passes the character check and fails in SQLite instead.
-    assert_eq!(db.column_names("").unwrap_err().kind, ErrorKind::Storage);
-}
-
-#[test]
 fn execute_batch_reports_a_bad_statement_as_storage() {
     let db = Database::in_memory().unwrap();
     let error = db.execute_batch("THIS IS NOT SQL").unwrap_err();

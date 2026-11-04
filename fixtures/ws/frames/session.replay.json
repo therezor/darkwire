@@ -4,31 +4,6 @@
     "type": "session.replay",
     "seq": 57,
     "sessionKey": "web:abc",
-    "messages": [
-      {
-        "id": "m1",
-        "sessionKey": "web:abc",
-        "seq": 1,
-        "createdAtMs": 1700000000000,
-        "turnId": "t1",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "type": "text",
-              "text": "calling"
-            }
-          ],
-          "toolCalls": [
-            {
-              "id": "call_1",
-              "name": "read",
-              "argumentsJson": "{\"path\":\"a.txt\"}"
-            }
-          ]
-        }
-      }
-    ],
     "complete": false,
     "resumingTurnId": "t1"
   }

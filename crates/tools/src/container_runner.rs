@@ -799,7 +799,6 @@ impl ContainerRunner {
             env: client_env(),
             timeout_ms: plan.timeout_ms,
             max_output_bytes: plan.max_output_bytes,
-            paths: plan.paths.clone(),
         }
     }
 

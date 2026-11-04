@@ -442,7 +442,9 @@ impl ServerRuntime for CliServerRuntime {
     }
 
     fn apply_settings(&self, patch: ConfigPatch) -> Result<Config> {
-        let before: Vec<String> = self.runtime.config().providers.keys().cloned().collect();
+        let current = self.runtime.config();
+        let before: Vec<String> = current.providers.keys().cloned().collect();
+        let channels_before = current.channels.clone();
         let merged = self.runtime.apply_patch(&patch)?;
 
         // After the rebuild, so a patch that could not be built has not already
@@ -462,10 +464,12 @@ impl ServerRuntime for CliServerRuntime {
         }
 
         save_config(self.runtime.file(), &merged)?;
-        // After the write, so a patch that could not be saved does not bounce a
-        // bot that is running perfectly well on the settings that are still on
-        // disk.
-        self.rebuild_channels();
+        // Only when a channel's own settings moved, and after the write. A
+        // restart closes the bot's connections, so a save that touched an
+        // agent's rules would orphan a reply a Telegram chat is waiting on.
+        if merged.channels != channels_before {
+            self.rebuild_channels();
+        }
         Ok(merged)
     }
 

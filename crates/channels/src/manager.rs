@@ -289,6 +289,9 @@ struct Bridge {
     max_sessions: usize,
     workspace_id: Option<String>,
     table: Mutex<IndexMap<String, Bridged>>,
+    /// Conversations that carry on under another key, old to new. A channel
+    /// keeps publishing on the key it knows, and this follows it there.
+    moved: Mutex<HashMap<String, String>>,
 }
 
 impl Bridge {
@@ -385,8 +388,47 @@ impl Bridge {
         }
     }
 
+    /// The table key for a connection opened under `key`. Its events keep
+    /// arriving under that key wherever the conversation has moved since.
+    fn resolve(&self, table: &IndexMap<String, Bridged>, key: &str) -> String {
+        if table.contains_key(key) {
+            return key.to_owned();
+        }
+        match key.split_once(' ') {
+            Some((channel_id, session_key)) => {
+                Bridge::key(channel_id, &self.current(session_key.to_owned()))
+            }
+            None => key.to_owned(),
+        }
+    }
+
+    /// Files a conversation under the key it carries on as, and answers that
+    /// key.
+    fn follow(&self, table: &mut IndexMap<String, Bridged>, key: &str, continued: &str) -> String {
+        let Some(mut bridged) = table.shift_remove(key) else {
+            return key.to_owned();
+        };
+        let moved_key = Bridge::key(&bridged.channel_id, continued);
+        self.moved
+            .lock()
+            .insert(bridged.session_key.clone(), continued.to_owned());
+        continued.clone_into(&mut bridged.session_key);
+        table.insert(moved_key.clone(), bridged);
+        moved_key
+    }
+
+    /// Where a conversation carries on now.
+    fn current(&self, session_key: String) -> String {
+        let moved = self.moved.lock();
+        let mut key = session_key;
+        while let Some(next) = moved.get(&key) {
+            key.clone_from(next);
+        }
+        key
+    }
+
     fn to_hub(self: &Arc<Self>, message: &InboundMessage) {
-        let session_key = namespaced(&message.channel_id, &message.session_key);
+        let session_key = self.current(namespaced(&message.channel_id, &message.session_key));
         let target = target_of(message);
         let connection = self.ensure(&message.channel_id, &session_key, &target);
         self.retarget(&message.channel_id, &session_key, target);
@@ -431,7 +473,7 @@ impl Bridge {
     /// these is content: a `turn.stop` queued behind the turn it is stopping is
     /// a stop that arrives after the thing it was for.
     fn control(self: &Arc<Self>, channel_id: &str, command: ChannelControl) {
-        let session_key = namespaced(channel_id, &command.session_key);
+        let session_key = self.current(namespaced(channel_id, &command.session_key));
         let target = command.target.unwrap_or(command.session_key);
         let connection = self.ensure(channel_id, &session_key, &target);
         connection.receive(command.frame.with_session_key(&session_key).into());
@@ -440,7 +482,11 @@ impl Bridge {
     fn deliver(&self, key: &str, event: &ServerMessage) {
         let published = {
             let mut table = self.table.lock();
-            let Some(bridged) = table.get_mut(key) else {
+            let mut key = self.resolve(&table, key);
+            if let ServerMessage::SessionCompacted(compacted) = event {
+                key = self.follow(&mut table, &key, &compacted.event.continued_key);
+            }
+            let Some(bridged) = table.get_mut(&key) else {
                 return;
             };
             if let ServerMessage::SessionStatus(status) = event {
@@ -568,6 +614,7 @@ impl ChannelManager {
                     max_sessions: options.max_sessions,
                     workspace_id: options.workspace_id,
                     table: Mutex::new(IndexMap::new()),
+                    moved: Mutex::new(HashMap::new()),
                 }),
                 bus,
                 owns_bus,

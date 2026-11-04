@@ -548,6 +548,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<ws::SteerMessage>,
     },
     RegisteredSchema {
+        name: "CompactSessionMessage",
+        schema: schema_for::<ws::CompactSessionMessage>,
+    },
+    RegisteredSchema {
         name: "ClientMessage",
         schema: schema_for::<ws::ClientMessage>,
     },
@@ -646,6 +650,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "SessionTruncatedEvent",
         schema: schema_for::<ws::SessionTruncatedEvent>,
+    },
+    RegisteredSchema {
+        name: "SessionCompactedEvent",
+        schema: schema_for::<ws::SessionCompactedEvent>,
     },
     RegisteredSchema {
         name: "NotificationEvent",

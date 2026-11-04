@@ -125,6 +125,18 @@ pub struct RouteDeps {
 /// The bag every handler extracts with `State`.
 pub type AppState = Arc<RouteDeps>;
 
+/// Runs `work` against the stores on the blocking pool, since each one is
+/// synchronous SQLite and an async worker held by a query stalls every other
+/// request on it.
+pub async fn on_store<T, F>(state: &AppState, work: F) -> darkwire_core::Result<T>
+where
+    F: FnOnce(&RouteDeps) -> darkwire_core::Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let deps = Arc::clone(state);
+    darkwire_core::db::blocking(move || work(&deps)).await
+}
+
 /// axum's filter for one manifest method.
 fn method_filter(method: RouteMethod) -> MethodFilter {
     match method {

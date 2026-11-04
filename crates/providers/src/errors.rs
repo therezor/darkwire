@@ -37,8 +37,10 @@ use serde_json::{Map, Value};
 pub enum ProviderErrorReason {
     /// 401/403. The key is missing, wrong, or lacks access to the model.
     Auth,
-    /// 429, or a provider's own quota response.
+    /// 429: too many requests for now.
     RateLimit,
+    /// The account has no credit or quota left. Waiting does not help.
+    QuotaExceeded,
     /// A parameter this model does not accept. The ladder can drop it.
     UnsupportedParam,
     /// The request exceeded the model's context window.
@@ -67,9 +69,10 @@ pub enum ProviderErrorReason {
 
 impl ProviderErrorReason {
     /// Every reason, in declaration order.
-    pub const ALL: [ProviderErrorReason; 14] = [
+    pub const ALL: [ProviderErrorReason; 15] = [
         ProviderErrorReason::Auth,
         ProviderErrorReason::RateLimit,
+        ProviderErrorReason::QuotaExceeded,
         ProviderErrorReason::UnsupportedParam,
         ProviderErrorReason::ContextLength,
         ProviderErrorReason::InvalidRequest,
@@ -89,6 +92,7 @@ impl ProviderErrorReason {
         match self {
             ProviderErrorReason::Auth => "auth",
             ProviderErrorReason::RateLimit => "rate_limit",
+            ProviderErrorReason::QuotaExceeded => "quota_exceeded",
             ProviderErrorReason::UnsupportedParam => "unsupported_param",
             ProviderErrorReason::ContextLength => "context_length",
             ProviderErrorReason::InvalidRequest => "invalid_request",
@@ -125,7 +129,8 @@ impl ProviderErrorReason {
             ProviderErrorReason::Transport => ErrorKind::Network,
             ProviderErrorReason::Timeout => ErrorKind::Timeout,
             ProviderErrorReason::Aborted => ErrorKind::Aborted,
-            ProviderErrorReason::UnsupportedParam
+            ProviderErrorReason::QuotaExceeded
+            | ProviderErrorReason::UnsupportedParam
             | ProviderErrorReason::ContextLength
             | ProviderErrorReason::InvalidRequest
             | ProviderErrorReason::ContentFilter
@@ -440,6 +445,11 @@ const MODEL_NOT_FOUND_CODES: &[&str] = &["model_not_found", "model_not_available
 /// falls back to dropping whatever optional parameters the request happened
 /// to carry.
 pub fn classify_status(status: u16, body: Option<&WireErrorBody>) -> ProviderErrorReason {
+    // Before the status: billing exhaustion arrives as a 429, and retrying it
+    // spends three attempts on an answer that cannot change.
+    if body.and_then(|body| body.code.as_deref()) == Some("insufficient_quota") {
+        return ProviderErrorReason::QuotaExceeded;
+    }
     match status {
         401 | 403 => return ProviderErrorReason::Auth,
         404 => return ProviderErrorReason::ModelNotFound,
@@ -473,7 +483,7 @@ pub fn classify_status(status: u16, body: Option<&WireErrorBody>) -> ProviderErr
         if code == "content_filter" {
             return ProviderErrorReason::ContentFilter;
         }
-        if code == "rate_limit_exceeded" || code == "insufficient_quota" {
+        if code == "rate_limit_exceeded" {
             return ProviderErrorReason::RateLimit;
         }
     }

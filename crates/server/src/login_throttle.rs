@@ -13,12 +13,12 @@
 //!  - **Per address**, capped at fifteen minutes. One host that guesses wrong
 //!    repeatedly is not making a mistake, and locking it out for a long time
 //!    costs nothing that matters.
-//!  - **Per account**, capped at thirty seconds. This is the scope the botnet
-//!    cannot spread out of — every guess against the single account lands in
-//!    the same bucket regardless of where it came from, which caps the
-//!    *aggregate* guess rate at roughly two a minute no matter how many
-//!    addresses are in play. A twelve-character password is out of reach at
-//!    that rate for longer than the universe has been around.
+//!  - **Per account**, capped at thirty seconds. Every guess lands in this
+//!    bucket wherever it came from, but its lock holds only an address that
+//!    has itself failed. An address with a clean record is let through, so
+//!    guesses spread over a botnet cannot lock the owner out. The price is one
+//!    guess per fresh address per hour, against a password that needs
+//!    millions. An IPv6 address counts as its /64.
 //!
 //! The thirty seconds is the whole design, and it is a ceiling rather than an
 //! escalation because of what this server is: a single-account install. An
@@ -231,10 +231,17 @@ impl LoginThrottle {
 }
 
 /// The longer of the two scopes' blocks, if either is in force.
+///
+/// An address with no failure on record is not held by the account lock, so a
+/// stranger's guessing cannot lock the owner out. Its first wrong guess puts
+/// it on record, and from then on both scopes apply.
 fn blocked(conn: &Connection, address: &str, now: i64) -> Result<Option<ThrottleBlock>> {
-    let account = block_for(conn, ACCOUNT_SCOPE, now)?;
-    let per_address = block_for(conn, address, now)?;
-    Ok(longest(account, per_address))
+    let Some(locked_until_ms) = live_lock(conn, address, now)? else {
+        return Ok(None);
+    };
+    let account =
+        live_lock(conn, ACCOUNT_SCOPE, now)?.and_then(|until| block(ACCOUNT_SCOPE, until, now));
+    Ok(longest(account, block(address, locked_until_ms, now)))
 }
 
 /// Counts a failure against both scopes.
@@ -244,7 +251,8 @@ fn record_both(conn: &Connection, address: &str, now: i64) -> Result<Option<Thro
     Ok(longest(account, per_address))
 }
 
-fn block_for(conn: &Connection, scope: &str, now: i64) -> Result<Option<ThrottleBlock>> {
+/// When `scope`'s lock ends, or `None` when it has no failure on record.
+fn live_lock(conn: &Connection, scope: &str, now: i64) -> Result<Option<i64>> {
     let mut statement = conn.prepare_cached(
         "SELECT last_failed_ms, locked_until_ms FROM auth_throttle WHERE scope = ?",
     )?;
@@ -253,20 +261,19 @@ fn block_for(conn: &Connection, scope: &str, now: i64) -> Result<Option<Throttle
         return Ok(None);
     };
     let last_failed_ms = ROWS.int(row, "last_failed_ms")?;
-    let locked_until_ms = ROWS.int(row, "locked_until_ms")?;
     // A decayed bucket is not consulted even though the row is still there:
     // pruning is opportunistic, and a lock that outlived its window must not be
     // enforced just because nothing has swept it yet.
     if now - last_failed_ms > DECAY_MS {
         return Ok(None);
     }
-    Ok(if locked_until_ms > now {
-        Some(ThrottleBlock {
-            scope: scope.to_owned(),
-            retry_after_ms: locked_until_ms - now,
-        })
-    } else {
-        None
+    Ok(Some(ROWS.int(row, "locked_until_ms")?))
+}
+
+fn block(scope: &str, locked_until_ms: i64, now: i64) -> Option<ThrottleBlock> {
+    (locked_until_ms > now).then(|| ThrottleBlock {
+        scope: scope.to_owned(),
+        retry_after_ms: locked_until_ms - now,
     })
 }
 
@@ -341,14 +348,20 @@ fn prune(conn: &Connection, now: i64) -> Result<()> {
     Ok(())
 }
 
-/// Prefixed, so an address can never collide with [`ACCOUNT_SCOPE`].
+/// Prefixed, so an address can never collide with [`ACCOUNT_SCOPE`], whatever
+/// a trusted proxy forwards.
 ///
-/// The address is the socket peer — the server does not trust a forwarding
-/// header — so it is not attacker-supplied, but the prefix costs nothing and
-/// makes that a property of this module rather than of a setting somewhere
-/// else.
+/// An IPv6 address counts as its /64. One host is routinely handed a whole
+/// /64, and keyed by address it would hold an endless supply of clean records
+/// to walk past the account lock with.
 fn address_scope(address: &str) -> String {
-    format!("ip:{address}")
+    match address.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(ip)) if ip.to_ipv4_mapped().is_none() => {
+            let [a, b, c, d, ..] = ip.segments();
+            format!("ip:{a:x}:{b:x}:{c:x}:{d:x}::/64")
+        }
+        _ => format!("ip:{address}"),
+    }
 }
 
 /// The block a caller is actually subject to.

@@ -205,14 +205,43 @@ rather than its frame count, and it is bounded in bytes. See
 
 ### History windowing
 
-`history_for_llm` runs four ordered steps: keep the last `maxMessages` (default 500), start
-at the first `user` message, align to a legal tool-call boundary, then truncate tool
-results (default 8,000 characters, head and tail with the middle marked).
+`history_window_start` runs three ordered steps: keep the last 500 messages, start at the
+first `user` message, then align to a legal tool-call boundary. A tool result was cut once
+already, when it was written: the dispatcher keeps the head and tail of anything over the
+agent's `maxOutputChars` (default 8,192 UTF-16 units) with the middle marked.
 
 The boundary alignment is the part that matters. A window that cuts through a tool
 exchange leaves either an orphaned tool result or an unanswered tool call, and both are a
 provider 400. Truncation is head-and-tail rather than head-only because the end of a
 command's output is usually where the error is.
+
+### Compaction
+
+A conversation near the end of its window is summarised into a new session rather than
+going on with its oldest turns left out of every request. `AgentLoop::compact` makes one
+request with no tools and a system prompt of its own, over the history windowed to fit
+beside that prompt and a summary cap of 4,096 tokens. Attachments go as their names, and
+a trailing tool call with no result is dropped.
+
+The new session has the old one's agent, workspace and origin, a title with
+" (continued)" on the end, and `compactedFrom` in its metadata. It opens with the exchange
+that happened: "Summarise the conversation so far" and the summary as the answer, so the
+roles alternate and the summary is the first thing on screen. The old session is left as
+it was.
+
+In the hub, `/compact` and the automatic trigger share one path. It holds the same claim
+a regenerate does, so it is refused while a turn runs or waits, and a message that
+arrives meanwhile queues. When the summary lands, the hub sends `session.compacted` on the
+old session, moves what queued to the new one, and moves every connection there. A
+channel keeps publishing on the key it knows, so the channel manager follows the move and
+Telegram rebinds its chat.
+
+The trigger is a `user.message` on an idle session whose last `context.usage` was at 90%
+of the window or more, on an agent with `autoCompact` on. Automation and subagent
+sessions are never compacted, and a session the hub has no usage for yet, which is the
+first message after a restart, waits for a turn to report one. A message queued behind a
+running turn runs where it is. If the summary fails, the message runs on the old session
+with a notice saying why.
 
 ## Subagents
 

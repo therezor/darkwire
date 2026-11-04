@@ -53,12 +53,12 @@ pub mod wrap;
 pub use ansi::{cursor_in, styled_line};
 pub use component::{CURSOR_MARKER, Component};
 pub use editor::{Editor, EditorOutcome, is_newline};
-pub use history_cell::{HistoryCell, PlainCell};
+pub use history_cell::HistoryCell;
 pub use keys::{Key, KeyName, is_ctrl};
 pub use pages::{
     CHROME_ROWS as PAGES_CHROME_ROWS, Page, Pages, PagesLabels, PagesOptions, PagesOutcome,
 };
-pub use renderable::{Column, Renderable, StyledRows, Wrapped};
+pub use renderable::{Column, Renderable, StyledRows};
 pub use select::{
     CHROME_ROWS, DEFAULT_MAX_ROWS, Select, SelectAction, SelectLabels, SelectOptions, SelectOutcome,
 };

@@ -26,17 +26,15 @@
  * being told to download, and the reader would see a broken image.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Download, File } from 'lucide-react';
 import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { Attachment } from '@darkwire/protocol';
 
-import { api } from '@/lib/api.js';
 import { formatBytes } from '@/lib/format.js';
-import { queryKeys } from '@/lib/query.js';
 import { isImage } from '@/files/paths.js';
+import { useSignedUrl } from '@/files/use-signed-url.js';
 
 interface AttachmentListProps {
   readonly attachments: readonly Attachment[];
@@ -59,21 +57,20 @@ function AttachmentItem({
   const { t } = useTranslation();
   const label = attachment.name ?? basename(attachment.path);
 
-  const signed = useQuery({
-    queryKey: queryKeys.fileUrl(workspace, attachment.path),
-    queryFn: ({ signal }) => api.signUrl(workspace, attachment.path, signal),
-    gcTime: 0,
-  });
+  const { signed, missing, renew } = useSignedUrl(workspace, attachment.path);
+  // A failed renewal keeps the old data, so the URL counts only while the
+  // query has no error to report.
+  const url = signed.isError ? undefined : signed.data?.url;
 
   // A thumbnail that appears a moment later is fine; a spinner per attachment
   // in a scrolling transcript is not. So the chip is what renders until the URL
   // is in hand, and an image simply becomes one when signing fails — a file
   // deleted out from under an old message is a chip, not a broken picture.
-  if (isImage(attachment.mimeType) && signed.data !== undefined) {
+  if (isImage(attachment.mimeType) && url !== undefined) {
     return (
       <li className="message-attachment message-attachment--image">
-        <a href={signed.data.url} target="_blank" rel="noreferrer noopener">
-          <img src={signed.data.url} alt={label} loading="lazy" />
+        <a href={url} target="_blank" rel="noreferrer noopener">
+          <img src={url} alt={label} loading="lazy" onError={renew} />
         </a>
       </li>
     );
@@ -88,9 +85,14 @@ function AttachmentItem({
           {formatBytes(attachment.sizeBytes)}
         </span>
       )}
-      {signed.data !== undefined && (
+      {missing && (
+        <span className="message-attachment__size">
+          {t('chat.attachmentUnavailable')}
+        </span>
+      )}
+      {url !== undefined && (
         <a
-          href={signed.data.url}
+          href={url}
           download={label}
           rel="noreferrer noopener"
           aria-label={t('chat.attachmentDownload', { name: label })}

@@ -70,6 +70,7 @@ function context(
       return Promise.resolve('fork-1');
     },
     stop: () => calls.push('stop'),
+    compact: (instructions) => calls.push(`compact:${instructions ?? ''}`),
     chooseAgent: (id) => {
       calls.push(`agent:${id}`);
       return Promise.resolve();
@@ -216,6 +217,24 @@ describe('/clear', () => {
       kind: 'error',
       key: 'chat.commands.errors.nothingYet',
     });
+    expect(ctx.calls).toEqual([]);
+  });
+});
+
+describe('/compact', () => {
+  it('asks for a summary, with whatever follows as instructions', async () => {
+    const ctx = context();
+    expect(await run('/compact keep the file names', ctx)).toEqual({
+      kind: 'note',
+      key: 'chat.commands.notes.compacting',
+    });
+    await run('/compact', ctx);
+    expect(ctx.calls).toEqual(['compact:keep the file names', 'compact:']);
+  });
+
+  it('refuses a conversation with nothing in it yet', async () => {
+    const ctx = context({ stored: false });
+    expect((await run('/compact', ctx)).kind).toBe('error');
     expect(ctx.calls).toEqual([]);
   });
 });

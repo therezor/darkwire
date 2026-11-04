@@ -160,8 +160,8 @@ pub struct ScriptedTurn {
     /// The seam a test uses to hold a turn open while something else happens to
     /// it: a stop, a steer, a wall-clock cap.
     pub delay_ms: u64,
-    /// The degradation ladder rewrote the request before this answered.
-    pub degraded: bool,
+    /// What the degradation ladder removed before this answered.
+    pub degraded: Vec<String>,
 }
 
 impl ScriptedTurn {
@@ -187,6 +187,19 @@ impl ScriptedTurn {
             error: Some(ScriptedError {
                 kind,
                 message: message.to_owned(),
+                reason: None,
+            }),
+            ..ScriptedTurn::default()
+        }
+    }
+
+    /// A request the provider refuses for `reason`, as its adapter reports it.
+    pub fn refused(reason: darkwire_providers::ProviderErrorReason, message: &str) -> ScriptedTurn {
+        ScriptedTurn {
+            error: Some(ScriptedError {
+                kind: reason.kind(),
+                message: message.to_owned(),
+                reason: Some(reason),
             }),
             ..ScriptedTurn::default()
         }
@@ -222,7 +235,7 @@ impl ScriptedTurn {
             // default scripted turn looks like a request nothing could measure.
             generation_ms: self.generation_ms,
             first_token_ms: self.first_token_ms,
-            degraded: self.degraded,
+            degraded: self.degraded.clone(),
         }
     }
 }
@@ -234,11 +247,18 @@ pub struct ScriptedError {
     pub kind: ErrorKind,
     /// What the turn's stats row records.
     pub message: String,
+    /// The provider's diagnosis, when the failure stands for one.
+    pub reason: Option<darkwire_providers::ProviderErrorReason>,
 }
 
 impl ScriptedError {
     fn build(&self) -> WireError {
-        WireError::new(self.kind, self.message.clone())
+        match self.reason {
+            Some(reason) => {
+                darkwire_providers::ProviderError::new(reason, self.message.clone()).into_wire()
+            }
+            None => WireError::new(self.kind, self.message.clone()),
+        }
     }
 }
 
@@ -364,7 +384,7 @@ impl ChatProvider for ScriptedProvider {
                 events.push(Ok(ChatStreamEvent::Text(text.clone())));
             }
             if !turn.omit_done {
-                events.push(Ok(ChatStreamEvent::Done(turn.result(&model))));
+                events.push(Ok(ChatStreamEvent::Done(Box::new(turn.result(&model)))));
             }
             events
         })

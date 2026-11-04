@@ -323,7 +323,11 @@ async fn it_truncates_a_long_result_before_wrapping_it() {
             ScriptedTurn::text("done"),
         ],
         tools: vec![FakeTool::reading("read", &long)],
-        max_tool_result_chars: 100,
+        config: AgentSettings {
+            model: "test-model".to_owned(),
+            max_output_chars: 100,
+            ..AgentSettings::default()
+        },
         ..Setup::default()
     });
 
@@ -764,24 +768,6 @@ async fn abandoning_the_stream_unwinds_the_turn() {
     );
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_dropped_turn_leaves_no_steering_behind() {
-    let harness = Harness::build(Setup::with(vec![ScriptedTurn::text("slow").after(60_000)]));
-
-    let turn = harness
-        .agent_loop
-        .run(TurnInput::new("web:1", "hi"), &CancellationToken::new());
-    assert!(harness.agent_loop.steer("web:1", "s1", "wait"));
-    drop(turn);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Whatever ended the turn, nothing queued for it may leak into the next,
-    // and nothing more is accepted for a turn that is gone.
-    assert!(!harness.steering.has_pending("web:1"));
-    assert!(harness.steering.is_empty());
-    assert!(!harness.agent_loop.steer("web:1", "s2", "too late"));
-}
-
 #[tokio::test]
 async fn a_turn_stopped_after_it_started_still_reports_its_end() {
     // The other half of the property above: a caller still holding the receiver
@@ -889,7 +875,7 @@ async fn a_correction_sent_as_the_turn_opens_is_read_by_its_first_step() {
     let turn = harness
         .agent_loop
         .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
-    assert!(harness.agent_loop.steer("web:1", "s1", "no, the other one"));
+    assert!(harness.steer("web:1", "s1", "no, the other one"));
     let (events, result) = turn.collect().await;
     let result = result.expect("a turn");
 
@@ -925,7 +911,7 @@ async fn a_correction_queued_mid_answer_is_answered_rather_than_discarded() {
     // by now, so this lands while the model is composing its final answer —
     // which is the moment the property is about.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(harness.agent_loop.steer("web:1", "s1", "actually, do this"));
+    assert!(harness.steer("web:1", "s1", "actually, do this"));
     let (_, result) = turn.collect().await;
     let result = result.expect("a turn");
 
@@ -952,7 +938,7 @@ async fn a_correction_on_the_last_iteration_is_left_for_the_next_turn() {
         .agent_loop
         .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(harness.agent_loop.steer("web:1", "s1", "actually, do this"));
+    assert!(harness.steer("web:1", "s1", "actually, do this"));
     let (events, result) = turn.collect().await;
     let result = result.expect("a turn");
 
@@ -996,7 +982,7 @@ async fn a_correction_pending_when_the_wall_cap_fires_is_not_written() {
         .agent_loop
         .run(TurnInput::new("web:1", "slow"), &CancellationToken::new());
     tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(harness.agent_loop.steer("web:1", "s1", "faster please"));
+    assert!(harness.steer("web:1", "s1", "faster please"));
     let (events, result) = turn.collect().await;
 
     // The cap is checked before the queue is read, so a turn that is ending
@@ -1009,14 +995,6 @@ async fn a_correction_pending_when_the_wall_cap_fires_is_not_written() {
             .all(|message| !darkwire_core::is_steer(message))
     );
     assert!(events_of(&events, "steer").is_empty());
-}
-
-#[tokio::test]
-async fn a_turn_closes_its_session_queue_when_it_ends() {
-    let harness = Harness::simple();
-    let _ = harness.say("web:1", "hi").await;
-    assert!(harness.steering.is_empty());
-    assert!(!harness.agent_loop.steer("web:1", "s1", "one"));
 }
 
 // Continuing from history
@@ -1069,6 +1047,39 @@ async fn a_continuation_answers_the_question_already_in_history_and_asks_none() 
     let start = &events_of(&events, "turn.start")[0];
     assert_eq!(start.get("firstSeq"), None);
     assert_eq!(events_of(&events, "turn.end")[0].get("firstSeq"), None);
+}
+
+// What the provider made the request lose
+
+#[tokio::test]
+async fn it_says_what_the_provider_made_the_request_lose() {
+    let lost = "This model cannot read images, so the images were left out.";
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn {
+        degraded: vec![lost.to_owned()],
+        ..ScriptedTurn::text("I see no image.")
+    }]));
+
+    let (events, _) = harness.say("web:1", "what is in this picture?").await;
+
+    let notices = events_of(&events, "notice");
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["kind"], json!("degraded"));
+    assert_eq!(notices[0]["message"], json!(lost));
+}
+
+#[tokio::test]
+async fn a_request_too_long_for_the_model_names_the_setting_to_fix() {
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn::refused(
+        darkwire_providers::ProviderErrorReason::ContextLength,
+        "too long.",
+    )]));
+
+    let (events, result) = harness.say("web:1", "hello").await;
+
+    assert_eq!(result.expect("a turn").stop_reason, StopReason::Error);
+    let errors = events_of(&events, "error");
+    let message = errors[0]["message"].as_str().unwrap();
+    assert!(message.contains("contextWindowTokens"), "{message}");
 }
 
 // A tool call written as text
@@ -1396,16 +1407,16 @@ async fn a_preview_of_a_session_that_does_not_exist_uses_the_default_workspace()
 #[tokio::test]
 async fn a_raw_agent_sends_one_blob_and_no_trailing_turn() {
     let harness = Harness::build(Setup {
-        agent: Some(LoopAgent {
+        agent: LoopAgent {
             id: "raw".to_owned(),
             prompt: darkwire_agent::PromptAgent {
                 label: "Raw".to_owned(),
-                prompt_mode: Some(PromptMode::Raw),
+                prompt_mode: PromptMode::Raw,
                 system_prompt: "Only this. {{time}}".to_owned(),
                 ..Default::default()
             },
             ..LoopAgent::default()
-        }),
+        },
         ..Setup::default()
     });
 
@@ -1532,11 +1543,11 @@ async fn a_definition_the_operator_reworded_is_what_the_model_is_sent() {
 
     let harness = Harness::build(Setup {
         tools: vec![FakeTool::reading("read", "x")],
-        agent: Some(LoopAgent {
+        agent: LoopAgent {
             id: "coder".to_owned(),
-            tool_prompts: Some(overrides),
+            tool_prompts: overrides,
             ..LoopAgent::default()
-        }),
+        },
         ..Setup::default()
     });
 
@@ -1578,11 +1589,6 @@ async fn the_loop_reports_what_a_turn_would_reach() {
     assert_eq!(harness.agent_loop.model(), "test-model");
     assert_eq!(harness.agent_loop.provider(), "scripted");
     assert_eq!(harness.agent_loop.agent_id(), "default");
-    assert!(harness.agent_loop.steering().is_empty());
-
-    // Nothing is running, so there is nothing to read it.
-    assert!(!harness.agent_loop.steer("web:1", "s1", "hurry up"));
-    assert!(!harness.agent_loop.steering().has_pending("web:1"));
     // And the debug form names the agent rather than dumping every seam.
     let shown = format!("{:?}", harness.agent_loop);
     assert!(shown.contains("test-model"), "{shown}");
@@ -1945,10 +1951,10 @@ mod lazy_discovery {
             },
         );
         let harness = Harness::build(Setup {
-            agent: Some(LoopAgent {
-                tool_prompts: Some(overrides),
+            agent: LoopAgent {
+                tool_prompts: overrides,
                 ..LoopAgent::default()
-            }),
+            },
             ..setup(vec![ScriptedTurn::text("ok")], &[])
         });
         let _ = harness.say("web:1", "hi").await;

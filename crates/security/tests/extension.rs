@@ -227,14 +227,26 @@ fn the_digest_is_stable_across_identical_installs_and_walks_nested_directories()
 }
 
 #[test]
-fn the_digest_does_not_follow_symlinks() {
+fn a_link_inside_the_extension_moves_the_digest() {
+    // Not followed, but not invisible: adding one is a change to what runs.
     let (_dir, base) = temp_base();
     let dir = install(&base, "slack", &json!({}), ENTRY);
     let before = extension_digest(&dir).unwrap();
+    symlink(&dir.join("dist/index.js"), &dir.join("alias.js"));
+    let linked = extension_digest(&dir).unwrap();
+    assert_ne!(linked, before);
+}
+
+#[test]
+fn a_link_that_leaves_the_extension_is_refused() {
+    // Its bytes are code nobody approved, and changing them would not move the
+    // digest.
+    let (_dir, base) = temp_base();
+    let dir = install(&base, "slack", &json!({}), ENTRY);
     write(&base.join("outside.js"), "stolen");
-    symlink(&base.join("outside.js"), &dir.join("link.js"));
-    symlink(&base, &dir.join("host"));
-    assert_eq!(extension_digest(&dir).unwrap(), before);
+    symlink(&base.join("outside.js"), &dir.join("plugin.js"));
+    let error = extension_digest(&dir).unwrap_err();
+    assert!(error.message.contains("links outside"), "{}", error.message);
 }
 
 #[test]

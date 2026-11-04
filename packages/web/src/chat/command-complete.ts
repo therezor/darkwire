@@ -120,8 +120,9 @@ export function commandSuggestions(
     // every command costs two Return presses, which is not what `/stop` means
     // anywhere else.
     //
-    // Only when the name is typed in full, is the only match, and takes no
-    // argument. A command that needs one keeps its row so accepting it leaves
+    // Only when the name is typed in full, is the only match, and needs no
+    // argument; an optional one, in brackets, is typed after the name or not
+    // at all. A command that needs one keeps its row so accepting it leaves
     // the cursor after the space — the rule `cli/src/pickers/palette.ts` states
     // as "a row that needs an argument is typed, not run", and what makes
     // `/agent` open the id list instead of earning a usage error.
@@ -129,7 +130,7 @@ export function commandSuggestions(
     if (
       rows.length === 1 &&
       only?.name === query.query &&
-      only.usage === undefined
+      (only.usage === undefined || only.usage.startsWith('['))
     ) {
       return [];
     }

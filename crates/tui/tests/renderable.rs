@@ -1,6 +1,6 @@
 //! Widgets that say how tall they are and then draw themselves.
 
-use darkwire_tui::renderable::{Column, Renderable, StyledRows, Wrapped};
+use darkwire_tui::renderable::{Column, Renderable, StyledRows};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
@@ -68,17 +68,17 @@ fn buffer(width: u16, height: u16) -> Buffer {
 
 #[test]
 fn a_column_is_as_tall_as_its_children_together() {
-    let column = Column::new()
-        .with(Fixed::new("a", 2))
-        .with(Fixed::new("b", 3));
+    let mut column = Column::new();
+    column.push(Fixed::new("a", 2));
+    column.push(Fixed::new("b", 3));
     assert_eq!(column.desired_height(20), 5);
 }
 
 #[test]
 fn a_column_stacks_its_children_top_to_bottom() {
-    let column = Column::new()
-        .with(Fixed::new("a", 2))
-        .with(Fixed::new("b", 1));
+    let mut column = Column::new();
+    column.push(Fixed::new("a", 2));
+    column.push(Fixed::new("b", 1));
     let mut buffer = buffer(10, 3);
     column.render(buffer.area, &mut buffer);
 
@@ -87,9 +87,9 @@ fn a_column_stacks_its_children_top_to_bottom() {
 
 #[test]
 fn a_child_past_the_bottom_of_the_area_is_not_drawn() {
-    let column = Column::new()
-        .with(Fixed::new("a", 2))
-        .with(Fixed::new("b", 2));
+    let mut column = Column::new();
+    column.push(Fixed::new("a", 2));
+    column.push(Fixed::new("b", 2));
     let mut buffer = buffer(10, 3);
     column.render(buffer.area, &mut buffer);
 
@@ -99,9 +99,9 @@ fn a_child_past_the_bottom_of_the_area_is_not_drawn() {
 
 #[test]
 fn a_column_hands_up_the_caret_of_whichever_child_has_one() {
-    let column = Column::new()
-        .with(Fixed::new("a", 2))
-        .with(Fixed::new("b", 2).with_caret((3, 1)));
+    let mut column = Column::new();
+    column.push(Fixed::new("a", 2));
+    column.push(Fixed::new("b", 2).with_caret((3, 1)));
 
     // "b" starts on row 2, so its own row 1 is row 3 of the area.
     assert_eq!(column.cursor_pos(Rect::new(0, 0, 10, 4)), Some((3, 3)));
@@ -112,12 +112,10 @@ fn a_column_of_nothing_takes_no_rows() {
     let column = Column::new();
     assert_eq!(column.desired_height(20), 0);
     assert_eq!(column.cursor_pos(Rect::new(0, 0, 10, 4)), None);
-    assert!(column.is_empty());
 }
 
 #[test]
 fn nothing_takes_no_rows() {
-    assert_eq!(Renderable::desired_height(&(), 20), 0);
     assert_eq!(None::<Fixed>.desired_height(20), 0);
     assert_eq!(Some(Fixed::new("a", 2)).desired_height(20), 2);
 }
@@ -142,17 +140,6 @@ fn rows_past_the_bottom_of_the_area_are_dropped_rather_than_wrapping_round() {
     let mut buffer = buffer(10, 2);
     lines.render(buffer.area, &mut buffer);
     assert_eq!(rows(&buffer), vec!["one", "two"]);
-}
-
-#[test]
-fn wrapped_rows_are_folded_at_whatever_width_they_are_asked_for() {
-    let wrapped = Wrapped(vec![Line::from("one two three".to_owned())]);
-    assert_eq!(wrapped.desired_height(40), 1);
-    assert_eq!(wrapped.desired_height(7), 2);
-
-    let mut buffer = buffer(7, 2);
-    wrapped.render(buffer.area, &mut buffer);
-    assert_eq!(rows(&buffer), vec!["one two", "three"]);
 }
 
 #[test]
@@ -222,10 +209,6 @@ fn a_borrowed_widget_answers_the_way_the_widget_does() {
 
     assert_eq!(borrowed.desired_height(20), 3);
     assert_eq!(borrowed.cursor_pos(Rect::new(0, 0, 10, 4)), Some((1, 2)));
-    assert_eq!(
-        borrowed.cursor_style(Rect::new(0, 0, 10, 4)),
-        crossterm::cursor::SetCursorStyle::DefaultUserShape
-    );
 }
 
 #[test]
@@ -233,25 +216,12 @@ fn a_boxed_widget_hands_up_its_caret_too() {
     let boxed: Box<dyn Renderable> = Box::new(Fixed::new("a", 2).with_caret((4, 1)));
 
     assert_eq!(boxed.cursor_pos(Rect::new(2, 3, 10, 4)), Some((6, 4)));
-    assert_eq!(
-        boxed.cursor_style(Rect::new(0, 0, 10, 4)),
-        crossterm::cursor::SetCursorStyle::DefaultUserShape
-    );
 }
 
 #[test]
 fn nothing_owns_no_caret() {
     assert_eq!(None::<Fixed>.cursor_pos(Rect::new(0, 0, 10, 4)), None);
-    assert_eq!(
-        None::<Fixed>.cursor_style(Rect::new(0, 0, 10, 4)),
-        crossterm::cursor::SetCursorStyle::DefaultUserShape
-    );
-    assert_eq!(
-        Some(Fixed::new("a", 1)).cursor_style(Rect::new(0, 0, 10, 4)),
-        crossterm::cursor::SetCursorStyle::DefaultUserShape
-    );
     let mut buffer = buffer(4, 1);
-    Renderable::render(&(), buffer.area, &mut buffer);
     None::<Fixed>.render(buffer.area, &mut buffer);
     assert_eq!(rows(&buffer), vec![""]);
 }
@@ -259,24 +229,17 @@ fn nothing_owns_no_caret() {
 #[test]
 fn a_column_can_be_built_a_child_at_a_time() {
     let mut column = Column::new();
-    assert!(column.is_empty());
-
     column.push(Fixed::new("a", 1));
     column.push(Fixed::new("b", 1));
 
-    assert_eq!(column.len(), 2);
-    assert!(!column.is_empty());
     assert_eq!(column.desired_height(20), 2);
 }
 
 #[test]
 fn a_column_with_no_child_holding_the_caret_has_none() {
-    let column = Column::new().with(Fixed::new("a", 2));
+    let mut column = Column::new();
+    column.push(Fixed::new("a", 2));
     assert_eq!(column.cursor_pos(Rect::new(0, 0, 10, 4)), None);
-    assert_eq!(
-        column.cursor_style(Rect::new(0, 0, 10, 4)),
-        crossterm::cursor::SetCursorStyle::DefaultUserShape
-    );
 }
 
 #[test]
@@ -302,10 +265,4 @@ fn a_caret_past_the_right_edge_is_kept_inside_the_area() {
     let styled = StyledRows::new(&rows);
 
     assert_eq!(styled.cursor_pos(Rect::new(0, 0, 10, 1)), Some((9, 0)));
-}
-
-#[test]
-fn a_wrapped_block_of_nothing_takes_no_rows() {
-    let wrapped = Wrapped(Vec::new());
-    assert_eq!(wrapped.desired_height(20), 0);
 }

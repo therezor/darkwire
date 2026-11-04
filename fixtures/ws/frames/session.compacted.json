@@ -1,0 +1,9 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "session.compacted",
+    "seq": 58,
+    "sessionKey": "web:abc",
+    "continuedKey": "web:abc:def"
+  }
+}

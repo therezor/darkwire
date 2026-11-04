@@ -133,6 +133,7 @@ export const PROTOCOL_SCHEMAS = {
   ResumeSessionMessage: ws.ResumeSessionMessageSchema,
   ToolApproveMessage: ws.ToolApproveMessageSchema,
   SteerMessage: ws.SteerMessageSchema,
+  CompactSessionMessage: ws.CompactSessionMessageSchema,
   ClientMessage: ws.ClientMessageSchema,
 
   // websocket — server
@@ -160,6 +161,7 @@ export const PROTOCOL_SCHEMAS = {
   SessionResetEvent: ws.SessionResetEventSchema,
   SessionReplayEvent: ws.SessionReplayEventSchema,
   SessionTruncatedEvent: ws.SessionTruncatedEventSchema,
+  SessionCompactedEvent: ws.SessionCompactedEventSchema,
   NotificationEvent: ws.NotificationEventSchema,
   ToolsChangedEvent: ws.ToolsChangedEventSchema,
   SteerEvent: ws.SteerEventSchema,

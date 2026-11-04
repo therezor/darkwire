@@ -33,13 +33,12 @@
 //!     the shape of the string any more; a shape is recorded as a [`PathShape`]
 //!     rewrite and carried on the verdict for the audit log.
 //!
-//! **`exec` is the exception, and it is deliberate.** The exec guard refuses an
-//! argument whose shape says "outside" rather than clamping it, because clamping
-//! is a property of *this* module's resolution and a spawned child does not
-//! honour it — `cat /etc/passwd` in a workspace-rooted child reads the real file.
-//! [`path_shapes`] exists so the guard can classify without resolving. Which also
-//! means: **a workspace is an organisational boundary, not a security boundary,
-//! wherever `exec` is enabled.** A child process can walk out of it.
+//! **`exec` is not confined by this module.** Clamping is a property of this
+//! module's resolution, and a spawned child does not honour it: `cat
+//! /etc/passwd` in a workspace-rooted child reads the real file. So **a
+//! workspace is an organisational boundary, not a security boundary, wherever
+//! `exec` runs on the host.** A container that mounts only the workspace is the
+//! boundary when one is needed.
 //!
 //! The verdicts are platform-independent on purpose. `\` is treated as a
 //! separator and drive letters are handled everywhere, so a config authored on
@@ -322,39 +321,6 @@ fn normalise(input: &str) -> Normalised {
         }
         return Normalised { segments, rewrites };
     }
-}
-
-/// The shapes that mean "this string addresses something outside the workspace".
-///
-/// Deliberately the **pre-chroot syntactic rule, verbatim**, and deliberately
-/// not derived from `normalise`. It exists for the exec guard, which must refuse
-/// what the file tools clamp: the guard hands its argument to a child process
-/// unchanged, and a child does not honour this module's idea of a root, so
-/// `cat /etc/passwd` with the working directory at the workspace root reads the
-/// real file.
-///
-/// `normalise` answers "what did I rewrite"; this answers "should a child ever
-/// see this". They coincide everywhere it matters and are allowed to differ on
-/// exotica like `./~/x`, where the stricter of the two is the one the guard uses.
-pub fn path_shapes(input: &str) -> Vec<PathShape> {
-    let mut shapes = Vec::new();
-    let raw: Vec<&str> = input.split(is_separator).collect();
-
-    if raw.first().is_some_and(|head| head.starts_with('~')) {
-        shapes.push(PathShape::HomePrefix);
-    }
-    if is_unc(input) {
-        shapes.push(PathShape::Unc);
-    } else if is_rooted(input) {
-        shapes.push(PathShape::Absolute);
-    }
-    if has_drive_letter(input) {
-        shapes.push(PathShape::Drive);
-    }
-    if raw.contains(&"..") {
-        shapes.push(PathShape::Traversal);
-    }
-    shapes
 }
 
 /// Whether a name exists as a directory entry, even a broken one.

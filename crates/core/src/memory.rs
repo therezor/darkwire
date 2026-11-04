@@ -49,13 +49,12 @@
 //! can both edit it. The `memory` tool is the *intended* way to write these
 //! files, not an enforced one.
 
-use std::collections::HashMap;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use cap_std::ambient_authority;
-use cap_std::fs::{Dir, MetadataExt as _, OpenOptions};
+use cap_std::fs::{Dir, OpenOptions};
 use darkwire_protocol::json::js_trim;
 use parking_lot::Mutex;
 use regex::Regex;
@@ -246,44 +245,17 @@ pub fn derive_title(content: &str, key: &str) -> String {
     title.chars().take(MAX_MEMORY_TITLE_CHARS).collect()
 }
 
-/// One lock per workspace, so writers queue rather than interleave.
+/// Serialises every memory save and delete in the process.
 ///
-/// **Process-wide, not per-instance, and that is the point.** A save reports
-/// how many memories the folder holds afterwards, so it reads the folder as
-/// well as writing to it, and two saves landing together would each report a
-/// count that does not know about the other's file. A lock owned by an instance
-/// would not be seen by a second one.
-///
-/// Keyed by the root's device and inode rather than its path, so a caller
-/// holding the root as a capability and one holding its path share one lock.
-///
-/// In-process is enough: one process owns an install. Entries are dropped when
-/// their last holder lets go, so this does not grow an entry per workspace
-/// forever.
-static LOCKS: LazyLock<Mutex<HashMap<DirIdentity, Arc<Mutex<()>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// A save reports how many memories the folder holds afterwards, and saves of
+/// one key share a temp file name, so two writers must not interleave. One lock
+/// for every workspace is enough: a memory write is a few small file
+/// operations, and one process owns an install.
+static MEMORY_WRITES: Mutex<()> = Mutex::new(());
 
-/// A directory's device and inode.
-type DirIdentity = (u64, u64);
-
-fn with_memory_lock<T>(root: &Dir, work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
-    let stats = root.dir_metadata()?;
-    let identity = (stats.dev(), stats.ino());
-    let lock = LOCKS.lock().entry(identity).or_default().clone();
-    let result = {
-        let _held = lock.lock();
-        work()
-    };
-    // Identity, not presence: if someone queued behind us they hold a clone,
-    // and the entry stays for them.
-    let mut locks = LOCKS.lock();
-    if locks
-        .get(&identity)
-        .is_some_and(|entry| Arc::ptr_eq(entry, &lock) && Arc::strong_count(entry) == 2)
-    {
-        locks.remove(&identity);
-    }
-    result
+fn with_memory_lock<T>(work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    let _held = MEMORY_WRITES.lock();
+    work()
 }
 
 /// Every memory key in a folder, sorted.
@@ -463,7 +435,7 @@ pub fn save_memory_in(
     // be able to be handed a bad one.
     let key = slug_or_invalid(key)?;
 
-    with_memory_lock(root, || {
+    with_memory_lock(|| {
         let file = dir.join(format!("{key}.md"));
         let replaced = root
             .symlink_metadata(&file)
@@ -491,7 +463,7 @@ pub fn delete_memory(workspace_root: &Path, key: &str) -> Result<DeleteMemoryRes
 pub fn delete_memory_in(root: &Dir, dir: &Path, key: &str) -> io::Result<DeleteMemoryResult> {
     let key = slug_or_invalid(key)?;
 
-    with_memory_lock(root, || {
+    with_memory_lock(|| {
         let existed = match root.remove_file(dir.join(format!("{key}.md"))) {
             Ok(()) => true,
             Err(error) if error.kind() == io::ErrorKind::NotFound => false,

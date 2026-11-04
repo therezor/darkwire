@@ -161,7 +161,7 @@ mod one_placement_section {
 
         assert!(!prompt.contains("## Environment"), "{prompt}");
         assert!(
-            prompt.contains("Paths outside the workspace may be refused"),
+            prompt.contains("The file tools always act on the workspace"),
             "{prompt}"
         );
     }
@@ -191,7 +191,7 @@ mod one_placement_section {
         // the useful half of the default, and charging every turn for both is
         // charging twice.
         assert!(
-            !prompt.contains("Paths outside the workspace may be refused"),
+            !prompt.contains("The file tools always act on the workspace"),
             "{prompt}"
         );
     }
@@ -251,7 +251,7 @@ mod one_placement_section {
 
         assert!(prompt.contains("## Running commands"), "{prompt}");
         assert!(
-            prompt.contains("Paths outside the workspace may be refused"),
+            prompt.contains("The file tools always act on the workspace"),
             "{prompt}"
         );
     }
@@ -281,7 +281,7 @@ mod the_command_policy_default {
 
         assert!(prompt.contains("## Running commands"), "{prompt}");
         assert!(
-            prompt.contains("Paths outside the workspace may be refused"),
+            prompt.contains("The file tools always act on the workspace"),
             "{prompt}"
         );
         // The two claims that made a second arm necessary.
@@ -323,7 +323,7 @@ mod the_command_policy_default {
         })
         .await;
         assert!(prompt.contains("Mine."));
-        assert!(!prompt.contains("Paths outside the workspace may be refused"));
+        assert!(!prompt.contains("The file tools always act on the workspace"));
     }
 }
 
@@ -386,7 +386,7 @@ fn a_raw_template_places_every_section_itself_byte_for_byte() {
     let runtime = runtime();
     let agent = PromptAgent {
         label: "Raw".to_owned(),
-        prompt_mode: Some(PromptMode::Raw),
+        prompt_mode: PromptMode::Raw,
         system_prompt: "# {{name}} on {{runtime}}\n\nTime: {{time}}{{wrapUp}}\n{{platformPolicy}}\
                         \n\n{{toolPolicy}}{{contributors}}{{runtimeSections}}\
                         {{correction}}"

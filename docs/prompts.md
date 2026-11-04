@@ -22,7 +22,7 @@ One section, one field, and one default text.
 ## Running commands
 
 `exec` runs with the workspace root as its working directory, so pass relative
-arguments. Paths outside the workspace may be refused.
+arguments.
 
 The file tools always act on the workspace on this machine, whatever `exec`
 does. Prefer them where they are simpler or more reliable than a command.
@@ -61,6 +61,14 @@ shows exactly what the turn will carry.
 In raw mode `{{platformPolicy}}` places the whole section. `{{environment}}` is
 not a placeholder and nothing ever filled it; a raw template naming it is
 reported, as is an agent still setting the retired `environmentPrompt`.
+
+## Summaries
+
+`/compact` and the automatic summary at 90% of the window run under a built-in system
+prompt, `SUMMARY_PROMPT` in `darkwire-agent`, in place of the agent's own. It asks for
+what the user wants, what has been done and decided, the state of work in progress, the
+names that matter and what is still open, as prose and short lists. Instructions typed
+after `/compact` are appended to the request. It is not a template and has no editor.
 
 The supported placeholders are exported by `@darkwire/protocol`. The editor flags unknown
 placeholders before saving, while the renderer leaves unknown placeholders visible rather

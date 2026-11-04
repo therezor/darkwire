@@ -329,13 +329,11 @@ pub struct Setup {
     /// Where a delegation's loop comes from.
     pub resolve_loop: Option<Arc<dyn LoopResolver>>,
     /// Which agent this loop is.
-    pub agent: Option<LoopAgent>,
+    pub agent: LoopAgent,
     /// Sections the loop knows nothing about.
     pub contributors: Vec<Arc<dyn ContextContributor>>,
     /// `0` disables the heartbeat.
     pub heartbeat_ms: u64,
-    /// Head+tail budget for a tool result entering history.
-    pub max_tool_result_chars: usize,
     /// Where this agent's own configuration says its commands run.
     pub environment: AgentEnvironment,
     /// Answers the placement of every turn, and records what it was asked.
@@ -357,10 +355,9 @@ impl Default for Setup {
             environment: AgentEnvironment::default(),
             environments: None,
             resolve_loop: None,
-            agent: None,
+            agent: LoopAgent::default(),
             contributors: Vec::new(),
             heartbeat_ms: 0,
-            max_tool_result_chars: 8_000,
         }
     }
 }
@@ -398,7 +395,6 @@ impl Harness {
         let registry = Arc::new(ToolRegistry::with_options(
             darkwire_tools::ToolRegistryOptions {
                 clock: Some(clock.clone()),
-                ..darkwire_tools::ToolRegistryOptions::default()
             },
         ));
         for tool in &setup.tools {
@@ -442,7 +438,6 @@ impl Harness {
             },
             time_zone: Some(Arc::new(|| "UTC".to_owned())),
             tool_heartbeat_ms: setup.heartbeat_ms,
-            max_tool_result_chars: setup.max_tool_result_chars,
             ..AgentLoopOptions::new(
                 provider.clone(),
                 scope,
@@ -485,6 +480,19 @@ impl Harness {
         content: &str,
     ) -> (Vec<AgentEvent>, Result<TurnResult>) {
         self.run(TurnInput::new(session_key, content)).await
+    }
+
+    /// Pushes a steer as the hub would, opening the session's queue first.
+    pub fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
+        self.steering.open(session_key);
+        self.steering.push(
+            session_key,
+            darkwire_agent::SteeringMessage {
+                id: id.to_owned(),
+                content: content.to_owned(),
+                sender: "test".to_owned(),
+            },
+        )
     }
 
     /// Every message stored for a session, in order.

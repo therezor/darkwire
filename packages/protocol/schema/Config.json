@@ -89,6 +89,10 @@
                 "default": true,
                 "type": "boolean"
               },
+              "autoCompact": {
+                "default": true,
+                "type": "boolean"
+              },
               "exec": {
                 "default": {},
                 "type": "object",
@@ -422,6 +426,13 @@
             "type": "string"
           }
         },
+        "trustedProxies": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "auth": {
           "default": {},
           "type": "object",
@@ -449,18 +460,6 @@
               "maximum": 9007199254740991
             }
           }
-        },
-        "replayBufferSize": {
-          "default": 512,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "turnLogMaxBytes": {
-          "default": 16777216,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
         }
       }
     },

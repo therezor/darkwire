@@ -41,7 +41,7 @@
 //! keeps the prompt reading the keyboard while the command waits.
 
 use darkwire_agent::skills::{SKILLS_DIRNAME, Skill, read_skills};
-use darkwire_agent::{PromptPreviewInput, describe_context};
+use darkwire_agent::{CompactRequest, PromptPreviewInput, describe_context};
 use darkwire_core::memory::{MEMORY_DIRNAME, index_line, read_memories};
 use darkwire_core::session_store::{
     ForkSession, ListSessions, ReadMessages, SessionSummaryRecord, UpdateSession,
@@ -296,6 +296,7 @@ fn help_layout() -> Vec<HelpSection> {
                 CommandRow::new("/rename <title>", keys::slash::help::RENAME),
                 CommandRow::new("/delete", keys::slash::help::DELETE),
                 CommandRow::new("/branch", keys::slash::help::BRANCH),
+                CommandRow::new("/compact [instructions]", keys::slash::help::COMPACT),
             ],
         },
         HelpSection {
@@ -603,6 +604,7 @@ async fn dispatch(
         "rename" => rename_command(tail, ctx),
         "delete" => delete_command(ctx),
         "branch" => branch_command(ctx),
+        "compact" => compact_command(tail, ctx).await,
 
         // ── Messages ──────────────────────────────────────────────
         "edit" => edit_command(tail, ctx),
@@ -881,6 +883,34 @@ fn branch_command(ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
     );
     ctx.renderer.note(&text);
     Ok(SlashOutcome::Attach(fork.session.key))
+}
+
+/// `/compact [instructions]`: summarise this session into a new one that opens
+/// with the summary, and carry on there. The old session is left as it was.
+async fn compact_command(tail: &str, ctx: &mut SlashContext<'_>) -> Result<SlashOutcome> {
+    if ctx.runtime.store().get_session(ctx.session_key)?.is_none() {
+        return Err(WireError::new(
+            ErrorKind::InvalidInput,
+            ctx.t.t(keys::slash::errors::NOTHING_TO_COMPACT),
+        ));
+    }
+    let agent_id = agent_for_settings(ctx)?;
+    let agent_loop = ctx.runtime.require_loop_for(Some(&agent_id))?;
+    let instructions = tail.trim();
+    let request = CompactRequest {
+        session_key: ctx.session_key.to_owned(),
+        new_key: format!("cli-{}", random_key()),
+        instructions: (!instructions.is_empty()).then(|| instructions.to_owned()),
+    };
+    let created = agent_loop
+        .compact(&request, &CancellationToken::new())
+        .await?;
+    let note = ctx.t.tr(
+        keys::slash::notes::COMPACTED,
+        args!["key" => created.key.as_str()],
+    );
+    ctx.renderer.note(&note);
+    Ok(SlashOutcome::Attach(created.key))
 }
 
 /// `/edit <text>` — replace the last thing you said, and run it again.

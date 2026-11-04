@@ -42,7 +42,6 @@ import {
   ChevronRight,
   Loader2,
   Terminal,
-  Wrench,
 } from 'lucide-react';
 import { memo, useEffect, useId, useMemo, useState, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -74,10 +73,8 @@ import {
   type ToolPart,
   type TurnPart,
 } from '@/state/transcript.js';
-import { useTurnStore } from '@/state/turn.js';
 import { ApprovalPrompt } from './approval.js';
 import { Markdown } from './markdown/markdown.js';
-import { MessageActions } from './message-actions.js';
 import { Notice } from './notice.js';
 import { ReasoningBlock } from './reasoning.js';
 
@@ -450,8 +447,10 @@ function TurnPartsList({
           case 'step':
             return null;
 
+          // Drawn by `TurnMessage` as a user message, and never nested in a
+          // subagent's run.
           case 'steer':
-            return <SteerMessage key={part.id} text={part.text} />;
+            return null;
         }
       })}
     </>
@@ -477,23 +476,6 @@ function runsOf(parts: readonly TurnPart[]): readonly Run[] {
     } else runs.push({ kind: 'tools', tools: [part] });
   }
   return runs;
-}
-
-/** What the user said to the running turn, at the point the loop read it. */
-function SteerMessage({ text }: { readonly text: string }): JSX.Element {
-  const busy = useTurnStore((state) => state.busy);
-  return (
-    <div className="stack message-user">
-      <div className="message-user__bubble">{text}</div>
-      <div className="message-user__actions">
-        <MessageActions
-          text={text}
-          busy={busy}
-          className="message-actions--line"
-        />
-      </div>
-    </div>
-  );
 }
 
 function Labelled({
@@ -570,7 +552,5 @@ function StatusIcon({
           aria-label={t('tool.failed')}
         />
       );
-    default:
-      return <Wrench className="tool-card__status" />;
   }
 }

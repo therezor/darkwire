@@ -86,6 +86,16 @@ const NOTICES: Record<
     tone: 'warning',
     icon: Scissors,
   },
+  agent_removed: {
+    label: 'chat.notices.agent_removed',
+    tone: 'warning',
+    icon: BrainCircuit,
+  },
+  compacted: {
+    label: 'chat.notices.compacted',
+    tone: 'info',
+    icon: BrainCircuit,
+  },
 };
 
 export function Notice({

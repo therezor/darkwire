@@ -40,11 +40,6 @@ fn seeded(
 
 fn with_notes(ws: &TestWorkspace) {
     fs::write(ws.root().join("notes.md"), "# Notes\nthe quick brown fox\n").unwrap();
-    fs::write(
-        ws.root().join("big.txt"),
-        "lorem ipsum dolor sit amet\n".repeat(400),
-    )
-    .unwrap();
 }
 
 fn with_many_files(ws: &TestWorkspace) {
@@ -70,9 +65,7 @@ fn bare(_: &TestWorkspace) {}
 /// A context whose web port answers from memory.
 ///
 /// The web tools need one or their refusal path is a `flagged` result with no
-/// `kind`, which the execution conformance rightly rejects. `of_length` is what
-/// makes the large-output case reach the tool's own cut rather than the
-/// registry's.
+/// `kind`, which the execution conformance rightly rejects.
 fn webbed(chars: usize) -> Box<dyn Fn() -> (TestWorkspace, ToolContext) + Send + Sync> {
     Box::new(move || {
         let ws = TestWorkspace::new();
@@ -82,55 +75,37 @@ fn webbed(chars: usize) -> Box<dyn Fn() -> (TestWorkspace, ToolContext) + Send +
     })
 }
 
-async fn conform_web(tool: AnyTool, valid: Value, large: Option<Value>) {
+async fn conform_web(tool: AnyTool, valid: Value) {
     tool_conformance(&ToolConformance {
         tool,
         context: webbed(40_000),
         valid_args: args(&valid),
-        large_output_args: large.as_ref().map(args),
     })
     .await;
 }
 
 #[tokio::test]
 async fn web_fetch_conforms() {
-    conform_web(
-        web_fetch_tool(),
-        json!({"url": "https://example.test/a"}),
-        Some(json!({"url": "https://example.test/big"})),
-    )
-    .await;
+    conform_web(web_fetch_tool(), json!({"url": "https://example.test/a"})).await;
 }
 
 #[tokio::test]
 async fn web_search_conforms() {
-    conform_web(
-        web_search_tool(),
-        json!({"query": "sqlite wal"}),
-        Some(json!({"query": "sqlite wal"})),
-    )
-    .await;
+    conform_web(web_search_tool(), json!({"query": "sqlite wal"})).await;
 }
 
-async fn conform(tool: AnyTool, setup: fn(&TestWorkspace), valid: Value, large: Option<Value>) {
+async fn conform(tool: AnyTool, setup: fn(&TestWorkspace), valid: Value) {
     tool_conformance(&ToolConformance {
         tool,
         context: seeded(setup),
         valid_args: args(&valid),
-        large_output_args: large.as_ref().map(args),
     })
     .await;
 }
 
 #[tokio::test]
 async fn read_conforms() {
-    conform(
-        read_tool(),
-        with_notes,
-        json!({"path": "notes.md"}),
-        Some(json!({"path": "big.txt"})),
-    )
-    .await;
+    conform(read_tool(), with_notes, json!({"path": "notes.md"})).await;
 }
 
 #[tokio::test]
@@ -139,7 +114,6 @@ async fn write_conforms() {
         write_tool(),
         bare,
         json!({"path": "out/report.txt", "content": "hello"}),
-        None,
     )
     .await;
 }
@@ -150,53 +124,28 @@ async fn edit_conforms() {
         edit_tool(),
         with_notes,
         json!({"path": "notes.md", "oldText": "quick", "newText": "slow"}),
-        None,
     )
     .await;
 }
 
 #[tokio::test]
 async fn ls_conforms() {
-    conform(
-        ls_tool(),
-        with_many_files,
-        json!({"path": "."}),
-        Some(json!({"path": "."})),
-    )
-    .await;
+    conform(ls_tool(), with_many_files, json!({"path": "."})).await;
 }
 
 #[tokio::test]
 async fn grep_conforms() {
-    conform(
-        grep_tool(),
-        with_a_haystack,
-        json!({"pattern": "lorem"}),
-        Some(json!({"pattern": "lorem", "limit": 1000})),
-    )
-    .await;
+    conform(grep_tool(), with_a_haystack, json!({"pattern": "lorem"})).await;
 }
 
 #[tokio::test]
 async fn find_conforms() {
-    conform(
-        find_tool(),
-        with_many_files,
-        json!({"pattern": "*.txt"}),
-        Some(json!({"pattern": "*.txt"})),
-    )
-    .await;
+    conform(find_tool(), with_many_files, json!({"pattern": "*.txt"})).await;
 }
 
 #[tokio::test]
 async fn exec_conforms() {
-    conform(
-        exec_tool(),
-        bare,
-        json!({"argv": ["printf", "ok"]}),
-        Some(json!({"argv": ["printf", "%05000d", "0"]})),
-    )
-    .await;
+    conform(exec_tool(), bare, json!({"argv": ["printf", "ok"]})).await;
 }
 
 #[tokio::test]

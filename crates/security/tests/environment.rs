@@ -186,6 +186,17 @@ fn a_gateway_needs_a_non_root_numeric_uid() {
 fn a_gateway_refuses_the_uid_the_proxy_reserves() {
     let error = assert_gateway_compatible(&container(&json!({"user": "65532:65532"}))).unwrap_err();
     assert!(error.message.contains("reserves for itself"));
+    // The runtime reads a leading zero as the same number.
+    let padded = assert_gateway_compatible(&container(&json!({"user": "065532"}))).unwrap_err();
+    assert!(padded.message.contains("reserves for itself"));
+}
+
+#[test]
+fn a_gateway_refuses_root_however_it_is_spelled() {
+    for user in ["00", "000:1000"] {
+        let error = assert_gateway_compatible(&container(&json!({"user": user}))).unwrap_err();
+        assert!(error.message.contains("restricted allow-list"), "{user}");
+    }
 }
 
 #[test]

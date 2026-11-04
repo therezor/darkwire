@@ -54,8 +54,8 @@ use darkwire_core::Result;
 use darkwire_core::clock::Clock;
 use darkwire_core::message_bus::{OutboundKind, OutboundMessage, PublishResult};
 use darkwire_protocol::{
-    ClientMessage, ContentPart, EditMessage, RegenerateMessage, SteerMessage, StopTurnMessage,
-    ToolApproveMessage,
+    ClientMessage, CompactSessionMessage, ContentPart, EditMessage, RegenerateMessage,
+    SteerMessage, StopTurnMessage, ToolApproveMessage,
 };
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
@@ -104,15 +104,19 @@ pub enum ChannelControlFrame {
     Regenerate(RegenerateMessage),
     /// Replace a message and re-run from it.
     Edit(EditMessage),
+    /// Summarise the conversation into a new session. The manager follows it
+    /// there, so the channel's next message lands in the new one.
+    Compact(CompactSessionMessage),
 }
 
-/// The five `ClientMessage` tags a channel may send, in declaration order.
+/// The `ClientMessage` tags a channel may send, in declaration order.
 pub const CHANNEL_CONTROL_TAGS: &[&str] = &[
     "tool.approve",
     "turn.stop",
     "turn.steer",
     "turn.regenerate",
     "user.edit",
+    "session.compact",
 ];
 
 impl ChannelControlFrame {
@@ -124,6 +128,7 @@ impl ChannelControlFrame {
             ChannelControlFrame::Steer(_) => "turn.steer",
             ChannelControlFrame::Regenerate(_) => "turn.regenerate",
             ChannelControlFrame::Edit(_) => "user.edit",
+            ChannelControlFrame::Compact(_) => "session.compact",
         }
     }
 
@@ -154,6 +159,10 @@ impl ChannelControlFrame {
                 session_key.clone_into(&mut frame.session_key);
                 ChannelControlFrame::Edit(frame)
             }
+            ChannelControlFrame::Compact(mut frame) => {
+                session_key.clone_into(&mut frame.session_key);
+                ChannelControlFrame::Compact(frame)
+            }
         }
     }
 }
@@ -166,6 +175,7 @@ impl From<ChannelControlFrame> for ClientMessage {
             ChannelControlFrame::Steer(body) => ClientMessage::Steer(body),
             ChannelControlFrame::Regenerate(body) => ClientMessage::Regenerate(body),
             ChannelControlFrame::Edit(body) => ClientMessage::Edit(body),
+            ChannelControlFrame::Compact(body) => ClientMessage::CompactSession(body),
         }
     }
 }

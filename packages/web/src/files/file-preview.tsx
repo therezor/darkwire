@@ -35,6 +35,7 @@ import { queryKeys } from '@/lib/query.js';
 import { Button } from '@/components/ui/button.js';
 import { FileEditor } from './file-editor.js';
 import { isImage } from './paths.js';
+import { useSignedUrl } from './use-signed-url.js';
 
 interface FilePreviewProps {
   /** Which workspace `entry.path` is relative to. */
@@ -51,13 +52,7 @@ export function FilePreview({
   const { t } = useTranslation();
   const image = isImage(entry.mimeType);
 
-  const signed = useQuery({
-    queryKey: queryKeys.fileUrl(workspace, entry.path),
-    queryFn: ({ signal }) => api.signUrl(workspace, entry.path, signal),
-    // A URL that expired while the dialog was open is not a cached answer worth
-    // keeping: the next open mints a fresh one.
-    gcTime: 0,
-  });
+  const { signed, renew } = useSignedUrl(workspace, entry.path);
 
   /**
    * Whether the editor will take this file, asked once and cheaply.
@@ -99,7 +94,12 @@ export function FilePreview({
       {image && (
         // Constrained by the viewport rather than by the image, so a very large
         // screenshot from a tool call does not push the dialog off the screen.
-        <img src={url} alt={entry.name} className="file-preview__image" />
+        <img
+          src={url}
+          alt={entry.name}
+          className="file-preview__image"
+          onError={renew}
+        />
       )}
 
       {!image &&

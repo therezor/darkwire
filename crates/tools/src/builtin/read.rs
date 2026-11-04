@@ -3,11 +3,12 @@
 //! Three constraints shape it, and all three are about the large file rather
 //! than the ordinary one:
 //!
-//!  - **The read is bounded before it happens.** Reading a 2 GB log whole
-//!    allocates 2 GB and then the registry truncates it to 8 000 characters.
-//!    The handler streams the file in chunks and keeps at most a UTF-8 worst
-//!    case of the output budget, so the memory cost is bounded by the budget
-//!    rather than by whatever the model happened to point at.
+//!  - **The read is bounded before it happens, by what survives.** The handler
+//!    streams the file in chunks and keeps at most the output budget, counted
+//!    in UTF-16 units as the dispatcher's cut counts them, with room left for
+//!    the paging note. So the cut never fires on a read, the note's `offset=`
+//!    is the true next line, and memory is bounded by the budget rather than
+//!    by whatever the model pointed at.
 //!
 //!  - **Every line is reachable.** Bounding the read by taking the first N
 //!    bytes and then selecting lines inside them makes every line past the
@@ -44,8 +45,8 @@ use crate::tool::{
     assert_not_aborted,
 };
 
-/// UTF-8's worst case, so the byte budget can never cut short the char budget.
-const BYTES_PER_CHAR: u64 = 4;
+/// The most of one result kept back for the paging and clamp notes.
+const NOTE_ROOM: u64 = 256;
 
 /// Lines returned when the model asks for no window.
 const DEFAULT_LINE_LIMIT: u64 = 2000;
@@ -88,12 +89,40 @@ fn newlines(bytes: &[u8]) -> u64 {
     memchr::memchr_iter(b'\n', bytes).count() as u64
 }
 
+/// UTF-16 units in UTF-8 `bytes`: one per character, two for one outside the
+/// basic plane. An invalid byte counts as at most one, as the lossy decode
+/// renders it.
+fn utf16_units(bytes: &[u8]) -> u64 {
+    bytes
+        .iter()
+        .map(|byte| match byte {
+            0x80..=0xBF => 0,
+            0xF0..=0xFF => 2,
+            _ => 1,
+        })
+        .sum()
+}
+
+/// The longest prefix of `bytes` within `room` UTF-16 units, ending on a
+/// character boundary.
+fn prefix_within(bytes: &[u8], room: u64) -> usize {
+    let mut used = 0u64;
+    for (index, byte) in bytes.iter().enumerate() {
+        let units = utf16_units(std::slice::from_ref(byte));
+        if units > 0 && used + units > room {
+            return index;
+        }
+        used += units;
+    }
+    bytes.len()
+}
+
 /// Which phase of the stream the reader is in.
 #[derive(Debug, PartialEq, Eq)]
 enum Phase {
     /// Counting newlines up to `offset`, keeping nothing.
     Skip,
-    /// Keeping lines until the line or byte ceiling.
+    /// Keeping lines until the line or size ceiling.
     Keep,
     /// Counting the rest, to say how much was left.
     Count,
@@ -104,23 +133,25 @@ enum Phase {
 struct Window {
     /// The bytes of the selected lines.
     bytes: Vec<u8>,
+    /// Those bytes in UTF-16 units.
+    units: u64,
     /// Lines kept.
     kept: u64,
     /// Lines in the whole file, or as far as the count scanned.
     total: u64,
     /// The count scan stopped early, so `total` is a floor.
     counted_partially: bool,
-    /// The byte budget, not the line limit, ended the window.
-    byte_capped: bool,
+    /// The window ends inside a line too long for the budget.
+    cut_line: bool,
     /// A NUL byte appeared in the part that was read.
     binary: bool,
 }
 
 /// Lines `[offset, offset + limit)` of a file, streamed.
 ///
-/// Reads at most `budget` bytes into memory plus one chunk, whatever the file's
-/// size. Never returns a partial line except when a single line is larger than
-/// the whole budget.
+/// Keeps at most `budget` UTF-16 units, plus one chunk in flight, whatever the
+/// file's size. Never returns a partial line except when a single line is
+/// larger than the whole budget.
 async fn read_window(
     mut file: tokio::fs::File,
     offset: u64,
@@ -170,15 +201,16 @@ async fn read_window(
                 }
                 Phase::Keep => {
                     let rest = &chunk[at..];
-                    let held = window.bytes.len() as u64;
+                    let held = window.units;
                     if let Some(found) = rest.iter().position(|byte| *byte == b'\n') {
                         {
                             let piece = &rest[..=found];
-                            if held.saturating_add(piece.len() as u64) > budget {
-                                window.byte_capped = true;
+                            let units = utf16_units(piece);
+                            if held.saturating_add(units) > budget {
                                 phase = Phase::Count;
                                 continue;
                             }
+                            window.units = held + units;
                             window.bytes.extend_from_slice(piece);
                             window.kept = window.kept.saturating_add(1);
                             line = line.saturating_add(1);
@@ -190,14 +222,15 @@ async fn read_window(
                     } else {
                         // A trailing partial line: keep what the budget allows
                         // and stop there rather than growing past it.
-                        if held.saturating_add(rest.len() as u64) > budget {
-                            let room = usize::try_from(budget.saturating_sub(held))
-                                .unwrap_or(rest.len())
-                                .min(rest.len());
+                        let units = utf16_units(rest);
+                        if held.saturating_add(units) > budget {
+                            let room = prefix_within(rest, budget.saturating_sub(held));
+                            window.units = held + utf16_units(&rest[..room]);
                             window.bytes.extend_from_slice(&rest[..room]);
-                            window.byte_capped = true;
+                            window.cut_line = true;
                             phase = Phase::Count;
                         } else {
+                            window.units = held + units;
                             window.bytes.extend_from_slice(rest);
                         }
                         at = read;
@@ -247,7 +280,8 @@ impl ToolHandler for Read {
             // has.
             let where_ = accepted.relative.as_str();
             let note = clamp_note(&args.path, &accepted);
-            let budget = ctx.config.max_output_chars.saturating_mul(BYTES_PER_CHAR);
+            let cap = ctx.config.max_output_chars;
+            let budget = cap.saturating_sub(NOTE_ROOM.min(cap / 4)).max(1);
 
             let file = in_root(&ctx.jail, &accepted, "read", |root, inside| {
                 let mut options = open_options();
@@ -303,7 +337,7 @@ impl ToolHandler for Read {
 
             assert_not_aborted(&ctx.token, "read")?;
             let mut text = String::from_utf8_lossy(&window.bytes).into_owned();
-            let trailer = notice(&window, &args, from, budget, stats.len());
+            let trailer = notice(&window, &args, from, stats.len());
             if !trailer.is_empty() && text.ends_with('\n') {
                 text.pop();
             }
@@ -324,7 +358,7 @@ impl ToolHandler for Read {
 }
 
 /// The sentence telling the model what it has and how to get the rest.
-fn notice(window: &Window, args: &ReadArgs, from: u64, budget: u64, size: u64) -> String {
+fn notice(window: &Window, args: &ReadArgs, from: u64, size: u64) -> String {
     let to = from.saturating_add(window.kept).saturating_sub(1);
     let total = window.total;
     let about = if window.counted_partially {
@@ -333,9 +367,9 @@ fn notice(window: &Window, args: &ReadArgs, from: u64, budget: u64, size: u64) -
         total.to_string()
     };
 
-    if window.byte_capped {
+    if window.cut_line {
         return format!(
-            "\n\n[read: showing the first {budget} of {size} bytes; output stopped on line {to}. Use offset={to} with a smaller limit to continue.]"
+            "\n\n[read: output stopped on line {to}, as much as one result holds of this {size}-byte file. Use offset={to} with a smaller limit to continue.]"
         );
     }
     if to >= total && !window.counted_partially {
@@ -361,7 +395,7 @@ pub fn read_tool() -> AnyTool {
     built(TypedTool::new(
         ToolSpec::new(
             "read",
-            "Read a UTF-8 text file from the workspace. The workspace is the root: \"/x\" and \"../x\" both resolve inside it, never outside. Returns the first 2000 lines and says how many are left; use offset and limit to page through the rest.",
+            "Read a UTF-8 text file from the workspace. The workspace is the root: \"/x\" and \"../x\" both resolve inside it, never outside. Returns up to 2000 lines, as many as fit one result, and says how many are left; use offset and limit to page through the rest.",
         )
         .risk(ToolRisk::Safe)
         .annotations(ToolAnnotations {
