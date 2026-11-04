@@ -482,8 +482,10 @@ still override it. A rule that fails either check is refused, the prompt stays o
 nothing is written. A shell call gets no "always": a rule for one covers every program.
 For any other tool, a standing answer is its permission set to `allow` on the agent.
 
-A saved rule applies from the next turn. The turn that saved it keeps the settings it
-started with, though the approved command is remembered for the session.
+A saved rule applies from the next tool call, including later calls in the turn that
+saved it. The loop re-reads the agent's settings before each call, so a rule or a tool
+permission changed in Settings while a turn runs counts too. A tool switched on mid-turn
+is the exception: the model was not offered it, so it waits for the next turn.
 
 **A remembered answer is never announced.** The loop asks the gate what it already holds
 before it emits `tool.approvalRequest`, so a repeated command runs without a card

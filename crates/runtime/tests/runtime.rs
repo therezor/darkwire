@@ -1216,3 +1216,280 @@ fn an_explicit_no_vault_never_reaches_a_keychain() {
     assert!(!runtime.paths().key_file.exists());
     assert!(!runtime.paths().vault_file.exists());
 }
+
+mod live_settings {
+    use std::sync::{Mutex, OnceLock, Weak};
+
+    use darkwire_agent::testkit::{ScriptedProvider, ScriptedTurn, tool_call};
+    use darkwire_agent::{AgentLoop, ApprovalDecision, ApprovalGate, ApprovalRequest, TurnInput};
+    use darkwire_protocol::{
+        AgentEntryPatch, AgentsConfigPatch, ApprovalScope, Config, ConfigPatch, ExecRule,
+        ToolPermission, with_exec_rule,
+    };
+    use darkwire_providers::{BoxFuture, ChatProvider};
+    use darkwire_runtime::WireRuntime;
+    use darkwire_runtime::provider_cache::ProviderCache;
+    use indexmap::IndexMap;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    type Change = fn(&Config) -> ConfigPatch;
+
+    /// Applies `change` the first time it is asked, and approves every prompt
+    /// for the session.
+    struct SavingGate {
+        change: Change,
+        runtime: OnceLock<Weak<WireRuntime>>,
+        asked: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl ApprovalGate for SavingGate {
+        fn ask<'a>(
+            &'a self,
+            request: &'a ApprovalRequest,
+        ) -> BoxFuture<'a, darkwire_core::Result<ApprovalDecision>> {
+            Box::pin(async move {
+                let argv = request.command.as_ref().map_or_else(
+                    || vec![request.name.clone()],
+                    |command| command.argv.clone(),
+                );
+                let first = {
+                    let mut asked = self.asked.lock().unwrap();
+                    asked.push(argv);
+                    asked.len() == 1
+                };
+                if first {
+                    let runtime = self.runtime.get().unwrap().upgrade().unwrap();
+                    runtime
+                        .apply_patch(&(self.change)(&runtime.config()))
+                        .unwrap();
+                }
+                Ok(ApprovalDecision {
+                    scope: Some(ApprovalScope::Session),
+                    ..ApprovalDecision::allow()
+                })
+            })
+        }
+    }
+
+    /// What "Always allow…" saves for `echo a`.
+    fn allow_echo(config: &Config) -> ConfigPatch {
+        let rule = ExecRule {
+            action: ToolPermission::Allow,
+            argv: vec!["echo".to_owned(), "*".to_owned()],
+        };
+        with_exec_rule(config, DEFAULT_AGENT_ID, rule)
+    }
+
+    fn with_tool(config: &Config, tool: &str, permission: ToolPermission) -> ConfigPatch {
+        let mut entry = config.agents.list[DEFAULT_AGENT_ID].clone();
+        entry.tools.insert(tool.to_owned(), permission);
+        ConfigPatch {
+            agents: Some(AgentsConfigPatch {
+                list: Some(IndexMap::from([(
+                    DEFAULT_AGENT_ID.to_owned(),
+                    Some(AgentEntryPatch::from(entry)),
+                )])),
+            }),
+            ..ConfigPatch::default()
+        }
+    }
+
+    /// `exec` switched to `allow` in the agent's settings.
+    fn allow_exec(config: &Config) -> ConfigPatch {
+        with_tool(config, "exec", ToolPermission::Allow)
+    }
+
+    /// `read` switched to `ask`.
+    fn ask_read(config: &Config) -> ConfigPatch {
+        with_tool(config, "read", ToolPermission::Ask)
+    }
+
+    /// Delegating to the researcher switched to `ask`.
+    fn ask_researcher(config: &Config) -> ConfigPatch {
+        let mut entry = config.agents.list[DEFAULT_AGENT_ID].clone();
+        entry.subagents[0].permission = ToolPermission::Ask;
+        ConfigPatch {
+            agents: Some(AgentsConfigPatch {
+                list: Some(IndexMap::from([(
+                    DEFAULT_AGENT_ID.to_owned(),
+                    Some(AgentEntryPatch::from(entry)),
+                )])),
+            }),
+            ..ConfigPatch::default()
+        }
+    }
+
+    fn read(id: &str, path: &str) -> darkwire_protocol::ToolCall {
+        tool_call(id, "read", &json!({"path": path}))
+    }
+
+    fn echo(id: &str, word: &str) -> darkwire_protocol::ToolCall {
+        tool_call(id, "exec", &json!({"argv": ["echo", word]}))
+    }
+
+    /// Runs one turn over `turns` and returns every command the gate was
+    /// asked about.
+    async fn asked_during(change: Change, turns: Vec<ScriptedTurn>) -> Vec<Vec<String>> {
+        asked_over(&configured("llama3"), change, turns).await
+    }
+
+    async fn asked_over(
+        config: &Value,
+        change: Change,
+        turns: Vec<ScriptedTurn>,
+    ) -> Vec<Vec<String>> {
+        let install = Install::with(config);
+        let gate = Arc::new(SavingGate {
+            change,
+            runtime: OnceLock::new(),
+            asked: Mutex::new(Vec::new()),
+        });
+        let scripted = Mutex::new(Some(turns));
+        let factory: darkwire_runtime::provider_cache::ProviderFactory = Arc::new(move |_| {
+            let turns = scripted.lock().unwrap().take().unwrap_or_default();
+            Ok(ScriptedProvider::new(turns) as Arc<dyn ChatProvider>)
+        });
+        let runtime = create_runtime(RuntimeOptions {
+            providers: Some(Arc::new(ProviderCache::with_factory(8, factory))),
+            approvals: Some(Arc::clone(&gate) as Arc<dyn ApprovalGate>),
+            ..install.options()
+        })
+        .unwrap();
+        let _ = gate.runtime.set(Arc::downgrade(&runtime));
+
+        let agent_loop = runtime.require_loop().unwrap();
+        let mut turn = AgentLoop::run(
+            &agent_loop,
+            TurnInput::new("web:live", "Run them."),
+            &CancellationToken::new(),
+        );
+        while turn.next_event().await.is_some() {}
+        turn.finish().await.unwrap();
+
+        gate.asked.lock().unwrap().clone()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rule_saved_mid_turn_decides_the_next_message() {
+        let asked = asked_during(
+            allow_echo,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a")]),
+                ScriptedTurn::calls(vec![echo("call-2", "b")]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(asked, [vec!["echo".to_owned(), "a".to_owned()]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rule_saved_mid_turn_decides_the_next_call_in_the_same_message() {
+        let asked = asked_during(
+            allow_echo,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a"), echo("call-2", "b")]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(asked, [vec!["echo".to_owned(), "a".to_owned()]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_permission_changed_mid_turn_decides_the_next_message() {
+        let asked = asked_during(
+            allow_exec,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a")]),
+                ScriptedTurn::calls(vec![echo("call-2", "b")]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(asked, [vec!["echo".to_owned(), "a".to_owned()]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_tool_narrowed_mid_turn_asks_before_each_later_call() {
+        let asked = asked_during(
+            ask_read,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a")]),
+                ScriptedTurn::calls(vec![read("call-2", "a.txt"), read("call-3", "b.txt")]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(
+            asked,
+            [
+                vec!["echo".to_owned(), "a".to_owned()],
+                vec!["read".to_owned()],
+                vec!["read".to_owned()],
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_tool_narrowed_mid_message_leaves_the_parallel_group() {
+        let asked = asked_during(
+            ask_read,
+            vec![
+                ScriptedTurn::calls(vec![
+                    echo("call-1", "a"),
+                    read("call-2", "a.txt"),
+                    read("call-3", "b.txt"),
+                ]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(
+            asked,
+            [
+                vec!["echo".to_owned(), "a".to_owned()],
+                vec!["read".to_owned()],
+                vec!["read".to_owned()],
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_delegation_narrowed_mid_turn_asks_before_it_runs() {
+        let config = json!({
+            "agents": {"list": {
+                "default": {
+                    "model": "llama3",
+                    "provider": "ollama",
+                    "subagents": [{"id": "researcher", "permission": "allow"}],
+                },
+                "researcher": {"model": "llama3", "provider": "ollama"},
+            }},
+            "providers": {"ollama": {"type": "ollama", "apiBase": "http://ollama.test/v1"}},
+        });
+        let asked = asked_over(
+            &config,
+            ask_researcher,
+            vec![
+                ScriptedTurn::calls(vec![echo("call-1", "a")]),
+                ScriptedTurn::calls(vec![tool_call(
+                    "call-2",
+                    "ask_researcher",
+                    &json!({"task": "Look it up."}),
+                )]),
+                ScriptedTurn::text("Done."),
+            ],
+        )
+        .await;
+        assert_eq!(
+            asked,
+            [
+                vec!["echo".to_owned(), "a".to_owned()],
+                vec!["ask_researcher".to_owned()],
+            ]
+        );
+    }
+}

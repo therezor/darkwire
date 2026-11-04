@@ -87,8 +87,8 @@ use crate::approval::ApprovalGate;
 use crate::attachments::{AttachmentCache, MaterialiseOptions, materialise_attachments};
 use crate::context::{MeasureWindow, RequestShape, measure_records, prompt_costs};
 use crate::dispatch::{
-    SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions, TurnScope,
-    parse_tool_args,
+    LiveAgentSource, SubagentDelegate, TOOL_HEARTBEAT_MS, ToolDispatcher, ToolDispatcherOptions,
+    TurnScope, parse_tool_args,
 };
 use crate::events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink};
 use crate::history_window::{
@@ -273,6 +273,9 @@ pub struct AgentLoopOptions {
     /// the model to write the hour it sees on the clock beside it, which is
     /// only true if the clock and the scheduler agree.
     pub time_zone: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// The agent's current settings and tool permissions, read before each
+    /// tool call. `None` keeps `config` and the scope for the whole turn.
+    pub live_agent: Option<LiveAgentSource>,
     /// Sections the loop knows nothing about.
     pub contributors: Vec<Arc<dyn ContextContributor>>,
     /// Who to ask before a tool whose permission is `ask` runs.
@@ -330,6 +333,7 @@ impl AgentLoopOptions {
             model: None,
             agent: None,
             time_zone: None,
+            live_agent: None,
             contributors: Vec::new(),
             approvals: None,
             subagents: IndexMap::new(),
@@ -1014,12 +1018,12 @@ impl AgentLoop {
             tools: Arc::clone(&options.tools),
             subagents: options.subagents.clone(),
             approvals: options.approvals.clone(),
-            approval_timeout_ms: options.config.approval_timeout_ms,
             tools_enabled: options.config.tools_enabled,
             max_tool_result_chars: options.max_tool_result_chars,
             heartbeat_ms: options.tool_heartbeat_ms,
             agent_id: agent_id.clone(),
             clock: Arc::clone(&options.clock),
+            live: options.live_agent,
         });
 
         Ok(AgentLoop {
@@ -1761,6 +1765,7 @@ impl AgentLoop {
                 .root_session_key
                 .clone()
                 .unwrap_or_else(|| input.session_key.clone()),
+            permissions: None,
         };
 
         Ok(TurnContext {
@@ -2605,7 +2610,7 @@ impl AgentLoop {
         let revision_before = self.activation_revision(&turn.scope.session_key);
         let outcome = inner
             .dispatcher
-            .dispatch(result, &turn.scope, sink, self)
+            .dispatch(result, &mut turn.scope, sink, self)
             .await?;
         self.note_direct_calls(&turn.scope.session_key, result);
         // Rebuilt only when this batch moved it, so a turn that never touches

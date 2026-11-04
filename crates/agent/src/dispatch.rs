@@ -56,12 +56,12 @@ use darkwire_core::history::truncate_head_tail;
 use darkwire_core::messages::{ToolOptions, tool_message};
 use darkwire_core::{Clock, ErrorKind, Result};
 use darkwire_protocol::{
-    AgentEnvironment, ChatMessage, Notice, NoticeKind, ToolApprovalRequest, ToolCall,
-    ToolCallStarted, ToolPermission, ToolResult, ToolRisk,
+    AgentEnvironment, AgentSettings, ChatMessage, Notice, NoticeKind, ToolApprovalRequest,
+    ToolCall, ToolCallStarted, ToolPermission, ToolPermissions, ToolResult, ToolRisk,
 };
 use darkwire_providers::{BoxFuture, ChatResult};
 use darkwire_security::{WrapToolOutputOptions, describe_injection_findings, wrap_tool_output};
-use darkwire_tools::{ToolContext, ToolExecution, ToolInvocation, ToolScope};
+use darkwire_tools::{ToolContext, ToolExecution, ToolInvocation, ToolScope, permission_for};
 use futures::StreamExt as _;
 use futures::stream::FuturesUnordered;
 use indexmap::IndexMap;
@@ -178,6 +178,27 @@ impl ApprovalOutcome {
     }
 }
 
+/// What an agent permits now, tool by tool and delegation by delegation.
+#[derive(Debug, Clone, Default)]
+pub struct LivePermissions {
+    /// Each tool's permission.
+    pub tools: ToolPermissions,
+    /// Each delegation's, keyed by the tool name the model calls it by.
+    pub subagents: IndexMap<String, ToolPermission>,
+}
+
+/// The agent as its settings say now.
+#[derive(Debug, Clone)]
+pub struct LiveAgent {
+    /// What a tool is handed as `ctx.config`.
+    pub settings: AgentSettings,
+    /// What it permits.
+    pub permissions: LivePermissions,
+}
+
+/// Reads [`LiveAgent`], or `None` when the agent no longer resolves.
+pub type LiveAgentSource = Arc<dyn Fn() -> Option<LiveAgent> + Send + Sync>;
+
 /// What the tool half of a turn needs from the half above it.
 ///
 /// Named rather than inlined because it grew past the point where one inline
@@ -210,6 +231,8 @@ pub struct TurnScope {
     pub environment: AgentEnvironment,
     /// The conversation a person is watching. See [`ApprovalRequest`].
     pub root_session_key: String,
+    /// Permissions as of the last refresh. `None` is the loop's own.
+    pub permissions: Option<Arc<LivePermissions>>,
 }
 
 /// One delegated task, run by the loop.
@@ -279,9 +302,6 @@ pub struct ToolDispatcherOptions {
     pub subagents: IndexMap<String, SubagentBinding>,
     /// Who to ask before an `ask` tool runs. `None` means nobody is there.
     pub approvals: Option<Arc<dyn ApprovalGate>>,
-    /// The tool layer's configuration; the approval deadline is read from it.
-    /// How long an `ask` waits for an answer before counting as denied.
-    pub approval_timeout_ms: u64,
     /// Whether the request advertises any tools at all.
     pub tools_enabled: bool,
     /// Head+tail budget for one tool result before it enters history.
@@ -292,6 +312,20 @@ pub struct ToolDispatcherOptions {
     pub agent_id: String,
     /// Wall-clock and monotonic time.
     pub clock: Arc<dyn Clock>,
+    /// Read before each call. `None` keeps what the turn started with.
+    pub live: Option<LiveAgentSource>,
+}
+
+/// A delegation's permission now. One removed since the turn began is refused.
+fn delegation_permission(binding: &SubagentBinding, turn: &TurnScope) -> ToolPermission {
+    match &turn.permissions {
+        Some(live) if binding.permission != ToolPermission::Deny => live
+            .subagents
+            .get(&binding.tool_name)
+            .copied()
+            .unwrap_or(ToolPermission::Deny),
+        _ => binding.permission,
+    }
 }
 
 /// Runs the tools one assistant turn asked for.
@@ -299,12 +333,12 @@ pub struct ToolDispatcher {
     tools: Arc<dyn ToolScope>,
     subagents: IndexMap<String, SubagentBinding>,
     approvals: Option<Arc<dyn ApprovalGate>>,
-    approval_timeout_ms: u64,
     tools_enabled: bool,
     max_tool_result_chars: usize,
     heartbeat_ms: u64,
     agent_id: String,
     clock: Arc<dyn Clock>,
+    live: Option<LiveAgentSource>,
 }
 
 impl ToolDispatcher {
@@ -314,12 +348,33 @@ impl ToolDispatcher {
             tools: options.tools,
             subagents: options.subagents,
             approvals: options.approvals,
-            approval_timeout_ms: options.approval_timeout_ms,
             tools_enabled: options.tools_enabled,
             max_tool_result_chars: options.max_tool_result_chars,
             heartbeat_ms: options.heartbeat_ms,
             agent_id: options.agent_id,
             clock: options.clock,
+            live: options.live,
+        }
+    }
+
+    /// A rule or permission saved while the turn runs decides the next call,
+    /// not the next turn.
+    fn refresh(&self, turn: &mut TurnScope) {
+        if let Some(current) = self.live.as_ref().and_then(|read| read()) {
+            turn.tool_context.config = Arc::new(current.settings);
+            turn.permissions = Some(Arc::new(current.permissions));
+        }
+    }
+
+    /// The permission `name` has now. A tool the turn was not offered stays
+    /// off, because the model was never sent it.
+    fn permission_of(&self, name: &str, turn: &TurnScope) -> ToolPermission {
+        let offered = self.tools.permission_for(name);
+        match &turn.permissions {
+            Some(live) if offered != ToolPermission::Deny => {
+                permission_for(Some(&live.tools), name)
+            }
+            _ => offered,
         }
     }
 
@@ -367,14 +422,22 @@ impl ToolDispatcher {
     pub async fn dispatch(
         &self,
         result: &ChatResult,
-        turn: &TurnScope,
+        turn: &mut TurnScope,
         sink: &EventSink,
         delegate: &dyn SubagentDelegate,
     ) -> Result<ToolCallOutcome> {
         let mut pending: Vec<ChatMessage> = vec![ChatMessage::Assistant(result.message.clone())];
         let mut cancelled = turn.token.is_cancelled();
 
-        for group in self.group_calls(&result.message.tool_calls) {
+        let calls = &result.message.tool_calls;
+        let mut next = 0;
+        while next < calls.len() {
+            // Grouped after the refresh, so a call that stopped being `allow`
+            // leaves the group and is asked about on its own.
+            self.refresh(turn);
+            let group = self.next_group(&calls[next..], turn);
+            next += group.len();
+            let turn = &*turn;
             // A group of one is the whole of the path that existed before
             // parallelism, and it is the common case: no queue, nothing
             // allocated that a single call did not allocate before.
@@ -533,7 +596,7 @@ impl ToolDispatcher {
     /// appears first, and no ordering to get wrong. A safe tool an operator set
     /// to `ask` simply runs on its own, which is right: if every read is
     /// prompted, the prompts are the latency.
-    fn is_parallel_eligible(&self, call: &ToolCall) -> bool {
+    fn is_parallel_eligible(&self, call: &ToolCall, turn: &TurnScope) -> bool {
         if !self.tools_enabled {
             return false;
         }
@@ -545,35 +608,27 @@ impl ToolDispatcher {
         if self.tools.get(&call.name).map(|tool| tool.risk()) != Some(ToolRisk::Safe) {
             return false;
         }
-        self.tools.permission_for(&call.name) == ToolPermission::Allow
+        self.permission_of(&call.name, turn) == ToolPermission::Allow
     }
 
-    /// Splits the batch into runs that may execute together.
+    /// The run at the front of `calls` that may execute together, or the
+    /// first call alone.
     ///
     /// **Adjacent runs only.** See the header: a write must never be reordered
     /// past a read, and gathering every eligible call regardless of position
     /// would do exactly that.
-    fn group_calls(&self, calls: &[ToolCall]) -> Vec<Vec<ToolCall>> {
-        let mut groups: Vec<Vec<ToolCall>> = Vec::new();
-        let mut run: Vec<ToolCall> = Vec::new();
-
-        for call in calls {
-            if !self.is_parallel_eligible(call) {
-                if !run.is_empty() {
-                    groups.push(std::mem::take(&mut run));
-                }
-                groups.push(vec![call.clone()]);
-                continue;
-            }
-            run.push(call.clone());
-            if run.len() == MAX_PARALLEL_TOOL_CALLS {
-                groups.push(std::mem::take(&mut run));
-            }
+    fn next_group(&self, calls: &[ToolCall], turn: &TurnScope) -> Vec<ToolCall> {
+        let run: Vec<ToolCall> = calls
+            .iter()
+            .take(MAX_PARALLEL_TOOL_CALLS)
+            .take_while(|call| self.is_parallel_eligible(call, turn))
+            .cloned()
+            .collect();
+        if run.is_empty() {
+            calls.iter().take(1).cloned().collect()
+        } else {
+            run
         }
-        if !run.is_empty() {
-            groups.push(run);
-        }
-        groups
     }
 
     /// One group, in flight together.
@@ -715,8 +770,10 @@ impl ToolDispatcher {
         // same precedence `subagent_for` applies, asked once here so a shadowed
         // subagent is gated as the registered tool it actually is.
         let binding = self.subagent_for(&call.name);
-        let fallback =
-            binding.map_or_else(|| self.tools.permission_for(&call.name), |b| b.permission);
+        let fallback = binding.map_or_else(
+            || self.permission_of(&call.name, turn),
+            |b| delegation_permission(b, turn),
+        );
         // Belt and braces. A denied tool is not in the definitions the model
         // was sent and `execute` would report it as `not_found`, so reaching
         // here means something advertised a tool this scope does not permit.
@@ -753,7 +810,7 @@ impl ToolDispatcher {
             // gate that refuses instead.
             let gate = self.approvals.as_ref()?;
 
-            let timeout_ms = self.approval_timeout_ms;
+            let timeout_ms = turn.tool_context.config.approval_timeout_ms;
             let expires_at_ms = u64::try_from(self.clock.now_ms()).unwrap_or(0) + timeout_ms;
             let (memory_key, command) = match policy {
                 Some(policy) => (policy.memory_key, policy.command),

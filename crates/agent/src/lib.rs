@@ -48,9 +48,9 @@ pub use context::{
     measure_context, measure_context_with,
 };
 pub use dispatch::{
-    CANCELLED_TOOL_RESULT, MAX_PARALLEL_TOOL_CALLS, NoDelegation, SubagentDelegate,
-    TOOL_HEARTBEAT_MS, ToolCallOutcome, ToolDispatcher, ToolDispatcherOptions, TurnScope,
-    parse_tool_args,
+    CANCELLED_TOOL_RESULT, LiveAgent, LiveAgentSource, LivePermissions, MAX_PARALLEL_TOOL_CALLS,
+    NoDelegation, SubagentDelegate, TOOL_HEARTBEAT_MS, ToolCallOutcome, ToolDispatcher,
+    ToolDispatcherOptions, TurnScope, parse_tool_args,
 };
 pub use events::{AgentEvent, EVENT_CHANNEL_CAPACITY, EventSink, Stamped};
 pub use history_window::{

@@ -52,9 +52,9 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use darkwire_agent::approval::ApprovalGate;
 use darkwire_agent::{
-    AgentLoop, AgentLoopOptions, ContextContributor, Host, LoopAgent, LoopResolver,
-    MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue, TasksContributor,
-    subagent_map,
+    AgentLoop, AgentLoopOptions, ContextContributor, Host, LiveAgent, LivePermissions, LoopAgent,
+    LoopResolver, MemoryContributor, PromptAgent, SkillsContributor, SteeringQueue,
+    TasksContributor, subagent_map,
 };
 use darkwire_core::config::env_names_workspaces;
 use darkwire_core::paths::ResolveWirePaths;
@@ -1117,7 +1117,8 @@ impl WireRuntime {
         // A fresh cache per build: every loop in the old one was derived from the
         // settings that just changed. A turn already running keeps the loop it
         // started on, because it holds the object rather than looking it up
-        // again.
+        // again. Its tool settings and permissions are the exception:
+        // `live_agent` re-reads them before each call.
         let (factory, cache_resolver) =
             self.loop_factory(config.clone(), paths.clone(), Arc::clone(&jails));
         let loops = Arc::new(LoopCache::new(factory));
@@ -1543,6 +1544,26 @@ impl WireRuntime {
                 || fallback.clone(),
                 |runtime| runtime.config().ui.timezone.clone(),
             )
+        }));
+        // A turn keeps the loop it started on, so its rules and permissions
+        // would otherwise be the ones from before a save made while it runs.
+        let live_source = Arc::downgrade(self);
+        let live_id = agent_id.to_owned();
+        options.live_agent = Some(Arc::new(move || {
+            let runtime = live_source.upgrade()?;
+            let agent = resolve_agent(&runtime.config(), Some(&live_id)).ok()?;
+            let subagents = agent
+                .subagents
+                .iter()
+                .map(|binding| (binding.tool_name.clone(), binding.permission))
+                .collect();
+            Some(LiveAgent {
+                settings: agent.settings,
+                permissions: LivePermissions {
+                    tools: agent.tools,
+                    subagents,
+                },
+            })
         }));
         options.agent = Some(LoopAgent {
             prompt: PromptAgent {
