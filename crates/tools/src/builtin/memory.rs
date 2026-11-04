@@ -33,6 +33,7 @@
 //! held.
 
 use darkwire_core::Result;
+use darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 use darkwire_core::memory::{
     MAX_MEMORY_NAME_CHARS, MEMORY_DIRNAME, delete_memory_in, memory_slug, read_memory_in,
     save_memory_in,
@@ -48,11 +49,6 @@ use crate::tool::{
     AnyTool, BoxFuture, ToolContext, ToolHandler, ToolOutput, ToolSpec, TypedTool,
     assert_not_aborted,
 };
-
-/// Long enough for a page, short enough that one call cannot become the whole
-/// store. The format says one topic per memory, and a two-thousand-character
-/// note is already several.
-const MAX_CONTENT_CHARS: usize = 2000;
 
 /// The three actions, as the schema spells them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -99,15 +95,8 @@ impl ToolHandler for Memory {
                 )));
             };
             let content = args.content.as_deref().map_or("", js_trim).to_owned();
-            if args.action == Action::Save {
-                if content.is_empty() {
-                    return Ok(ToolOutput::error("Give content to save."));
-                }
-                if content.chars().count() > MAX_CONTENT_CHARS {
-                    return Ok(ToolOutput::error(format!(
-                        "Too long: {MAX_CONTENT_CHARS} characters at most. Split it across keys, one topic each."
-                    )));
-                }
+            if args.action == Action::Save && content.is_empty() {
+                return Ok(ToolOutput::error("Give content to save."));
             }
 
             let accepted = ctx.jail.accept(MEMORY_DIRNAME)?;
@@ -123,7 +112,8 @@ impl ToolHandler for Memory {
                     .await?
                     .map_err(failed)?;
                     match found {
-                        Some(memory) => ToolOutput::text(memory.content).with_detail("key", key),
+                        Some(memory) => ToolOutput::text(with_paging_note(memory.content, &file))
+                            .with_detail("key", key),
                         None => ToolOutput::error(format!(
                             "No memory `{key}`. The keys are listed under Memory in your prompt."
                         )),
@@ -160,6 +150,18 @@ impl ToolHandler for Memory {
             })
         })
     }
+}
+
+/// A memory longer than one tool result loses its middle on the way to the
+/// model. The note goes last, because the cut keeps the end.
+fn with_paging_note(content: String, file: &str) -> String {
+    let length = content.chars().count();
+    if length <= DEFAULT_MAX_TOOL_RESULT_CHARS {
+        return content;
+    }
+    format!(
+        "{content}\n\n[memory: {length} characters, more than one result keeps. Page through {file} with read, the one file tool memory allows.]"
+    )
 }
 
 /// The `memory` tool.

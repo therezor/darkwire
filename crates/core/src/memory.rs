@@ -66,15 +66,10 @@ use crate::text::truncate_bytes;
 /// The folder inside the workspace that holds them.
 pub const MEMORY_DIRNAME: &str = "memory";
 
-/// The most of one memory that is read at all.
+/// The most of one memory a listing keeps.
 ///
-/// A different job from [`MAX_MEMORIES`], and the two are not interchangeable:
-/// this one stops a runaway *file* from reaching the model, and that one bounds
-/// how many index lines it is shown.
-///
-/// The same figure as the skill cap, and the argument transfers: this is what
-/// reading one of these costs when the model opens it. Nothing here reaches the
-/// prompt on its own but the title.
+/// A listing needs a title, not the file, so this bounds what every index
+/// build holds. A read by key returns the whole file.
 pub const MEMORY_MAX_BYTES: usize = 12 * 1024;
 
 /// The most memories one workspace advertises.
@@ -101,7 +96,7 @@ pub struct Memory {
     pub key: String,
     /// Derived from the content, never stored. See [`derive_title`].
     pub title: String,
-    /// The whole file, already bounded by [`MEMORY_MAX_BYTES`].
+    /// The file's text. A listing keeps only its first [`MEMORY_MAX_BYTES`].
     pub content: String,
 }
 
@@ -393,7 +388,12 @@ pub fn read_memories(workspace_root: &Path) -> Vec<Memory> {
 
     let options = OpenOptions::new();
     keys.iter()
-        .filter_map(|key| readable(key, read_one(&root, &dir, key, &options)))
+        .filter_map(|key| {
+            readable(
+                key,
+                read_one(&root, &dir, key, &options, Some(MEMORY_MAX_BYTES)),
+            )
+        })
         .collect()
 }
 
@@ -411,6 +411,7 @@ pub fn read_memory(workspace_root: &Path, key: &str) -> Option<Memory> {
             &memory_dir(workspace_root),
             &key,
             &OpenOptions::new(),
+            None,
         ),
     )
 }
@@ -427,7 +428,7 @@ pub fn read_memory_in(
     options: &OpenOptions,
 ) -> io::Result<Option<Memory>> {
     let key = slug_or_invalid(key)?;
-    match read_one(root, dir, &key, options) {
+    match read_one(root, dir, &key, options, None) {
         Ok(memory) => Ok(Some(memory)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
@@ -540,7 +541,13 @@ fn readable(key: &str, read: io::Result<Memory>) -> Option<Memory> {
     }
 }
 
-fn read_one(root: &Dir, dir: &Path, key: &str, options: &OpenOptions) -> io::Result<Memory> {
+fn read_one(
+    root: &Dir,
+    dir: &Path,
+    key: &str,
+    options: &OpenOptions,
+    bound: Option<usize>,
+) -> io::Result<Memory> {
     let mut options = options.clone();
     options.read(true);
     let mut file = root.open_with(dir.join(format!("{key}.md")), &options)?;
@@ -554,7 +561,10 @@ fn read_one(root: &Dir, dir: &Path, key: &str, options: &OpenOptions) -> io::Res
     let mut text = String::new();
     file.read_to_string(&mut text)?;
 
-    let content = truncate_bytes(&text, MEMORY_MAX_BYTES).to_owned();
+    let content = match bound {
+        Some(max) => truncate_bytes(&text, max).to_owned(),
+        None => text,
+    };
     Ok(Memory {
         title: derive_title(&content, key),
         key: key.to_owned(),

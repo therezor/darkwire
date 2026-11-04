@@ -10,6 +10,7 @@
 use std::fs;
 
 use darkwire_core::ErrorKind;
+use darkwire_core::history::DEFAULT_MAX_TOOL_RESULT_CHARS;
 use darkwire_tools::testkit::TestWorkspace;
 use darkwire_tools::{AnyTool, ToolContext, ToolExecution, memory_tool, skill_tool};
 use serde_json::{Value, json};
@@ -109,17 +110,26 @@ async fn asks_for_content_rather_than_writing_an_empty_memory() {
 }
 
 #[tokio::test]
-async fn refuses_content_over_the_cap() {
+async fn saves_and_reads_back_a_memory_of_any_length() {
     let ws = TestWorkspace::new();
-    let result = run(
-        &memory_tool(),
-        save("auth-sessions", &"x".repeat(2001)),
-        ws.context(),
-    )
-    .await;
-    assert!(result.is_error);
-    assert!(result.content.contains("2000 characters at most"));
-    assert!(!ws.root().join("memory").exists());
+    let long = format!(
+        "# Notes\n\n{}",
+        "x".repeat(DEFAULT_MAX_TOOL_RESULT_CHARS * 3)
+    );
+    let saved = run(&memory_tool(), save("long-notes", &long), ws.context()).await;
+    assert!(!saved.is_error, "{}", saved.content);
+
+    let result = run(&memory_tool(), read("long-notes"), ws.context()).await;
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.starts_with(&format!("{long}\n")));
+    // Last, where the cut to one result's budget keeps it.
+    assert!(
+        result.content.ends_with(
+            "Page through memory/long-notes.md with read, the one file tool memory allows.]"
+        ),
+        "{}",
+        &result.content[result.content.len() - 200..]
+    );
 }
 
 #[tokio::test]

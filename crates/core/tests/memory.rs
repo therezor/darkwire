@@ -253,11 +253,19 @@ mod reading {
     }
 
     #[test]
-    fn reads_at_most_the_byte_cap_of_one_file() {
+    fn a_listing_keeps_at_most_the_byte_cap_of_one_file() {
         let root = workspace();
         install(root.path(), "big.md", &"x".repeat(MEMORY_MAX_BYTES * 2));
         let memories = read_memories(root.path());
         assert_eq!(memories[0].content.len(), MEMORY_MAX_BYTES);
+    }
+
+    #[test]
+    fn a_read_by_key_returns_the_whole_file() {
+        let root = workspace();
+        install(root.path(), "big.md", &"x".repeat(MEMORY_MAX_BYTES * 2));
+        let memory = read_memory(root.path(), "big").unwrap();
+        assert_eq!(memory.content.len(), MEMORY_MAX_BYTES * 2);
     }
 
     #[test]

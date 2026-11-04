@@ -217,13 +217,12 @@ conversation is not a fact about a workspace, and `memory/` holds the second kin
 
 **None of these is configurable, and there is no token budget.**
 
-| Cap                      | Value | What it bounds                   |
-| ------------------------ | ----- | -------------------------------- |
-| `MAX_MEMORIES`           | 200   | How many are advertised at all.  |
-| `MAX_MEMORY_TITLE_CHARS` | 80    | How long one index line runs.    |
-| `MEMORY_MAX_BYTES`       | 12 KB | How much of one file is read.    |
-| `MAX_MEMORY_NAME_CHARS`  | 64    | How long a key may be.           |
-| content, in the tool     | 2000  | How much one `save` call writes. |
+| Cap                      | Value | What it bounds                        |
+| ------------------------ | ----- | ------------------------------------- |
+| `MAX_MEMORIES`           | 200   | How many are advertised at all.       |
+| `MAX_MEMORY_TITLE_CHARS` | 80    | How long one index line runs.         |
+| `MEMORY_MAX_BYTES`       | 12 KB | How much of one file a listing keeps. |
+| `MAX_MEMORY_NAME_CHARS`  | 64    | How long a key may be.                |
 
 **A count of files, not a token budget**, and the two are not interchangeable. An index
 line is a handful of tokens, so a budget in tokens would afford more lines than
@@ -236,8 +235,11 @@ roughly 4k tokens in the static half if a workspace really fills the folder. Tha
 cost of a very large memory store, and it is paid once per turn in the cached prefix
 rather than per request.
 
-`MEMORY_MAX_BYTES` is the same figure as `SKILL_MAX_BYTES` and the argument transfers: it
-is what reading one of these costs when the model opens it. One memory does not need more.
+**One memory has no length limit.** A `save` writes whatever it is given, and a `read`
+action returns the whole file. The result goes through the same budget as any tool result, so a
+memory longer than that loses its middle on the way to the model. The tool then ends the
+result with a note to page through `memory/<key>.md` with the `read` tool. `MEMORY_MAX_BYTES`
+bounds only a listing, which needs a title rather than the file.
 
 See [Configuration](configuration.md).
 
