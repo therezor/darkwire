@@ -41,6 +41,9 @@ export const PROTOCOL_SCHEMAS = {
   Usage: messages.UsageSchema,
   StepStats: messages.StepStatsSchema,
   StopReason: messages.StopReasonSchema,
+  DeliveredKind: messages.DeliveredKindSchema,
+  DeliveredStatus: messages.DeliveredStatusSchema,
+  Delivered: messages.DeliveredSchema,
 
   // tools
   ToolRisk: tools.ToolRiskSchema,
@@ -59,6 +62,7 @@ export const PROTOCOL_SCHEMAS = {
   ReasoningEffort: config.ReasoningEffortSchema,
   PromptMode: config.PromptModeSchema,
   ReasoningDisplay: config.ReasoningDisplaySchema,
+  TerminalAlert: config.TerminalAlertSchema,
   AgentSettings: config.AgentSettingsSchema,
   WorkspacesPath: config.WorkspacesPathSchema,
   AgentsConfig: config.AgentsConfigSchema,
@@ -134,6 +138,7 @@ export const PROTOCOL_SCHEMAS = {
   ToolApproveMessage: ws.ToolApproveMessageSchema,
   SteerMessage: ws.SteerMessageSchema,
   CompactSessionMessage: ws.CompactSessionMessageSchema,
+  StopJobMessage: ws.StopJobMessageSchema,
   ClientMessage: ws.ClientMessageSchema,
 
   // websocket — server
@@ -158,11 +163,15 @@ export const PROTOCOL_SCHEMAS = {
   SubagentEvent: ws.SubagentEventSchema,
   ContextUsageEvent: ws.ContextUsageEventSchema,
   SessionStatusEvent: ws.SessionStatusEventSchema,
+  RunningJob: ws.RunningJobSchema,
+  Posted: ws.PostedSchema,
   SessionResetEvent: ws.SessionResetEventSchema,
   SessionReplayEvent: ws.SessionReplayEventSchema,
   SessionTruncatedEvent: ws.SessionTruncatedEventSchema,
   SessionCompactedEvent: ws.SessionCompactedEventSchema,
   NotificationEvent: ws.NotificationEventSchema,
+  PendingApproval: ws.PendingApprovalSchema,
+  ApprovalsPendingEvent: ws.ApprovalsPendingEventSchema,
   ToolsChangedEvent: ws.ToolsChangedEventSchema,
   SteerEvent: ws.SteerEventSchema,
   ServerMessage: ws.ServerMessageSchema,

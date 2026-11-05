@@ -22,6 +22,15 @@
       "default": false,
       "type": "boolean"
     },
+    "terminalAlert": {
+      "default": "auto",
+      "type": "string",
+      "enum": [
+        "auto",
+        "bell",
+        "none"
+      ]
+    },
     "timezone": {
       "default": "UTC",
       "type": "string",

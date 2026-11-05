@@ -598,3 +598,111 @@ async fn the_transcript_command_opens_the_same_window_the_key_does() {
     assert_eq!(line.as_deref(), Some("back to typing"));
     assert!(!surface.tui().is_alt_screen(), "the window came back");
 }
+
+// Calling attention to an approval
+
+/// Says an approval is waiting, the way the gate does, and gives the loop the
+/// moment it needs to act on it.
+async fn approval_waits(surface: &mut TuiSurface<VT100Backend>) {
+    let menu = surface.menu();
+    let command = Box::pin(async move {
+        menu.attention("exec is waiting for approval");
+        tokio::task::yield_now().await;
+        darkwire::chat::Flow::Again
+    });
+    tokio::time::timeout(Duration::from_secs(5), surface.attend(command))
+        .await
+        .expect("the command finished");
+}
+
+fn bells(surface: &TuiSurface<VT100Backend>) -> usize {
+    surface.tui().terminal().backend().bells()
+}
+
+#[tokio::test]
+async fn rings_for_an_approval_when_the_terminal_never_said_it_was_looked_at() {
+    // A terminal without focus reporting never says, and silence there would
+    // be the one place the alert is needed and missing.
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, _events) = prompt(&session);
+
+    approval_waits(&mut surface).await;
+
+    assert_eq!(bells(&surface), 1);
+}
+
+#[tokio::test]
+async fn stays_quiet_for_an_approval_somebody_is_looking_at() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+    events.send(TuiEvent::Focus(true)).unwrap();
+
+    approval_waits(&mut surface).await;
+
+    assert_eq!(bells(&surface), 0);
+}
+
+#[tokio::test]
+async fn rings_once_the_window_has_been_left() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+    events.send(TuiEvent::Focus(true)).unwrap();
+    events.send(TuiEvent::Focus(false)).unwrap();
+
+    approval_waits(&mut surface).await;
+
+    assert_eq!(bells(&surface), 1);
+}
+
+#[tokio::test]
+async fn rings_when_the_transcript_hides_the_question() {
+    // Looked at, but the window is the transcript's, and the question is under
+    // it.
+    let home = tempfile::tempdir().unwrap();
+    let session = session(&home);
+    let (mut surface, events) = prompt(&session);
+    surface.echo("something to read").await;
+    events.send(TuiEvent::Focus(true)).unwrap();
+    events.send(TuiEvent::Key(Key::ctrl('t'))).unwrap();
+
+    approval_waits(&mut surface).await;
+
+    assert!(surface.tui().is_alt_screen(), "the transcript never opened");
+    assert_eq!(bells(&surface), 1);
+}
+
+/// A session over a config that sets `ui.terminalAlert`.
+fn session_alerting(home: &tempfile::TempDir, alert: &str) -> darkwire::chat::ChatSession {
+    std::fs::write(
+        home.path().join("config.yaml"),
+        format!("ui:\n  terminalAlert: {alert}\n"),
+    )
+    .unwrap();
+    session(home)
+}
+
+#[tokio::test]
+async fn says_nothing_when_switched_off() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session_alerting(&home, "none");
+    let (mut surface, _events) = prompt(&session);
+
+    approval_waits(&mut surface).await;
+
+    assert_eq!(bells(&surface), 0);
+    assert!(surface.tui().terminal().backend().osc().is_empty());
+}
+
+#[tokio::test]
+async fn rings_when_set_to_the_bell() {
+    let home = tempfile::tempdir().unwrap();
+    let session = session_alerting(&home, "bell");
+    let (mut surface, _events) = prompt(&session);
+
+    approval_waits(&mut surface).await;
+
+    assert_eq!(bells(&surface), 1);
+}

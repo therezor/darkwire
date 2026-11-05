@@ -47,6 +47,7 @@ const UNREGISTERED: &[&str] = &[
     "SessionTruncated",
     "SessionCompacted",
     "NotificationBody",
+    "ApprovalsPending",
     "ToolsChanged",
     "Steer",
     // Inline enums the browser spells as a literal list inside a field.

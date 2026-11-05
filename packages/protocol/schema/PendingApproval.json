@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "sessionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "callId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expiresAtMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "sessionKey",
+    "callId",
+    "name",
+    "expiresAtMs"
+  ]
+}

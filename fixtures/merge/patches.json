@@ -39,6 +39,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -145,6 +146,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -253,6 +255,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -365,6 +368,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -473,6 +477,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -586,6 +591,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -697,6 +703,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -809,6 +816,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -919,6 +927,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -1046,6 +1055,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -1165,6 +1175,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -1289,6 +1300,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -1407,6 +1419,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -1529,6 +1542,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -1646,6 +1660,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -1776,6 +1791,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -1901,6 +1917,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -2030,6 +2047,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -2155,6 +2173,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -2287,6 +2306,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -2411,6 +2431,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -2529,6 +2550,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -2645,6 +2667,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -2787,6 +2810,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -2920,6 +2944,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -3045,6 +3070,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -3166,6 +3192,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -3294,6 +3321,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -3415,6 +3443,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -3556,6 +3585,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -3684,6 +3714,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -3811,6 +3842,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -3932,6 +3964,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -4073,6 +4106,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -4200,6 +4234,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -4336,6 +4371,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -4461,6 +4497,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -4595,6 +4632,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -4719,6 +4757,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -4849,6 +4888,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -4973,6 +5013,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5019,6 +5060,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5064,6 +5106,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5183,6 +5226,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5229,6 +5273,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5274,6 +5319,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5382,6 +5428,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5427,6 +5474,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5472,6 +5520,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5586,6 +5635,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5631,6 +5681,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5676,6 +5727,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -5784,6 +5836,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -5940,6 +5993,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -6086,6 +6140,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -6238,6 +6293,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -6384,6 +6440,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -6501,6 +6558,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -6609,6 +6667,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -6723,6 +6782,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -6831,6 +6891,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -6876,6 +6937,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -6921,6 +6983,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7034,6 +7097,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7079,6 +7143,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7124,6 +7189,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7232,6 +7298,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7277,6 +7344,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7389,6 +7457,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7434,6 +7503,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7542,6 +7612,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7587,6 +7658,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7632,6 +7704,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -7761,6 +7834,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7806,6 +7880,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7851,6 +7926,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -7965,6 +8041,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -8010,6 +8087,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -8128,6 +8206,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -8173,6 +8252,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -8287,6 +8367,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -8412,6 +8493,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -8527,6 +8609,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -8647,6 +8730,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -8761,6 +8845,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -8885,6 +8970,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -9000,6 +9086,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -9116,6 +9203,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -9228,6 +9316,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -9349,6 +9438,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -9463,6 +9553,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -9584,6 +9675,7 @@
                 "write": "allow",
                 "edit": "allow",
                 "exec": "ask",
+                "kill": "allow",
                 "memory": "allow",
                 "skill": "allow",
                 "todo": "allow"
@@ -9699,6 +9791,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -9823,6 +9916,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"

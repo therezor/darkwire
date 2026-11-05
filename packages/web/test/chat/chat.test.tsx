@@ -475,6 +475,7 @@ describe('a turn of several messages', () => {
       firstSeq: 2,
       lastSeq: 3,
       stats: stepStats(2100, 80),
+      createdAtMs: 0,
       turnElapsedMs: 4200,
     },
   ];
@@ -489,6 +490,7 @@ describe('a turn of several messages', () => {
       firstSeq: 4,
       lastSeq: 4,
       stats: stepStats(2200, 30),
+      createdAtMs: 0,
       turnElapsedMs: 6000,
     },
     {
@@ -785,6 +787,7 @@ describe('a turn that ended without figures', () => {
           usage: { promptTokens: 300, completionTokens: 40, totalTokens: 340 },
           elapsedMs: 1200,
         },
+        createdAtMs: 0,
         turnElapsedMs: 1200,
       },
       {
@@ -1954,6 +1957,30 @@ describe('storage behind an incomplete replay', () => {
 
     expect(await screen.findByText('The whole answer.')).toBeInTheDocument();
   });
+
+  it('draws the result that woke a turn from the frame, with no fetch', async () => {
+    stubFetch({
+      ...BASE_ROUTES,
+      '/api/sessions/web%3A1/messages': [
+        200,
+        { sessionKey: SESSION, messages: [] },
+      ],
+    });
+    mount();
+    await connect();
+
+    deliver({
+      ...START,
+      posted: {
+        text: '[Background job 1 finished: make]',
+        from: { kind: 'exec', id: '1', label: 'make', status: 'ok' },
+      },
+    });
+
+    expect(
+      await screen.findByRole('region', { name: 'Background job 1' }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('a turn storage has only part of', () => {
@@ -2021,6 +2048,7 @@ describe('a turn storage has only part of', () => {
         firstSeq: 2,
         lastSeq: 2,
         stats: STATS,
+        createdAtMs: 0,
         turnElapsedMs: 1000,
       },
       { type: 'assistant.delta', turnId: 't1', text: 'The second message.' },
@@ -2076,6 +2104,7 @@ describe('a turn storage has only part of', () => {
         firstSeq: 2,
         lastSeq: 2,
         stats: STATS,
+        createdAtMs: 0,
         turnElapsedMs: 1000,
       },
       { type: 'assistant.delta', turnId: 't1', text: 'The second message.' },
@@ -2181,6 +2210,7 @@ describe('reworking a session', () => {
           model: 'test-model',
           elapsedMs: 10_800,
         },
+        createdAtMs: 0,
         turnElapsedMs: 10_800,
       },
       {

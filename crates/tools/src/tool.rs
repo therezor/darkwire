@@ -51,6 +51,7 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::automation::AutomationPort;
+use crate::background::BackgroundPort;
 use crate::discovery::ToolDiscovery;
 use crate::runner::{CommandRunner, LocalRunner};
 use crate::tasks::TaskPort;
@@ -124,6 +125,10 @@ pub struct ToolContext {
     /// and session. `None` is a build with no scheduler — the tool then refuses
     /// rather than pretending.
     pub automation: Option<Arc<dyn AutomationPort>>,
+    /// Where a background `exec` goes, already scoped to this turn's session.
+    /// `None` is a call with nowhere to post a result, where `exec` with
+    /// `background` and `kill` refuse.
+    pub background: Option<Arc<dyn BackgroundPort>>,
     /// What `tool_search` may find and reveal, already scoped to this turn's
     /// agent and session. `None` is an install with lazy discovery off, where
     /// the tool is not registered and would refuse if it were.
@@ -154,6 +159,7 @@ impl ToolContext {
             sandboxed: false,
             placement: None,
             automation: None,
+            background: None,
             discovery: None,
             tasks: None,
             web: None,
@@ -182,6 +188,7 @@ impl std::fmt::Debug for ToolContext {
             .field("cancelled", &self.token.is_cancelled())
             .field("sandboxed", &self.sandboxed)
             .field("automation", &self.automation.is_some())
+            .field("background", &self.background.is_some())
             .field("discovery", &self.discovery.is_some())
             .field("tasks", &self.tasks.is_some())
             .field("web", &self.web.is_some())

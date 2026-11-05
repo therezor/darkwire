@@ -402,6 +402,7 @@ impl TurnProjection {
             | ServerMessage::SessionReplay(_)
             | ServerMessage::SessionTruncated(_)
             | ServerMessage::Notification(_)
+            | ServerMessage::ApprovalsPending(_)
             | ServerMessage::ToolsChanged(_)
             | ServerMessage::Steer(_) => Vec::new(),
         }

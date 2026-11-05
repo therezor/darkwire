@@ -114,7 +114,7 @@ pub struct AutomationDelivery {
     /// Channel-specific destination (chat id, user id, room).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
-    /// Overrides the isolated `automation:{jobId}:{runId}` session. Setting
+    /// Overrides the fresh session each run gets by default. Setting
     /// this is what makes a nightly job grow an unbounded context window, so
     /// the default of a fresh session per run is deliberate.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -172,6 +172,7 @@ impl ScriptedConnection {
                 agent_id: "default".to_owned(),
                 model: "scripted".to_owned(),
                 provider: "scripted".to_owned(),
+                posted: None,
             },
         }));
         if !text.is_empty() {
@@ -193,6 +194,7 @@ impl ScriptedConnection {
                 first_seq: 2,
                 last_seq: 2,
                 stats: StepStats::default(),
+                created_at_ms: 0,
                 turn_elapsed_ms: 0,
             },
         }));

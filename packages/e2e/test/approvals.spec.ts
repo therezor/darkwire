@@ -23,6 +23,12 @@ test.describe('a tool that needs approval', () => {
     // The card opens itself when a decision is needed: a prompt inside a
     // collapsed card is a turn that has silently stopped.
     await expect(card.getByRole('button', { name: /Once/ })).toBeVisible();
+    // The tab says so too, for a reader looking at another one. The icon, not
+    // the title: a title blinks while the page is out of sight.
+    await expect(app.locator('link[rel="icon"]')).toHaveAttribute(
+      'href',
+      '/favicon-alert.svg',
+    );
 
     await card.getByRole('button', { name: 'Once', exact: true }).click();
 
@@ -35,6 +41,7 @@ test.describe('a tool that needs approval', () => {
     await expect(
       app.getByTestId('transcript').getByText('That is the runtime version.'),
     ).toBeVisible();
+    await expect(app).not.toHaveTitle(/^\(\d+\) Approve · /);
   });
 
   test('is refused after a denial, and the turn continues', async ({ app }) => {

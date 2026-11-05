@@ -77,6 +77,7 @@ pub const BUILTIN_TOOL_NAMES: &[&str] = &[
     "grep",
     "find",
     "exec",
+    "kill",
     "automation",
     "memory",
     "skill",

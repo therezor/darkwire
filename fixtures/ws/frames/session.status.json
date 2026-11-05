@@ -7,6 +7,13 @@
     "busy": true,
     "queueDepth": 0,
     "workspaceId": "acme",
-    "turnId": "t1"
+    "turnId": "t1",
+    "jobs": [
+      {
+        "id": "2",
+        "label": "pnpm dev",
+        "startedAtMs": 1700000000000
+      }
+    ]
   }
 }

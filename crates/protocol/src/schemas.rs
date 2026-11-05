@@ -229,6 +229,18 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         name: "StopReason",
         schema: schema_for::<messages::StopReason>,
     },
+    RegisteredSchema {
+        name: "DeliveredKind",
+        schema: schema_for::<messages::DeliveredKind>,
+    },
+    RegisteredSchema {
+        name: "DeliveredStatus",
+        schema: schema_for::<messages::DeliveredStatus>,
+    },
+    RegisteredSchema {
+        name: "Delivered",
+        schema: schema_for::<messages::Delivered>,
+    },
     // tools
     RegisteredSchema {
         name: "ToolRisk",
@@ -286,6 +298,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "ReasoningDisplay",
         schema: schema_for::<config::ReasoningDisplay>,
+    },
+    RegisteredSchema {
+        name: "TerminalAlert",
+        schema: schema_for::<config::TerminalAlert>,
     },
     RegisteredSchema {
         name: "AgentSettings",
@@ -552,6 +568,10 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<ws::CompactSessionMessage>,
     },
     RegisteredSchema {
+        name: "StopJobMessage",
+        schema: schema_for::<ws::StopJobMessage>,
+    },
+    RegisteredSchema {
         name: "ClientMessage",
         schema: schema_for::<ws::ClientMessage>,
     },
@@ -640,6 +660,14 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
         schema: schema_for::<ws::SessionStatusEvent>,
     },
     RegisteredSchema {
+        name: "Posted",
+        schema: schema_for::<ws::Posted>,
+    },
+    RegisteredSchema {
+        name: "RunningJob",
+        schema: schema_for::<ws::RunningJob>,
+    },
+    RegisteredSchema {
         name: "SessionResetEvent",
         schema: schema_for::<ws::SessionResetEvent>,
     },
@@ -658,6 +686,14 @@ pub static PROTOCOL_SCHEMAS: &[RegisteredSchema] = &[
     RegisteredSchema {
         name: "NotificationEvent",
         schema: schema_for::<ws::NotificationEvent>,
+    },
+    RegisteredSchema {
+        name: "PendingApproval",
+        schema: schema_for::<ws::PendingApproval>,
+    },
+    RegisteredSchema {
+        name: "ApprovalsPendingEvent",
+        schema: schema_for::<ws::ApprovalsPendingEvent>,
     },
     RegisteredSchema {
         name: "ToolsChangedEvent",

@@ -223,6 +223,8 @@ export const AgentSettingsSchema = z.object({
   /** Wall-clock cap on one turn, checked at the top of each loop iteration. */
   loopWallTimeoutMs: OptionalDurationMs.default(0),
   subagentTimeoutMs: OptionalDurationMs.default(0),
+  /** Background jobs one session may run at once. `0` turns them off. */
+  backgroundJobs: z.number().int().nonnegative().default(4),
   reasoningEffort: ReasoningEffortSchema.optional(),
   /**
    * Whether attached images are sent to the model as images.
@@ -569,6 +571,8 @@ export const DEFAULT_AGENT_TOOLS: Readonly<Record<string, ToolPermission>> =
     write: 'allow',
     edit: 'allow',
     exec: 'ask',
+    // Reaches only this session's own background jobs.
+    kill: 'allow',
     // These two are the switches for memory and skills — denying the tool also
     // removes the prompt section it feeds. Seeded on, because an agent that
     // silently fails to remember reads as broken rather than as unconfigured.
@@ -981,6 +985,11 @@ export const ReasoningDisplaySchema = z.enum([
 ]);
 export type ReasoningDisplay = z.infer<typeof ReasoningDisplaySchema>;
 
+/** How the terminal says a tool call is waiting for approval. */
+/** `none` rather than `off`, which YAML reads as `false`. */
+export const TerminalAlertSchema = z.enum(['auto', 'bell', 'none']);
+export type TerminalAlert = z.infer<typeof TerminalAlertSchema>;
+
 export const UiConfigSchema = z.object({
   /** A BCP-47 tag. Unknown values fall back rather than failing to parse. */
   locale: z.string().default('en'),
@@ -1018,6 +1027,16 @@ export const UiConfigSchema = z.object({
    * popover, which is already out of the way.
    */
   expandTurnStats: z.boolean().default(false),
+  /**
+   * How the terminal says a tool call is waiting for approval, while it does
+   * not have focus.
+   *
+   * `auto` sends a desktop notification where the terminal is known to show
+   * one and rings the bell everywhere else. `bell` always rings the bell.
+   * The terminal only: the browser has its own switch, because whether a
+   * browser may notify is the browser's to grant.
+   */
+  terminalAlert: TerminalAlertSchema.default('auto'),
   /**
    * The one zone this install reads and writes clock times in.
    *

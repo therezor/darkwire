@@ -31,6 +31,7 @@ origin blocked. See [Security](security.md#privacy).
 | `/sessions`, `/sessions/:key`     | Session list, and one session. `/?session=` still forwards here.     |
 | `/agents`, `/agents/:id`          | Agent list and editor.                                               |
 | `/workspaces`, `/workspaces/:id`  | Workspace list and editor.                                           |
+| `/automation`, `/automation/:id`  | Scheduled jobs, and one job's editor with its run history.           |
 | `/files`                          | File browser. Without `?workspace=` it opens at the workspaces tree. |
 | `/notifications`                  | The archive.                                                         |
 | `/settings`                       | `?panel=` picks the tab.                                             |
@@ -83,6 +84,13 @@ never drops a running turn.
 - **Approval prompts** show the arguments before the call runs, and take Approve once /
   this session, or Deny. A standing permission is an agent setting, not a button here.
   See [Tools & permissions](tools.md#answering).
+- **A waiting approval shows outside the chat too**, in any session. The tab title starts
+  with "(1) Approve", counting the waiting calls, and blinks while you are in another tab
+  or app. The tab icon gets a red dot, and the session gets a dot in the sidebar. All
+  three clear when the call is answered, in any tab, or expires. Settings → Account →
+  Notifications adds a desktop notification while the tab is in the background. It is
+  stored in this browser, asks the browser for permission when switched on, and needs
+  HTTPS or localhost.
 - **Subagent cards** nest inside the call that started them, and survive a reload
   _during_ the delegation with everything the subagent had already written. The replay
   ring cannot do that on its own — it holds 512 frames and a subagent emits one per token
@@ -93,10 +101,15 @@ never drops a running turn.
 - **Notices** badge prompt injection, degraded requests, provider fallback, truncated
   history, a denied approval, a fallback to another agent, and a turn that ran with tools
   switched off.
-- **Message info**: the model the provider reported, tokens in, cached tokens and time
-  to first token. First token is what a cold model load looks like. The rate on the
-  line divides by generation time alone, so it stays steady across a cold and a warm
-  run.
+- **Result cards** are what a [background job](tools.md#background-jobs) or a scheduled
+  job posts back. Nobody typed one, so it is drawn as a card naming the job and how it
+  ended, with the output behind a click, and offers none of a message's actions. It is
+  told apart by the message's typed `from`, never by its header text.
+- **Message info**: when the message was written, the model the provider reported,
+  tokens in, cached tokens and time to first token. The time is the server's, from the
+  message's stored row, so a live message and a reloaded one show the same. First token
+  is what a cold model load looks like. The rate on the line divides by generation time
+  alone, so it stays steady across a cold and a warm run.
 - Markdown with highlighted code blocks.
 
 A tool card, expanded to show what the call returned:
@@ -218,6 +231,17 @@ terminal. It is in the body rather than beside the heading because the heading i
 `summary`, and a `summary` is already a button: a second one inside it would have to
 cancel the disclosure on every click to work at all.
 
+### Background jobs strip
+
+Below the task panel, one row per background job this conversation is running: the
+command, how long it has run, and Stop. Stop ends the job, and its result still arrives as
+a card, marked stopped. The strip disappears when the last job ends.
+
+It is fed by `session.status`, which the server sends when a job starts or ends and on
+every attach, so a reload sees what is still running and nothing polls. The running state
+is covered by a component test, where it holds still; an e2e spec asserts only the result
+card a job settles into.
+
 ### Context inspector
 
 A bar showing the whole context window and where it went (system prompt, tool
@@ -319,11 +343,12 @@ an install with several agents has several answers.
 ## Automation
 
 A page rather than a settings panel, in the nav above Settings, built out of the same CRUD
-chrome as Agents and Workspaces: filter, sort, `DataList` rows, a kebab, a create dialog
-and a confirm on delete. Per job: the schedule (once at a time, on an interval, or on a
-cron expression, read in `ui.timezone`), what it does (a fixed message, or a heartbeat that
-reads a task file and decides), the agent it runs on, an optional pinned session key, and
-delivery. Below it, the **run history** — each run's outcome, output, skip reason, error
+chrome as Agents and Workspaces: filter, sort, `DataList` rows, a kebab, a
+[create route](#creating-things) and a confirm on delete. Per job: the schedule (once at a
+time, on an interval, or on a cron expression, read in `ui.timezone`), what it does (a
+fixed message, or a heartbeat that reads a task file and decides), the agent it runs on,
+an optional pinned session key, and delivery.
+Below it, the **run history** — each run's outcome, output, skip reason, error
 and any warnings.
 
 The scheduler's own switches are **not** here — enabled, catch-up on boot, concurrency and
@@ -331,9 +356,10 @@ how much history to keep per job are install-wide, and live in Settings → Auto
 split is the one Agents already makes: the agents are a page, and only install-wide tool
 settings sit in Settings.
 
-A row reports where the last run **landed** and when the next one is due, never whether one
-is in flight. Keeping that honest would mean polling, and it is exactly the transient state
-the e2e rule says not to build a UI around.
+A row reports where the last run **landed** and when the next one is due. Whether one is
+in flight is not shown: the job list is fetched, not pushed, so keeping it honest would mean
+polling. A run's notification links to the run's transcript, and a job an agent made also
+posts its result into the conversation that made it.
 
 ## Creating things
 

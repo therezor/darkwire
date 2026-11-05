@@ -6,6 +6,12 @@
     "sessionKey": "web:abc",
     "turnId": "t1",
     "content": "shorter",
-    "clientMessageId": "c-steer"
+    "clientMessageId": "c-steer",
+    "from": {
+      "kind": "exec",
+      "id": "2",
+      "label": "pnpm test",
+      "status": "ok"
+    }
   }
 }

@@ -25,6 +25,7 @@
         "model": "qwen3:8b"
       }
     },
+    "createdAtMs": 1700000004200,
     "turnElapsedMs": 6100
   }
 }

@@ -139,6 +139,7 @@ describe('a delta arriving', () => {
           model: 'm',
           elapsedMs: 1000,
         },
+        createdAtMs: 0,
         turnElapsedMs: 1000,
       },
       delta('t1', 'the second'),

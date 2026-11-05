@@ -23,9 +23,48 @@ use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
 
+/// What the emulator was asked to do besides draw: the bells it rang and the
+/// notifications it was sent. A terminal that drops these is where a test
+/// would otherwise lose them.
+#[derive(Debug, Default)]
+pub struct Recorder {
+    bells: usize,
+    osc: Vec<Vec<String>>,
+}
+
+impl vt100::Callbacks for Recorder {
+    fn audible_bell(&mut self, _: &mut vt100::Screen) {
+        self.bells += 1;
+    }
+
+    fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
+        self.osc.push(
+            params
+                .iter()
+                .map(|param| String::from_utf8_lossy(param).into_owned())
+                .collect(),
+        );
+    }
+}
+
+/// The parser, as something to write to. vt100 implements `Write` only for a
+/// parser without callbacks.
+struct Emulator(vt100::Parser<Recorder>);
+
+impl Write for Emulator {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.process(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// A terminal that parses what is written to it.
 pub struct VT100Backend {
-    inner: CrosstermBackend<vt100::Parser>,
+    inner: CrosstermBackend<Emulator>,
     size: Size,
 }
 
@@ -35,19 +74,33 @@ impl VT100Backend {
     pub fn new(width: u16, height: u16) -> Self {
         crossterm::style::force_color_output(true);
         Self {
-            inner: CrosstermBackend::new(vt100::Parser::new(
+            inner: CrosstermBackend::new(Emulator(vt100::Parser::new_with_callbacks(
                 at_least_one(height),
                 at_least_one(width),
                 0,
-            )),
+                Recorder::default(),
+            ))),
             size: Size { width, height },
         }
     }
 
     /// The parser holding the screen.
     #[must_use]
-    pub fn parser(&self) -> &vt100::Parser {
-        self.inner.writer()
+    pub fn parser(&self) -> &vt100::Parser<Recorder> {
+        &self.inner.writer().0
+    }
+
+    /// How many times the bell rang.
+    #[must_use]
+    pub fn bells(&self) -> usize {
+        self.parser().callbacks().bells
+    }
+
+    /// Every OSC the emulator does not act on itself, such as a desktop
+    /// notification, split at its semicolons.
+    #[must_use]
+    pub fn osc(&self) -> &[Vec<String>] {
+        &self.parser().callbacks().osc
     }
 
     /// Every row of the visible screen, trailing blanks trimmed.
@@ -101,6 +154,7 @@ impl VT100Backend {
         self.size = Size { width, height };
         self.inner
             .writer_mut()
+            .0
             .screen_mut()
             .set_size(at_least_one(height), at_least_one(width));
     }

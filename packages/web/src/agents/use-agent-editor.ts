@@ -218,6 +218,7 @@ export function useAgentEditor({
     contextWindowTokens: bind('contextWindowTokens'),
     toolTimeoutSeconds: bind('toolTimeoutSeconds'),
     maxToolIterations: bind('maxToolIterations'),
+    backgroundJobs: bind('backgroundJobs'),
     loopWallTimeoutSeconds: bind('loopWallTimeoutSeconds'),
     approvalTimeoutSeconds: bind('approvalTimeoutSeconds'),
     maxOutputChars: bind('maxOutputChars'),

@@ -30,7 +30,9 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '@/lib/api.js';
+import { useLookingAtPage } from '@/lib/looking.js';
 import { queryKeys } from '@/lib/query.js';
+import { useApprovalsStore } from '@/state/approvals.js';
 import { useTurnStore } from '@/state/turn.js';
 import { useConnection } from '@/chat/use-connection.js';
 import { Button } from '@/components/ui/button.js';
@@ -55,6 +57,8 @@ import { Wordmark } from '@/components/wordmark.js';
 import { Sidebar } from './sidebar.js';
 import type { WebKey } from '@/i18n/keys.js';
 import { usePageTitleStore } from './page-title.js';
+import { useFavicon } from './favicon.js';
+import { useApprovalAlerts } from '@/notifications/approval-alerts.js';
 
 /**
  * The section each path prefix belongs to, for the tab title.
@@ -83,12 +87,16 @@ function pageTitleKey(pathname: string): WebKey | undefined {
   )?.[1];
 }
 
+const BLINK_MS = 1000;
+
 function useDocumentTitle(): void {
   const { t } = useTranslation();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
   const claimed = usePageTitleStore((state) => state.title);
+  const waiting = useApprovalsStore((state) => state.pending.length);
+  const looking = useLookingAtPage();
   useEffect(() => {
     const key = pageTitleKey(pathname);
     const section = key === undefined ? undefined : t(key);
@@ -96,11 +104,31 @@ function useDocumentTitle(): void {
     const chain = [claimed, claimed === section ? undefined : section].filter(
       (part): part is string => part !== undefined,
     );
-    document.title =
+    const title =
       chain.length === 0
         ? t('shell.appName')
         : t('shell.pageTitle', { page: chain.join(' · ') });
-  }, [claimed, pathname, t]);
+    if (waiting === 0) {
+      document.title = title;
+      return undefined;
+    }
+    // In front, because a tab strip cuts a title from the end.
+    const alert = t('shell.approvalTitle', { count: waiting, title });
+    document.title = alert;
+    if (looking) return undefined;
+
+    // Away from the page it blinks, as a chat's tab does. Chrome slows a
+    // timer in a tab hidden for five minutes to about once a minute, so the
+    // icon's dot, which holds still, is the signal that never lapses.
+    let lit = true;
+    const timer = window.setInterval(() => {
+      lit = !lit;
+      document.title = lit ? alert : title;
+    }, BLINK_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [claimed, looking, pathname, t, waiting]);
 }
 
 export function Shell({
@@ -111,6 +139,8 @@ export function Shell({
   const { t } = useTranslation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   useDocumentTitle();
+  useFavicon(useApprovalsStore((state) => state.pending.length > 0));
+  useApprovalAlerts();
 
   // `strict: false` because the shell is above every route and only one of them
   // has a `sessionKey` parameter. On the others the answer is legitimately

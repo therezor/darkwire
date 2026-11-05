@@ -836,6 +836,7 @@ pub fn start_test_server(options: TestServerOptions) -> Result<TestServer> {
         max_queue_depth: None,
         max_sessions: None,
         steering: runner.steering(),
+        jobs: None,
     });
 
     hub.fill_rules(crate::exec_rules::rule_writer(

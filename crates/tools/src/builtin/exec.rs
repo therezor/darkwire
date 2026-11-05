@@ -26,6 +26,10 @@
 //!  - **How an outcome reads.** [`render_run`] is what the model sees, and
 //!    `details` is what an approval prompt and the audit log see.
 //!
+//!  - **Handing a command off.** With `background`, the guarded and approved
+//!    command goes to the turn's [`BackgroundPort`](crate::background::BackgroundPort)
+//!    and the call returns at once. The result arrives later as a message.
+//!
 //! The description and the argument schema have to cover **both** placements,
 //! because they are computed once and the same definition is advertised to a
 //! host agent and a sandboxed one. A rule stated for one placement alone sits
@@ -43,6 +47,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::background::{BackgroundRefusal, StartJob};
 use crate::builtin::built;
 use crate::builtin::shared::format_bytes;
 use crate::container_runner::TRANSCRIPT_MAX_BYTES;
@@ -64,6 +69,10 @@ struct ExecArgs {
         description = "Kill the process after this many milliseconds. Capped by the operator setting."
     )]
     timeout_ms: Option<u64>,
+    #[schemars(
+        description = "Return at once and post the output as a message when it exits. For servers, watchers and long builds."
+    )]
+    background: Option<bool>,
 }
 
 struct Exec;
@@ -89,6 +98,10 @@ impl ToolHandler for Exec {
                     sandboxed: ctx.sandboxed,
                 },
             )?;
+
+            if args.background == Some(true) {
+                return Ok(start_background(args.argv, plan, args.timeout_ms, ctx));
+            }
 
             // Where it runs is the context's to decide; whether it may run was
             // settled above.
@@ -133,6 +146,51 @@ impl ToolHandler for Exec {
                 rule: verdict.rule.map(|rule| rule.source.clone()),
             }),
         })
+    }
+}
+
+/// Hands a guarded command to the session's background jobs.
+fn start_background(
+    argv: Vec<String>,
+    plan: ExecPlan,
+    timeout_ms: Option<u64>,
+    ctx: &ToolContext,
+) -> ToolOutput {
+    let Some(port) = ctx.background.as_ref() else {
+        return ToolOutput::error(
+            "Background jobs are not available here. Run it without background.",
+        );
+    };
+    let job = StartJob {
+        timeout_ms: effective_timeout(&plan, timeout_ms),
+        argv,
+        plan,
+        runner: Arc::clone(&ctx.runner),
+        clock: Arc::clone(&ctx.clock),
+        limit: ctx.config.background_jobs,
+        max_output_chars: ctx.config.max_output_chars,
+    };
+    match port.start(job) {
+        Ok(id) => ToolOutput::text(format!(
+            "Started job {id}. Its output arrives as a message when it exits."
+        )),
+        Err(refusal) => ToolOutput::error(background_refusal(refusal)),
+    }
+}
+
+/// How a refused background call reads to the model.
+pub(crate) fn background_refusal(refusal: BackgroundRefusal) -> &'static str {
+    match refusal {
+        BackgroundRefusal::Off => {
+            "Background jobs are off for this agent. Run it without background."
+        }
+        BackgroundRefusal::AtCapacity => {
+            "Too many background jobs are running. Wait for one to finish, or kill one."
+        }
+        BackgroundRefusal::Unknown => "No running job with that id.",
+        BackgroundRefusal::NotHere => {
+            "Background jobs are not available in this conversation. Run it without background."
+        }
     }
 }
 

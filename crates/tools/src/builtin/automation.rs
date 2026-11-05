@@ -93,7 +93,7 @@ struct AutomationArgs {
 /// on the old advice will otherwise convert an hour it did not need to convert.
 ///
 /// The third is the one whose absence looked like the model not understanding
-/// the tool. A scheduled run gets its own `automation:{jobId}` session and
+/// the tool. A scheduled run gets a fresh session of its own and
 /// cannot see the conversation that created it, so `message: "do the thing we
 /// discussed"` schedules a turn that has no idea what the thing is — and the
 /// failure lands a week later, on somebody who was not there. A model has no

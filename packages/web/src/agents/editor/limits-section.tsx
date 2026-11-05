@@ -52,6 +52,13 @@ export function LimitsSection({
           error={errors.loopWallTimeoutSeconds}
           hint={t('agents.zeroDisablesHint')}
         />
+        <BoundField
+          label={t('agents.backgroundJobs')}
+          bound={fields.backgroundJobs}
+          inputMode="numeric"
+          error={errors.backgroundJobs}
+          hint={t('agents.backgroundJobsHint')}
+        />
         {/* The tool layer's numbers, beside the caps they resemble. They were
             install-wide and sat in Settings; a result budget is as much a
             property of one agent as its iteration cap is. */}

@@ -23,10 +23,13 @@ import { describe, expect, it } from 'vitest';
 
 import { PACKAGE_ROOT } from '@testkit/paths.js';
 
-const favicon = readFileSync(
-  join(PACKAGE_ROOT, 'public', 'favicon.svg'),
-  'utf8',
-);
+function readIcon(name: string): string {
+  return readFileSync(join(PACKAGE_ROOT, 'public', name), 'utf8');
+}
+
+const favicon = readIcon('favicon.svg');
+/** The same mark with a dot, shown while an approval waits. */
+const waiting = readIcon('favicon-alert.svg');
 
 /** Every shape lucide draws for `webhook`, as `[tagName, attributes]`. */
 function shapesOf(): ReadonlyArray<readonly [string, Record<string, string>]> {
@@ -40,7 +43,10 @@ function shapesOf(): ReadonlyArray<readonly [string, Record<string, string>]> {
   ]);
 }
 
-describe('the favicon', () => {
+describe.each([
+  ['the favicon', favicon],
+  ['the waiting favicon', waiting],
+])('%s', (title, icon) => {
   it('draws the same shapes lucide does', () => {
     const shapes = shapesOf();
 
@@ -49,13 +55,13 @@ describe('the favicon', () => {
 
     for (const [tag, attributes] of shapes) {
       if (tag === 'path') {
-        expect(favicon).toContain(`d="${attributes.d ?? ''}"`);
+        expect(icon).toContain(`d="${attributes.d ?? ''}"`);
       } else {
         // `webhook` is three paths, so nothing reaches here today. It stays
         // because the branch is what makes a lucide upgrade that adds a circle
         // fail here rather than ship a half-drawn tab.
         for (const name of ['cx', 'cy', 'r']) {
-          expect(favicon, `${tag} ${name}`).toContain(
+          expect(icon, `${tag} ${name}`).toContain(
             `${name}="${attributes[name] ?? ''}"`,
           );
         }
@@ -72,19 +78,33 @@ describe('the favicon', () => {
       'stroke-linecap="round"',
       'stroke-linejoin="round"',
     ]) {
-      expect(favicon).toContain(attribute);
+      expect(icon).toContain(attribute);
     }
   });
 
   it('writes its colour out, because a tab has no cascade to inherit from', () => {
-    expect(favicon).not.toContain('currentColor');
+    expect(icon).not.toContain('currentColor');
     // The brand hue a step under the accent's own lightness. A tab strip is
     // white in one OS theme and near-black in the other, and the terminal green
     // the app uses holds against only one of them. The favicon's own comment
     // carries the measurements.
-    expect(favicon).toContain('#009100');
+    expect(icon).toContain('#009100');
+  });
+});
+
+describe('the waiting favicon', () => {
+  it('adds a red dot that holds on either tab strip', () => {
+    // Measured like the mark: 4.4:1 on white, 4.2:1 on near-black.
+    expect(waiting).toMatch(/<circle cx="19" cy="5" r="4.5" fill="#EB1C1C"/);
   });
 
+  it('cuts the mark away around the dot, so it reads without the colour', () => {
+    expect(waiting).toContain('<g mask="url(#dot-gap)">');
+    expect(waiting).toMatch(/<mask id="dot-gap">/);
+  });
+});
+
+describe('the tab', () => {
   it('is referenced by index.html, from this origin', () => {
     const index = readFileSync(join(PACKAGE_ROOT, 'index.html'), 'utf8');
 

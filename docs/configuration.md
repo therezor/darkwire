@@ -74,6 +74,7 @@ rules.
 | `toolTimeoutMs`       | int ≥ 0                                  | `0`       | Wall-clock cap on one tool call for this agent, read per call. `0` waits as long as it takes.                                                           |
 | `loopWallTimeoutMs`   | int ≥ 0                                  | `0`       | Wall-clock cap on a turn, checked at the top of each iteration.                                                                                         |
 | `subagentTimeoutMs`   | int ≥ 0                                  | `0`       | Applies to delegations _this_ agent makes.                                                                                                              |
+| `backgroundJobs`      | int ≥ 0                                  | `4`       | Background jobs one conversation runs at once. `0` turns them off. See [Tools](tools.md#background-jobs).                                               |
 | `reasoningEffort`     | `off\|minimal\|low\|medium\|high\|xhigh` | _unset_   | Absent sends nothing, which is not the same as `off`. See below.                                                                                        |
 | `approvalTimeoutMs`   | int > 0                                  | 5 min     | How long an `ask` prompt stays open before it counts as denied. `0` is refused: an approval that never expires holds the turn open forever.             |
 | `maxOutputChars`      | int > 0                                  | `8192`    | Head+tail budget for one tool result, in UTF-16 units, applied once. `read` stops its window inside it. `0` is refused.                                 |
@@ -495,10 +496,11 @@ goes to the log rather than to yours, and the URL must parse as `http`/`https`.
 
 ## `ui`
 
-| Key        | Type          | Default | Notes                                                                                                                                                                          |
-| ---------- | ------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `locale`   | BCP-47 string | `'en'`  | Unknown tags fall back to the nearest match and ultimately to English, rather than failing to parse and taking the whole file down. **`en` is the only shipped locale today.** |
-| `timezone` | IANA name     | `'UTC'` | The one clock this install reads and writes. See below.                                                                                                                        |
+| Key             | Type                           | Default  | Notes                                                                                                                                                                                                                                                                                      |
+| --------------- | ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `locale`        | BCP-47 string                  | `'en'`   | Unknown tags fall back to the nearest match and ultimately to English, rather than failing to parse and taking the whole file down. **`en` is the only shipped locale today.**                                                                                                             |
+| `timezone`      | IANA name                      | `'UTC'`  | The one clock this install reads and writes. See below.                                                                                                                                                                                                                                    |
+| `terminalAlert` | `'auto'`, `'bell'` or `'none'` | `'auto'` | How `darkwire chat` says a tool call is waiting for approval while the terminal does not have focus. `auto` sends a desktop notification in iTerm2, WezTerm, Ghostty and Kitty, and rings the bell everywhere else and under tmux. The browser has its own switch under Settings, Account. |
 
 ### `ui.timezone` is the only timezone
 

@@ -21,12 +21,13 @@
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigSchema } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
+import { useApprovalAlertPreference } from '@/notifications/approval-alerts.js';
 import {
   stubApi,
   testQueryClient,
@@ -205,5 +206,77 @@ describe('the appearance sections', () => {
       await screen.findByRole('combobox', { name: 'Timezone' }),
     ).toHaveTextContent('UTC');
     expect(patchesOf(calls)).toHaveLength(0);
+  });
+});
+
+describe('the approval notification switch', () => {
+  const LABEL = 'Notify me when an approval is waiting';
+
+  /** A browser that can notify, and answers the permission prompt `answer`. */
+  function browser(
+    permission: NotificationPermission,
+    answer: NotificationPermission = permission,
+  ): ReturnType<typeof vi.fn> {
+    const requestPermission = vi.fn(() => Promise.resolve(answer));
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('Notification', { permission, requestPermission });
+    return requestPermission;
+  }
+
+  afterEach(() => {
+    useApprovalAlertPreference.setState({ enabled: false });
+  });
+
+  it('asks the browser on the click, and is on once it says yes', async () => {
+    const asked = browser('default', 'granted');
+    const { user, calls } = mount();
+
+    await user.click(await screen.findByRole('switch', { name: LABEL }));
+
+    expect(asked).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(screen.getByRole('switch', { name: LABEL })).toBeChecked();
+    });
+    expect(useApprovalAlertPreference.getState().enabled).toBe(true);
+    // This browser's, like the theme.
+    expect(patchesOf(calls)).toHaveLength(0);
+  });
+
+  it('stays off and says why when the browser says no', async () => {
+    browser('default', 'denied');
+    const { user } = mount();
+
+    await user.click(await screen.findByRole('switch', { name: LABEL }));
+
+    expect(
+      await screen.findByText(/blocked notifications for this site/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: LABEL })).not.toBeChecked();
+    expect(useApprovalAlertPreference.getState().enabled).toBe(false);
+  });
+
+  it('switches off without asking anything', async () => {
+    const asked = browser('granted');
+    useApprovalAlertPreference.setState({ enabled: true });
+    const { user } = mount();
+
+    const toggle = await screen.findByRole('switch', { name: LABEL });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+
+    expect(asked).not.toHaveBeenCalled();
+    expect(toggle).not.toBeChecked();
+    expect(useApprovalAlertPreference.getState().enabled).toBe(false);
+  });
+
+  it('explains instead of offering a switch on a page that cannot notify', async () => {
+    mount();
+
+    expect(
+      await screen.findByText(/only notifies on HTTPS or on localhost/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: LABEL }),
+    ).not.toBeInTheDocument();
   });
 });

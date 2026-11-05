@@ -26,6 +26,7 @@
 
 pub mod argv;
 pub mod automation;
+pub mod background;
 pub mod builtin;
 pub mod container_runner;
 pub mod discovery;
@@ -44,10 +45,11 @@ pub mod testkit;
 
 pub use argv::coerce_argv;
 pub use automation::{AutomationOutcome, AutomationPort, AutomationRefusal, AutomationResolver};
+pub use background::{BackgroundPort, BackgroundRefusal, BackgroundResolver, StartJob};
 pub use builtin::{
     BuiltinOptions, FindRequest, GrepMode, GrepRequest, Hit, MAX_SEARCH_RESULTS, SearchResults,
     TOOL_SEARCH_NAME, automation_tool, builtin_tools, edit_tool, exec_tool, find_blocking,
-    find_tool, format_bytes, grep_blocking, grep_tool, ls_tool, memory_tool, read_tool,
+    find_tool, format_bytes, grep_blocking, grep_tool, kill_tool, ls_tool, memory_tool, read_tool,
     register_builtins, render_activation, render_search, search, skill_tool, todo_tool,
     tool_search_tool, web_fetch_tool, web_search_tool, write_tool,
 };

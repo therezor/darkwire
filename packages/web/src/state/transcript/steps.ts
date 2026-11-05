@@ -13,6 +13,7 @@ export function stepPart(
   stats: StepStats,
   firstSeq: number,
   lastSeq: number,
+  createdAtMs: number,
 ): StepPart {
   return {
     kind: 'step',
@@ -20,6 +21,7 @@ export function stepPart(
     stats,
     firstSeq,
     lastSeq,
+    createdAtMs,
   };
 }
 

@@ -50,6 +50,7 @@ pub fn user_message(text: &str) -> ChatMessage {
     ChatMessage::User(UserMessage {
         role: UserRole,
         content: vec![text_part(text)],
+        from: None,
     })
 }
 

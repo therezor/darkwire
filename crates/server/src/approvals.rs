@@ -42,12 +42,14 @@
 //! so it lands in the agent's settings, where it can be seen and removed.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
 use darkwire_core::{Clock, ErrorKind, Result, SystemClock, WireError};
 use darkwire_protocol::tools::ApprovalScope;
+use darkwire_protocol::ws::PendingApproval;
 use darkwire_providers::BoxFuture;
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
@@ -63,7 +65,11 @@ struct RememberedDecision {
 type PendingKey = (String, String);
 
 /// A parked request and the channel that settles it.
-struct PendingApproval {
+struct Parked {
+    /// Which `park` call filed it. A model can reuse a `call_id`, and the
+    /// call that is superseded must not take its successor with it when it
+    /// leaves.
+    id: u64,
     request: ApprovalRequest,
     settle: oneshot::Sender<ApprovalDecision>,
 }
@@ -102,6 +108,11 @@ pub type WatcherCount = Arc<dyn Fn(&str) -> usize + Send + Sync>;
 /// Raised when a prompt is parked against a session nobody is watching.
 pub type UnattendedSink = Arc<dyn Fn(UnattendedApproval) + Send + Sync>;
 
+/// Told each time a prompt is parked or leaves, so every tab can say what is
+/// waiting, including in sessions it is not showing. It reads the list with
+/// [`HubApprovalGate::snapshot`].
+pub type PendingWatcher = Arc<dyn Fn() + Send + Sync>;
+
 /// How the gate is built.
 #[derive(Clone, Default)]
 pub struct HubApprovalGateOptions {
@@ -118,11 +129,15 @@ pub struct HubApprovalGate {
     clock: Arc<dyn Clock>,
     /// Parked senders, keyed by conversation and the tool call the client will
     /// name in its answer.
-    pending: Mutex<HashMap<PendingKey, PendingApproval>>,
+    pending: Mutex<HashMap<PendingKey, Parked>>,
+    /// The next [`Parked::id`].
+    next_id: AtomicU64,
     /// `session` scope: session key to memory key to decision.
     by_session: Mutex<HashMap<String, HashMap<String, RememberedDecision>>>,
     watchers: Option<WatcherCount>,
     on_unattended: Option<UnattendedSink>,
+    /// Set by the hub once it exists, which is after this.
+    watcher: OnceLock<PendingWatcher>,
 }
 
 impl std::fmt::Debug for HubApprovalGate {
@@ -145,9 +160,11 @@ impl HubApprovalGate {
         HubApprovalGate {
             clock: options.clock.unwrap_or_else(|| Arc::new(SystemClock)),
             pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(0),
             by_session: Mutex::new(HashMap::new()),
             watchers: options.watchers,
             on_unattended: options.on_unattended,
+            watcher: OnceLock::new(),
         }
     }
 
@@ -182,6 +199,46 @@ impl HubApprovalGate {
     /// Calls waiting on an answer. A leak assertion, and a status field.
     pub fn pending_count(&self) -> usize {
         self.pending.lock().len()
+    }
+
+    /// Every prompt still waiting, soonest to expire first.
+    ///
+    /// Filed under the conversation, so a subagent's prompt names the session
+    /// somebody would open to answer it.
+    pub fn snapshot(&self) -> Vec<PendingApproval> {
+        let mut out: Vec<PendingApproval> = self
+            .pending
+            .lock()
+            .iter()
+            .map(|((scope, call_id), parked)| PendingApproval {
+                session_key: scope.clone(),
+                call_id: call_id.clone(),
+                name: parked.request.name.clone(),
+                expires_at_ms: parked.request.expires_at_ms,
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            (a.expires_at_ms, &a.session_key, &a.call_id).cmp(&(
+                b.expires_at_ms,
+                &b.session_key,
+                &b.call_id,
+            ))
+        });
+        out
+    }
+
+    /// Who to tell when the list of waiting prompts changes. The first caller
+    /// wins: one gate serves one hub.
+    pub fn watch(&self, watcher: PendingWatcher) {
+        let _ = self.watcher.set(watcher);
+    }
+
+    /// Tells the watcher the list moved. Never called with the map locked, so
+    /// the watcher can read it.
+    fn changed(&self) {
+        if let Some(watcher) = self.watcher.get() {
+            watcher();
+        }
     }
 
     /// The request parked under `call_id` in the conversation `session_key`,
@@ -232,6 +289,7 @@ impl HubApprovalGate {
             scope: Some(scope),
             reason: None,
         });
+        self.changed();
         true
     }
 
@@ -247,7 +305,7 @@ impl HubApprovalGate {
     /// away.
     pub fn clear_session(&self, session_key: &str) {
         self.by_session.lock().remove(session_key);
-        let settled: Vec<PendingApproval> = {
+        let settled: Vec<Parked> = {
             let mut pending = self.pending.lock();
             let doomed: Vec<PendingKey> = pending
                 .keys()
@@ -259,9 +317,13 @@ impl HubApprovalGate {
                 .filter_map(|key| pending.remove(&key))
                 .collect()
         };
+        if settled.is_empty() {
+            return;
+        }
         for entry in settled {
             let _ = entry.settle.send(denial("the session was closed"));
         }
+        self.changed();
     }
 
     /// A session is bound to one agent, so the memory needs no agent dimension:
@@ -289,8 +351,8 @@ impl HubApprovalGate {
 
     /// Sends someone to find a human, when the socket cannot.
     ///
-    /// A scheduled run is the case this exists for. Its session is its own —
-    /// `automation:{job_id}:{run_id}` — and nothing is subscribed to it, so
+    /// A scheduled run is the case this exists for. Its session is its own,
+    /// minted for the run, and nothing is subscribed to it, so
     /// `tool.approvalRequest` goes out to an empty room and the turn waits the
     /// full approval timeout for a denial that was certain the moment it was
     /// raised. The same is true of a conversation whose tab was closed mid-turn.
@@ -351,12 +413,14 @@ impl HubApprovalGate {
         }
 
         let (tx, rx) = oneshot::channel();
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         // A `call_id` is the model's, so a collision within one conversation is
         // not impossible. The older prompt is the one nothing will answer: its
         // turn has moved on.
         let superseded = self.pending.lock().insert(
             HubApprovalGate::key_of(request),
-            PendingApproval {
+            Parked {
+                id,
                 request: request.clone(),
                 settle: tx,
             },
@@ -366,11 +430,20 @@ impl HubApprovalGate {
                 .settle
                 .send(denial("superseded by another call with the same id"));
         }
+        // Every way out of here takes the entry with it, including the one
+        // this function never sees: the loop races this against its own
+        // deadline and drops the future when that wins.
+        let _leaving = Leaving {
+            gate: self,
+            key: HubApprovalGate::key_of(request),
+            id,
+        };
 
         // After the prompt is parked, not before: the sink is what goes looking
         // for a person, and it must not be able to fire for a call that has
         // already been settled by the cancellation check above.
         self.raise_if_unattended(request);
+        self.changed();
 
         // A deadline already past fires immediately rather than never: the loop
         // hands this a wall-clock instant, and a clock that has moved is not a
@@ -385,10 +458,7 @@ impl HubApprovalGate {
             // and a cancellation beats a deadline that never mattered.
             biased;
             answered = rx => Ok(answered.unwrap_or_else(|_| denial("the approval request was dropped"))),
-            () = request.token.cancelled() => {
-                self.forget(request);
-                Ok(denial("the turn was cancelled"))
-            }
+            () = request.token.cancelled() => Ok(denial("the turn was cancelled")),
             () = tokio::time::sleep(Duration::from_millis(remaining)) => {
                 tracing::warn!(
                     session_key = %request.session_key,
@@ -396,18 +466,37 @@ impl HubApprovalGate {
                     call_id = %request.call_id,
                     "approval request expired unanswered"
                 );
-                self.forget(request);
                 Err(WireError::new(ErrorKind::Timeout, "the approval request expired"))
             }
         }
     }
 
-    /// Drops a parked entry without settling it. The caller already has the
-    /// answer it is going to return.
-    fn forget(&self, request: &ApprovalRequest) {
-        self.pending
-            .lock()
-            .remove(&HubApprovalGate::key_of(request));
+    /// Drops a parked entry without settling it, if it is still the one
+    /// `park` call `id` filed. The caller already has its answer, or has gone.
+    fn forget(&self, key: &PendingKey, id: u64) {
+        let removed = {
+            let mut pending = self.pending.lock();
+            match pending.get(key) {
+                Some(parked) if parked.id == id => pending.remove(key).is_some(),
+                _ => false,
+            }
+        };
+        if removed {
+            self.changed();
+        }
+    }
+}
+
+/// Takes a parked entry out of the map when `park` returns or is dropped.
+struct Leaving<'a> {
+    gate: &'a HubApprovalGate,
+    key: PendingKey,
+    id: u64,
+}
+
+impl Drop for Leaving<'_> {
+    fn drop(&mut self) {
+        self.gate.forget(&self.key, self.id);
     }
 }
 

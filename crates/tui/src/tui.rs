@@ -27,8 +27,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, Event, KeyEvent, KeyEventKind,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange, Event,
+    KeyEvent, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -54,6 +55,8 @@ pub enum TuiEvent {
     Paste(String),
     /// The window changed size.
     Resize(Size),
+    /// The window gained focus (`true`) or lost it.
+    Focus(bool),
     /// The screen is out of date.
     Draw,
 }
@@ -122,6 +125,10 @@ impl StdoutTui {
             out,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         );
+        // Whether anybody is looking, so an approval only rings for a window
+        // in the background. A terminal without it never reports, and is
+        // treated as not looking.
+        let _ = execute!(out, EnableFocusChange);
         // The release profile aborts rather than unwinding, and a hook runs
         // before the abort where a `Drop` does not. A panic that left raw mode
         // on leaves a shell nobody can type into.
@@ -524,7 +531,7 @@ where
 /// What a crossterm event means to the loop, if anything.
 ///
 /// Releases and repeats of a key are not keystrokes twice; a mouse event is
-/// something nothing asked for; a focus change is not this program's business.
+/// something nothing asked for.
 #[must_use]
 pub fn map_event(event: Event) -> Option<TuiEvent> {
     match event {
@@ -534,7 +541,9 @@ pub fn map_event(event: Event) -> Option<TuiEvent> {
             width: columns,
             height: rows,
         })),
-        Event::FocusGained | Event::FocusLost | Event::Mouse(_) => None,
+        Event::FocusGained => Some(TuiEvent::Focus(true)),
+        Event::FocusLost => Some(TuiEvent::Focus(false)),
+        Event::Mouse(_) => None,
     }
 }
 
@@ -600,6 +609,7 @@ fn write_restore(out: &mut impl Write, alt_screen: &AtomicBool) {
         let _ = execute!(out, LeaveAlternateScreen);
     }
     let _ = execute!(out, PopKeyboardEnhancementFlags);
+    let _ = execute!(out, DisableFocusChange);
     let _ = execute!(out, DisableBracketedPaste);
     let _ = execute!(out, crossterm::cursor::Show);
 }
@@ -635,5 +645,10 @@ mod tests {
     #[test]
     fn a_panic_on_the_ordinary_screen_leaves_nothing() {
         assert!(!restored(false).contains(LEAVE));
+    }
+
+    #[test]
+    fn stops_reporting_focus_so_the_shell_is_not_sent_it() {
+        assert!(restored(false).contains("\x1b[?1004l"));
     }
 }

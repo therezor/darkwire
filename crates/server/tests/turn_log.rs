@@ -34,6 +34,7 @@ fn start(seq: u64, turn_id: &str) -> ServerMessage {
             agent_id: "default".to_owned(),
             model: "test-model".to_owned(),
             provider: "test".to_owned(),
+            posted: None,
         },
     })
 }
@@ -143,6 +144,7 @@ fn step(seq: u64, last_seq: u64) -> ServerMessage {
             first_seq: 2,
             last_seq,
             stats: darkwire_protocol::StepStats::default(),
+            created_at_ms: 0,
             turn_elapsed_ms: 10,
         },
     })
@@ -175,6 +177,7 @@ fn keeps_a_steer_where_the_loop_wrote_it() {
             turn_id: TURN.to_owned(),
             content: "faster".to_owned(),
             client_message_id: Some("s1".to_owned()),
+            from: None,
         },
     }));
     log.push(&delta(4, "ok", TURN));
@@ -257,6 +260,7 @@ fn keeps_the_session_scoped_frames_out_so_a_replay_raises_no_second_toast() {
             queue_depth: 0,
             workspace_id: Some("default".to_owned()),
             turn_id: Some(TURN.to_owned()),
+            jobs: Vec::new(),
         },
     }));
     log.push(&ServerMessage::ContextUsage(Sequenced {

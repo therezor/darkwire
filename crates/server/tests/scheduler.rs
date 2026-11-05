@@ -19,12 +19,15 @@ use darkwire_core::Database;
 use darkwire_core::session_store::IdSource;
 use darkwire_core::testkit::ManualClock;
 use darkwire_protocol::automation::{
-    AtKind, AtSchedule, AutomationPayload, AutomationRun, AutomationSchedule, CronKind,
-    CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, RunStatus,
+    AtKind, AtSchedule, AutomationJobCreator, AutomationPayload, AutomationRun, AutomationSchedule,
+    CronKind, CronSchedule, EveryKind, EverySchedule, HeartbeatKind, HeartbeatPayload, RunStatus,
     ScheduledKind, ScheduledPayload,
 };
 use darkwire_protocol::config::Config;
-use darkwire_protocol::messages::{AssistantMessage, AssistantRole, StopReason, ToolCall, Usage};
+use darkwire_protocol::messages::{
+    AssistantMessage, AssistantRole, Delivered, DeliveredKind, DeliveredStatus, StopReason,
+    ToolCall, Usage,
+};
 use darkwire_protocol::rest::Notification;
 use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ClientMessage, ErrorCode, ErrorEvent, ErrorTag, MessageAck,
@@ -36,6 +39,7 @@ use darkwire_server::automation_store::{
     AutomationStore, CreateJobInput, FinishRunInput, ListRuns,
 };
 use darkwire_server::heartbeat::MAX_TASK_FILE_BYTES;
+use darkwire_server::hub::Post;
 use darkwire_server::notifications::{CreateNotificationInput, NotificationStore};
 use darkwire_server::scheduler::{
     ChatFn, DirectChat, MAX_ARM_MS, NotificationBroadcast, ReadFileFn, ReadTaskFile, Scheduler,
@@ -159,6 +163,7 @@ fn turn_start(turn_id: &str) -> ServerMessage {
             first_seq: None,
             model: "test-model".to_owned(),
             provider: "test".to_owned(),
+            posted: None,
         },
     })
 }
@@ -412,6 +417,7 @@ impl SchedulerConnection for ScriptedConnection {
                     first_seq: None,
                     model: "test-model".to_owned(),
                     provider: "test".to_owned(),
+                    posted: None,
                 },
             }));
             (self.send)(delta(&self.answer));
@@ -431,6 +437,8 @@ struct Harness {
     broadcasts: Arc<Mutex<Vec<NotificationBroadcast>>>,
     frames: Arc<Mutex<Vec<ClientMessage>>>,
     deleted_sessions: Arc<Mutex<Vec<String>>>,
+    /// Every result reported to a creating session.
+    posts: Arc<Mutex<Vec<Post>>>,
     /// Every read of the settings tree, which every pass of the loop makes.
     config_reads: Arc<AtomicUsize>,
     /// Runs once, inside the next read of the settings tree. A dispatch reads
@@ -458,6 +466,8 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
     let broadcasts: Arc<Mutex<Vec<NotificationBroadcast>>> = Arc::new(Mutex::new(Vec::new()));
     let frames: Arc<Mutex<Vec<ClientMessage>>> = Arc::new(Mutex::new(Vec::new()));
     let deleted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let posts: Arc<Mutex<Vec<Post>>> = Arc::new(Mutex::new(Vec::new()));
+    let posts_for_port = Arc::clone(&posts);
 
     let config_for_port = Arc::clone(&config);
     let config_reads = Arc::new(AtomicUsize::new(0));
@@ -499,6 +509,10 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         new_id: ids("r"),
         // Short enough that a silent connection settles inside a test.
         run_timeout_ms: Some(50),
+        post: Some(Arc::new(move |post| {
+            posts_for_port.lock().push(post);
+            Box::pin(async {})
+        })),
     });
 
     Harness {
@@ -510,6 +524,7 @@ fn harness_with(silent: bool, chat: Option<ChatFn>, read_file: Option<ReadFileFn
         broadcasts,
         frames,
         deleted_sessions: deleted,
+        posts,
         config_reads,
         during_config_read,
     }
@@ -1738,4 +1753,121 @@ fn the_wait_loop_backs_off_while_what_is_due_cannot_start() {
         passes < 50,
         "the loop spun: {passes} settings reads in 20 ms"
     );
+}
+
+fn created_by_agent(input: CreateJobInput) -> CreateJobInput {
+    CreateJobInput {
+        created_by: Some(AutomationJobCreator {
+            agent_id: "helper".to_owned(),
+            session_key: "chat-1".to_owned(),
+        }),
+        ..input
+    }
+}
+
+#[tokio::test]
+async fn a_job_an_agent_created_reports_back_to_the_session_that_created_it() {
+    let h = harness(false);
+    let created = h
+        .jobs
+        .create_job(&created_by_agent(job("watch", every(1_000), NOW - 1)))
+        .unwrap();
+
+    h.scheduler.start().unwrap();
+    settle(&h).await;
+
+    let posts = h.posts.lock();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].session_key, "chat-1");
+    assert_eq!(posts[0].agent_id.as_deref(), Some("helper"));
+    assert_eq!(
+        posts[0].text,
+        "[Scheduled job \"watch\" finished]\n\nthe answer"
+    );
+    assert_eq!(
+        posts[0].from,
+        Delivered {
+            kind: DeliveredKind::Automation,
+            id: created.id.clone(),
+            label: "watch".to_owned(),
+            status: DeliveredStatus::Ok,
+        }
+    );
+}
+
+#[tokio::test]
+async fn a_failed_run_reports_its_error_to_the_creating_session() {
+    let h = harness(true);
+    h.jobs
+        .create_job(&created_by_agent(job("watch", every(1_000), NOW - 1)))
+        .unwrap();
+
+    h.scheduler.start().unwrap();
+    settle(&h).await;
+
+    let posts = h.posts.lock();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].from.status, DeliveredStatus::Error);
+    assert!(
+        posts[0]
+            .text
+            .starts_with("[Scheduled job \"watch\" failed]"),
+        "{}",
+        posts[0].text
+    );
+}
+
+#[tokio::test]
+async fn a_job_a_person_created_reports_only_as_a_notification() {
+    let h = harness(false);
+    h.jobs
+        .create_job(&job("watch", every(1_000), NOW - 1))
+        .unwrap();
+
+    h.scheduler.start().unwrap();
+    settle(&h).await;
+
+    assert!(h.posts.lock().is_empty());
+}
+
+#[tokio::test]
+async fn a_skipped_heartbeat_reports_nothing_to_the_creating_session() {
+    let (chat, _) = scripted_chat(vec![chat_result(vec![tool_call(
+        "heartbeat",
+        r#"{"action":"skip","reason":"Nothing is due."}"#,
+    )])]);
+    let h = harness_with(
+        false,
+        Some(chat),
+        Some(file_returning(Ok("Deploy on Friday.".to_owned()))),
+    );
+    h.jobs
+        .create_job(&created_by_agent(heartbeat_job("pulse", "TASK.md", None)))
+        .unwrap();
+
+    h.scheduler.start().unwrap();
+    settle(&h).await;
+
+    assert!(h.posts.lock().is_empty());
+}
+
+#[tokio::test]
+async fn a_notification_links_to_the_run_session() {
+    let h = harness(false);
+    let created = h
+        .jobs
+        .create_job(&job("watch", every(1_000), NOW - 1))
+        .unwrap();
+
+    h.scheduler.start().unwrap();
+    settle(&h).await;
+
+    let runs = h.jobs.list_runs(&created.id, &ListRuns::default()).unwrap();
+    let raised = h
+        .notes
+        .list(&darkwire_server::notifications::ListNotifications::default())
+        .unwrap();
+    assert!(runs[0].session_key.is_some());
+    assert_eq!(raised[0].session_key, runs[0].session_key);
+    assert_eq!(h.broadcasts.lock()[0].session_key, runs[0].session_key);
 }

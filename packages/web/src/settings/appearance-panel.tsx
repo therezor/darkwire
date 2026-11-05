@@ -34,6 +34,10 @@ import {
 import { useAppLocale } from '@/i18n/i18n-context.js';
 import { SYSTEM } from '@/i18n/locale-preference.js';
 import { SYSTEM_TZ, timezoneOptions } from '@/lib/timezones.js';
+import {
+  notificationsSupported,
+  useApprovalAlertPreference,
+} from '@/notifications/approval-alerts.js';
 import { isThemePreference } from '@/theme/theme.js';
 import { useAppTheme } from '@/theme/theme-context.js';
 import {
@@ -46,6 +50,7 @@ import {
   SaveBar,
   Section,
   SelectField,
+  SwitchRow,
   type SelectFieldOption,
 } from '@/components/form/controls.js';
 import { useSaveSettings, useSettings } from './use-settings.js';
@@ -271,6 +276,55 @@ export function AppearancePanel(): JSX.Element {
           />
         </FieldGrid>
       </Section>
+
+      <NotificationsSection />
     </div>
+  );
+}
+
+/**
+ * This browser's, like the theme: stored here and applied on the click. The
+ * click is also the gesture a browser wants before it will ask for permission.
+ */
+function NotificationsSection(): JSX.Element {
+  const { t } = useTranslation();
+  const enabled = useApprovalAlertPreference((state) => state.enabled);
+  const setEnabled = useApprovalAlertPreference((state) => state.setEnabled);
+  const supported = notificationsSupported();
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    supported ? Notification.permission : 'default',
+  );
+
+  return (
+    <Section
+      title={t('settings.appearance.notifyTitle')}
+      description={t('settings.appearance.notifyDesc')}
+    >
+      {supported ? (
+        <SwitchRow
+          label={t('settings.appearance.notify')}
+          hint={
+            permission === 'denied'
+              ? t('settings.appearance.notifyBlocked')
+              : t('settings.appearance.notifyHint')
+          }
+          checked={enabled && permission === 'granted'}
+          onCheckedChange={(checked) => {
+            if (!checked) {
+              setEnabled(false);
+              return;
+            }
+            void Notification.requestPermission().then((answer) => {
+              setPermission(answer);
+              setEnabled(answer === 'granted');
+            });
+          }}
+        />
+      ) : (
+        <p className="settings-field__hint">
+          {t('settings.appearance.notifyUnsupported')}
+        </p>
+      )}
+    </Section>
   );
 }

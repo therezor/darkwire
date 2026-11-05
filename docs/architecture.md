@@ -268,6 +268,32 @@ the part that decides when the model reaches for it.
 - **The timeout is the caller's** `subagentTimeoutMs`, composed as a `child_token()` of
   the caller's. It kills the child, not the parent turn.
 
+## Background work
+
+Two things report back into a conversation after the turn that started them: a
+[background `exec`](tools.md#background-jobs) and a scheduled job an agent created. Both
+go through one hub entry point, `SessionHub::post`, which follows the rule a person's
+steer already does:
+
+- **A running turn reads the result as a steer** before its next step. It carries its own
+  header, so it gets no steering prefix, and the stored row's typed `from` marks it.
+- **An idle session gets a queued turn**, which is how a result wakes the agent with
+  nobody watching. The queued turn carries its own agent, workspace and channel, so it
+  runs as its sender after the sender's connection has gone. An unread steer is re-queued
+  the same way.
+  That turn's `turn.start` carries the result as `posted`, so a watching tab draws it
+  without fetching the transcript.
+- **It is never refused for a full queue.** The job caps already bound how many there can
+  be, and a dropped result is worse than a long queue.
+- **It never wakes a session nobody owns.** A subagent's session is resolved to the
+  conversation at the top of its lineage, and a scheduled run's session and a deleted one
+  get nothing.
+
+Background jobs live in a registry in the server, in memory only. Each job's token is a
+`child_token()` of one root the server cancels on close, so there is still one
+cancellation mechanism. `session.status` lists a session's running jobs, read from the
+registry rather than copied into the hub's session state, which an LRU may evict.
+
 ## What is on disk
 
 Two trees. `~/.darkwire`, or `$DARKWIRE_HOME`, holds what DarkWire owns; `~/DarkWire/workspaces`,
@@ -323,10 +349,11 @@ cannot deadlock on itself. Every table is `STRICT`.
 either, because a turn writing parallel tool results collides on them.
 
 `sessions.origin` is `web`, `cli`, `telegram`, `automation`, `subagent`, or an extension id.
-Session listing excludes `subagent` **and `automation`** unless asked for one by name.
-Both are real rows and neither is a session: one turn, started by a model. Automation
-is the one that scales badly if it leaks — a job on a five-minute interval writes about
-105,000 sessions a year, and the sidebar is a list of sessions a person had.
+Session listing returns every origin unless a caller excludes one by name, and the sidebar
+excludes `subagent`. Neither a subagent's nor a scheduled run's row is a conversation
+someone had: each is one turn, started by a model. Run history trimming deletes the
+sessions the scheduler minted, which is what keeps a job on a five-minute interval from
+leaving about 105,000 of them a year.
 
 A job's `schedule` and `payload` are JSON columns rather than a flat set of nullable ones.
 They are discriminated unions, and the union exists precisely so `{kind: 'cron', atMs: 5}`

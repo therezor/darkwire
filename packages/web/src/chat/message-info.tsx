@@ -2,8 +2,9 @@
  * One message's figures, behind the info button on its line.
  *
  * The line under a message already says how long it took, what it wrote and
- * how fast. This is the rest: the model the provider reported, what it read,
- * how much of that was cached, and how long the first token took.
+ * how fast. This is the rest: when it was written, the model the provider
+ * reported, what it read, how much of that was cached, and how long the first
+ * token took.
  */
 
 import { Info } from 'lucide-react';
@@ -23,9 +24,11 @@ import {
 
 export function MessageInfo({
   stats,
+  createdAtMs,
   number,
 }: {
   readonly stats: StepStats;
+  readonly createdAtMs: number;
   readonly number: number;
 }): JSX.Element {
   const { t } = useTranslation();
@@ -47,7 +50,7 @@ export function MessageInfo({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="popover--message-info">
-        <MessageFigures stats={stats} />
+        <MessageFigures stats={stats} createdAtMs={createdAtMs} />
       </PopoverContent>
     </Popover>
   );
@@ -56,8 +59,10 @@ export function MessageInfo({
 /** One message's figures, as a list. */
 export function MessageFigures({
   stats,
+  createdAtMs,
 }: {
   readonly stats: StepStats;
+  readonly createdAtMs: number;
 }): JSX.Element {
   const { t } = useTranslation();
   const fmt = useFormat();
@@ -65,6 +70,7 @@ export function MessageFigures({
 
   return (
     <dl className="message-info">
+      <Row label={t('turn.time')} value={fmt.dateTime(createdAtMs)} />
       {model !== undefined && <Row label={t('turn.model')} value={model} />}
       <Row label={t('turn.in')} value={fmt.tokens(usage.promptTokens)} />
       {usage.cachedTokens !== undefined && (

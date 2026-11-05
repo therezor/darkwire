@@ -170,7 +170,7 @@ pub struct SystemMessage {
     pub content: String,
 }
 
-/// A person's message.
+/// A person's message, or a result the server posted on their behalf.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
@@ -180,6 +180,50 @@ pub struct UserMessage {
     /// Text, images and attached files.
     #[garde(dive)]
     pub content: Vec<ContentPart>,
+    /// Set by the server when this is a result it posted, never by a client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub from: Option<Delivered>,
+}
+
+/// What produced a posted result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveredKind {
+    /// A background `exec` job.
+    Exec,
+    /// A scheduled job the agent created.
+    Automation,
+}
+
+/// How the work behind a posted result ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveredStatus {
+    /// Finished, and reported success.
+    Ok,
+    /// Finished, and reported failure.
+    Error,
+    /// Stopped by the agent or a person.
+    Killed,
+    /// Ran past its time limit.
+    Timeout,
+}
+
+/// The source of a result the server posted into a conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct Delivered {
+    /// What produced it.
+    pub kind: DeliveredKind,
+    /// The job's id: a background job's number, or a scheduled job's id.
+    #[garde(length(utf16, min = 1))]
+    pub id: String,
+    /// What a reader recognises it by: the command, or the job's name.
+    pub label: String,
+    /// How it ended.
+    pub status: DeliveredStatus,
 }
 
 /// The model's reply, with any tool calls it made.

@@ -92,6 +92,7 @@ const TWO_STEPS: ReadonlyArray<Unsequenced<ServerMessage>> = [
     firstSeq: 2,
     lastSeq: 3,
     stats: stats(10, 4),
+    createdAtMs: 2000,
     turnElapsedMs: 1500,
   },
   { type: 'assistant.delta', turnId: 't1', text: 'It says x.' },
@@ -101,11 +102,15 @@ const TWO_STEPS: ReadonlyArray<Unsequenced<ServerMessage>> = [
     firstSeq: 4,
     lastSeq: 4,
     stats: stats(20, 6),
+    createdAtMs: 4000,
     turnElapsedMs: 2600,
   },
 ];
 
-/** The same two steps, as storage holds them. */
+/**
+ * The same two steps, as storage holds them. Each row is written a second
+ * after the last, so a step that took its time from the tool row would show.
+ */
 function storedTwoSteps(): readonly StoredMessage[] {
   const row = (
     seq: number,
@@ -114,7 +119,7 @@ function storedTwoSteps(): readonly StoredMessage[] {
     id: `m${String(seq)}`,
     sessionKey: 'web:1',
     seq,
-    createdAtMs: 0,
+    createdAtMs: seq * 1000,
     turnId: 't1',
     message,
   });
@@ -193,7 +198,13 @@ describe('a step, from storage', () => {
     const shape = (parts: typeof live): unknown =>
       parts.map((part) =>
         part.kind === 'step'
-          ? [part.kind, part.firstSeq, part.lastSeq, part.stats]
+          ? [
+              part.kind,
+              part.firstSeq,
+              part.lastSeq,
+              part.stats,
+              part.createdAtMs,
+            ]
           : part.kind,
       );
     expect(shape(stored)).toEqual(shape(live));

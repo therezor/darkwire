@@ -494,7 +494,7 @@ function Labelled({
 }
 
 /** `exec` output is a terminal; everything else is a code block. */
-function Output({
+export function Output({
   content,
   terminal,
 }: {
@@ -517,7 +517,7 @@ function Output({
   );
 }
 
-function StatusIcon({
+export function StatusIcon({
   status,
 }: {
   readonly status: ToolPart['status'];

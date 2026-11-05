@@ -1,0 +1,8 @@
+{
+  "direction": "client",
+  "frame": {
+    "type": "job.stop",
+    "sessionKey": "web:abc",
+    "id": "2"
+  }
+}

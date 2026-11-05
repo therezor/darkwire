@@ -70,6 +70,12 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "backgroundJobs": {
+                "default": 4,
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "reasoningEffort": {
                 "type": "string",
                 "enum": [
@@ -270,6 +276,7 @@
                   "write": "allow",
                   "edit": "allow",
                   "exec": "ask",
+                  "kill": "allow",
                   "memory": "allow",
                   "skill": "allow",
                   "todo": "allow"
@@ -731,6 +738,15 @@
         "expandTurnStats": {
           "default": false,
           "type": "boolean"
+        },
+        "terminalAlert": {
+          "default": "auto",
+          "type": "string",
+          "enum": [
+            "auto",
+            "bell",
+            "none"
+          ]
         },
         "timezone": {
           "default": "UTC",

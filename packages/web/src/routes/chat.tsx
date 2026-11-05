@@ -50,6 +50,7 @@ import { useCommands } from '@/chat/use-commands.js';
 import type { MessageAction } from '@/chat/message.js';
 import { ContextStrip } from '@/context/context-strip.js';
 import { TaskPanel } from '@/tasks/task-panel.js';
+import { JobsStrip } from '@/chat/jobs-strip.js';
 import {
   TranscriptView,
   type TranscriptViewProps,
@@ -230,6 +231,7 @@ export function ChatRoute(): JSX.Element {
       {/* Above the composer, and above the setup pointer, because it is about
           the turn that is running rather than about the install. */}
       <TaskPanel sessionKey={sessionKey} />
+      <JobsStrip />
 
       {/* Above the composer rather than inside it: the pointer is a link, and
           the composer is a leaf that is rendered outside a router by its own

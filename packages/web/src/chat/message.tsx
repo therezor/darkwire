@@ -63,6 +63,7 @@ import {
 } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
 import { AttachmentList } from './attachment-list.js';
+import { DeliveredCard } from './delivered-card.js';
 import { MessageActions } from './message-actions.js';
 import { Notice } from './notice.js';
 import { sameParts, TurnParts } from './tool-card.js';
@@ -122,7 +123,12 @@ function MessageItem({
 }: MessageProps): JSX.Element {
   switch (item.kind) {
     case 'user':
-      return <UserMessage item={item} onAction={onAction} />;
+      // Nobody typed a posted result, so it offers none of a message's actions.
+      return item.from === undefined ? (
+        <UserMessage item={item} onAction={onAction} />
+      ) : (
+        <DeliveredCard from={item.from} text={item.text} />
+      );
     case 'turn':
       return (
         <TurnMessage
@@ -313,6 +319,7 @@ function TurnMessage({
     return {
       number: piece.number,
       stats: piece.end?.stats,
+      createdAtMs: piece.end?.createdAtMs,
       firstSeq: piece.end?.firstSeq ?? turn.firstSeq,
       lastSeq: closing
         ? (turn.lastSeq ?? piece.end?.lastSeq)
@@ -327,6 +334,15 @@ function TurnMessage({
         // What the user typed into the running turn, drawn as what it is: a
         // message of theirs. No seq, so it offers Copy alone.
         if (piece.kind === 'steer') {
+          if (piece.part.from !== undefined) {
+            return (
+              <DeliveredCard
+                key={piece.part.id}
+                from={piece.part.from}
+                text={piece.part.text}
+              />
+            );
+          }
           return (
             <UserMessage
               key={piece.part.id}
@@ -404,6 +420,7 @@ function TurnMessage({
           <MessageLine
             number={1}
             stats={undefined}
+            createdAtMs={undefined}
             firstSeq={turn.firstSeq}
             lastSeq={turn.lastSeq}
             reason={reason}
@@ -424,6 +441,8 @@ interface Line {
   readonly number: number;
   /** Absent on a message that ended without `step.end` naming it. */
   readonly stats: StepStats | undefined;
+  /** When `step.end` says its assistant row was written. Absent with `stats`. */
+  readonly createdAtMs: number | undefined;
   /** Regenerate re-runs from here. */
   readonly firstSeq: number | undefined;
   /** Branch copies up to here. */
@@ -460,6 +479,7 @@ const MessageLine = memo(
   (previous, next) =>
     previous.number === next.number &&
     previous.stats === next.stats &&
+    previous.createdAtMs === next.createdAtMs &&
     previous.firstSeq === next.firstSeq &&
     previous.lastSeq === next.lastSeq &&
     previous.reason === next.reason &&
@@ -470,6 +490,7 @@ const MessageLine = memo(
 function MessageLineItem({
   number,
   stats,
+  createdAtMs,
   firstSeq,
   lastSeq,
   reason,
@@ -532,8 +553,12 @@ function MessageLineItem({
           onRegenerate={onRegenerate}
           onBranch={onBranch}
           info={
-            stats === undefined ? undefined : (
-              <MessageInfo stats={stats} number={number} />
+            stats === undefined || createdAtMs === undefined ? undefined : (
+              <MessageInfo
+                stats={stats}
+                createdAtMs={createdAtMs}
+                number={number}
+              />
             )
           }
         />
@@ -541,6 +566,7 @@ function MessageLineItem({
           <MessageMenu
             number={number}
             stats={stats}
+            createdAtMs={createdAtMs}
             text={text}
             busy={busy}
             onRegenerate={onRegenerate}
@@ -562,6 +588,7 @@ function MessageLineItem({
 function MessageMenu({
   number,
   stats,
+  createdAtMs,
   text,
   busy,
   onRegenerate,
@@ -569,6 +596,7 @@ function MessageMenu({
 }: {
   readonly number: number;
   readonly stats: StepStats | undefined;
+  readonly createdAtMs: number | undefined;
   readonly text: () => string;
   readonly busy: boolean;
   readonly onRegenerate: (() => void) | undefined;
@@ -618,7 +646,7 @@ function MessageMenu({
               {t('chat.branchHere')}
             </DropdownMenuItem>
           )}
-          {stats !== undefined && (
+          {stats !== undefined && createdAtMs !== undefined && (
             <DropdownMenuItem
               onSelect={() => {
                 opening.current = true;
@@ -631,9 +659,9 @@ function MessageMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {stats !== undefined && (
+      {stats !== undefined && createdAtMs !== undefined && (
         <PopoverContent align="end" className="popover--message-info">
-          <MessageFigures stats={stats} />
+          <MessageFigures stats={stats} createdAtMs={createdAtMs} />
         </PopoverContent>
       )}
     </Popover>

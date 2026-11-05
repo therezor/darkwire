@@ -37,7 +37,8 @@ when [lazy discovery](#lazy-discovery) is on, and is registered only then.
 | `find`        | `pattern`, `path?`, `limit?`                              | `safe`    | Finds files by glob, most recently modified first.                                          |
 | `write`       | `path`, `content`                                         | `write`   | Creates or overwrites.                                                                      |
 | `edit`        | `path`, `oldText`, `newText`, `replaceAll?`, or `edits`   | `write`   | Exact-match replacement, one block or several atomically.                                   |
-| `exec`        | `argv: string[]`, `timeoutMs?`                            | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `exec`        | `argv: string[]`, `timeoutMs?`, `background?`             | `exec`    | Runs a program. On the host, or in a [container](environments.md) when the agent names one. |
+| `kill`        | `id`                                                      | `safe`    | Stops a [background job](#background-jobs) this conversation started.                       |
 | `automation`  | `action`, plus a name, message and schedule               | `exec`    | Schedules a turn for later. See below.                                                      |
 | `memory`      | `action`, `key`, `content?`                               | `write`   | Reads, saves or deletes one [memory](memory.md). No path argument.                          |
 | `skill`       | `name`                                                    | `safe`    | Opens one of the workspace's [skills](skills.md).                                           |
@@ -133,7 +134,7 @@ sees, with nothing to convert.
 **The run happens on the agent that scheduled it, and in a session of its own.** The
 port stamps the caller's `agentId` onto the payload — the tool cannot, because a tool
 running on arguments a model wrote must not be able to schedule a turn as somebody else.
-The session is a fresh `automation:{jobId}`, so a scheduled turn cannot see the
+The session is a fresh one of its own, so a scheduled turn cannot see the
 session that created it; the tool says so in its own description, because a `message`
 that refers back to "what we discussed" otherwise fails silently a week later. `list` and
 the create confirmation both report the schedule and the resolved next run, which is how a
@@ -152,8 +153,47 @@ sees it. Three refusals, each answered as a tool _result_ rather than a throw:
 Note that the subagent chain guard does **not** cover the first: `turn.chain` is empty for
 a turn a person started, and the scheduler starts turns the same way.
 
-Jobs an agent made carry `createdBy`, so the panel can say which agent asked and link back
-to the session that caused it.
+**The result comes back to the conversation that asked.** A job an agent made carries
+`createdBy`, and when one of its runs succeeds or fails the scheduler posts the result into
+that session, the same way a [background job](#background-jobs) does. Only the result
+crosses back: the run itself still cannot see its creator. A skipped run, or a heartbeat
+whose evaluation found nothing worth saying, posts nothing. A creator that was a subagent's
+session is resolved to the conversation above it, because waking the subagent's own session
+would start a turn nobody owns. Every run's notification links to the run's own transcript.
+
+A posted result can wake a turn that schedules again, which is the self-pacing loop. The
+per-agent cap bounds it, and so does `deleteAfterRun` on a one-shot.
+
+### Background jobs
+
+`exec` with `background: true` returns at once with a short job id (`1`, `2`, ...), and the
+command keeps running. When it exits, its output arrives in the conversation as a message:
+
+- **A running turn reads it before its next step**, as it reads a person's steer.
+- **An idle conversation is woken** with a turn of its own, on the agent that started the
+  job. Nobody needs to be watching.
+
+This is push, not poll. The model never spends a turn asking whether a job is done.
+
+The message is typed, not prefixed: the stored row carries `from: {kind, id, label,
+status}`, and the browser draws it as a result card rather than a user bubble. The model
+reads a one-line header, `[Background job 2 finished: pnpm test]`, then the output, cut to
+the agent's result budget.
+
+The command is guarded and approved exactly as a foreground `exec` is, and it keeps the
+same timeout cap. An agent whose `exec` timeout is `0` can run a dev server until it is
+stopped. A job stops when:
+
+- it exits, or reaches its timeout;
+- the model calls `kill` with its id, or a person presses Stop in the strip above the
+  composer. Either way its result still arrives, marked stopped;
+- its conversation is deleted. The result then goes nowhere;
+- the server stops. Jobs are in memory only: a job is a child of this process and cannot
+  outlive it, so a table recording one would describe a process that is gone.
+
+`backgroundJobs` on the agent caps how many one conversation runs at once (default 4; `0`
+turns them off). A subagent's session and a scheduled run's session may not start one:
+the result would wake a turn nobody owns.
 
 More tools arrive two ways: from a subagent, which appears as `ask_<id>` (see
 [Architecture](architecture.md#subagents)), and from an MCP server.

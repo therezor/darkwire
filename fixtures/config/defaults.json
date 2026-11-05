@@ -105,6 +105,7 @@
     "reasoning": "collapsed",
     "expandToolOutput": false,
     "expandTurnStats": false,
+    "terminalAlert": "auto",
     "timezone": "UTC"
   }
 }

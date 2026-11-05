@@ -30,6 +30,7 @@
 //! replaces it.
 #![forbid(unsafe_code)]
 
+pub mod alert;
 pub mod ansi;
 pub mod component;
 pub mod editor;
@@ -50,6 +51,7 @@ pub mod theme;
 pub mod tui;
 pub mod wrap;
 
+pub use alert::Alert;
 pub use ansi::{cursor_in, styled_line};
 pub use component::{CURSOR_MARKER, Component};
 pub use editor::{Editor, EditorOutcome, is_newline};

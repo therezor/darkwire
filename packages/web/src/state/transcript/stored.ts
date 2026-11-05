@@ -270,6 +270,7 @@ export function fromStoredMessages(
         readonly stats: StepStats;
         readonly firstSeq: number;
         lastSeq: number;
+        readonly createdAtMs: number;
       }
     | undefined;
   const closeStep = (): void => {
@@ -280,7 +281,7 @@ export function fromStoredMessages(
         ...turn,
         parts: [
           ...turn.parts,
-          stepPart(step.stats, step.firstSeq, step.lastSeq),
+          stepPart(step.stats, step.firstSeq, step.lastSeq, step.createdAtMs),
         ],
       };
     }
@@ -302,11 +303,22 @@ export function fromStoredMessages(
 
       case 'user': {
         // A steer is stored as a user row under the turn it corrected. A part
-        // of that turn, where the loop read it, as the live path puts it.
+        // of that turn, where the loop read it, as the live path puts it. A
+        // posted result read mid-turn is the same, and is told apart by its
+        // `from` rather than a prefix: the row after its turn's question.
+        const from = message.from;
+        const readMidTurn =
+          from !== undefined &&
+          stored.turnId !== undefined &&
+          items.some(
+            (item) => item.kind === 'user' && item.turnId === stored.turnId,
+          );
         const steer =
           stored.turnId === undefined
             ? undefined
-            : steerText(textOf(message.content));
+            : readMidTurn
+              ? textOf(message.content)
+              : steerText(textOf(message.content));
         if (steer !== undefined && stored.turnId !== undefined) {
           const index = openTurn(items, stored.turnId);
           const turn = items[index];
@@ -315,7 +327,9 @@ export function fromStoredMessages(
               ...turn,
               parts: [
                 ...turn.parts,
-                { kind: 'steer', id: stored.id, text: steer },
+                from === undefined
+                  ? { kind: 'steer', id: stored.id, text: steer }
+                  : { kind: 'steer', id: stored.id, text: steer, from },
               ],
             };
           }
@@ -332,6 +346,7 @@ export function fromStoredMessages(
           pending: false,
           refused: undefined,
           steering: false,
+          ...(message.from === undefined ? {} : { from: message.from }),
         });
         // A turn that failed appended no answer, so nothing below would ever
         // open one — and the failure would have nowhere to render. Opened here,
@@ -400,6 +415,7 @@ export function fromStoredMessages(
             stats: message.stats,
             firstSeq: stored.seq,
             lastSeq: stored.seq,
+            createdAtMs: stored.createdAtMs,
           };
         }
         continue;

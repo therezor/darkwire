@@ -16,6 +16,8 @@
     "approvalTimeoutHint": "An unanswered prompt is denied after this. 0 is not allowed.",
     "autoCompact": "Summarise when nearly full",
     "autoCompactHint": "At 90% of the context window, the session is summarised into a new one before the next message runs, so older turns are not quietly left out.",
+    "backgroundJobs": "Background jobs at once",
+    "backgroundJobsHint": "Per session, for commands exec runs in the background. 0 turns them off.",
     "backToAgents": "Back to agents",
     "contextWindow": "Context window (tokens)",
     "deleteAgent": "Delete this agent",
@@ -541,6 +543,16 @@
     "toolSchema": "{{name}} schema",
     "usageBySection": "Token usage by section"
   },
+  "delivered": {
+    "job": "Background job {{id}}",
+    "scheduled": "Scheduled job",
+    "status": {
+      "error": "failed",
+      "killed": "stopped",
+      "ok": "finished",
+      "timeout": "timed out"
+    }
+  },
   "files": {
     "breadcrumb": "Breadcrumb",
     "conflict": "This file changed on disk since it was opened, most likely because the agent wrote to it. Your edits are still here. Reload to take the version on disk and lose them, or copy what you need out first.",
@@ -569,6 +581,11 @@
     "uploaded_other": "Uploaded {{count}} files",
     "workspaces": "Workspaces"
   },
+  "jobs": {
+    "stop": "Stop",
+    "stopLabel": "Stop {{label}}",
+    "title": "Background jobs"
+  },
   "nav": {
     "agents": "Agents",
     "automation": "Automation",
@@ -580,6 +597,7 @@
   },
   "notifications": {
     "allRead": "All caught up.",
+    "approvalTitle": "{{tool}} is waiting for approval",
     "clearAll": "Clear all",
     "clearFailed": "Could not clear the notifications",
     "clearHint_one": "{{count}} notification is deleted, read and unread alike. There is no undo.",
@@ -637,6 +655,7 @@
   },
   "sessions": {
     "actionsFor": "Actions for {{title}}",
+    "awaitingApproval": "Waiting for approval",
     "created": "Created",
     "delete": "Delete",
     "deleteFailed": "Could not delete the session",
@@ -669,6 +688,12 @@
       "languageHint": "`System` follows your browser until someone chooses otherwise.",
       "languageTitle": "Language",
       "light": "Light",
+      "notify": "Notify me when an approval is waiting",
+      "notifyBlocked": "This browser blocked notifications for this site. Allow them in its site settings, then switch this on again.",
+      "notifyDesc": "A desktop notification when a tool call needs your answer and this tab is in the background. It is stored in this browser only.",
+      "notifyHint": "The tab title and icon show a waiting approval either way.",
+      "notifyTitle": "Notifications",
+      "notifyUnsupported": "This browser only notifies on HTTPS or on localhost. The tab title and icon still show a waiting approval.",
       "reasoning": "Reasoning",
       "reasoningCollapsed": "Folded away",
       "reasoningExpanded": "Open",
@@ -993,6 +1018,8 @@
   },
   "shell": {
     "appName": "DarkWire",
+    "approvalTitle_one": "({{count}}) Approve · {{title}}",
+    "approvalTitle_other": "({{count}}) Approve · {{title}}",
     "colourScheme": "Colour scheme: {{preference}} (currently {{resolved}})",
     "crashed": "Something went wrong",
     "crashedBody": "This screen stopped working. Reloading starts it again, and a running turn keeps going on the server.",
@@ -1130,7 +1157,8 @@
       "rate": "{{rate}} tok/s",
       "regenerate": "Regenerate message {{number}}"
     },
-    "model": "Model"
+    "model": "Model",
+    "time": "Time"
   },
   "workspaces": {
     "backToWorkspaces": "Back to workspaces",

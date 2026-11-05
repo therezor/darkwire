@@ -1017,6 +1017,14 @@
     padding: 0 var(--space-2) var(--space-2);
   }
 
+  /* The running-jobs strip reuses the task panel's box. A command is read
+     character by character, so it is mono, and it takes the spare width. */
+  .jobs__label {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+  }
+
   /* ── Welcome ───────────────────────────────────────────────── */
 
   /* Left-aligned, not centred, and that is the density decision on this screen.

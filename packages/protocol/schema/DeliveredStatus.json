@@ -1,0 +1,9 @@
+{
+  "type": "string",
+  "enum": [
+    "ok",
+    "error",
+    "killed",
+    "timeout"
+  ]
+}

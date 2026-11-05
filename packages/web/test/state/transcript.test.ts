@@ -2269,3 +2269,118 @@ describe('subagents', () => {
     ]);
   });
 });
+
+describe('posted results', () => {
+  const from = {
+    kind: 'exec',
+    id: '2',
+    label: 'make test',
+    status: 'ok',
+  } as const;
+
+  it('keeps the source on a result the running turn read', () => {
+    const items = play(START, {
+      type: 'steer',
+      sessionKey: 'web:1',
+      turnId: 't1',
+      content: '[Background job 2 finished: make test]',
+      from,
+    });
+
+    expect(turnOf(items).parts.at(-1)).toEqual({
+      kind: 'steer',
+      id: 'steer:2',
+      text: '[Background job 2 finished: make test]',
+      from,
+    });
+  });
+
+  it('reads a stored result that woke a turn as that turn’s message', () => {
+    const items = fromStoredMessages([
+      stored('m1', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: '[Background job 2 finished]' }],
+        from,
+      }),
+      stored('m2', 't1', {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'the build passed' }],
+        toolCalls: [],
+      }),
+    ]);
+
+    expect(items[0]).toMatchObject({ kind: 'user', from });
+    expect(items[1]).toMatchObject({ kind: 'turn', id: 't1' });
+  });
+
+  it('reads a stored result read mid-turn as a part of that turn', () => {
+    const items = fromStoredMessages([
+      stored('m1', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: 'build it' }],
+      }),
+      stored('m2', 't1', {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'started' }],
+        toolCalls: [],
+      }),
+      stored('m3', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: '[Background job 2 finished]' }],
+        from,
+      }),
+    ]);
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'turn']);
+    expect(turnOf(items).parts.at(-1)).toEqual({
+      kind: 'steer',
+      id: 'm3',
+      text: '[Background job 2 finished]',
+      from,
+    });
+  });
+});
+
+describe('a turn a posted result opened', () => {
+  const from = {
+    kind: 'exec',
+    id: '1',
+    label: 'make',
+    status: 'ok',
+  } as const;
+
+  it('draws the result above the turn, from the frame alone', () => {
+    const items = play({
+      ...START,
+      firstSeq: 4,
+      posted: { text: '[Background job 1 finished: make]', from },
+    });
+
+    expect(items[0]).toMatchObject({
+      kind: 'user',
+      turnId: 't1',
+      seq: 4,
+      text: '[Background job 1 finished: make]',
+      from,
+    });
+    expect(items[1]).toMatchObject({ kind: 'turn', id: 't1' });
+  });
+
+  it('is replaced, not repeated, by the stored row', () => {
+    const live = play({
+      ...START,
+      posted: { text: '[Background job 1 finished: make]', from },
+    });
+
+    const merged = mergeStoredHistory(live, [
+      stored('m1', 't1', {
+        role: 'user',
+        content: [{ type: 'text', text: '[Background job 1 finished: make]' }],
+        from,
+      }),
+    ]);
+
+    expect(merged.filter((item) => item.kind === 'user')).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: 'm1', from });
+  });
+});

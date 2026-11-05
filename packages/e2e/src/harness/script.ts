@@ -105,6 +105,29 @@ export const SUMMARY = 'So far: the user asked for a long answer and got one.';
 
 export const ROUTES: readonly Route[] = [
   {
+    // A posted result is the newest user message of the turn it wakes, or of
+    // the step that reads it, so it routes its own answer. First, so no route
+    // word in a command's output can take it.
+    match: /^\[Background job \d+ /,
+    turns: [{ text: 'The background job finished.' }],
+  },
+  {
+    // `exec` in the background is approved like any call, then returns at
+    // once. Its result arrives later, as a message of its own.
+    match: /\bbackground\b/i,
+    turns: [
+      {
+        toolCalls: [
+          toolCall('call-background', 'exec', {
+            argv: ['node', '--version'],
+            background: true,
+          }),
+        ],
+      },
+      { text: 'Started it in the background.' },
+    ],
+  },
+  {
     // The question a summary request ends on, so `/compact` has an answer.
     match: /^Summarise the conversation so far/,
     turns: [{ text: SUMMARY }],

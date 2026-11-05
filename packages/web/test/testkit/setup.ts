@@ -19,6 +19,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { resetToasts } from '@/components/ui/toast.js';
 import { resetConnection } from '@/lib/connection.js';
+import { useApprovalsStore } from '@/state/approvals.js';
 import { setFrameScheduler, useTurnStore } from '@/state/turn.js';
 
 /**
@@ -182,12 +183,13 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  // All three are module state: without this, one test's toast is another
+  // Each is module state: without this, one test's toast is another
   // test's unexpected element, a connection status leaks across files, and a
   // socket opened by a shell that was never unmounted keeps its listeners.
   resetToasts();
   resetConnection();
   useTurnStore.getState().reset();
+  useApprovalsStore.getState().clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

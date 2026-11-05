@@ -2,8 +2,9 @@
  * One message's details, behind the info button on its line.
  *
  * The line already says how long the message took, what it wrote and how fast,
- * so this holds only what the line does not: the model, what it read, how much
- * of that was cached, and the wait before the first token.
+ * so this holds only what the line does not: when it was written, the model,
+ * what it read, how much of that was cached, and the wait before the first
+ * token.
  */
 
 import { screen } from '@testing-library/react';
@@ -30,14 +31,26 @@ const STATS: StepStats = {
   firstTokenMs: 200,
 };
 
+/** In 2023 in every time zone, so the year holds wherever this runs. */
+const WRITTEN_AT_MS = 1_700_000_000_000;
+
 async function open(stats: StepStats): Promise<void> {
-  renderWithProviders(<MessageInfo number={3} stats={stats} />);
+  renderWithProviders(
+    <MessageInfo number={3} stats={stats} createdAtMs={WRITTEN_AT_MS} />,
+  );
   await userEvent.click(
     screen.getByRole('button', { name: 'Message 3 details' }),
   );
 }
 
 describe("a message's details", () => {
+  it('says when the message was written', async () => {
+    await open(STATS);
+
+    const label = await screen.findByText('Time');
+    expect(label.nextElementSibling).toHaveTextContent(/2023/);
+  });
+
   it('names the model, what it read, the cache and the first token', async () => {
     await open(STATS);
 

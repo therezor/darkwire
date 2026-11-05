@@ -1,0 +1,15 @@
+{
+  "direction": "server",
+  "frame": {
+    "type": "approvals.pending",
+    "seq": 59,
+    "approvals": [
+      {
+        "sessionKey": "web:abc",
+        "callId": "c1",
+        "name": "exec",
+        "expiresAtMs": 1700000300000
+      }
+    ]
+  }
+}

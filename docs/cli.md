@@ -96,6 +96,14 @@ the question under the composer, with the command it would run:
 The question closes on its own when the turn is stopped or the agent's
 `approvalTimeoutMs` passes.
 
+When the question opens and the terminal window does not have focus, `darkwire` says so.
+iTerm2, WezTerm and Ghostty get a desktop notification (OSC 9), Kitty gets its own
+(OSC 99), and every other terminal, and tmux, gets the bell. It stays quiet while you are
+looking at the window, unless the transcript (ctrl-t) is covering the question. Until the
+terminal first reports focus it counts as not looking. Many terminals report it only when
+it changes, so the first approval after `darkwire chat` starts can ring while you watch.
+`ui.terminalAlert` sets it to `bell` or `none`; see [Configuration](configuration.md#ui).
+
 A run with nobody to ask refuses every `ask` call at once: a one-shot
 `darkwire chat "…"`, `--json`, a pipe, and the plain prompt on a terminal that cannot
 draw one. The model is told that nobody could approve it, and `darkwire` says how many

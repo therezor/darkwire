@@ -89,6 +89,20 @@ pub enum ReasoningDisplay {
     Expanded,
 }
 
+/// How the terminal says a tool call is waiting for approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalAlert {
+    /// A desktop notification where the terminal is known to show one, and
+    /// the bell everywhere else.
+    #[default]
+    Auto,
+    /// The bell, always.
+    Bell,
+    /// Nothing. Not `off`, which YAML reads as `false`.
+    None,
+}
+
 // One agent's settings
 
 /// The working folder every agent shares.
@@ -164,6 +178,10 @@ pub struct AgentSettings {
     #[serde(default)]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub subagent_timeout_ms: u64,
+    /// Background jobs one session may run at once. `0` turns them off.
+    #[serde(default = "default_background_jobs")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub background_jobs: u64,
     /// How hard to think. Unset sends nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -246,6 +264,10 @@ fn default_max_tool_iterations() -> u64 {
     40
 }
 
+fn default_background_jobs() -> u64 {
+    4
+}
+
 fn default_approval_timeout_ms() -> u64 {
     5 * 60 * 1000
 }
@@ -266,6 +288,7 @@ impl Default for AgentSettings {
             tool_timeout_ms: 0,
             loop_wall_timeout_ms: 0,
             subagent_timeout_ms: 0,
+            background_jobs: default_background_jobs(),
             reasoning_effort: None,
             vision_enabled: true,
             tools_enabled: true,
@@ -744,6 +767,8 @@ pub const DEFAULT_AGENT_TOOLS: &[(&str, ToolPermission)] = &[
     ("write", ToolPermission::Allow),
     ("edit", ToolPermission::Allow),
     ("exec", ToolPermission::Ask),
+    // Reaches only this session's own background jobs.
+    ("kill", ToolPermission::Allow),
     ("memory", ToolPermission::Allow),
     ("skill", ToolPermission::Allow),
     // The plan a long turn runs on, and the switch for the Tasks section of the
@@ -1198,6 +1223,13 @@ pub struct UiConfig {
     /// popover, which is already out of the way.
     #[serde(default)]
     pub expand_turn_stats: bool,
+    /// How the terminal says a tool call is waiting for approval, while it
+    /// does not have focus.
+    ///
+    /// The terminal only: the browser has its own switch, because whether a
+    /// browser may notify is the browser's to grant.
+    #[serde(default)]
+    pub terminal_alert: TerminalAlert,
     /// The one zone this install reads and writes clock times in.
     ///
     /// Everything is *stored* in UTC, so this is not a storage format; it is
@@ -1229,6 +1261,7 @@ impl Default for UiConfig {
             // here, and `false` is the wanted answer either way: a turn's cost
             // arrives folded.
             expand_turn_stats: false,
+            terminal_alert: TerminalAlert::default(),
             timezone: default_timezone(),
         }
     }
@@ -1336,6 +1369,10 @@ pub struct AgentSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub subagent_timeout_ms: Option<u64>,
+    /// See [`AgentSettings::background_jobs`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub background_jobs: Option<u64>,
     /// See [`AgentSettings::reasoning_effort`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -1382,6 +1419,7 @@ impl From<AgentSettings> for AgentSettingsPatch {
             tool_timeout_ms: Some(settings.tool_timeout_ms),
             loop_wall_timeout_ms: Some(settings.loop_wall_timeout_ms),
             subagent_timeout_ms: Some(settings.subagent_timeout_ms),
+            background_jobs: Some(settings.background_jobs),
             reasoning_effort: settings.reasoning_effort,
             vision_enabled: Some(settings.vision_enabled),
             tools_enabled: Some(settings.tools_enabled),
@@ -1860,6 +1898,9 @@ pub struct UiConfigPatch {
     /// See [`UiConfig::expand_turn_stats`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expand_turn_stats: Option<bool>,
+    /// See [`UiConfig::terminal_alert`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_alert: Option<TerminalAlert>,
     /// See [`UiConfig::timezone`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[garde(length(utf16, min = 1))]

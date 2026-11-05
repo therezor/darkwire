@@ -92,9 +92,35 @@ export const SystemMessageSchema = z.object({
   content: z.string(),
 });
 
+/** What produced a result the server posted into a conversation. */
+export const DeliveredKindSchema = z.enum(['exec', 'automation']);
+export type DeliveredKind = z.infer<typeof DeliveredKindSchema>;
+
+/** How the work behind a posted result ended. */
+export const DeliveredStatusSchema = z.enum([
+  'ok',
+  'error',
+  'killed',
+  'timeout',
+]);
+export type DeliveredStatus = z.infer<typeof DeliveredStatusSchema>;
+
+/** The source of a result the server posted into a conversation. */
+export const DeliveredSchema = z.object({
+  kind: DeliveredKindSchema,
+  /** A background job's number, or a scheduled job's id. */
+  id: z.string().min(1),
+  /** The command, or the job's name. */
+  label: z.string(),
+  status: DeliveredStatusSchema,
+});
+export type Delivered = z.infer<typeof DeliveredSchema>;
+
 export const UserMessageSchema = z.object({
   role: z.literal('user'),
   content: z.array(ContentPartSchema),
+  /** Set by the server when this is a result it posted, never by a client. */
+  from: DeliveredSchema.optional(),
 });
 
 /** Token accounting as reported by the provider. */

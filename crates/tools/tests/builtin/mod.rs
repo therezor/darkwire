@@ -14,6 +14,7 @@ mod edit;
 mod exec;
 mod find;
 mod grep;
+mod kill;
 mod ls;
 mod memory;
 mod read;

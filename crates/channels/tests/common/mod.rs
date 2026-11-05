@@ -51,6 +51,7 @@ pub fn turn_start() -> ServerMessage {
         agent_id: "default".to_owned(),
         model: "scripted".to_owned(),
         provider: "scripted".to_owned(),
+        posted: None,
     }))
 }
 
@@ -235,6 +236,7 @@ pub fn step_end() -> ServerMessage {
         first_seq: 2,
         last_seq: 3,
         stats: StepStats::default(),
+        created_at_ms: 0,
         turn_elapsed_ms: 0,
     }))
 }
@@ -247,6 +249,7 @@ pub fn session_status(busy: bool) -> ServerMessage {
         queue_depth: 0,
         workspace_id: Some("default".to_owned()),
         turn_id: busy.then(|| TURN.to_owned()),
+        jobs: Vec::new(),
     }))
 }
 
@@ -286,6 +289,7 @@ pub fn nested_turn_start() -> NestedAgentEvent {
         agent_id: "researcher".to_owned(),
         model: "scripted".to_owned(),
         provider: "scripted".to_owned(),
+        posted: None,
     })
 }
 

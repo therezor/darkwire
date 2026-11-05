@@ -24,10 +24,11 @@ use std::sync::Arc;
 
 use darkwire_core::Result;
 use darkwire_i18n::keys;
+use darkwire_protocol::config::TerminalAlert;
 use darkwire_tui::tui::{StdoutTui, Tui, TuiEvent};
 use darkwire_tui::{
-    Pages, PagesOptions, PagesOutcome, Renderable, Select, SelectOptions, SelectOutcome, Theme,
-    frame::FrameRequester,
+    Alert, Pages, PagesOptions, PagesOutcome, Renderable, Select, SelectOptions, SelectOutcome,
+    Theme, frame::FrameRequester,
 };
 use futures::StreamExt;
 use ratatui::layout::Size;
@@ -49,6 +50,16 @@ use crate::render::TranscriptEvent;
 use crate::select_overlay::SelectOverlay;
 use crate::transcript_overlay::{OverlayOutcome, TranscriptOverlay};
 
+/// How this terminal is told an approval is waiting, given the setting and
+/// what the terminal turned out to be.
+fn alert_for(setting: TerminalAlert, detected: impl FnOnce() -> Alert) -> Alert {
+    match setting {
+        TerminalAlert::Auto => detected(),
+        TerminalAlert::Bell => Alert::Bell,
+        TerminalAlert::None => Alert::Off,
+    }
+}
+
 /// How long one spinner tick is.
 const SPINNER_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(darkwire_tui::SPINNER_INTERVAL_MS);
@@ -57,6 +68,8 @@ const SPINNER_INTERVAL: std::time::Duration =
 enum AppEvent {
     /// Put a menu on the bottom pane and answer when it closes.
     Menu(PickerRequest, oneshot::Sender<Option<MenuAnswer>>),
+    /// Tell a person who is not looking that something waits for them.
+    Attention(String),
     /// Put a listing on the bottom pane and say when it closes.
     Listing(ListingRequest, oneshot::Sender<()>),
     /// Put a question on the window and answer with the line typed into it.
@@ -75,6 +88,10 @@ struct AppMenu {
 impl PickerMenu for AppMenu {
     fn available(&self) -> bool {
         true
+    }
+
+    fn attention(&self, text: &str) {
+        let _ = self.events.send(AppEvent::Attention(text.to_owned()));
     }
 
     fn choose<'a>(
@@ -322,6 +339,11 @@ where
     /// screen is laid out for a size it no longer is.
     needs_rebuild: bool,
     closed: bool,
+    /// Whether the window has focus. `None` until the terminal says, and a
+    /// terminal that never says is treated as not looking.
+    focused: Option<bool>,
+    /// How this terminal is told an approval is waiting.
+    alert: Alert,
 }
 
 impl<B> std::fmt::Debug for TuiSurface<B>
@@ -351,6 +373,9 @@ impl TuiSurface<ratatui::backend::CrosstermBackend<std::io::Stdout>> {
         let events = tui.event_stream();
 
         let mut surface = Self::over(tui, session);
+        surface.alert = alert_for(session.runtime.config().ui.terminal_alert, || {
+            Alert::detect(|name| std::env::var(name).ok())
+        });
         surface.listen_to(events);
         // A resumed session has a plan and a conversation already. Reading
         // them here rather than waiting for the agent means the first thing on
@@ -418,6 +443,9 @@ where
             overlay_footer: session.t.t(keys::chat::TRANSCRIPT_FOOTER),
             needs_rebuild: false,
             closed: false,
+            focused: None,
+            // A terminal in memory is none of the ones known to notify.
+            alert: alert_for(session.runtime.config().ui.terminal_alert, || Alert::Bell),
         }
     }
 
@@ -565,6 +593,7 @@ where
                 }
                 self.requester.schedule_frame();
             }
+            TuiEvent::Focus(focused) => self.focused = Some(focused),
             TuiEvent::Key(key) => return self.handle_key(&key, token, idle),
         }
         None
@@ -625,9 +654,30 @@ where
         None
     }
 
+    /// Rings, or notifies, when the question about to open will not be seen.
+    ///
+    /// Written straight to the terminal between frames. A transcript row
+    /// would have its control characters taken out, which is right for text a
+    /// model wrote and wrong for this.
+    fn call_attention(&mut self, text: &str) {
+        // An overlay draws over the prompt, so a person looking at the window
+        // still cannot see the question.
+        if self.focused == Some(true) && self.overlay.is_none() {
+            return;
+        }
+        let bytes = self.alert.sequence(text);
+        if bytes.is_empty() {
+            return;
+        }
+        let backend = self.tui.backend_mut();
+        let _ = std::io::Write::write_all(backend, &bytes);
+        let _ = std::io::Write::flush(backend);
+    }
+
     /// Puts a picker on the bottom pane.
     fn open_view(&mut self, event: AppEvent) {
         match event {
+            AppEvent::Attention(text) => self.call_attention(&text),
             AppEvent::Menu(request, answer) => {
                 let window = self.tui.size().unwrap_or(Size {
                     width: 80,

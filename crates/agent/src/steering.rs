@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use darkwire_protocol::Delivered;
 use parking_lot::Mutex;
 
 pub use darkwire_core::messages::STEERING_PREFIX;
@@ -38,6 +39,24 @@ pub struct SteeringMessage {
     /// Who sent it, in the transport's terms, so an unread one runs as that
     /// sender's next turn.
     pub sender: String,
+    /// Captured when it was sent, so an unread one still runs as the sender's
+    /// turn after the sender has gone.
+    pub route: SteerRoute,
+    /// Set when the server posted it as a result rather than a person typing
+    /// it. Such a message carries its own header, so it gets no steering
+    /// prefix.
+    pub from: Option<Delivered>,
+}
+
+/// Where an unread steer runs, in the transport's terms.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SteerRoute {
+    /// The channel the turn is recorded under.
+    pub channel: String,
+    /// The agent it runs on.
+    pub agent_id: Option<String>,
+    /// The workspace a new session is created in.
+    pub workspace_id: Option<String>,
 }
 
 /// Corrections waiting for the turns they belong to. A key is present exactly
@@ -106,7 +125,10 @@ impl SteeringQueue {
     }
 }
 
-/// The prefixed text as it enters history.
+/// The text as it enters history: prefixed, unless the server posted it.
 pub fn steering_text(message: &SteeringMessage) -> String {
+    if message.from.is_some() {
+        return message.content.clone();
+    }
     format!("{STEERING_PREFIX}\n\n{}", message.content)
 }

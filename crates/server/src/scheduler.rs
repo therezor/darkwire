@@ -55,6 +55,7 @@ use darkwire_core::clock::Clock;
 use darkwire_core::cron::{next_cron_run, parse_cron};
 use darkwire_core::db::blocking;
 use darkwire_core::errors::{ErrorKind, Result, WireError};
+use darkwire_core::history::truncate_head_tail;
 use darkwire_core::ids::DEFAULT_WORKSPACE_ID;
 use darkwire_core::session_store::IdSource;
 use darkwire_protocol::automation::{
@@ -63,6 +64,7 @@ use darkwire_protocol::automation::{
 };
 use darkwire_protocol::config::Config;
 use darkwire_protocol::messages::StopReason;
+use darkwire_protocol::messages::{Delivered, DeliveredKind, DeliveredStatus};
 use darkwire_protocol::rest::Notification;
 use darkwire_protocol::ws::{
     ClientMessage, NotificationLevel, ServerMessage, StopTurnMessage, StopTurnTag,
@@ -79,6 +81,7 @@ use crate::heartbeat::{
     HeartbeatAction, MAX_TASK_FILE_BYTES, build_decide_messages, build_evaluate_messages,
     read_decision, read_evaluation,
 };
+use crate::hub::Post;
 use crate::notifications::CreateNotificationInput;
 
 /// The longest a single timer hop may be.
@@ -91,6 +94,16 @@ pub const MAX_ARM_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// How long a single run may take before it is abandoned.
 pub const DEFAULT_RUN_TIMEOUT_MS: u64 = 30 * 60 * 1000;
+
+/// The most of a run's output its report carries into the creating session:
+/// the default tool result budget, since the model reads it the same way.
+const MAX_REPORT_CHARS: usize = 8192;
+
+/// What a finished run reports to the session that created its job.
+struct Report {
+    status: RunStatus,
+    body: String,
+}
 
 /// The floor on a rearm that could otherwise be zero.
 ///
@@ -179,6 +192,9 @@ pub type RaiseFn = Arc<dyn Fn(CreateNotificationInput) -> Result<Notification> +
 /// Deletes a session a trimmed run had been the only reference to.
 pub type DeleteSessionFn = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Puts a run's result into the conversation that created its job.
+pub type PostFn = Arc<dyn Fn(Post) -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
+
 /// One direct provider request. Absent means this build has no heartbeat.
 pub type ChatFn = Arc<
     dyn Fn(DirectChat) -> futures::future::BoxFuture<'static, Result<ChatResult>> + Send + Sync,
@@ -244,6 +260,9 @@ pub struct SchedulerOptions {
     pub new_id: IdSource,
     /// How long a single run may take. `None` is [`DEFAULT_RUN_TIMEOUT_MS`].
     pub run_timeout_ms: Option<u64>,
+    /// Reports a run to the session whose agent created the job. `None` is a
+    /// build where results only notify.
+    pub post: Option<PostFn>,
 }
 
 /// The narrow view the REST routes hold.
@@ -466,6 +485,7 @@ impl TurnCollector {
                 | ServerMessage::SessionTruncated(_)
                 | ServerMessage::SessionCompacted(_)
                 | ServerMessage::Notification(_)
+                | ServerMessage::ApprovalsPending(_)
                 | ServerMessage::ToolsChanged(_)
                 | ServerMessage::Steer(_) => {}
             }
@@ -574,6 +594,7 @@ struct Inner {
     clock: Arc<dyn Clock>,
     new_id: IdSource,
     run_timeout: Duration,
+    post: Option<PostFn>,
     state: Mutex<State>,
     /// Woken by a refresh, by a finished run, and by a stop.
     wake: Notify,
@@ -602,6 +623,7 @@ impl Scheduler {
                 broadcast: options.broadcast,
                 raise: options.raise,
                 delete_session: options.delete_session,
+                post: options.post,
                 chat: options.chat,
                 read_file: options.read_file,
                 clock: options.clock,
@@ -1046,6 +1068,19 @@ impl Scheduler {
             }
         }
 
+        // Reported whenever a person would be notified: always on an error, and
+        // on success unless a heartbeat's evaluation said there was nothing to
+        // say. The output rather than the notification's short body.
+        let report = (status == RunStatus::Error || notify.is_some()).then(|| Report {
+            status,
+            body: match &error {
+                Some(error) if status == RunStatus::Error => error.clone(),
+                _ => output.clone(),
+            },
+        });
+        let job_for_report = job.clone();
+        let session_key = run.session_key.clone();
+
         // Store writes, and settling writes too, so all of it runs off the
         // runtime's workers.
         let engine = self.clone();
@@ -1075,9 +1110,47 @@ impl Scheduler {
                     error: error.clone(),
                 },
             )?;
-            engine.settle(&job, status, error.as_deref(), notify)
+            engine.settle(&job, status, error.as_deref(), notify, session_key)
         })
-        .await
+        .await?;
+        if let Some(report) = report {
+            self.report(job_for_report, report).await;
+        }
+        Ok(())
+    }
+
+    /// Posts a run's result into the session whose agent created the job.
+    ///
+    /// The run itself happened in a session of its own, which cannot see the
+    /// one that created it. Only the result crosses back.
+    async fn report(&self, job: AutomationJob, report: Report) {
+        let (Some(post), Some(creator)) = (&self.inner.post, job.created_by) else {
+            return;
+        };
+        let (status, ended) = match report.status {
+            RunStatus::Error => (DeliveredStatus::Error, "failed"),
+            _ => (DeliveredStatus::Ok, "finished"),
+        };
+        let header = format!("[Scheduled job \"{}\" {ended}]", job.name);
+        let body = truncate_head_tail(&report.body, MAX_REPORT_CHARS).text;
+        let text = if body.is_empty() {
+            header
+        } else {
+            format!("{header}\n\n{body}")
+        };
+        post(Post {
+            session_key: creator.session_key,
+            agent_id: Some(creator.agent_id),
+            workspace_id: None,
+            text,
+            from: Delivered {
+                kind: DeliveredKind::Automation,
+                id: job.id,
+                label: job.name,
+                status,
+            },
+        })
+        .await;
     }
 
     /// The body of a run, up to the point where an outcome is known.
@@ -1135,6 +1208,7 @@ impl Scheduler {
         status: RunStatus,
         error: Option<&str>,
         notify: Option<(String, String)>,
+        session_key: Option<String>,
     ) -> Result<()> {
         if status == RunStatus::Error {
             // An error always notifies. The evaluate step never gets to veto
@@ -1145,9 +1219,10 @@ impl Scheduler {
                 &format!("{} failed", job.name),
                 error.unwrap_or_default(),
                 NotificationLevel::Error,
+                session_key,
             )?;
         } else if let Some((title, body)) = notify {
-            self.notify(job, &title, &body, NotificationLevel::Info)?;
+            self.notify(job, &title, &body, NotificationLevel::Info, session_key)?;
         }
 
         // Trimming here rather than on a sweep: the row that pushes the history
@@ -1197,18 +1272,20 @@ impl Scheduler {
         next_run_after(&job.schedule, now_ms, &self.timezone())
     }
 
+    /// Raises a notification that links to the run's transcript.
     fn notify(
         &self,
         job: &AutomationJob,
         title: &str,
         body: &str,
         level: NotificationLevel,
+        session_key: Option<String>,
     ) -> Result<()> {
         let notification = (self.inner.raise)(CreateNotificationInput {
             title: title.to_owned(),
             body: body.to_owned(),
             level,
-            session_key: None,
+            session_key,
             job_id: Some(job.id.clone()),
         })?;
 

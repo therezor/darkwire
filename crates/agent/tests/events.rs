@@ -198,6 +198,7 @@ fn every_body_converts_into_an_event_without_naming_the_union() {
             agent_id: "default".to_owned(),
             model: "m".to_owned(),
             provider: "p".to_owned(),
+            posted: None,
         }
         .into(),
         AssistantDelta {

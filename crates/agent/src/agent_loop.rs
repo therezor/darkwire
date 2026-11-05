@@ -75,8 +75,9 @@ use darkwire_providers::{
 };
 use darkwire_security::{JailResolver, OsRandom, RandomSource, create_tool_output_nonce};
 use darkwire_tools::{
-    Activation, AutomationResolver, EnvironmentResolver, Placed, PlacementRequest,
-    TOOL_SEARCH_NAME, TaskPort, ToolContext, ToolDiscovery, ToolScope, WebResolver,
+    Activation, AutomationResolver, BackgroundResolver, EnvironmentResolver, Placed,
+    PlacementRequest, TOOL_SEARCH_NAME, TaskPort, ToolContext, ToolDiscovery, ToolScope,
+    WebResolver,
 };
 use futures::{Stream, StreamExt as _};
 use indexmap::{IndexMap, IndexSet};
@@ -233,6 +234,9 @@ pub struct AgentLoopOptions {
     /// and the session, so a job records who asked for it and an agent cannot
     /// reach another's.
     pub automation: Option<Arc<dyn AutomationResolver>>,
+    /// Supplies the session's background jobs, keyed the same way: a job
+    /// reports back to the session that started it and no other.
+    pub background: Option<Arc<dyn BackgroundResolver>>,
     /// Supplies this agent's access to the web, keyed the same way. A loop with
     /// none leaves `ctx.web` unset, and both web tools then say the install has
     /// no web layer rather than pretending to fetch.
@@ -319,6 +323,7 @@ impl AgentLoopOptions {
             store,
             jails,
             automation: None,
+            background: None,
             web: None,
             environments: None,
             environment: AgentEnvironment::default(),
@@ -841,6 +846,7 @@ pub(crate) struct LoopInner {
     pub(crate) store: Arc<SessionStore>,
     jails: Arc<dyn JailResolver>,
     automation: Option<Arc<dyn AutomationResolver>>,
+    background: Option<Arc<dyn BackgroundResolver>>,
     web: Option<Arc<dyn WebResolver>>,
     environments: Option<Arc<dyn EnvironmentResolver>>,
     environment: AgentEnvironment,
@@ -983,6 +989,7 @@ impl AgentLoop {
                 store: options.store,
                 jails: options.jails,
                 automation: options.automation,
+                background: options.background,
                 web: options.web,
                 environments: options.environments,
                 environment: options.environment,
@@ -1596,10 +1603,6 @@ impl AgentLoop {
             network: selection.network.clone(),
             workspace_root: jail.root().to_string_lossy().into_owned(),
         };
-        let automation = inner
-            .automation
-            .as_ref()
-            .and_then(|a| a.for_turn(&placement));
         // The place, resolved from the same key. `sandboxed` is derived from it
         // rather than set beside it, so the guard's host-shaped refusals lift
         // exactly when the command stops starting on this machine.
@@ -1616,7 +1619,7 @@ impl AgentLoop {
         tool_context.token = token.clone();
         tool_context.clock = Arc::clone(&inner.clock);
         tool_context.env = Arc::clone(&inner.env);
-        tool_context.automation = automation;
+        self.attach_session_ports(&mut tool_context, &placement);
         // Bound to this session, like the automation port. Attached whenever
         // the install has lazy discovery on, because that is when `tool_search`
         // is registered; an agent sent the whole list never calls it.
@@ -1809,6 +1812,15 @@ impl AgentLoop {
             agent_id: inner.agent_id.clone(),
             model: inner.model_id.clone(),
             provider: inner.provider.id().to_owned(),
+            posted: match &input.content {
+                Content::Delivered(text, from) if input.continue_from.is_none() => {
+                    Some(darkwire_protocol::Posted {
+                        text: text.clone(),
+                        from: from.clone(),
+                    })
+                }
+                _ => None,
+            },
         })
         .await;
 
@@ -1870,6 +1882,20 @@ impl AgentLoop {
         self.close_turn(&turn, state, started_at_ms, sink).await
     }
 
+    /// The ports scoped to this turn's agent and session: where a scheduled
+    /// job is written and where a background job reports back.
+    fn attach_session_ports(&self, tool_context: &mut ToolContext, placement: &PlacementRequest) {
+        let inner = &self.inner;
+        tool_context.automation = inner
+            .automation
+            .as_ref()
+            .and_then(|resolver| resolver.for_turn(placement));
+        tool_context.background = inner
+            .background
+            .as_ref()
+            .and_then(|resolver| resolver.for_turn(placement));
+    }
+
     /// Appends whatever was steered before this iteration built its request,
     /// and says so once each is written: the frame is where a reader sees it.
     async fn drain_steering(
@@ -1883,7 +1909,12 @@ impl AgentLoop {
         // and the transport runs it as the next turn when this one closes.
         while let Some(message) = steering.peek(&turn.scope.session_key) {
             let key = turn.scope.session_key.clone();
-            let steer = ChatMessage::User(user_message(steering_text(&message)));
+            let text = steering_text(&message);
+            let content = match message.from.clone() {
+                Some(from) => Content::Delivered(text, from),
+                None => Content::Text(text),
+            };
+            let steer = ChatMessage::User(user_message(content));
             let options = AppendOptions {
                 turn_id: Some(turn.turn_id.clone()),
             };
@@ -1898,6 +1929,7 @@ impl AgentLoop {
                 turn_id: turn.turn_id.clone(),
                 content: message.content,
                 client_message_id: Some(message.id),
+                from: message.from,
             })
             .await;
         }
@@ -2407,15 +2439,19 @@ impl AgentLoop {
             return Ok(written);
         };
         state.last_seq = last.seq;
-        if let (Some(stats), Ok(first_seq), Ok(last_seq)) =
-            (figures, u64::try_from(first.seq), u64::try_from(last.seq))
-        {
+        if let (Some(stats), Ok(first_seq), Ok(last_seq), Ok(created_at_ms)) = (
+            figures,
+            u64::try_from(first.seq),
+            u64::try_from(last.seq),
+            u64::try_from(first.created_at_ms),
+        ) {
             sink.emit(StepEnd {
                 tag: StepEndTag,
                 turn_id: turn.turn_id.clone(),
                 first_seq,
                 last_seq,
                 stats,
+                created_at_ms,
                 turn_elapsed_ms: self.since(state.started_at),
             })
             .await;

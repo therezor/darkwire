@@ -24,6 +24,7 @@ pub mod auth;
 pub mod auth_store;
 pub mod automation_port;
 pub mod automation_store;
+pub mod background;
 pub mod boot;
 pub mod client_address;
 pub mod context;
@@ -61,8 +62,9 @@ pub use auth::{
     read_credential, session_cookie, session_of, verify_signed,
 };
 pub use auth_store::{Argon2Hasher, AuthSession, AuthStore, AuthStoreOptions, PasswordHasher};
-pub use automation_port::{MAX_AGENT_JOBS, ServerAutomationResolver};
+pub use automation_port::{MAX_AGENT_JOBS, RootSession, ServerAutomationResolver, root_session};
 pub use automation_store::{AutomationStore, CreateJobInput, UpdateJobInput};
+pub use background::BackgroundJobs;
 pub use boot::assert_boot_policy;
 pub use context::build_context_response;
 pub use cursor::{
@@ -73,7 +75,9 @@ pub use cursor::{
 };
 pub use errors::{HttpError, error_body, resolve_error, status_and_code};
 pub use heartbeat::{HEARTBEAT_RESULT_TOOL, HEARTBEAT_TOOL, MAX_TASK_FILE_BYTES};
-pub use hub::{ConnectOptions, HubClient, SessionHub, SessionHubOptions, TurnHandle, TurnRunner};
+pub use hub::{
+    ConnectOptions, HubClient, Post, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
+};
 pub use login_throttle::{
     ACCOUNT_SCOPE, DECAY_MS, FREE_ATTEMPTS, LoginThrottle, MAX_ACCOUNT_DELAY_MS,
     MAX_ADDRESS_DELAY_MS, ThrottleBlock, delay_for,

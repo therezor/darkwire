@@ -64,9 +64,9 @@ use darkwire_server::scheduler::{
     DirectChat, ReadTaskFile, SchedulerConnectOptions, SchedulerConnection, SchedulerOptions,
 };
 use darkwire_server::{
-    CreateNotificationInput, HubApprovalGate, HubApprovalGateOptions, NotificationStore, Scheduler,
-    ServerAutomationResolver, ServerOptions, ServerRuntime, SessionHub, SessionHubOptions, UiRoot,
-    UnattendedApproval, WireServer, create_server,
+    BackgroundJobs, CreateNotificationInput, HubApprovalGate, HubApprovalGateOptions,
+    NotificationStore, Scheduler, ServerAutomationResolver, ServerOptions, ServerRuntime,
+    SessionHub, SessionHubOptions, UiRoot, UnattendedApproval, WireServer, create_server,
 };
 use darkwire_tools::{ListenerId, ToolRegistry};
 use darkwire_tui::palette_for;
@@ -564,6 +564,30 @@ struct ChannelState {
 }
 
 impl ChannelSet {
+    /// A set over the hub and runtime, with no adapter yet and no channel
+    /// running.
+    fn over(
+        hub: &Arc<SessionHub>,
+        runtime: &Arc<WireRuntime>,
+        paths: &WirePaths,
+        env: &Env,
+        injected: Vec<ChannelFactory>,
+        clock: &Arc<SystemClock>,
+    ) -> Arc<ChannelSet> {
+        Arc::new(ChannelSet {
+            hub: Arc::new(HubBridge {
+                hub: Arc::clone(hub),
+            }),
+            runtime: Arc::clone(runtime),
+            server: parking_lot::RwLock::new(None),
+            paths: paths.clone(),
+            env: env.clone(),
+            injected,
+            clock: Arc::clone(clock),
+            state: tokio::sync::Mutex::new(ChannelState::default()),
+        })
+    }
+
     fn fill_server(&self, server: Arc<dyn ServerRuntime>) {
         *self.server.write() = Some(server);
     }
@@ -926,6 +950,9 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     // The engine's stand-in, for the same reason and in the same shape.
     let late_scheduler = Arc::new(LateScheduler::default());
 
+    // Before the runtime, whose tools hand jobs to it. The hub attaches later.
+    let background = BackgroundJobs::new(clock.clone());
+
     // One vault, shared by the runtime and the adapter, or none at all. Built
     // here rather than in either of them because a credential written over HTTP
     // has to be readable by the next turn: two instances over one file would
@@ -938,6 +965,7 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
         workspaces: args.workspaces.clone(),
         approvals: Some(approvals.clone()),
         automation: Some(Arc::clone(&automation) as Arc<dyn darkwire_tools::AutomationResolver>),
+        background: Some(Arc::new(background.clone())),
         env: Some(env_map(&env)),
         database: Some(database.clone()),
         clock: Some(clock.clone()),
@@ -965,25 +993,14 @@ pub async fn start(options: ServeOptions) -> Result<Arc<RunningServer>> {
     }
 
     let config = runtime.config();
-    let hub = build_hub(&runtime, &approvals, &clock);
+    let hub = build_hub(&runtime, &approvals, &clock, background);
     watch.fill_hub(&hub);
 
     // The channel set before the adapter, because the adapter rebuilds through
     // it — and filled in with the adapter afterwards, because the Telegram
     // console answers through the adapter. The same late binding the approval
     // gate and the `automation` tool each use, for the same knot.
-    let channels = Arc::new(ChannelSet {
-        hub: Arc::new(HubBridge {
-            hub: Arc::clone(&hub),
-        }),
-        runtime: Arc::clone(&runtime),
-        server: parking_lot::RwLock::new(None),
-        paths: loaded.paths.clone(),
-        env: env.clone(),
-        injected,
-        clock: clock.clone(),
-        state: tokio::sync::Mutex::new(ChannelState::default()),
-    });
+    let channels = ChannelSet::over(&hub, &runtime, &loaded.paths, &env, injected, &clock);
 
     // (4) The adapter, then the UI root, then the server.
     let server_runtime = build_adapter(&runtime, &channels, &env, injected_vault);
@@ -1174,6 +1191,7 @@ fn build_hub(
     runtime: &Arc<WireRuntime>,
     approvals: &Arc<HubApprovalGate>,
     clock: &Arc<SystemClock>,
+    jobs: BackgroundJobs,
 ) -> Arc<SessionHub> {
     let for_loop = Arc::clone(runtime);
     let resolver = Arc::clone(runtime);
@@ -1206,6 +1224,7 @@ fn build_hub(
         max_queue_depth: None,
         max_sessions: None,
         steering: Arc::clone(runtime.steering()),
+        jobs: Some(jobs),
     })
 }
 
@@ -1243,6 +1262,7 @@ fn build_scheduler(
     let for_config = Arc::clone(runtime);
     let for_connect = Arc::clone(hub);
     let for_broadcast = Arc::clone(hub);
+    let for_post = Arc::clone(hub);
     let for_chat = Arc::clone(server_runtime);
     let for_read = Arc::clone(runtime);
 
@@ -1317,6 +1337,10 @@ fn build_scheduler(
         clock: Arc::clone(clock) as Arc<dyn Clock>,
         new_id: Box::new(new_id(Arc::clone(clock))),
         run_timeout_ms: None,
+        post: Some(Arc::new(move |post| {
+            let hub = Arc::clone(&for_post);
+            Box::pin(async move { hub.post(post).await })
+        })),
     }))
 }
 

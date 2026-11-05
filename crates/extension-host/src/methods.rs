@@ -278,6 +278,7 @@ fn client_tag(message: &ClientMessage) -> &'static str {
         ClientMessage::ToolApprove(_) => "tool.approve",
         ClientMessage::Steer(_) => "turn.steer",
         ClientMessage::CompactSession(_) => "session.compact",
+        ClientMessage::StopJob(_) => "job.stop",
     }
 }
 

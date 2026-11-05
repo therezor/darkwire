@@ -897,6 +897,70 @@ async fn a_correction_sent_as_the_turn_opens_is_read_by_its_first_step() {
     );
 }
 
+#[tokio::test]
+async fn a_posted_result_is_stored_with_its_source_and_no_steering_prefix() {
+    let harness = Harness::build(Setup::with(vec![
+        ScriptedTurn::text("first answer"),
+        ScriptedTurn::text("second answer"),
+    ]));
+    let from = darkwire_protocol::Delivered {
+        kind: darkwire_protocol::DeliveredKind::Exec,
+        id: "1".to_owned(),
+        label: "make".to_owned(),
+        status: darkwire_protocol::DeliveredStatus::Ok,
+    };
+    let turn = harness
+        .agent_loop
+        .run(TurnInput::new("web:1", "go"), &CancellationToken::new());
+    assert!(harness.post(
+        "web:1",
+        "p1",
+        "[Background job 1 finished: make]",
+        Some(from.clone())
+    ));
+    let (events, _) = turn.collect().await;
+
+    let stored = harness.stored("web:1");
+    let darkwire_protocol::ChatMessage::User(posted) = &stored[1] else {
+        panic!("a user row");
+    };
+    assert_eq!(
+        darkwire_core::text_of(&stored[1]),
+        "[Background job 1 finished: make]"
+    );
+    assert_eq!(posted.from.as_ref(), Some(&from));
+    assert!(!darkwire_core::is_steer(&stored[1]));
+    assert_eq!(events_of(&events, "steer")[0]["from"]["id"], json!("1"));
+}
+
+#[tokio::test]
+async fn a_turn_a_posted_result_opened_says_so_on_its_start() {
+    let harness = Harness::build(Setup::with(vec![ScriptedTurn::text("noted")]));
+    let from = darkwire_protocol::Delivered {
+        kind: darkwire_protocol::DeliveredKind::Automation,
+        id: "j1".to_owned(),
+        label: "nightly".to_owned(),
+        status: darkwire_protocol::DeliveredStatus::Ok,
+    };
+
+    let (events, _) = harness
+        .run(TurnInput::new(
+            "web:1",
+            darkwire_core::messages::Content::Delivered(
+                "[Scheduled job \"nightly\" finished]".to_owned(),
+                from,
+            ),
+        ))
+        .await;
+
+    let start = &events_of(&events, "turn.start")[0];
+    assert_eq!(
+        start["posted"]["text"],
+        json!("[Scheduled job \"nightly\" finished]")
+    );
+    assert_eq!(start["posted"]["from"]["id"], json!("j1"));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_correction_queued_mid_answer_is_answered_rather_than_discarded() {
     let harness = Harness::build(Setup::with(vec![

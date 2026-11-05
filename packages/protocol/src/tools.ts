@@ -68,6 +68,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'grep',
   'find',
   'exec',
+  'kill',
   'automation',
   'memory',
   'skill',

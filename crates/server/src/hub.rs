@@ -43,7 +43,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use darkwire_agent::{
-    AgentEvent, CompactRequest, SteeringMessage, SteeringQueue, TurnInput, TurnResult,
+    AgentEvent, CompactRequest, SteerRoute, SteeringMessage, SteeringQueue, TurnInput, TurnResult,
 };
 use darkwire_core::messages::Content;
 use darkwire_core::messages::{FileDetails, file_part, text_part};
@@ -51,17 +51,17 @@ use darkwire_core::session_store::{
     ReadMessages, SessionRecord, StoredMessageRecord, TruncateResult, to_stored_message,
 };
 use darkwire_core::{Clock, ErrorKind, Result, SessionStore, SystemClock, WireError, is_steer};
-use darkwire_protocol::messages::{ChatMessage, ContentPart, StopReason, StoredMessage};
+use darkwire_protocol::messages::{ChatMessage, ContentPart, Delivered, StopReason, StoredMessage};
 use darkwire_protocol::tools::ExecRule;
 use darkwire_protocol::uuid::new_uuid;
 use darkwire_protocol::ws::{
-    Attachment, ClientMessage, CompactSessionMessage, ConnectedEvent, ConnectedTag, EditMessage,
-    ErrorCode, ErrorEvent, ErrorTag, MessageAck, MessageAckTag, MessageQueued, MessageQueuedTag,
-    Notice, NoticeKind, NoticeTag, NotificationBody, PongEvent, PongTag, ProtocolVersion,
-    RegenerateMessage, Sequenced, ServerMessage, SessionCompacted, SessionCompactedTag,
-    SessionReplay, SessionReplayTag, SessionReset, SessionResetTag, SessionStatus,
-    SessionStatusTag, SessionTruncated, SessionTruncatedTag, SteerMessage, ToolsChanged, TurnEnd,
-    TurnEndTag, UserMessageRequest,
+    ApprovalsPending, ApprovalsPendingTag, Attachment, ClientMessage, CompactSessionMessage,
+    ConnectedEvent, ConnectedTag, EditMessage, ErrorCode, ErrorEvent, ErrorTag, MessageAck,
+    MessageAckTag, MessageQueued, MessageQueuedTag, Notice, NoticeKind, NoticeTag,
+    NotificationBody, PongEvent, PongTag, ProtocolVersion, RegenerateMessage, Sequenced,
+    ServerMessage, SessionCompacted, SessionCompactedTag, SessionReplay, SessionReplayTag,
+    SessionReset, SessionResetTag, SessionStatus, SessionStatusTag, SessionTruncated,
+    SessionTruncatedTag, SteerMessage, ToolsChanged, TurnEnd, TurnEndTag, UserMessageRequest,
 };
 use darkwire_providers::BoxFuture;
 use darkwire_security::random::{OsRandom, RandomSource};
@@ -74,6 +74,8 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_binding::agent_for_turn;
 use crate::approvals::HubApprovalGate;
 use crate::auth_store::Revocation;
+use crate::automation_port::{RootSession, root_session};
+use crate::background::BackgroundJobs;
 use crate::errors::{code_str, resolve_error};
 use crate::exec_rules::RuleWriter;
 use crate::replay::{MAX_REPLAY_BYTES, ReplayBuffer};
@@ -373,6 +375,8 @@ pub enum HubEvent {
     SessionCompacted(SessionCompacted),
     /// A notification, addressed to whoever is looking.
     Notification(NotificationBody),
+    /// Every approval still waiting, in every session.
+    ApprovalsPending(ApprovalsPending),
     /// The tool list changed.
     ToolsChanged(ToolsChanged),
 }
@@ -403,6 +407,9 @@ impl HubEvent {
                 ServerMessage::SessionTruncated(Sequenced { seq, event })
             }
             HubEvent::Notification(event) => ServerMessage::Notification(Sequenced { seq, event }),
+            HubEvent::ApprovalsPending(event) => {
+                ServerMessage::ApprovalsPending(Sequenced { seq, event })
+            }
             HubEvent::ToolsChanged(event) => ServerMessage::ToolsChanged(Sequenced { seq, event }),
         }
     }
@@ -624,6 +631,25 @@ pub struct SessionHubOptions {
     /// before its turn starts and closes it after, so it alone decides what an
     /// unread steer becomes.
     pub steering: Arc<SteeringQueue>,
+    /// The background jobs whose results the hub posts, and which
+    /// `session.status` lists. `None` is a hub with no background jobs.
+    pub jobs: Option<BackgroundJobs>,
+}
+
+/// A result the server posts into a conversation: a background job's output,
+/// or a scheduled job's report to the session that created it.
+#[derive(Debug, Clone)]
+pub struct Post {
+    /// The conversation it goes to.
+    pub session_key: String,
+    /// The agent the turn it wakes runs on.
+    pub agent_id: Option<String>,
+    /// The workspace, for a session with no row yet.
+    pub workspace_id: Option<String>,
+    /// What the model reads.
+    pub text: String,
+    /// What produced it.
+    pub from: Delivered,
 }
 
 // The hub
@@ -654,6 +680,7 @@ pub struct SessionHub {
     max_sessions: usize,
     steering: Arc<SteeringQueue>,
     expiry: ExpiryWatch,
+    jobs: Option<BackgroundJobs>,
 }
 
 /// The one timer that closes sockets whose login lapsed.
@@ -796,7 +823,7 @@ impl SessionHub {
                 new_uuid(u64::try_from(clock.now_ms()).unwrap_or(0), &random)
             })
         });
-        Arc::new(SessionHub {
+        let hub = Arc::new(SessionHub {
             inner: Mutex::new(HubInner {
                 // Unbounded on purpose: the cap is enforced by the eviction pass
                 // below, which refuses to drop a session that is doing
@@ -818,7 +845,148 @@ impl SessionHub {
             max_sessions: options.max_sessions.unwrap_or(DEFAULT_MAX_SESSIONS),
             steering: options.steering,
             expiry: ExpiryWatch::default(),
+            jobs: options.jobs,
+        });
+        if let Some(jobs) = &hub.jobs {
+            jobs.attach(&hub);
+        }
+        let watching = Arc::downgrade(&hub);
+        hub.approvals.watch(Arc::new(move || {
+            let Some(hub) = watching.upgrade() else {
+                return;
+            };
+            // From a task of its own, never inline: the gate is cleared under
+            // the hub's lock when a session is evicted.
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move { hub.broadcast_approvals() });
+            }
+        }));
+        hub
+    }
+
+    /// Every approval still waiting, as a frame.
+    fn approvals_event(&self) -> HubEvent {
+        HubEvent::ApprovalsPending(ApprovalsPending {
+            tag: ApprovalsPendingTag,
+            approvals: self.approvals.snapshot(),
         })
+    }
+
+    /// Tells every tab what is waiting.
+    ///
+    /// The list is read with the hub locked, here and in the two below. Read
+    /// before it, a list could wait on the lock while a newer one went out,
+    /// and then land last: every tab would show an answered call as waiting.
+    fn broadcast_approvals(&self) {
+        let mut inner = self.inner.lock();
+        let event = self.approvals_event();
+        inner.emit_to_watched(&event);
+    }
+
+    /// Tells a session's tabs what is waiting. A broadcast skips a session
+    /// nobody is in, so a tab that arrives later would otherwise not know.
+    fn announce_approvals(&self, session_key: &str) {
+        let mut inner = self.inner.lock();
+        let event = self.approvals_event();
+        inner.emit(session_key, event);
+    }
+
+    /// Puts a result into a conversation.
+    ///
+    /// A running turn reads it as a steer before its next step. An idle session
+    /// runs it as a turn of its own, which is what wakes the agent. Never
+    /// refused for a full queue: a dropped result is worse than a long queue,
+    /// and the job caps already bound how many there can be. A session that no
+    /// longer exists gets nothing, rather than being brought back by it.
+    ///
+    /// A subagent's session goes to the conversation at the top of its
+    /// lineage: waking the subagent's own would start a turn nobody owns. A
+    /// scheduled run's session gets nothing, for the same reason.
+    pub async fn post(self: &Arc<Self>, post: Post) {
+        let store = Arc::clone(&self.store);
+        let key = post.session_key.clone();
+        let root = blocking(move || Ok(root_session(&store, &key)))
+            .await
+            .ok()
+            .flatten();
+        let Some(RootSession {
+            key,
+            origin: Some(origin),
+        }) = root
+        else {
+            tracing::info!(
+                session_key = %post.session_key,
+                "a result was posted to a session that is gone"
+            );
+            return;
+        };
+        if origin == darkwire_protocol::automation::AUTOMATION_ORIGIN {
+            tracing::info!(session_key = %key, "a result was posted to a scheduled run");
+            return;
+        }
+        let route = SteerRoute {
+            channel: origin,
+            agent_id: post.agent_id,
+            workspace_id: post.workspace_id,
+        };
+        let id = (self.new_id)();
+        let queued = {
+            let mut inner = self.inner.lock();
+            self.session(&mut inner, &key);
+            let running = inner
+                .sessions
+                .peek(&key)
+                .is_some_and(|state| state.running.is_some());
+            // Under the hub lock, as a person's steer is: it either lands
+            // before the turn closes its queue, or becomes the next turn.
+            if running
+                && self.steering.push(
+                    &key,
+                    SteeringMessage {
+                        id: id.clone(),
+                        content: post.text.clone(),
+                        sender: String::new(),
+                        route: route.clone(),
+                        from: Some(post.from.clone()),
+                    },
+                )
+            {
+                return;
+            }
+            self.push_turn(
+                &mut inner,
+                "",
+                &key,
+                Content::Delivered(post.text, post.from),
+                Some(id),
+                route,
+                None,
+            )
+        };
+        if queued {
+            self.announce_status(&key).await;
+        } else {
+            self.drain(&key);
+        }
+    }
+
+    /// The session store the hub reads.
+    pub(crate) fn store(&self) -> &Arc<SessionStore> {
+        &self.store
+    }
+
+    /// Says a session's background jobs changed, so the strip above every
+    /// open composer redraws.
+    pub async fn jobs_changed(&self, session_key: &str) {
+        self.announce_status(session_key).await;
+    }
+
+    /// Stops the background jobs of a session that was deleted. Their results
+    /// find no session and are dropped.
+    pub fn session_deleted(&self, session_key: &str) {
+        if let Some(jobs) = &self.jobs {
+            jobs.stop_session(session_key);
+        }
     }
 
     /// Where an approval that carries an `exec` rule saves it.
@@ -909,16 +1077,7 @@ impl SessionHub {
     /// replays the ring and sees the notification a second time. A duplicate
     /// toast is worth less than a false gap.
     pub fn broadcast(&self, event: &HubEvent) {
-        let mut inner = self.inner.lock();
-        let keys: Vec<String> = inner
-            .sessions
-            .iter()
-            .filter(|(_, state)| !state.clients.is_empty())
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in keys {
-            inner.emit(&key, event.clone());
-        }
+        self.inner.lock().emit_to_watched(event);
     }
 
     /// Attaches a connection and greets it.
@@ -1060,8 +1219,19 @@ impl SessionHub {
         let running = inner
             .sessions
             .peek(&key)
-            .filter(|state| state.running.is_some())
-            .map(|state| status_event(state, workspace_id.clone()).sequenced(last_seq));
+            .map(|state| self.status_event(state, workspace_id.clone()))
+            .filter(|status| {
+                matches!(status, HubEvent::SessionStatus(status) if status.busy || !status.jobs.is_empty())
+            })
+            .map(|status| status.sequenced(last_seq));
+        // The same for a prompt waiting anywhere. An empty list says nothing a
+        // fresh tab does not already assume.
+        let waiting = Some(self.approvals_event())
+            .filter(|event| {
+                matches!(event, HubEvent::ApprovalsPending(event) if !event.approvals.is_empty())
+            })
+            .filter(|_| attach)
+            .map(|event| event.sequenced(last_seq));
         inner.deliver(
             id,
             &ServerMessage::Connected(ConnectedEvent {
@@ -1075,6 +1245,9 @@ impl SessionHub {
         );
         if let Some(status) = running {
             inner.deliver(id, &status);
+        }
+        if let Some(waiting) = waiting {
+            inner.deliver(id, &waiting);
         }
     }
 
@@ -1099,6 +1272,9 @@ impl SessionHub {
         };
         for key in keys {
             self.approvals.clear_session(&key);
+        }
+        if let Some(jobs) = &self.jobs {
+            jobs.close();
         }
     }
 
@@ -1291,6 +1467,13 @@ impl SessionHub {
             }
             ClientMessage::Steer(message) => self.steer(connection_id, message).await,
             ClientMessage::CompactSession(message) => self.compact(connection_id, &message),
+            ClientMessage::StopJob(message) => {
+                // A job that ended a moment ago is not an error: its result
+                // is on its way.
+                if let Some(jobs) = &self.jobs {
+                    jobs.stop(&message.session_key, &message.id);
+                }
+            }
             ClientMessage::NewSession(message) => {
                 {
                     let mut inner = self.inner.lock();
@@ -1464,13 +1647,14 @@ impl SessionHub {
                 self.refuse_full(connection_id, depth, client_message_id);
                 return;
             }
+            let route = route_for(&inner, connection_id, agent_id);
             self.push_turn(
                 &mut inner,
                 connection_id,
                 session_key,
                 content,
                 client_message_id,
-                agent_id,
+                route,
                 None,
             )
         };
@@ -1510,21 +1694,10 @@ impl SessionHub {
         session_key: &str,
         content: Content,
         client_message_id: Option<String>,
-        agent_id: Option<String>,
+        route: SteerRoute,
         continuation: Option<Continuation>,
     ) -> bool {
         let id = (self.new_id)();
-        let (channel, connection_agent, workspace_id) =
-            inner.connections.get(connection_id).map_or_else(
-                || ("web".to_owned(), None, None),
-                |connection| {
-                    (
-                        connection.channel.clone(),
-                        connection.agent_id.clone(),
-                        connection.workspace_id.clone(),
-                    )
-                },
-            );
 
         if let Some(state) = inner.sessions.get_mut(session_key) {
             if let Some(client_message_id) = client_message_id.as_ref() {
@@ -1536,9 +1709,9 @@ impl SessionHub {
             state.queue.push_back(QueuedTurn {
                 id: id.clone(),
                 content,
-                agent_id: agent_id.or(connection_agent),
-                channel,
-                workspace_id,
+                agent_id: route.agent_id,
+                channel: route.channel,
+                workspace_id: route.workspace_id,
                 connection_id: connection_id.to_owned(),
                 continuation,
             });
@@ -1686,13 +1859,14 @@ impl SessionHub {
     ) {
         {
             let mut inner = self.inner.lock();
+            let route = route_for(&inner, connection_id, agent_id);
             self.push_turn(
                 &mut inner,
                 connection_id,
                 session_key,
                 content,
                 client_message_id,
-                agent_id,
+                route,
                 continuation,
             );
             if let Some(state) = inner.sessions.get_mut(session_key) {
@@ -1765,6 +1939,7 @@ impl SessionHub {
             }
             // Under the hub lock, as the close at turn end is: a push either
             // lands before it and comes back from it, or is refused after.
+            let route = route_for(&inner, connection_id, None);
             let accepted = running
                 && self.steering.push(
                     &key,
@@ -1772,6 +1947,8 @@ impl SessionHub {
                         id: id.clone(),
                         content: message.content.clone(),
                         sender: connection_id.to_owned(),
+                        route,
+                        from: None,
                     },
                 );
             if accepted {
@@ -2268,13 +2445,17 @@ impl SessionHub {
             // Under the lock that took them, so the room each was counted
             // against when it was accepted cannot be taken in between.
             for steer in unread {
+                let content = match steer.from {
+                    Some(from) => Content::Delivered(steer.content, from),
+                    None => Content::Text(steer.content),
+                };
                 self.push_turn(
                     &mut inner,
                     &steer.sender,
                     &session_key,
-                    Content::Text(steer.content),
+                    content,
                     Some(steer.id),
-                    None,
+                    steer.route,
                     None,
                 );
             }
@@ -2395,7 +2576,7 @@ impl SessionHub {
             let status = inner
                 .sessions
                 .peek(session_key)
-                .map(|state| status_event(state, workspace));
+                .map(|state| self.status_event(state, workspace));
             if let Some(status) = status {
                 inner.emit(session_key, status);
             }
@@ -2611,6 +2792,7 @@ impl SessionHub {
             inner.attach(connection_id, session_key);
         }
         self.announce_status(session_key).await;
+        self.announce_approvals(session_key);
     }
 
     /// Attaches a client and sends what it missed.
@@ -2672,6 +2854,7 @@ impl SessionHub {
             }
         }
         self.announce_status(session_key).await;
+        self.announce_approvals(session_key);
     }
 
     /// Says where a session stands, with its workspace read fresh from the
@@ -2682,8 +2865,29 @@ impl SessionHub {
         let Some(state) = inner.sessions.peek(session_key) else {
             return;
         };
-        let event = status_event(state, workspace);
+        let event = self.status_event(state, workspace);
         inner.emit(session_key, event);
+    }
+
+    /// The status frame for a session. The jobs are read from the registry
+    /// rather than kept here, so evicting a session's state cannot lose them.
+    fn status_event(&self, state: &SessionState, workspace_id: Option<String>) -> HubEvent {
+        HubEvent::SessionStatus(SessionStatus {
+            tag: SessionStatusTag,
+            session_key: state.key.clone(),
+            busy: state.running.is_some(),
+            queue_depth: state.queue.len() as u64,
+            workspace_id,
+            turn_id: state
+                .running
+                .as_ref()
+                .map(|running| running.turn_id.clone()),
+            jobs: self
+                .jobs
+                .as_ref()
+                .map(|jobs| jobs.running(&state.key))
+                .unwrap_or_default(),
+        })
     }
 
     /// The workspace a session is bound to, or `None` before its first turn.
@@ -2809,6 +3013,20 @@ impl SessionHub {
 impl HubInner {
     /// Stamps the session's counter on an event and sends it everywhere it
     /// belongs.
+    /// Emits `event` on every session somebody is in. See
+    /// [`SessionHub::broadcast`] for why the others are skipped.
+    fn emit_to_watched(&mut self, event: &HubEvent) {
+        let keys: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|(_, state)| !state.clients.is_empty())
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in keys {
+            self.emit(&key, event.clone());
+        }
+    }
+
     fn emit(&mut self, session_key: &str, event: HubEvent) {
         let Some(state) = self.sessions.get_mut(session_key) else {
             return;
@@ -2999,19 +3217,21 @@ fn encode(message: &ServerMessage) -> Option<Arc<str>> {
     }
 }
 
-/// The status frame for a session.
-fn status_event(state: &SessionState, workspace_id: Option<String>) -> HubEvent {
-    HubEvent::SessionStatus(SessionStatus {
-        tag: SessionStatusTag,
-        session_key: state.key.clone(),
-        busy: state.running.is_some(),
-        queue_depth: state.queue.len() as u64,
-        workspace_id,
-        turn_id: state
-            .running
-            .as_ref()
-            .map(|running| running.turn_id.clone()),
-    })
+/// Where a turn a connection asks for runs: its channel, agent and workspace,
+/// read now so the turn still runs as the sender after the sender has gone.
+fn route_for(inner: &HubInner, connection_id: &str, agent_id: Option<String>) -> SteerRoute {
+    match inner.connections.get(connection_id) {
+        None => SteerRoute {
+            channel: "web".to_owned(),
+            agent_id,
+            workspace_id: None,
+        },
+        Some(connection) => SteerRoute {
+            channel: connection.channel.clone(),
+            agent_id: agent_id.or_else(|| connection.agent_id.clone()),
+            workspace_id: connection.workspace_id.clone(),
+        },
+    }
 }
 
 /// What an edit's store call found.

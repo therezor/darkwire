@@ -18,6 +18,7 @@ import {
   type ServerMessage,
 } from '@darkwire/protocol';
 
+import { useApprovalsStore } from '@/state/approvals.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
   approveTool,
@@ -31,6 +32,7 @@ import {
   openConnection,
   resumeConnection,
   sendUserMessage,
+  stopJob,
   stopTurn,
   switchSession,
 } from '@/lib/connection.js';
@@ -377,6 +379,16 @@ describe('speaking', () => {
     stopTurn();
 
     expect(spoken()).toEqual([{ type: 'turn.stop', sessionKey: 'web:1' }]);
+  });
+
+  it('stops a background job by its id', () => {
+    open('web:1');
+
+    stopJob('2');
+
+    expect(spoken()).toEqual([
+      { type: 'job.stop', sessionKey: 'web:1', id: '2' },
+    ]);
   });
 
   it('sends what is typed during a run to that run', () => {
@@ -801,5 +813,60 @@ describe('losing the connection', () => {
     closeConnection();
 
     expect(useTurnStore.getState().connection).toBe('closed');
+  });
+});
+
+describe('the list of waiting approvals', () => {
+  const WAITING = {
+    type: 'approvals.pending' as const,
+    approvals: [
+      { sessionKey: 'web:2', callId: 'c1', name: 'exec', expiresAtMs: 9 },
+    ],
+  };
+
+  it('takes the list from any session, including during a switch', () => {
+    open('web:1');
+    switchSession('web:3');
+
+    // Every session's list, so it is not dropped like the old session's frames.
+    deliver(WAITING);
+
+    expect(useApprovalsStore.getState().pending).toEqual(WAITING.approvals);
+  });
+
+  it('replaces the list with each frame', () => {
+    open('web:1');
+    deliver(WAITING);
+
+    deliver({ type: 'approvals.pending', approvals: [] });
+
+    expect(useApprovalsStore.getState().pending).toEqual([]);
+  });
+
+  it('forgets the list when the socket drops, until the next attach says it again', () => {
+    open('web:1');
+    deliver(WAITING);
+
+    socket().onclose?.({ code: 1006 });
+
+    expect(useApprovalsStore.getState().pending).toEqual([]);
+  });
+
+  it('forgets the list on close', () => {
+    open('web:1');
+    deliver(WAITING);
+
+    closeConnection();
+
+    expect(useApprovalsStore.getState().pending).toEqual([]);
+  });
+
+  it('keeps the list when the socket reports it is open', () => {
+    open('web:1');
+    deliver(WAITING);
+
+    socket().onopen?.();
+
+    expect(useApprovalsStore.getState().pending).toEqual(WAITING.approvals);
   });
 });

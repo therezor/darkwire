@@ -139,8 +139,33 @@ export function applyServerMessage(
       // server names one. Stamping it here rather than only at `turn.end` is
       // what lets a turn that *fails* still be re-run.
       const withSeq = stampUserSeq(items, message.turnId, message.firstSeq);
+      // Nobody here typed a posted result, so the frame carries it. A later
+      // fetch replaces it with storage's row, matched on the turn id.
+      const posted = message.posted;
+      const asked: readonly TranscriptItem[] =
+        posted === undefined ||
+        withSeq.some(
+          (item) => item.kind === 'user' && item.turnId === message.turnId,
+        )
+          ? []
+          : [
+              {
+                kind: 'user',
+                id: `posted:${message.turnId}`,
+                clientMessageId: undefined,
+                turnId: message.turnId,
+                seq: message.firstSeq,
+                text: posted.text,
+                attachments: [],
+                pending: false,
+                refused: undefined,
+                steering: false,
+                from: posted.from,
+              },
+            ];
       return [
         ...withSeq,
+        ...asked,
         {
           kind: 'turn',
           id: message.turnId,
@@ -179,7 +204,12 @@ export function applyServerMessage(
 
     case 'step.end':
       return updateTurn(items, message.turnId, (turn) => {
-        const step = stepPart(message.stats, message.firstSeq, message.lastSeq);
+        const step = stepPart(
+          message.stats,
+          message.firstSeq,
+          message.lastSeq,
+          message.createdAtMs,
+        );
         // A replayed frame names a step already here: the ids are seqs.
         return turn.parts.some((part) => part.id === step.id)
           ? turn
@@ -238,7 +268,14 @@ export function applyServerMessage(
               ...turn,
               parts: [
                 ...turn.parts,
-                { kind: 'steer', id, text: message.content },
+                message.from === undefined
+                  ? { kind: 'steer', id, text: message.content }
+                  : {
+                      kind: 'steer',
+                      id,
+                      text: message.content,
+                      from: message.from,
+                    },
               ],
             };
       });
@@ -310,6 +347,7 @@ export function applyServerMessage(
     case 'session.status':
     case 'context.usage':
     case 'notification':
+    case 'approvals.pending':
     case 'tools.changed':
     case 'session.compacted':
       return items;

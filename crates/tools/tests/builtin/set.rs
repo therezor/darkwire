@@ -25,6 +25,7 @@ fn registers_every_built_in_under_the_builtin_source() {
             "exec",
             "find",
             "grep",
+            "kill",
             "ls",
             "memory",
             "read",

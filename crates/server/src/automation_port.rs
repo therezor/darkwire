@@ -142,30 +142,10 @@ impl TurnPort {
     /// followed to the top is refused: it is exactly the case this guard
     /// cannot vouch for.
     fn nested(&self) -> bool {
-        let mut key = self.session_key.clone();
-        for _ in 0..=MAX_LINEAGE_HOPS {
-            let Ok(Some(session)) = self.sessions.get_session(&key) else {
-                // No row yet is a conversation on its first turn, which only a
-                // person or a channel starts.
-                return key != self.session_key;
-            };
-            if session.origin == AUTOMATION_ORIGIN {
-                return true;
-            }
-            if session.origin != SUBAGENT_ORIGIN {
-                return false;
-            }
-            let parent = session
-                .metadata
-                .get(SUBAGENT_METADATA_KEY)
-                .cloned()
-                .and_then(|value| serde_json::from_value::<SubagentLineage>(value).ok());
-            let Some(parent) = parent else {
-                return true;
-            };
-            key = parent.parent_session_key;
+        match root_session(&self.sessions, &self.session_key) {
+            None => true,
+            Some(root) => root.origin.as_deref() == Some(AUTOMATION_ORIGIN),
         }
-        true
     }
 
     /// This agent's own jobs.
@@ -286,4 +266,47 @@ impl AutomationPort for TurnPort {
         }
         Ok(())
     }
+}
+
+/// The conversation at the top of a subagent lineage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootSession {
+    /// Its key.
+    pub key: String,
+    /// Its origin, or `None` for a conversation with no row yet.
+    pub origin: Option<String>,
+}
+
+/// Follows `key` up through its subagent parents to the conversation a person
+/// or a schedule started. `None` when the lineage cannot be followed, which a
+/// caller must treat as "cannot vouch for it".
+pub fn root_session(sessions: &SessionStore, key: &str) -> Option<RootSession> {
+    let mut current = key.to_owned();
+    for _ in 0..=MAX_LINEAGE_HOPS {
+        let Ok(found) = sessions.get_session(&current) else {
+            return None;
+        };
+        let Some(session) = found else {
+            // No row yet is a conversation on its first turn, which only a
+            // person or a channel starts. A parent with no row is a broken
+            // lineage.
+            return (current == key).then_some(RootSession {
+                key: current,
+                origin: None,
+            });
+        };
+        if session.origin != SUBAGENT_ORIGIN {
+            return Some(RootSession {
+                key: current,
+                origin: Some(session.origin),
+            });
+        }
+        let parent = session
+            .metadata
+            .get(SUBAGENT_METADATA_KEY)
+            .cloned()
+            .and_then(|value| serde_json::from_value::<SubagentLineage>(value).ok())?;
+        current = parent.parent_session_key;
+    }
+    None
 }

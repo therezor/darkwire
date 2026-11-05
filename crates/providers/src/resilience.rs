@@ -202,6 +202,7 @@ fn merge_trailing_user_apply(request: &ChatRequest) -> Option<ChatRequest> {
     let merged = ChatMessage::User(UserMessage {
         role: previous.role,
         content,
+        from: None,
     });
     Some(ChatRequest {
         messages: rest

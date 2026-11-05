@@ -74,7 +74,7 @@ pub use skills::{
     parse_skill_agents, read_skills, skills_for_agent,
 };
 pub use skills_contributor::{SkillsContributor, render_skills};
-pub use steering::{STEERING_PREFIX, SteeringMessage, SteeringQueue, steering_text};
+pub use steering::{STEERING_PREFIX, SteerRoute, SteeringMessage, SteeringQueue, steering_text};
 pub use subagent::{
     DelegationRefusal, MAX_SUBAGENT_DEPTH, SubagentBinding, parse_task, refuse_delegation,
     refused_execution, subagent_definition, subagent_map, subagent_result,

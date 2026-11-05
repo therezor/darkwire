@@ -445,3 +445,105 @@ mod policy {
         assert!(refused.command.is_none());
     }
 }
+
+/// Records what `exec` hands off, and answers with a fixed refusal or id.
+#[derive(Default)]
+struct RecordingPort {
+    started: Mutex<Vec<(Vec<String>, u64, u64)>>,
+    refuse: Option<darkwire_tools::BackgroundRefusal>,
+}
+
+impl darkwire_tools::BackgroundPort for RecordingPort {
+    fn start(
+        &self,
+        job: darkwire_tools::StartJob,
+    ) -> std::result::Result<String, darkwire_tools::BackgroundRefusal> {
+        if let Some(refusal) = self.refuse {
+            return Err(refusal);
+        }
+        self.started
+            .lock()
+            .push((job.argv, job.limit, job.max_output_chars));
+        Ok("3".to_owned())
+    }
+
+    fn kill(&self, _id: &str) -> std::result::Result<(), darkwire_tools::BackgroundRefusal> {
+        Ok(())
+    }
+}
+
+fn with_port(ws: &TestWorkspace, port: &Arc<RecordingPort>) -> ToolContext {
+    let mut ctx = ws.with(|config| config.background_jobs = 2);
+    ctx.background = Some(Arc::clone(port) as Arc<dyn darkwire_tools::BackgroundPort>);
+    ctx
+}
+
+#[tokio::test]
+async fn background_hands_the_guarded_command_to_the_session_and_returns_at_once() {
+    let ws = TestWorkspace::new();
+    let port = Arc::new(RecordingPort::default());
+
+    let result = ok(
+        json!({"argv": ["sleep", "60"], "background": true}),
+        &with_port(&ws, &port),
+    )
+    .await;
+
+    assert!(!result.is_error);
+    assert!(
+        result.content.starts_with("Started job 3."),
+        "{}",
+        result.content
+    );
+    let started = port.started.lock();
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].0, vec!["sleep".to_owned(), "60".to_owned()]);
+    assert_eq!(started[0].1, 2);
+}
+
+#[tokio::test]
+async fn background_still_runs_the_guard_first() {
+    let ws = TestWorkspace::new();
+    let port = Arc::new(RecordingPort::default());
+
+    let result = run(
+        json!({"argv": ["bad\u{0}arg"], "background": true}),
+        &with_port(&ws, &port),
+    )
+    .await;
+
+    assert!(result.kind.is_some() || result.is_error);
+    assert!(port.started.lock().is_empty());
+}
+
+#[tokio::test]
+async fn background_with_nowhere_to_report_is_refused() {
+    let ws = TestWorkspace::new();
+
+    let result = ok(json!({"argv": ["true"], "background": true}), ws.context()).await;
+
+    assert!(result.is_error);
+    assert!(
+        result.content.contains("not available"),
+        "{}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn a_refused_background_job_says_why() {
+    let ws = TestWorkspace::new();
+    let port = Arc::new(RecordingPort {
+        refuse: Some(darkwire_tools::BackgroundRefusal::AtCapacity),
+        ..RecordingPort::default()
+    });
+
+    let result = ok(
+        json!({"argv": ["true"], "background": true}),
+        &with_port(&ws, &port),
+    )
+    .await;
+
+    assert!(result.is_error);
+    assert!(result.content.contains("Too many"), "{}", result.content);
+}

@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::json::{MAX_SAFE_INTEGER, literal, positive, tagged_union};
-use crate::messages::{StepStats, StopReason, StoredMessage, Usage};
+use crate::messages::{Delivered, StepStats, StopReason, StoredMessage, Usage};
 use crate::tools::{ApprovalScope, CommandPolicy, ExecRule, ToolDefinition, ToolRisk};
 
 /// Version of the wire protocol. Bumped on any breaking envelope change.
@@ -165,6 +165,10 @@ literal! {
 literal! {
     /// The `type` of a [`CompactSessionMessage`].
     pub struct CompactSessionTag = "session.compact";
+}
+literal! {
+    /// The `type` of a [`StopJobMessage`].
+    pub struct StopJobTag = "job.stop";
 }
 
 /// Keep-alive.
@@ -419,6 +423,22 @@ pub struct CompactSessionMessage {
     pub instructions: Option<String>,
 }
 
+/// Stop a background job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct StopJobMessage {
+    /// Always `job.stop`.
+    #[serde(rename = "type")]
+    pub tag: StopJobTag,
+    /// The conversation that started it.
+    #[garde(length(utf16, min = 1))]
+    pub session_key: String,
+    /// The job, as `session.status` lists it.
+    #[garde(length(utf16, min = 1))]
+    pub id: String,
+}
+
 tagged_union! {
     /// Anything a client may send.
     pub enum ClientMessage by "type" {
@@ -444,6 +464,8 @@ tagged_union! {
         Steer(SteerMessage) = "turn.steer",
         /// Summarise into a new session.
         CompactSession(CompactSessionMessage) = "session.compact",
+        /// Stop a background job.
+        StopJob(StopJobMessage) = "job.stop",
     }
 }
 
@@ -558,6 +580,10 @@ literal! {
 literal! {
     /// The `type` of a [`NotificationBody`].
     pub struct NotificationTag = "notification";
+}
+literal! {
+    /// The `type` of an [`ApprovalsPending`].
+    pub struct ApprovalsPendingTag = "approvals.pending";
 }
 literal! {
     /// The `type` of a [`ToolsChanged`].
@@ -733,6 +759,23 @@ pub struct TurnStart {
     pub model: String,
     /// The provider instance in use.
     pub provider: String,
+    /// The result that opened this turn, when the server posted it. Every
+    /// other turn's question is drawn by the tab that asked it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[garde(dive)]
+    pub posted: Option<Posted>,
+}
+
+/// A result the server posted, as the turn it opened reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct Posted {
+    /// What the model reads.
+    pub text: String,
+    /// What produced it.
+    #[garde(dive)]
+    pub from: Delivered,
 }
 
 /// A chunk of the assistant's answer. Clients append; the server never resends.
@@ -1021,6 +1064,9 @@ pub struct StepEnd {
     /// What the step cost. The same figures its assistant row stores.
     #[garde(dive)]
     pub stats: StepStats,
+    /// When the step's assistant row was written. The same time the row stores.
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub created_at_ms: u64,
     /// Turn start to now, so a clock that was not running can catch up.
     #[garde(range(max = MAX_SAFE_INTEGER))]
     pub turn_elapsed_ms: u64,
@@ -1165,6 +1211,25 @@ pub struct SessionStatus {
     /// The running turn, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// Background jobs this session started that are still running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[garde(dive)]
+    pub jobs: Vec<RunningJob>,
+}
+
+/// A background job that has not finished.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct RunningJob {
+    /// The job's number in its session.
+    #[garde(length(utf16, min = 1))]
+    pub id: String,
+    /// The command, shortened.
+    pub label: String,
+    /// When it started.
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub started_at_ms: u64,
 }
 
 /// The conversation was cleared.
@@ -1274,6 +1339,41 @@ pub struct NotificationBody {
     pub job_id: Option<String>,
 }
 
+/// A tool call parked until somebody answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct PendingApproval {
+    /// The conversation, so a subagent's prompt names its parent.
+    #[garde(length(utf16, min = 1))]
+    pub session_key: String,
+    /// The call the answer will name.
+    #[garde(length(utf16, min = 1))]
+    pub call_id: String,
+    /// The tool.
+    #[garde(length(utf16, min = 1))]
+    pub name: String,
+    /// When it is denied unanswered.
+    #[garde(range(max = MAX_SAFE_INTEGER))]
+    pub expires_at_ms: u64,
+}
+
+/// Every approval waiting on an answer, in every session.
+///
+/// Sent to every tab on each change and on attach, so a tab can say a session
+/// it is not showing needs somebody. Each frame is the whole list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
+pub struct ApprovalsPending {
+    /// Always `approvals.pending`.
+    #[serde(rename = "type")]
+    pub tag: ApprovalsPendingTag,
+    /// What is waiting.
+    #[garde(dive)]
+    pub approvals: Vec<PendingApproval>,
+}
+
 /// Tool list changed — an MCP server reconnected, or an extension loaded or
 /// unloaded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Validate)]
@@ -1311,6 +1411,10 @@ pub struct Steer {
     /// The `turn.steer` that sent it, so the sender's pending bubble can go.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_message_id: Option<String>,
+    /// Set when the server posted this as a result rather than a person
+    /// typing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<Delivered>,
 }
 
 /// `message.ack`, sequenced.
@@ -1371,6 +1475,8 @@ pub type SessionTruncatedEvent = Sequenced<SessionTruncated>;
 pub type SessionCompactedEvent = Sequenced<SessionCompacted>;
 /// `notification`, sequenced.
 pub type NotificationEvent = Sequenced<NotificationBody>;
+/// `approvals.pending`, sequenced.
+pub type ApprovalsPendingEvent = Sequenced<ApprovalsPending>;
 /// `tools.changed`, sequenced.
 pub type ToolsChangedEvent = Sequenced<ToolsChanged>;
 /// `steer`, sequenced.
@@ -1425,6 +1531,8 @@ tagged_union! {
         SessionCompacted(SessionCompactedEvent) = "session.compacted",
         /// A notification.
         Notification(NotificationEvent) = "notification",
+        /// Every approval still waiting.
+        ApprovalsPending(ApprovalsPendingEvent) = "approvals.pending",
         /// The tool list changed.
         ToolsChanged(ToolsChangedEvent) = "tools.changed",
         /// Steering echoed.
@@ -1465,6 +1573,7 @@ impl ServerMessage {
             Self::SessionTruncated(e) => Some(e.seq),
             Self::SessionCompacted(e) => Some(e.seq),
             Self::Notification(e) => Some(e.seq),
+            Self::ApprovalsPending(e) => Some(e.seq),
             Self::ToolsChanged(e) => Some(e.seq),
             Self::Steer(e) => Some(e.seq),
         }

@@ -30,6 +30,7 @@ import {
   type ServerMessage,
 } from '@darkwire/protocol';
 
+import { useApprovalsStore } from '@/state/approvals.js';
 import type { Transcript } from '@/state/transcript.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
@@ -335,6 +336,13 @@ export function stopTurn(): void {
   });
 }
 
+/** Stops one of the session's background jobs. Its result still arrives. */
+export function stopJob(id: string): void {
+  const { sessionKey } = useTurnStore.getState();
+  if (sessionKey === undefined) return;
+  socket?.send({ type: 'job.stop', sessionKey, id });
+}
+
 /**
  * Re-runs from a point, discarding what came after it.
  *
@@ -479,6 +487,12 @@ export function resetConnection(): void {
 function handleStatus(status: ConnectionStatus): void {
   const previous = useTurnStore.getState().connection;
   useTurnStore.getState().setConnection(status);
+  // A socket that is not listening cannot say an answer arrived, and a list
+  // that outlived a restarted server would ask for prompts that no longer
+  // exist. The next attach sends it again.
+  if (status === 'reconnecting' || status === 'closed') {
+    useApprovalsStore.getState().clear();
+  }
 
   // Only on the transition, and only downwards: a socket that reconnects six
   // times over a lunch break should not leave six toasts stacked up.
@@ -549,6 +563,11 @@ function handleMessage(message: ServerMessage): void {
     message.clientMessageId !== undefined
   ) {
     socket?.acknowledge(message.clientMessageId);
+  }
+
+  // Every session's list, so it is taken whichever session it arrived on.
+  if (message.type === 'approvals.pending') {
+    useApprovalsStore.getState().receive(message.approvals);
   }
 
   if (!belongsHere(message)) {

@@ -8,6 +8,15 @@
     "firstSeq": 7,
     "agentId": "coder",
     "model": "qwen3",
-    "provider": "ollama"
+    "provider": "ollama",
+    "posted": {
+      "text": "[Background job 2 finished: pnpm test]",
+      "from": {
+        "kind": "exec",
+        "id": "2",
+        "label": "pnpm test",
+        "status": "ok"
+      }
+    }
   }
 }

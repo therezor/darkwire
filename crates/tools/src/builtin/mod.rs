@@ -45,6 +45,7 @@ pub mod edit;
 pub mod exec;
 pub mod find;
 pub mod grep;
+pub mod kill;
 pub mod ls;
 pub mod memory;
 pub mod read;
@@ -67,6 +68,7 @@ pub use edit::edit_tool;
 pub use exec::{exec_tool, render_run};
 pub use find::{FindRequest, find_blocking, find_tool};
 pub use grep::{GrepMode, GrepRequest, grep_blocking, grep_tool};
+pub use kill::kill_tool;
 pub use ls::ls_tool;
 pub use memory::memory_tool;
 pub use read::read_tool;
@@ -103,6 +105,7 @@ pub fn all_builtin_tools() -> Vec<AnyTool> {
         grep_tool(),
         find_tool(),
         exec_tool(),
+        kill_tool(),
         automation_tool(),
         memory_tool(),
         skill_tool(),

@@ -120,6 +120,29 @@ describe('the turn store', () => {
     expect(state().runningTurnId).toBe('t3');
   });
 
+  it('lists the background jobs a status names, and none when it names none', () => {
+    state().attach('web:1');
+    const job = { id: '1', label: 'pnpm dev', startedAtMs: 1_000 };
+    state().apply({
+      type: 'session.status',
+      seq: 1,
+      sessionKey: 'web:1',
+      busy: false,
+      queueDepth: 0,
+      jobs: [job],
+    });
+    expect(state().jobs).toEqual([job]);
+
+    state().apply({
+      type: 'session.status',
+      seq: 2,
+      sessionKey: 'web:1',
+      busy: false,
+      queueDepth: 0,
+    });
+    expect(state().jobs).toEqual([]);
+  });
+
   it('ignores a status older than one it already applied', () => {
     state().attach('web:1');
     const status = (seq: number, busy: boolean) =>

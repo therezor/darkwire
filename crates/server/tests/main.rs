@@ -19,6 +19,7 @@ mod auth_matrix;
 mod auth_store;
 mod automation_port;
 mod automation_store;
+mod background;
 mod boot;
 mod client_address;
 mod context;

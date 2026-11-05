@@ -39,6 +39,7 @@ import {
   ToolRiskSchema,
 } from './tools.js';
 import {
+  DeliveredSchema,
   FilePartSchema,
   ImagePartSchema,
   StepStatsSchema,
@@ -263,6 +264,14 @@ export const CompactSessionMessageSchema = z.object({
   instructions: z.string().optional(),
 });
 
+/** Stop a background job this session started. */
+export const StopJobMessageSchema = z.object({
+  type: z.literal('job.stop'),
+  sessionKey: z.string().min(1),
+  /** The job, as `session.status` lists it. */
+  id: z.string().min(1),
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   PingMessageSchema,
   UserMessageRequestSchema,
@@ -275,6 +284,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   ToolApproveMessageSchema,
   SteerMessageSchema,
   CompactSessionMessageSchema,
+  StopJobMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -365,6 +375,13 @@ export const MessageQueuedEventSchema = z.object({
   queueDepth: z.number().int().positive(),
 });
 
+/** A result the server posted, as the turn it opened reports it. */
+export const PostedSchema = z.object({
+  text: z.string(),
+  from: DeliveredSchema,
+});
+export type Posted = z.infer<typeof PostedSchema>;
+
 export const TurnStartEventSchema = z.object({
   type: z.literal('turn.start'),
   seq,
@@ -391,6 +408,11 @@ export const TurnStartEventSchema = z.object({
   agentId: z.string(),
   model: z.string(),
   provider: z.string(),
+  /**
+   * The result that opened this turn, when the server posted it. Every other
+   * turn's question is drawn by the tab that asked it.
+   */
+  posted: PostedSchema.optional(),
 });
 
 /** A chunk of the assistant's answer. Clients append; the server never resends. */
@@ -590,6 +612,8 @@ export const StepEndEventSchema = z.object({
   lastSeq: z.number().int().positive(),
   /** What the step cost. The same figures its assistant row stores. */
   stats: StepStatsSchema,
+  /** When the step's assistant row was written. The same time the row stores. */
+  createdAtMs: z.number().int().nonnegative(),
   /** Turn start to now, so a clock that was not running can catch up. */
   turnElapsedMs: z.number().int().nonnegative(),
 });
@@ -709,6 +733,16 @@ export const ContextUsageEventSchema = z.object({
   measured: z.boolean().default(false),
 });
 
+/** A background job that has not finished. */
+export const RunningJobSchema = z.object({
+  /** The job's number in its session. */
+  id: z.string().min(1),
+  /** The command, shortened. */
+  label: z.string(),
+  startedAtMs: z.number().int().nonnegative(),
+});
+export type RunningJob = z.infer<typeof RunningJobSchema>;
+
 export const SessionStatusEventSchema = z.object({
   type: z.literal('session.status'),
   seq,
@@ -718,6 +752,8 @@ export const SessionStatusEventSchema = z.object({
   /** The session's workspace, restated on every switch. Absent with no row. */
   workspaceId: z.string().min(1).optional(),
   turnId: z.string().optional(),
+  /** Background jobs this session started that are still running. */
+  jobs: z.array(RunningJobSchema).optional(),
 });
 
 export const SessionResetEventSchema = z.object({
@@ -786,6 +822,28 @@ export const NotificationEventSchema = z.object({
   jobId: z.string().optional(),
 });
 
+/** A tool call parked until somebody answers it. */
+export const PendingApprovalSchema = z.object({
+  /** The conversation, so a subagent's prompt names its parent. */
+  sessionKey: z.string().min(1),
+  callId: z.string().min(1),
+  /** The tool. */
+  name: z.string().min(1),
+  expiresAtMs: z.number().int().nonnegative(),
+});
+export type PendingApproval = z.infer<typeof PendingApprovalSchema>;
+
+/**
+ * Every approval waiting on an answer, in every session. Sent to every tab on
+ * each change and on attach, so a tab can say a session it is not showing
+ * needs somebody. Each frame is the whole list.
+ */
+export const ApprovalsPendingEventSchema = z.object({
+  type: z.literal('approvals.pending'),
+  seq,
+  approvals: z.array(PendingApprovalSchema),
+});
+
 /** Tool list changed — an MCP server reconnected, or an extension loaded/unloaded. */
 export const ToolsChangedEventSchema = z.object({
   type: z.literal('tools.changed'),
@@ -807,6 +865,8 @@ export const SteerEventSchema = z.object({
   content: z.string(),
   /** The `turn.steer` that sent it, so the sender's pending bubble can go. */
   clientMessageId: z.string().optional(),
+  /** Set when the server posted this as a result, not a person typing it. */
+  from: DeliveredSchema.optional(),
 });
 
 export const ServerMessageSchema = z.discriminatedUnion('type', [
@@ -833,6 +893,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   SessionTruncatedEventSchema,
   SessionCompactedEventSchema,
   NotificationEventSchema,
+  ApprovalsPendingEventSchema,
   ToolsChangedEventSchema,
   SteerEventSchema,
 ]);

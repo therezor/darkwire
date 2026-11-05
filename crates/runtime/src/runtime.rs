@@ -79,8 +79,9 @@ use darkwire_security::{
     PolicyStore, RandomSource, WorkspaceJail, assert_gateway_compatible,
 };
 use darkwire_tools::{
-    AnyTool, AutomationResolver, BuiltinOptions, LiveWebResolver, Placed, TOOL_SEARCH_NAME,
-    ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings, builtin_tools,
+    AnyTool, AutomationResolver, BackgroundResolver, BuiltinOptions, LiveWebResolver, Placed,
+    TOOL_SEARCH_NAME, ToolRegistry, ToolRegistryOptions, ToolSink, WebResolver, WebSettings,
+    builtin_tools,
 };
 use indexmap::IndexMap;
 use parking_lot::{Mutex, ReentrantMutex, RwLock};
@@ -179,6 +180,9 @@ pub struct RuntimeOptions {
     /// Injected rather than built here, because the store it needs is created by
     /// the server — which happens *after* this runtime exists.
     pub automation: Option<Arc<dyn AutomationResolver>>,
+    /// Supplies the background jobs a turn's `exec` hands off to and `kill`
+    /// stops. Injected for the reason `automation` is: the server owns them.
+    pub background: Option<Arc<dyn BackgroundResolver>>,
     /// Translates DarkWire's view of the workspace into the *daemon's*.
     ///
     /// Identity when DarkWire runs on the host. A containerised DarkWire must
@@ -215,6 +219,7 @@ impl Default for RuntimeOptions {
             approvals: None,
             env: None,
             automation: None,
+            background: None,
             host_workspace_path: None,
             vault: VaultChoice::default(),
             mcp: McpChoice::default(),
@@ -1494,6 +1499,7 @@ impl WireRuntime {
         options.host = Host::default();
         options.approvals.clone_from(&self.options.approvals);
         options.automation.clone_from(&self.options.automation);
+        options.background.clone_from(&self.options.background);
         options.web = self.web.get().map(Arc::clone);
         options.environments = Some(Arc::new(ServiceEnvironments {
             socket: self.sandbox_socket(),

@@ -51,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.js';
 import { ScrollArea } from '@/components/ui/scroll-area.js';
+import { useApprovalsStore } from '@/state/approvals.js';
 import { useTurnStore } from '@/state/turn.js';
 import { useStartSession } from '@/sessions/use-start-session.js';
 import { useDeleteSession, useRenameSession } from '@/sessions/use-sessions.js';
@@ -144,6 +145,7 @@ export function Sidebar({
   // differ for one render after starting a conversation — the route navigates
   // *after* sending — and the row should highlight on the click.
   const attached = useTurnStore((state) => state.sessionKey);
+  const pending = useApprovalsStore((state) => state.pending);
 
   // The key this column minted, if it minted one. See `inNewSession` — it is
   // what separates "started here and not saved yet" from "simply not in these
@@ -350,6 +352,19 @@ export function Sidebar({
                     {...(current ? { 'aria-current': 'page' as const } : {})}
                   >
                     <span className="truncate">{title}</span>
+                    {pending.some(
+                      (approval) => approval.sessionKey === session.key,
+                    ) && (
+                      <>
+                        {/* Read as two phrases rather than one run-on word. A
+                         * flex row does not draw a space between items. */}{' '}
+                        <span className="sidebar__session-waiting">
+                          <span className="sr-only">
+                            {t('sessions.awaitingApproval')}
+                          </span>
+                        </span>
+                      </>
+                    )}
                   </Link>
 
                   <DropdownMenu>

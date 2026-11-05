@@ -9,7 +9,7 @@
  */
 
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +17,7 @@ import { ConfigSchema } from '@darkwire/protocol';
 
 import { Providers } from '@/app/providers.js';
 import { createAppRouter } from '@/app/router.js';
+import { useApprovalsStore } from '@/state/approvals.js';
 import { useTurnStore } from '@/state/turn.js';
 import {
   stubApi,
@@ -616,5 +617,161 @@ describe('the shell', () => {
     expect(
       screen.getByRole('button', { name: 'New session' }),
     ).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('a waiting approval', () => {
+  const approval = (sessionKey: string, callId: string) => ({
+    sessionKey,
+    callId,
+    name: 'exec',
+    expiresAtMs: Date.now() + 60_000,
+  });
+
+  function waiting(...approvals: Array<ReturnType<typeof approval>>): void {
+    act(() => {
+      useApprovalsStore.getState().receive(approvals);
+    });
+  }
+
+  /** Whether the person is looking at the page. */
+  function look(visible: boolean): void {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(
+      visible ? 'visible' : 'hidden',
+    );
+    vi.spyOn(document, 'hasFocus').mockReturnValue(visible);
+  }
+
+  function seconds(count: number): void {
+    act(() => {
+      vi.advanceTimersByTime(count * 1000);
+    });
+  }
+
+  /** The app on a page, its title settled, and the clock in the test's hand. */
+  async function onAgents(): Promise<void> {
+    renderApp('/agents');
+    await waitFor(() => {
+      expect(document.title).toBe('Agents · DarkWire');
+    });
+    vi.useFakeTimers();
+  }
+
+  const ALERT = '(1) Approve · Agents · DarkWire';
+  const PLAIN = 'Agents · DarkWire';
+
+  afterEach(() => {
+    document.head.querySelector('link[rel="icon"]')?.remove();
+    vi.useRealTimers();
+  });
+
+  it('leads the tab title, and leaves it when answered', async () => {
+    renderApp('/agents');
+    await waitFor(() => {
+      expect(document.title).toBe('Agents · DarkWire');
+    });
+
+    waiting(approval('web:1', 'c1'));
+    expect(document.title).toBe('(1) Approve · Agents · DarkWire');
+
+    waiting();
+    expect(document.title).toBe('Agents · DarkWire');
+  });
+
+  it('blinks while nobody is looking, and stops when answered', async () => {
+    look(false);
+    await onAgents();
+
+    waiting(approval('web:1', 'c1'));
+    expect(document.title).toBe(ALERT);
+    seconds(1);
+    expect(document.title).toBe(PLAIN);
+    seconds(1);
+    expect(document.title).toBe(ALERT);
+
+    waiting();
+    seconds(2);
+    expect(document.title).toBe(PLAIN);
+  });
+
+  it('holds still while looked at, and blinks once the window is left', async () => {
+    look(true);
+    await onAgents();
+    waiting(approval('web:1', 'c1'));
+
+    seconds(1);
+    expect(document.title).toBe(ALERT);
+
+    look(false);
+    act(() => {
+      window.dispatchEvent(new Event('blur'));
+    });
+    seconds(1);
+    expect(document.title).toBe(PLAIN);
+
+    look(true);
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(document.title).toBe(ALERT);
+    seconds(2);
+    expect(document.title).toBe(ALERT);
+  });
+
+  it('blinks in a tab sent to the background', async () => {
+    look(true);
+    await onAgents();
+    waiting(approval('web:1', 'c1'));
+
+    look(false);
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    seconds(1);
+
+    expect(document.title).toBe(PLAIN);
+  });
+
+  it('counts approvals waiting in several sessions', async () => {
+    renderApp('/agents');
+    await waitFor(() => {
+      expect(document.title).toBe('Agents · DarkWire');
+    });
+
+    waiting(approval('web:1', 'c1'), approval('web:2', 'c1'));
+
+    expect(document.title).toBe('(2) Approve · Agents · DarkWire');
+  });
+
+  it('puts a dot on the tab icon while anything waits', async () => {
+    const icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.setAttribute('href', '/favicon.svg');
+    document.head.append(icon);
+    renderApp('/agents');
+
+    waiting(approval('web:1', 'c1'));
+    await waitFor(() => {
+      expect(icon.getAttribute('href')).toBe('/favicon-alert.svg');
+    });
+
+    waiting();
+    await waitFor(() => {
+      expect(icon.getAttribute('href')).toBe('/favicon.svg');
+    });
+  });
+
+  it('marks the waiting conversation in the sidebar', async () => {
+    renderApp('/agents');
+    expect(await screen.findByText('First session')).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for approval')).not.toBeInTheDocument();
+
+    waiting(approval('web:1', 'c1'), approval('web:9', 'c1'));
+
+    expect(
+      screen.getByRole('link', { name: 'First session Waiting for approval' }),
+    ).toBeInTheDocument();
+    // One row in the list, so one mark: `web:9` is not in it.
+    expect(screen.getAllByText('Waiting for approval')).toHaveLength(1);
   });
 });

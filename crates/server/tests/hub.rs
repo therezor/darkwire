@@ -21,7 +21,11 @@ use darkwire_core::messages::{AssistantOptions, assistant_message, user_message}
 use darkwire_core::session_store::{AppendOptions, CreateSession, SessionRecord};
 use darkwire_core::testkit::ManualClock;
 use darkwire_core::{Clock, Database, ErrorKind, Result, SessionStore, SystemClock, WireError};
-use darkwire_protocol::messages::{ChatMessage, StopReason, Usage};
+use darkwire_protocol::automation::AUTOMATION_ORIGIN;
+use darkwire_protocol::messages::{
+    ChatMessage, Delivered, DeliveredKind, DeliveredStatus, StopReason, Usage,
+};
+use darkwire_protocol::subagent::{SUBAGENT_METADATA_KEY, SUBAGENT_ORIGIN, SubagentLineage};
 use darkwire_protocol::tools::{ApprovalScope, CommandPolicy, ToolRisk};
 use darkwire_protocol::ws::{
     AssistantDelta, AssistantDeltaTag, ContextUsage, ContextUsageTag, ErrorCode, ErrorEvent,
@@ -30,11 +34,13 @@ use darkwire_protocol::ws::{
     TurnEndTag, TurnStart, TurnStartTag,
 };
 use darkwire_providers::BoxFuture;
+use darkwire_server::BackgroundJobs;
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions};
 use darkwire_server::auth_store::{Carried, Revocation};
 use darkwire_server::hub::{
     AgentMissReason, AgentResolution, CLOSE_SIGNED_OUT, ConnectOptions, Frame, HubClient, HubEvent,
-    Login, MAX_INBOUND_FRAMES, Outbound, SessionHub, SessionHubOptions, TurnHandle, TurnRunner,
+    Login, MAX_INBOUND_FRAMES, Outbound, Post, SessionHub, SessionHubOptions, TurnHandle,
+    TurnRunner,
 };
 use futures::FutureExt as _;
 use indexmap::IndexMap;
@@ -43,33 +49,33 @@ use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-const SESSION: &str = "web:1";
+pub(crate) const SESSION: &str = "web:1";
 
 // A scripted turn
 
 /// One `run()` call, driven from the test.
-struct TurnControl {
-    input: TurnInput,
-    events: Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>,
-    result: Mutex<Option<oneshot::Sender<Result<TurnResult>>>>,
-    token: CancellationToken,
+pub(crate) struct TurnControl {
+    pub(crate) input: TurnInput,
+    pub(crate) events: Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>,
+    pub(crate) result: Mutex<Option<oneshot::Sender<Result<TurnResult>>>>,
+    pub(crate) token: CancellationToken,
 }
 
 impl TurnControl {
-    fn turn_id(&self) -> String {
+    pub(crate) fn turn_id(&self) -> String {
         self.input
             .turn_id
             .clone()
             .unwrap_or_else(|| "unknown".to_owned())
     }
 
-    fn emit(&self, event: impl Into<AgentEvent>) {
+    pub(crate) fn emit(&self, event: impl Into<AgentEvent>) {
         if let Some(tx) = self.events.lock().as_ref() {
             let _ = tx.send(event.into());
         }
     }
 
-    fn delta(&self, text: &str) {
+    pub(crate) fn delta(&self, text: &str) {
         self.emit(AssistantDelta {
             tag: AssistantDeltaTag,
             turn_id: self.turn_id(),
@@ -77,7 +83,7 @@ impl TurnControl {
         });
     }
 
-    fn start(&self) {
+    pub(crate) fn start(&self) {
         self.emit(TurnStart {
             tag: TurnStartTag,
             session_key: self.input.session_key.clone(),
@@ -86,15 +92,16 @@ impl TurnControl {
             agent_id: "default".to_owned(),
             model: "test-model".to_owned(),
             provider: "test".to_owned(),
+            posted: None,
         });
     }
 
     /// Ends the turn the way the loop does: a `turn.end`, then the outcome.
-    fn end(&self) {
+    pub(crate) fn end(&self) {
         self.end_with(StopReason::Complete);
     }
 
-    fn end_with(&self, stop_reason: StopReason) {
+    pub(crate) fn end_with(&self, stop_reason: StopReason) {
         self.emit(TurnEnd {
             tag: TurnEndTag,
             turn_id: self.turn_id(),
@@ -118,11 +125,11 @@ impl TurnControl {
     }
 
     /// Unwinds without a `turn.end`, which is what a loop that fails does.
-    fn fail(&self, error: WireError) {
+    pub(crate) fn fail(&self, error: WireError) {
         self.settle(Err(error));
     }
 
-    fn settle(&self, outcome: Result<TurnResult>) {
+    pub(crate) fn settle(&self, outcome: Result<TurnResult>) {
         *self.events.lock() = None;
         if let Some(tx) = self.result.lock().take() {
             let _ = tx.send(outcome);
@@ -157,20 +164,20 @@ impl TurnHandle for ScriptedHandle {
 }
 
 #[derive(Default)]
-struct ScriptedRunner {
-    turns: Mutex<Vec<Arc<TurnControl>>>,
+pub(crate) struct ScriptedRunner {
+    pub(crate) turns: Mutex<Vec<Arc<TurnControl>>>,
     /// Where a compaction creates its session.
-    store: Mutex<Option<Arc<SessionStore>>>,
-    compactions: Mutex<Vec<CompactRequest>>,
+    pub(crate) store: Mutex<Option<Arc<SessionStore>>>,
+    pub(crate) compactions: Mutex<Vec<CompactRequest>>,
     /// Fails the next compaction with this.
-    refuse_compaction: Mutex<Option<WireError>>,
+    pub(crate) refuse_compaction: Mutex<Option<WireError>>,
     /// Holds every compaction until notified.
-    hold_compaction: Mutex<Option<Arc<tokio::sync::Notify>>>,
-    auto: std::sync::atomic::AtomicBool,
+    pub(crate) hold_compaction: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    pub(crate) auto: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptedRunner {
-    fn turn(&self, index: usize) -> Arc<TurnControl> {
+    pub(crate) fn turn(&self, index: usize) -> Arc<TurnControl> {
         self.turns
             .lock()
             .get(index)
@@ -178,7 +185,7 @@ impl ScriptedRunner {
             .unwrap_or_else(|| panic!("no turn {index} has started"))
     }
 
-    fn count(&self) -> usize {
+    pub(crate) fn count(&self) -> usize {
         self.turns.lock().len()
     }
 }
@@ -231,23 +238,23 @@ impl TurnRunner for ScriptedRunner {
 // Harness
 
 /// Every frame one connection was sent, plus the close code if it got one.
-struct TestClient {
-    client: HubClient,
-    frames: Arc<Mutex<Vec<ServerMessage>>>,
-    closed: Arc<Mutex<Option<u16>>>,
+pub(crate) struct TestClient {
+    pub(crate) client: HubClient,
+    pub(crate) frames: Arc<Mutex<Vec<ServerMessage>>>,
+    pub(crate) closed: Arc<Mutex<Option<u16>>>,
 }
 
 impl TestClient {
-    fn frames(&self) -> Vec<ServerMessage> {
+    pub(crate) fn frames(&self) -> Vec<ServerMessage> {
         self.frames.lock().clone()
     }
 
-    fn types(&self) -> Vec<&'static str> {
+    pub(crate) fn types(&self) -> Vec<&'static str> {
         self.frames().iter().map(ServerMessage::tag).collect()
     }
 
     /// Frames of one type, which is what most assertions actually want.
-    fn of(&self, tag: &str) -> Vec<ServerMessage> {
+    pub(crate) fn of(&self, tag: &str) -> Vec<ServerMessage> {
         self.frames()
             .into_iter()
             .filter(|frame| frame.tag() == tag)
@@ -255,15 +262,15 @@ impl TestClient {
     }
 
     /// Drops what has been asserted, so the next assertion reads a clean slate.
-    fn reset(&self) {
+    pub(crate) fn reset(&self) {
         self.frames.lock().clear();
     }
 
-    fn closed(&self) -> Option<u16> {
+    pub(crate) fn closed(&self) -> Option<u16> {
         *self.closed.lock()
     }
 
-    fn send(&self, frame: serde_json::Value) {
+    pub(crate) fn send(&self, frame: serde_json::Value) {
         self.client.receive(Frame::Value(frame));
     }
 
@@ -271,7 +278,7 @@ impl TestClient {
     ///
     /// A condition rather than a fixed number of yields: a turn crosses several
     /// tasks, and a count that passes on an idle machine fails on a loaded one.
-    async fn until(&self, what: &str, predicate: impl Fn(&[ServerMessage]) -> bool) {
+    pub(crate) async fn until(&self, what: &str, predicate: impl Fn(&[ServerMessage]) -> bool) {
         for _ in 0..2_000 {
             if predicate(&self.frames()) {
                 return;
@@ -282,12 +289,12 @@ impl TestClient {
         panic!("timed out waiting for {what}; saw {:?}", self.types());
     }
 
-    async fn until_seen(&self, tag: &'static str) {
+    pub(crate) async fn until_seen(&self, tag: &'static str) {
         self.until(tag, |frames| frames.iter().any(|f| f.tag() == tag))
             .await;
     }
 
-    async fn until_count(&self, tag: &'static str, count: usize) {
+    pub(crate) async fn until_count(&self, tag: &'static str, count: usize) {
         self.until(tag, |frames| {
             frames.iter().filter(|f| f.tag() == tag).count() >= count
         })
@@ -295,34 +302,37 @@ impl TestClient {
     }
 }
 
-struct Harness {
-    hub: Arc<SessionHub>,
-    runner: Arc<ScriptedRunner>,
+pub(crate) struct Harness {
+    pub(crate) jobs: Option<BackgroundJobs>,
+    pub(crate) hub: Arc<SessionHub>,
+    pub(crate) runner: Arc<ScriptedRunner>,
     /// The queue the hub pushes steers into, as a loop would read it.
-    steering: Arc<SteeringQueue>,
-    store: Arc<SessionStore>,
-    approvals: Arc<HubApprovalGate>,
-    ids: Arc<AtomicU64>,
+    pub(crate) steering: Arc<SteeringQueue>,
+    pub(crate) store: Arc<SessionStore>,
+    pub(crate) approvals: Arc<HubApprovalGate>,
+    pub(crate) ids: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
-struct HarnessOptions {
-    replay_buffer_size: Option<usize>,
-    turn_log_max_bytes: Option<usize>,
+pub(crate) struct HarnessOptions {
+    pub(crate) replay_buffer_size: Option<usize>,
+    pub(crate) turn_log_max_bytes: Option<usize>,
     /// Agent ids an operator has configured, and whether each is enabled.
-    agents: Vec<(&'static str, bool)>,
-    max_queue_depth: Option<usize>,
-    max_sessions: Option<usize>,
+    pub(crate) agents: Vec<(&'static str, bool)>,
+    pub(crate) max_queue_depth: Option<usize>,
+    pub(crate) max_sessions: Option<usize>,
     /// Overrides the loop resolver; `None` uses the scripted runner for every
     /// agent.
-    unconfigured: bool,
+    pub(crate) unconfigured: bool,
     /// An agent id whose loop cannot be built.
-    unbuildable: Option<&'static str>,
+    pub(crate) unbuildable: Option<&'static str>,
     /// The clock a login's expiry is read against. The host's when absent.
-    clock: Option<Arc<dyn Clock>>,
+    pub(crate) clock: Option<Arc<dyn Clock>>,
+    /// Gives the hub a background job registry.
+    pub(crate) background: bool,
 }
 
-fn harness(options: &HarnessOptions) -> Harness {
+pub(crate) fn harness(options: &HarnessOptions) -> Harness {
     let db = Database::in_memory().unwrap();
     let store_ids = AtomicU64::new(0);
     let store = Arc::new(
@@ -343,6 +353,9 @@ fn harness(options: &HarnessOptions) -> Harness {
     let loop_runner = Arc::clone(&runner);
     let unconfigured = options.unconfigured;
     let unbuildable = options.unbuildable;
+    let jobs = options
+        .background
+        .then(|| BackgroundJobs::new(Arc::new(SystemClock)));
 
     let hub = SessionHub::new(SessionHubOptions {
         replay_frames: options.replay_buffer_size,
@@ -391,9 +404,11 @@ fn harness(options: &HarnessOptions) -> Harness {
         max_queue_depth: options.max_queue_depth,
         max_sessions: options.max_sessions,
         steering: Arc::clone(&steering),
+        jobs: jobs.clone(),
     });
 
     Harness {
+        jobs,
         hub,
         runner,
         steering,
@@ -404,7 +419,7 @@ fn harness(options: &HarnessOptions) -> Harness {
 }
 
 impl Harness {
-    fn connect(&self, options: ConnectOptions) -> TestClient {
+    pub(crate) fn connect(&self, options: ConnectOptions) -> TestClient {
         let (client, mut stream) = self.hub.connect(ConnectOptions {
             session_key: options.session_key.or_else(|| Some(SESSION.to_owned())),
             ..options
@@ -436,7 +451,7 @@ impl Harness {
         }
     }
 
-    fn plain(&self) -> TestClient {
+    pub(crate) fn plain(&self) -> TestClient {
         self.connect(ConnectOptions::default())
     }
 }
@@ -452,7 +467,7 @@ fn login(id: &str, expires_at_ms: i64) -> Login {
 /// Far enough out that no test reaches it.
 const NEVER: i64 = i64::MAX;
 
-fn user(session_key: &str, content: &str) -> serde_json::Value {
+pub(crate) fn user(session_key: &str, content: &str) -> serde_json::Value {
     json!({ "type": "user.message", "sessionKey": session_key, "content": content })
 }
 
@@ -750,6 +765,7 @@ async fn the_hub_only_stamps_and_never_transforms_a_turns_event() {
             agent_id: "default".to_owned(),
             model: "m".to_owned(),
             provider: "p".to_owned(),
+            posted: None,
         }),
         AgentEvent::from(AssistantDelta {
             tag: AssistantDeltaTag,
@@ -1198,6 +1214,7 @@ async fn regenerating_an_answer_mid_turn_continues_from_before_it() {
         agent_id: "default".to_owned(),
         model: "test-model".to_owned(),
         provider: "test".to_owned(),
+        posted: None,
     });
     client.until_seen("turn.start").await;
     assert!(h.hub.can_branch_at(SESSION, kept));
@@ -1478,6 +1495,7 @@ async fn a_branch_may_copy_what_a_running_turn_has_finished_and_nothing_after() 
         agent_id: "default".to_owned(),
         model: "test-model".to_owned(),
         provider: "test".to_owned(),
+        posted: None,
     });
     client.until_seen("turn.start").await;
     assert!(
@@ -1495,6 +1513,7 @@ async fn a_branch_may_copy_what_a_running_turn_has_finished_and_nothing_after() 
         first_seq: 6,
         last_seq: 7,
         stats: darkwire_protocol::StepStats::default(),
+        created_at_ms: 0,
         turn_elapsed_ms: 10,
     });
     client.until_seen("step.end").await;
@@ -1513,7 +1532,7 @@ async fn a_branch_may_copy_what_a_running_turn_has_finished_and_nothing_after() 
 }
 
 /// Waits until the runner has been asked for `count` turns.
-async fn until_turns(h: &Harness, count: usize) {
+pub(crate) async fn until_turns(h: &Harness, count: usize) {
     for _ in 0..2_000 {
         if h.runner.count() >= count {
             return;
@@ -2602,7 +2621,7 @@ async fn evicts_an_idle_session_once_the_cap_is_exceeded() {
 // Steering and approvals
 
 /// Waits for the first turn, and opens it.
-async fn started(h: &Harness, client: &TestClient) -> Arc<TurnControl> {
+pub(crate) async fn started(h: &Harness, client: &TestClient) -> Arc<TurnControl> {
     until_turns(h, 1).await;
     let turn = h.runner.turn(0);
     turn.start();
@@ -2611,7 +2630,7 @@ async fn started(h: &Harness, client: &TestClient) -> Arc<TurnControl> {
 }
 
 /// Waits until the session's steering queue holds `count`.
-async fn until_queued(h: &Harness, count: usize) {
+pub(crate) async fn until_queued(h: &Harness, count: usize) {
     for _ in 0..500 {
         if h.steering.pending(SESSION) >= count {
             return;
@@ -2660,6 +2679,7 @@ async fn steers_the_loop_the_turn_is_running_on_and_leaves_the_echo_to_it() {
         turn_id: turn.turn_id(),
         content: "be brief".to_owned(),
         client_message_id: Some("s1".to_owned()),
+        from: None,
     });
     // The loop pops what it wrote.
     h.steering.pop(SESSION);
@@ -3756,4 +3776,327 @@ async fn a_conversation_below_the_line_or_with_it_switched_off_is_left_alone() {
         assert_eq!(h.runner.turn(1).input.session_key, SESSION);
         h.runner.turn(1).end();
     }
+}
+
+// Posted results
+
+fn posted(text: &str) -> Post {
+    Post {
+        session_key: SESSION.to_owned(),
+        agent_id: Some("helper".to_owned()),
+        workspace_id: None,
+        text: text.to_owned(),
+        from: Delivered {
+            kind: DeliveredKind::Exec,
+            id: "1".to_owned(),
+            label: "make".to_owned(),
+            status: DeliveredStatus::Ok,
+        },
+    }
+}
+
+fn with_row(h: &Harness, key: &str, create: CreateSession) {
+    h.store.ensure_session(key, create).unwrap();
+}
+
+fn helper_agent() -> HarnessOptions {
+    HarnessOptions {
+        agents: vec![("helper", true)],
+        ..HarnessOptions::default()
+    }
+}
+
+#[tokio::test]
+async fn a_post_to_an_idle_session_wakes_it_with_a_turn_on_the_posting_agent() {
+    let h = harness(&helper_agent());
+    with_row(&h, SESSION, CreateSession::default());
+
+    // Nobody is connected: the result still runs.
+    h.hub
+        .post(posted("[Background job 1 finished: make]"))
+        .await;
+
+    until_turns(&h, 1).await;
+    let turn = h.runner.turn(0);
+    assert_eq!(turn.input.agent_id.as_deref(), Some("helper"));
+    let message = darkwire_core::user_message(turn.input.content.clone());
+    assert_eq!(
+        message.from.map(|from| from.kind),
+        Some(DeliveredKind::Exec)
+    );
+}
+
+#[tokio::test]
+async fn a_post_to_a_running_turn_is_read_as_a_steer_that_names_its_source() {
+    let h = harness(&HarnessOptions::default());
+    with_row(&h, SESSION, CreateSession::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+
+    h.hub
+        .post(posted("[Background job 1 finished: make]"))
+        .await;
+
+    until_queued(&h, 1).await;
+    let queued = h.steering.peek(SESSION).unwrap();
+    assert_eq!(queued.content, "[Background job 1 finished: make]");
+    assert_eq!(queued.from.map(|from| from.id), Some("1".to_owned()));
+    assert_eq!(queued.route.agent_id.as_deref(), Some("helper"));
+    turn.end();
+}
+
+#[tokio::test]
+async fn a_post_the_turn_never_read_runs_after_it_and_keeps_its_source() {
+    let h = harness(&helper_agent());
+    with_row(&h, SESSION, CreateSession::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    h.hub.post(posted("done")).await;
+    until_queued(&h, 1).await;
+
+    turn.end();
+
+    until_turns(&h, 2).await;
+    let next = h.runner.turn(1);
+    assert_eq!(next.input.agent_id.as_deref(), Some("helper"));
+    assert!(matches!(next.input.content, Content::Delivered(ref text, _) if text == "done"));
+}
+
+#[tokio::test]
+async fn a_post_is_not_refused_by_a_full_queue() {
+    let h = harness(&HarnessOptions {
+        max_queue_depth: Some(1),
+        ..HarnessOptions::default()
+    });
+    with_row(&h, SESSION, CreateSession::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    // The steering queue is closed, so posts queue as turns.
+    let _ = h.steering.close(SESSION);
+    client.send(user(SESSION, "fills the queue"));
+    client.until_seen("message.queued").await;
+
+    h.hub.post(posted("still lands")).await;
+    turn.end();
+
+    until_turns(&h, 2).await;
+    h.runner.turn(1).end();
+    until_turns(&h, 3).await;
+    assert!(matches!(
+        h.runner.turn(2).input.content,
+        Content::Delivered(ref text, _) if text == "still lands"
+    ));
+}
+
+#[tokio::test]
+async fn a_post_to_a_session_that_is_gone_is_dropped() {
+    let h = harness(&HarnessOptions::default());
+
+    h.hub.post(posted("nobody reads this")).await;
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(h.runner.count(), 0);
+    assert!(h.store.get_session(SESSION).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_post_to_a_subagent_session_goes_to_the_conversation_above_it() {
+    let h = harness(&HarnessOptions::default());
+    with_row(&h, SESSION, CreateSession::default());
+    let mut metadata = serde_json::Map::new();
+    metadata.insert(
+        SUBAGENT_METADATA_KEY.to_owned(),
+        serde_json::to_value(SubagentLineage {
+            parent_session_key: SESSION.to_owned(),
+            parent_turn_id: "turn-1".to_owned(),
+            parent_call_id: "call-1".to_owned(),
+            agent_id: "researcher".to_owned(),
+            depth: 1,
+        })
+        .unwrap(),
+    );
+    with_row(
+        &h,
+        "child",
+        CreateSession {
+            origin: Some(SUBAGENT_ORIGIN.to_owned()),
+            metadata: Some(metadata),
+            ..CreateSession::default()
+        },
+    );
+
+    h.hub
+        .post(Post {
+            session_key: "child".to_owned(),
+            ..posted("for the parent")
+        })
+        .await;
+
+    until_turns(&h, 1).await;
+    assert_eq!(h.runner.turn(0).input.session_key, SESSION);
+}
+
+#[tokio::test]
+async fn a_post_to_a_scheduled_run_is_dropped() {
+    let h = harness(&HarnessOptions::default());
+    with_row(
+        &h,
+        SESSION,
+        CreateSession {
+            origin: Some(AUTOMATION_ORIGIN.to_owned()),
+            ..CreateSession::default()
+        },
+    );
+
+    h.hub.post(posted("nobody owns this turn")).await;
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(h.runner.count(), 0);
+}
+
+#[tokio::test]
+async fn an_unread_steer_runs_as_its_sender_after_the_sender_has_gone() {
+    let h = harness(&helper_agent());
+    let client = h.connect(ConnectOptions {
+        agent_id: Some("helper".to_owned()),
+        ..ConnectOptions::default()
+    });
+    client.until_seen("connected").await;
+    client.send(user(SESSION, "hello"));
+    let turn = started(&h, &client).await;
+    client.send(steer("one more thing", "s1"));
+    until_queued(&h, 1).await;
+
+    client.client.close();
+    turn.end();
+
+    until_turns(&h, 2).await;
+    assert_eq!(h.runner.turn(1).input.agent_id.as_deref(), Some("helper"));
+}
+
+// The list of waiting approvals
+
+/// The approvals named in the newest `approvals.pending` a client holds.
+fn waiting(client: &TestClient) -> Option<Vec<(String, String)>> {
+    client
+        .of("approvals.pending")
+        .last()
+        .map(|frame| match frame {
+            ServerMessage::ApprovalsPending(event) => event
+                .event
+                .approvals
+                .iter()
+                .map(|entry| (entry.session_key.clone(), entry.call_id.clone()))
+                .collect(),
+            _ => unreachable!("filtered by type"),
+        })
+}
+
+async fn until_waiting(client: &TestClient, expected: &[(&str, &str)]) {
+    let expected: Vec<(String, String)> = expected
+        .iter()
+        .map(|(session, call)| ((*session).to_owned(), (*call).to_owned()))
+        .collect();
+    client
+        .until("the expected approvals.pending", |_| {
+            waiting(client).as_ref() == Some(&expected)
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn tells_a_tab_on_another_session_what_is_waiting() {
+    let h = harness(&HarnessOptions::default());
+    let owner = h.plain();
+    let other = h.connect(ConnectOptions {
+        session_key: Some("web:2".to_owned()),
+        ..ConnectOptions::default()
+    });
+    owner.until_seen("connected").await;
+    other.until_seen("connected").await;
+
+    let pending = park_on(&h, SESSION, SESSION);
+    until_waiting(&other, &[(SESSION, "call-1")]).await;
+    until_waiting(&owner, &[(SESSION, "call-1")]).await;
+
+    owner.send(json!({
+        "type": "tool.approve", "callId": "call-1", "approved": true, "scope": "once",
+    }));
+    assert!(pending.await.unwrap().approved);
+    until_waiting(&other, &[]).await;
+    until_waiting(&owner, &[]).await;
+}
+
+#[tokio::test]
+async fn names_the_conversation_for_a_subagent_prompt() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+
+    let _pending = park_on(&h, "web:1:sub:1", SESSION);
+    until_waiting(&client, &[(SESSION, "call-1")]).await;
+}
+
+#[tokio::test]
+async fn greets_a_tab_that_arrives_after_the_prompt_with_the_list() {
+    // A broadcast skips a session nobody is in, so the late tab hears it on
+    // attach or not at all.
+    let h = harness(&HarnessOptions::default());
+    let owner = h.plain();
+    owner.until_seen("connected").await;
+    let _pending = park_on(&h, SESSION, SESSION);
+    until_parked(&h).await;
+
+    let late = h.connect(ConnectOptions {
+        session_key: Some("web:2".to_owned()),
+        ..ConnectOptions::default()
+    });
+    until_waiting(&late, &[(SESSION, "call-1")]).await;
+}
+
+#[tokio::test]
+async fn greets_a_tab_that_switches_session_with_the_list() {
+    let h = harness(&HarnessOptions::default());
+    let client = h.plain();
+    client.until_seen("connected").await;
+    let _pending = park_on(&h, SESSION, SESSION);
+    until_waiting(&client, &[(SESSION, "call-1")]).await;
+
+    client.reset();
+    client.send(json!({ "type": "session.switch", "sessionKey": "web:2" }));
+    until_waiting(&client, &[(SESSION, "call-1")]).await;
+}
+
+#[tokio::test]
+async fn greets_a_resuming_tab_with_the_list_after_its_replay() {
+    let h = harness(&HarnessOptions::default());
+    let owner = h.plain();
+    owner.until_seen("connected").await;
+    let _pending = park_on(&h, SESSION, SESSION);
+    until_parked(&h).await;
+
+    let tab = h.connect(ConnectOptions {
+        awaits_resume: true,
+        ..ConnectOptions::default()
+    });
+    tab.until_seen("connected").await;
+    fence(&tab).await;
+    // Not before it says where it is: the greeting waits for the resume.
+    assert!(tab.of("approvals.pending").is_empty());
+
+    tab.send(json!({ "type": "session.resume", "sessionKey": SESSION, "lastSeq": 0 }));
+    until_waiting(&tab, &[(SESSION, "call-1")]).await;
+    let types = tab.types();
+    let replay = types.iter().position(|t| *t == "session.replay").unwrap();
+    let listed = types
+        .iter()
+        .rposition(|t| *t == "approvals.pending")
+        .unwrap();
+    assert!(replay < listed);
 }

@@ -31,6 +31,52 @@
     },
     "provider": {
       "type": "string"
+    },
+    "posted": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "from": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "exec",
+                "automation"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "error",
+                "killed",
+                "timeout"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "label",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "from"
+      ]
     }
   },
   "required": [

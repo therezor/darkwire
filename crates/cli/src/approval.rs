@@ -187,6 +187,12 @@ impl TerminalGate {
         let Some(menu) = self.menu() else {
             return ApprovalDecision::refuse();
         };
+        // Once per request, not per asking: a rule that fails to save asks
+        // again, and the person is already there to see it.
+        menu.attention(&self.t().tr(
+            keys::render::AWAITING_APPROVAL,
+            args!["tool" => request.name.as_str()],
+        ));
         // A shell is never offered a rule: one for it would cover every
         // program. The server side refuses the same.
         let mut rule = request

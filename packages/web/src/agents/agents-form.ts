@@ -150,6 +150,7 @@ export interface AgentEntryForm {
    */
   readonly maxToolIterations: string;
   readonly loopWallTimeoutSeconds: string;
+  readonly backgroundJobs: string;
   /**
    * The tool layer's numbers, this agent's own. They were install-wide once
    * and sat in Settings; an agent on a small model wants a different result
@@ -274,6 +275,7 @@ export function toAgentEntryForm(entry: AgentEntry): AgentEntryForm {
     toolTimeoutSeconds: msToSeconds(toolTimeoutMs),
     maxToolIterations: String(entry.maxToolIterations),
     loopWallTimeoutSeconds: msToSeconds(entry.loopWallTimeoutMs),
+    backgroundJobs: String(entry.backgroundJobs),
     approvalTimeoutSeconds: msToSeconds(entry.approvalTimeoutMs),
     maxOutputChars: String(entry.maxOutputChars),
     execTimeoutSeconds: msToSeconds(entry.exec.timeoutMs),
@@ -381,6 +383,7 @@ type AgentOwnFields = Omit<
   | 'toolTimeoutMs'
   | 'maxToolIterations'
   | 'loopWallTimeoutMs'
+  | 'backgroundJobs'
   | 'approvalTimeoutMs'
   | 'maxOutputChars'
   | 'exec'
@@ -398,6 +401,7 @@ function ownFields(form: AgentEntryForm, entry: AgentEntry): AgentOwnFields {
     toolTimeoutMs,
     maxToolIterations,
     loopWallTimeoutMs,
+    backgroundJobs,
     approvalTimeoutMs,
     maxOutputChars,
     exec,
@@ -589,6 +593,10 @@ export function toAgentEntryPatch(
     form.loopWallTimeoutSeconds,
     { min: 0 },
   );
+  const backgroundJobs = required('backgroundJobs', form.backgroundJobs, {
+    integer: true,
+    min: 0,
+  });
   // `min: 1`, unlike every other duration here: an approval that never expires
   // holds the turn, its tool call and its provider connection open for a tab
   // that was closed an hour ago.
@@ -621,6 +629,7 @@ export function toAgentEntryPatch(
     toolTimeout === undefined ||
     maxToolIterations === undefined ||
     loopWallTimeout === undefined ||
+    backgroundJobs === undefined ||
     approvalTimeout === undefined ||
     maxOutputChars === undefined ||
     execTimeout === undefined ||
@@ -644,6 +653,7 @@ export function toAgentEntryPatch(
             toolTimeoutMs: secondsToMs(toolTimeout),
             maxToolIterations,
             loopWallTimeoutMs: secondsToMs(loopWallTimeout),
+            backgroundJobs,
             approvalTimeoutMs: secondsToMs(approvalTimeout),
             maxOutputChars,
             // The screen's fields over the stored block, so the environment
@@ -739,6 +749,7 @@ export function toNewAgentPatch(
           maxToolIterations: template.maxToolIterations,
           loopWallTimeoutMs: template.loopWallTimeoutMs,
           subagentTimeoutMs: template.subagentTimeoutMs,
+          backgroundJobs: template.backgroundJobs,
           ...(temperature === undefined ? {} : { temperature }),
           ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
           // `satisfies`, so leaving out a stated field is a compile error here

@@ -1204,6 +1204,7 @@ const CLIENT_FRAMES: readonly Json[] = [
     sessionKey: 'web:abc',
     instructions: 'keep the file names',
   },
+  { type: 'job.stop', sessionKey: 'web:abc', id: '2' },
 ];
 
 const SERVER_FRAMES: readonly Json[] = [
@@ -1240,6 +1241,10 @@ const SERVER_FRAMES: readonly Json[] = [
     agentId: 'coder',
     model: 'qwen3',
     provider: 'ollama',
+    posted: {
+      text: '[Background job 2 finished: pnpm test]',
+      from: { kind: 'exec', id: '2', label: 'pnpm test', status: 'ok' },
+    },
   },
   { type: 'assistant.delta', seq: 45, turnId: 't1', text: 'Hel' },
   { type: 'reasoning.delta', seq: 46, turnId: 't1', text: 'thinking' },
@@ -1333,6 +1338,7 @@ const SERVER_FRAMES: readonly Json[] = [
         model: 'qwen3:8b',
       },
     },
+    createdAtMs: 1_700_000_004_200,
     turnElapsedMs: 6100,
   },
   {
@@ -1364,6 +1370,7 @@ const SERVER_FRAMES: readonly Json[] = [
     queueDepth: 0,
     workspaceId: 'acme',
     turnId: 't1',
+    jobs: [{ id: '2', label: 'pnpm dev', startedAtMs: 1_700_000_000_000 }],
   },
   { type: 'session.reset', seq: 56, sessionKey: 'web:abc' },
   {
@@ -1398,6 +1405,18 @@ const SERVER_FRAMES: readonly Json[] = [
     jobId: 'j1',
   },
   {
+    type: 'approvals.pending',
+    seq: 59,
+    approvals: [
+      {
+        sessionKey: 'web:abc',
+        callId: 'c1',
+        name: 'exec',
+        expiresAtMs: 1_700_000_300_000,
+      },
+    ],
+  },
+  {
     type: 'tools.changed',
     seq: 60,
     tools: [
@@ -1418,6 +1437,7 @@ const SERVER_FRAMES: readonly Json[] = [
     turnId: 't1',
     content: 'shorter',
     clientMessageId: 'c-steer',
+    from: { kind: 'exec', id: '2', label: 'pnpm test', status: 'ok' },
   },
 ];
 

@@ -22,6 +22,7 @@ import { create } from 'zustand';
 
 import type {
   Attachment,
+  RunningJob,
   ServerMessage,
   StoredMessage,
   SubagentRunRef,
@@ -131,6 +132,8 @@ interface TurnState {
   readonly runningTurnId: string | undefined;
   /** Messages accepted and not yet started. Shown beside the composer. */
   readonly queueDepth: number;
+  /** Background jobs this session started that are still running. */
+  readonly jobs: readonly RunningJob[];
   /** The last server `seq` applied, which a reconnect resumes from. */
   readonly lastSeq: number;
   /**
@@ -185,6 +188,7 @@ const INITIAL = {
   busy: false,
   runningTurnId: undefined,
   queueDepth: 0,
+  jobs: [] as readonly RunningJob[],
   lastSeq: 0,
   clockOffsetMs: 0,
   transcript: EMPTY_TRANSCRIPT,
@@ -213,6 +217,7 @@ export const useTurnStore = create<TurnState>((set) => ({
             busy: false,
             runningTurnId: undefined,
             queueDepth: 0,
+            jobs: [],
             transcript: EMPTY_TRANSCRIPT,
           },
     );
@@ -271,6 +276,7 @@ export const useTurnStore = create<TurnState>((set) => ({
             next.runningTurnId = message.turnId;
           }
           next.queueDepth = message.queueDepth;
+          next.jobs = message.jobs ?? [];
           // Restated on every switch, which is the point: opening someone
           // else's session moves the UI to that session's workspace rather
           // than showing its transcript beside another workspace's files.

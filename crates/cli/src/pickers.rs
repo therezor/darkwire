@@ -142,6 +142,10 @@ pub trait PickerMenu: Send + Sync {
         &'a self,
         request: ListingRequest,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+
+    /// Says something is waiting on the person, before the menu that asks
+    /// them opens. Nothing, where there is no terminal to say it to.
+    fn attention(&self, _text: &str) {}
 }
 
 /// A menu that never draws and always answers nothing.

@@ -32,6 +32,7 @@
 import type {
   Attachment,
   CommandPolicy,
+  Delivered,
   NestedAgentEvent,
   NoticeKind,
   StepStats,
@@ -83,6 +84,8 @@ export interface UserItem {
    * the loop reads it, or becomes an ordinary message if the turn ends first.
    */
   readonly steering: boolean;
+  /** Set when the server posted this as a result rather than a person typing. */
+  readonly from?: Delivered;
 }
 
 export interface TextPart {
@@ -225,6 +228,8 @@ export interface StepPart {
   readonly stats: StepStats;
   readonly firstSeq: number;
   readonly lastSeq: number;
+  /** When its assistant row was written, by the server's clock. */
+  readonly createdAtMs: number;
 }
 
 /** What the user said to the running turn, where the loop read it. */
@@ -232,6 +237,8 @@ export interface SteerPart {
   readonly kind: 'steer';
   readonly id: string;
   readonly text: string;
+  /** Set when the server posted it as a result rather than a person typing. */
+  readonly from?: Delivered;
 }
 
 export type TurnPart =

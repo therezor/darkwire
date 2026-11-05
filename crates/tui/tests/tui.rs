@@ -307,9 +307,9 @@ fn nothing_asked_for_a_mouse_event_so_nothing_reacts_to_one() {
 }
 
 #[test]
-fn a_focus_change_is_not_this_programs_business() {
-    assert_eq!(map_event(Event::FocusGained), None);
-    assert_eq!(map_event(Event::FocusLost), None);
+fn a_focus_change_says_whether_anybody_is_looking() {
+    assert_eq!(map_event(Event::FocusGained), Some(TuiEvent::Focus(true)));
+    assert_eq!(map_event(Event::FocusLost), Some(TuiEvent::Focus(false)));
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]

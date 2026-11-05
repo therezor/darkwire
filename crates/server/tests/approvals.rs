@@ -14,6 +14,7 @@ use darkwire_agent::{ApprovalDecision, ApprovalGate, ApprovalRequest};
 use darkwire_core::ErrorKind;
 use darkwire_core::testkit::ManualClock;
 use darkwire_protocol::tools::{ApprovalScope, ToolRisk};
+use darkwire_protocol::ws::PendingApproval;
 use darkwire_server::approvals::{HubApprovalGate, HubApprovalGateOptions, UnattendedApproval};
 use parking_lot::Mutex;
 use serde_json::json;
@@ -833,4 +834,200 @@ async fn keeps_a_session_scoped_answer_to_that_session_whoever_runs_it() {
         }),
     );
     parked(&gate, 1).await;
+}
+
+// The list of waiting prompts
+
+/// Every list the watcher was told about, in order.
+type Lists = Arc<Mutex<Vec<Vec<PendingApproval>>>>;
+
+/// A gate whose watcher writes down the list each time it is told it moved.
+fn listed() -> (Arc<HubApprovalGate>, Lists) {
+    let gate = gate_at(START_MS);
+    let seen: Lists = Arc::default();
+    let sink = Arc::clone(&seen);
+    let reading = Arc::downgrade(&gate);
+    gate.watch(Arc::new(move || {
+        let gate = reading.upgrade().unwrap();
+        sink.lock().push(gate.snapshot());
+    }));
+    (gate, seen)
+}
+
+fn call_ids(list: &[PendingApproval]) -> Vec<&str> {
+    list.iter().map(|entry| entry.call_id.as_str()).collect()
+}
+
+#[tokio::test]
+async fn lists_a_prompt_when_it_parks_and_drops_it_when_it_is_answered() {
+    let (gate, seen) = listed();
+    let pending = ask(&gate, approval_request(RequestOptions::default()));
+    parked(&gate, 1).await;
+
+    assert_eq!(
+        seen.lock().last().unwrap(),
+        &vec![PendingApproval {
+            session_key: "web:1".to_owned(),
+            call_id: "call-1".to_owned(),
+            name: "exec".to_owned(),
+            expires_at_ms: u64::try_from(START_MS).unwrap() + TIMEOUT_MS,
+        }]
+    );
+
+    gate.resolve("web:1", "call-1", true, ApprovalScope::Once);
+    pending.await.unwrap();
+
+    let seen = seen.lock();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[1].is_empty());
+}
+
+#[tokio::test]
+async fn drops_a_prompt_from_the_list_when_it_expires() {
+    let (gate, seen) = listed();
+    let pending = ask_until_expiry(
+        &gate,
+        approval_request(RequestOptions {
+            expires_at_ms: Some(u64::try_from(START_MS).unwrap() + SOON_MS),
+            ..RequestOptions::default()
+        }),
+    );
+
+    pending.await.unwrap().unwrap_err();
+    assert!(seen.lock().last().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn drops_a_prompt_from_the_list_when_its_turn_is_cancelled() {
+    let (gate, seen) = listed();
+    let token = CancellationToken::new();
+    let pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            token: Some(token.clone()),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+
+    token.cancel();
+    pending.await.unwrap();
+
+    assert!(seen.lock().last().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn drops_a_prompt_whose_caller_stopped_waiting_for_it() {
+    // The loop races the gate against its own deadline and drops the losing
+    // future. The prompt must not outlive it, in the map or on a tab.
+    let (gate, seen) = listed();
+    let pending = ask(&gate, approval_request(RequestOptions::default()));
+    parked(&gate, 1).await;
+
+    pending.abort();
+    assert!(pending.await.unwrap_err().is_cancelled());
+
+    assert_eq!(gate.pending_count(), 0);
+    assert!(seen.lock().last().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn keeps_the_newer_prompt_listed_when_the_one_it_superseded_leaves() {
+    let (gate, seen) = listed();
+    let first = ask(&gate, approval_request(RequestOptions::default()));
+    parked(&gate, 1).await;
+    let second = ask(
+        &gate,
+        approval_request(RequestOptions {
+            name: Some("write"),
+            ..RequestOptions::default()
+        }),
+    );
+
+    assert!(!first.await.unwrap().approved);
+    parked(&gate, 1).await;
+
+    let snapshot = gate.snapshot();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].name, "write");
+    assert_eq!(seen.lock().last().unwrap(), &snapshot);
+
+    gate.resolve("web:1", "call-1", true, ApprovalScope::Once);
+    assert!(second.await.unwrap().approved);
+}
+
+#[tokio::test]
+async fn lists_a_subagent_prompt_under_its_conversation() {
+    let (gate, seen) = listed();
+    let _pending = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1:sub:1"),
+            root_session_key: Some("web:1"),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+
+    assert_eq!(seen.lock().last().unwrap()[0].session_key, "web:1");
+}
+
+#[tokio::test]
+async fn lists_every_session_soonest_to_expire_first() {
+    let gate = gate_at(START_MS);
+    let start = u64::try_from(START_MS).unwrap();
+    let _later = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:1"),
+            call_id: Some("later"),
+            expires_at_ms: Some(start + TIMEOUT_MS),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 1).await;
+    let _sooner = ask(
+        &gate,
+        approval_request(RequestOptions {
+            session_key: Some("web:2"),
+            call_id: Some("sooner"),
+            expires_at_ms: Some(start + TIMEOUT_MS - 1),
+            ..RequestOptions::default()
+        }),
+    );
+    parked(&gate, 2).await;
+
+    assert_eq!(call_ids(&gate.snapshot()), vec!["sooner", "later"]);
+}
+
+#[tokio::test]
+async fn says_the_list_moved_when_a_closed_session_settles_its_prompts() {
+    let (gate, seen) = listed();
+    let pending = ask(&gate, approval_request(RequestOptions::default()));
+    parked(&gate, 1).await;
+
+    gate.clear_session("web:1");
+    pending.await.unwrap();
+
+    assert!(seen.lock().last().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn says_nothing_when_a_closed_session_had_nothing_waiting() {
+    let (gate, seen) = listed();
+    gate.clear_session("web:1");
+    assert!(seen.lock().is_empty());
+}
+
+#[tokio::test]
+async fn keeps_the_first_watcher_when_a_second_one_asks() {
+    let (gate, seen) = listed();
+    gate.watch(Arc::new(|| panic!("a gate serves one hub")));
+
+    let pending = ask(&gate, approval_request(RequestOptions::default()));
+    parked(&gate, 1).await;
+    gate.resolve("web:1", "call-1", true, ApprovalScope::Once);
+    pending.await.unwrap();
+
+    assert_eq!(seen.lock().len(), 2);
 }

@@ -430,6 +430,7 @@ pub async fn delete(
     let store = state.runtime.store();
     let key = params.key.clone();
     if blocking(move || store.delete_session(&key)).await? {
+        state.hub.session_deleted(&params.key);
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(HttpError::not_found(format!(

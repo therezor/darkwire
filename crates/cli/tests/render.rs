@@ -834,6 +834,7 @@ fn message_end(elapsed_ms: u64, completion: u64) -> Value {
             "generationMs": 1000,
             "generationTokens": completion,
         },
+        "createdAtMs": 0,
         "turnElapsedMs": elapsed_ms,
     })
 }

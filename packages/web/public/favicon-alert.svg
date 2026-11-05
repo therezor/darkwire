@@ -1,0 +1,37 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 24 24"
+  width="24"
+  height="24"
+  fill="none"
+  stroke="#009100"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!--
+    `favicon.svg` with a dot on it, shown while a tool call waits for
+    approval. The mark is the same drawing, and `favicon.test.ts` holds both
+    files to the paths lucide renders.
+
+    #EB1C1C is a red near the mark's own luminance, for the reason the mark
+    is pulled to it: a tab strip is white in one OS theme and near-black in the
+    other. It measures 4.4:1 against white and 4.2:1 against #111.
+
+    The mark is cut away around the dot. Red and green are the pair a reader
+    who does not tell them apart confuses, and the gap is what still says "a
+    dot on the mark" without the colour.
+  -->
+  <mask id="dot-gap">
+    <rect width="24" height="24" fill="white" stroke="none" />
+    <circle cx="19" cy="5" r="6" fill="black" stroke="none" />
+  </mask>
+  <g mask="url(#dot-gap)">
+    <path
+      d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"
+    />
+    <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+    <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
+  </g>
+  <circle cx="19" cy="5" r="4.5" fill="#EB1C1C" stroke="none" />
+</svg>

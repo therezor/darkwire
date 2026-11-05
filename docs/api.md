@@ -217,8 +217,9 @@ Turn events: `turn.start` · `assistant.delta` · `reasoning.delta` · `tool.cal
 
 `step.end` closes one step: a model call and the tools it asked for. It goes out once the
 step's rows are written, with their `firstSeq` and `lastSeq`, the step's `stats` (usage,
-model, elapsed, generation time, first token) and `turnElapsedMs`. The same `stats` are
-stored on the step's assistant row, so a reloaded transcript reads the same figures. A
+model, elapsed, generation time, first token), `createdAtMs` and `turnElapsedMs`. The
+same `stats` are stored on the step's assistant row, and `createdAtMs` is that row's own,
+so a reloaded transcript reads the same figures. A
 call that wrote no row carries its figures onto the next one, so the steps of a turn
 always add up to the turn. Only the root loop's steps reach the socket: a subagent's
 seqs address its own session.
@@ -232,7 +233,13 @@ parked for another answer. See [Tools & permissions](tools.md#answering).
 Session and connection: `connected` · `pong` · `error` · `message.ack` ·
 `message.queued` · `context.usage` · `session.status` · `session.reset` ·
 `session.replay` · `session.truncated` · `session.compacted` · `notification` ·
-`tools.changed` · `steer`
+`approvals.pending` · `tools.changed` · `steer`
+
+`approvals.pending` lists every tool call waiting for an answer, in every session:
+`sessionKey` (the conversation, also for a subagent's call), `callId`, the tool's `name`
+and `expiresAtMs`. Each frame is the whole list. It goes to every tab when a call is
+parked, answered, expires or is cancelled, and to a tab when it attaches, after any
+replay. A fresh tab is sent it only when the list is not empty.
 
 `session.compacted` says the conversation carries on in `continuedKey`. It is sequenced on
 the old session, so a tab that was away learns of it from the replay. By the time it

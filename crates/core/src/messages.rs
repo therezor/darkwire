@@ -12,9 +12,9 @@
 //! site, and the differences only show up on multimodal input.
 
 use darkwire_protocol::{
-    AssistantMessage, AssistantRole, ChatMessage, ContentPart, FilePart, FileTag, ImagePart,
-    ImageTag, SystemMessage, SystemRole, TextPart, TextTag, ToolCall, ToolMessage, ToolRole,
-    UserMessage, UserRole,
+    AssistantMessage, AssistantRole, ChatMessage, ContentPart, Delivered, FilePart, FileTag,
+    ImagePart, ImageTag, SystemMessage, SystemRole, TextPart, TextTag, ToolCall, ToolMessage,
+    ToolRole, UserMessage, UserRole,
 };
 
 /// A text part.
@@ -93,13 +93,16 @@ pub enum Content {
     Text(String),
     /// Explicit parts.
     Parts(Vec<ContentPart>),
+    /// A result the server posted, and what produced it.
+    Delivered(String, Delivered),
 }
 
 impl Content {
-    fn into_parts(self) -> Vec<ContentPart> {
+    fn into_message(self) -> (Vec<ContentPart>, Option<Delivered>) {
         match self {
-            Content::Text(text) => vec![text_part(text)],
-            Content::Parts(parts) => parts,
+            Content::Text(text) => (vec![text_part(text)], None),
+            Content::Parts(parts) => (parts, None),
+            Content::Delivered(text, from) => (vec![text_part(text)], Some(from)),
         }
     }
 }
@@ -124,9 +127,11 @@ impl From<Vec<ContentPart>> for Content {
 
 /// A user message.
 pub fn user_message(content: impl Into<Content>) -> UserMessage {
+    let (content, from) = content.into().into_message();
     UserMessage {
         role: UserRole,
-        content: content.into().into_parts(),
+        content,
+        from,
     }
 }
 
@@ -148,7 +153,7 @@ pub fn assistant_message(
 ) -> AssistantMessage {
     AssistantMessage {
         role: AssistantRole,
-        content: content.into().into_parts(),
+        content: content.into().into_message().0,
         tool_calls: options.tool_calls,
         reasoning: options.reasoning,
         reasoning_ms: options.reasoning_ms,
@@ -219,7 +224,8 @@ pub const STEERING_PREFIX: &str = "[Steering: sent by the user while this task w
 
 /// Whether a stored message is a steer rather than something the user asked.
 pub fn is_steer(message: &ChatMessage) -> bool {
-    matches!(message, ChatMessage::User(_)) && text_of(message).starts_with(STEERING_PREFIX)
+    matches!(message, ChatMessage::User(user) if user.from.is_none())
+        && text_of(message).starts_with(STEERING_PREFIX)
 }
 
 fn join_text(parts: &[ContentPart]) -> String {

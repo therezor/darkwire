@@ -484,6 +484,17 @@ impl Harness {
 
     /// Pushes a steer as the hub would, opening the session's queue first.
     pub fn steer(&self, session_key: &str, id: &str, content: &str) -> bool {
+        self.post(session_key, id, content, None)
+    }
+
+    /// Pushes a steer, or a result the server posted when `from` is set.
+    pub fn post(
+        &self,
+        session_key: &str,
+        id: &str,
+        content: &str,
+        from: Option<darkwire_protocol::Delivered>,
+    ) -> bool {
         self.steering.open(session_key);
         self.steering.push(
             session_key,
@@ -491,6 +502,8 @@ impl Harness {
                 id: id.to_owned(),
                 content: content.to_owned(),
                 sender: "test".to_owned(),
+                route: darkwire_agent::SteerRoute::default(),
+                from,
             },
         )
     }

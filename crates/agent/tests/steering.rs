@@ -7,6 +7,8 @@ fn message(id: &str, content: &str) -> SteeringMessage {
         id: id.to_owned(),
         content: content.to_owned(),
         sender: "conn-1".to_owned(),
+        route: darkwire_agent::SteerRoute::default(),
+        from: None,
     }
 }
 
@@ -63,4 +65,18 @@ fn the_text_in_history_is_prefixed_so_the_model_can_tell_it_apart() {
     let text = steering_text(&message("a", "use the other file"));
     assert!(text.starts_with(STEERING_PREFIX));
     assert!(text.ends_with("use the other file"));
+}
+
+#[test]
+fn a_posted_result_keeps_its_own_header_and_gets_no_prefix() {
+    let posted = SteeringMessage {
+        from: Some(darkwire_protocol::Delivered {
+            kind: darkwire_protocol::DeliveredKind::Exec,
+            id: "1".to_owned(),
+            label: "make".to_owned(),
+            status: darkwire_protocol::DeliveredStatus::Ok,
+        }),
+        ..message("a", "[Background job 1 finished: make]")
+    };
+    assert_eq!(steering_text(&posted), "[Background job 1 finished: make]");
 }

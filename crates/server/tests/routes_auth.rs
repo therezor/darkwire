@@ -116,6 +116,7 @@ fn unclaimed(config: Config) -> Unclaimed {
         max_queue_depth: None,
         max_sessions: None,
         steering: Arc::new(darkwire_agent::SteeringQueue::new()),
+        jobs: None,
     });
 
     let built = create_server(ServerOptions {

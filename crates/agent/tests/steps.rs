@@ -67,6 +67,29 @@ async fn each_step_is_reported_with_the_rows_it_wrote() {
 }
 
 #[tokio::test]
+async fn each_step_says_when_its_assistant_row_was_written() {
+    let harness = tool_then_answer();
+    let (events, result) = harness.say("web:1", "read it").await;
+    result.expect("a completed turn");
+
+    let rows = harness
+        .store
+        .messages(
+            "web:1",
+            &darkwire_core::session_store::ReadMessages::default(),
+        )
+        .expect("stored messages");
+    let steps = events_of(&events, "step.end");
+    for step in &steps {
+        let seq = step["firstSeq"].as_i64().expect("a seq");
+        let row = rows.iter().find(|row| row.seq == seq).expect("its row");
+        assert!(matches!(row.message, ChatMessage::Assistant(_)));
+        assert_eq!(step["createdAtMs"], json!(row.created_at_ms));
+    }
+    assert_eq!(steps.len(), 2);
+}
+
+#[tokio::test]
 async fn a_step_is_reported_after_its_tools_and_before_the_next_call() {
     let harness = tool_then_answer();
     let (events, _) = harness.say("web:1", "read it").await;

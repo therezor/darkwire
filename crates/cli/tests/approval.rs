@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 struct ScriptedMenu {
     answers: Mutex<Vec<Option<usize>>>,
     shown: Mutex<Vec<(String, Vec<String>)>>,
+    called: Mutex<Vec<String>>,
 }
 
 impl ScriptedMenu {
@@ -34,6 +35,7 @@ impl ScriptedMenu {
         Arc::new(ScriptedMenu {
             answers: Mutex::new(answers.iter().rev().copied().collect()),
             shown: Mutex::new(Vec::new()),
+            called: Mutex::new(Vec::new()),
         })
     }
 
@@ -45,6 +47,10 @@ impl ScriptedMenu {
 impl PickerMenu for ScriptedMenu {
     fn available(&self) -> bool {
         true
+    }
+
+    fn attention(&self, text: &str) {
+        self.called.lock().push(text.to_owned());
     }
 
     fn choose<'a>(
@@ -282,4 +288,20 @@ fn an_attended_gate_asks_and_owes_no_hint() {
 
     assert!(!gate.cannot_ask(&exec("c1", &["ls"])));
     assert_eq!(gate.refused_hint(), None);
+}
+
+#[tokio::test]
+async fn calls_for_attention_once_per_request_even_when_it_asks_twice() {
+    // The second asking follows a refused rule, and the person who chose it
+    // is already looking.
+    let menu = ScriptedMenu::answering(&[Some(2), Some(0)]);
+    let gate = gate(refusing(), Some(Arc::clone(&menu)));
+
+    gate.ask(&exec("c1", &["git", "log"])).await.unwrap();
+
+    assert_eq!(menu.shown().len(), 2);
+    assert_eq!(
+        *menu.called.lock(),
+        vec!["exec is waiting for approval".to_owned()]
+    );
 }

@@ -13,6 +13,7 @@
 
 mod common;
 
+mod alert;
 mod ansi;
 mod editor;
 mod frame;
