@@ -322,7 +322,7 @@ that it stops reading and TCP pushes back on the sender. A socket that buffers m
 4 MiB of live frames is closed with code 1013. A client that cannot keep up is better told
 than starved.
 A resume's replay is counted against a budget of its own, room for one whole replay: twice
-`server.turnLogMaxBytes` or 4 MiB, whichever is larger, plus the 4 MiB above. Counting it
+the 16 MiB turn log, plus the 4 MiB above. Counting it
 against the live budget closed the socket on any replay larger than 4 MiB, which the
 client's next resume asked for again. A client that resumes over and over without reading
 still reaches the cap and is closed with 1013.

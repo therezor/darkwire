@@ -6,6 +6,84 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html). There is one ve
 the whole repository, carried by the root `Cargo.toml` and the root `package.json`, which
 a test holds equal; what you install is one binary, `darkwire`.
 
+## [0.7.0]
+
+A command can run in the background and report back when it ends, a long conversation
+can be summarised into a new one, and a tool call waiting for approval shows in the
+browser tab and the terminal.
+
+### Added
+
+- **Background jobs.** `exec` with `background: true` returns a job id at once, and the
+  command keeps running. When it exits, its output arrives in the conversation: a running
+  turn reads it before its next step, and an idle conversation is woken with a turn of
+  its own. The new `kill` tool stops a job, and a strip above the composer lists running
+  jobs with Stop. `backgroundJobs` on the agent caps how many one conversation runs
+  (default 4, `0` turns them off). Jobs live in memory and stop with the server.
+- **A scheduled job reports to the conversation that made it.** When a job an agent
+  created succeeds or fails, the result is posted into that conversation, the way a
+  background job's is. The browser draws both as a result card.
+- **`/compact [instructions]`** in the web UI, the terminal and Telegram summarises the
+  conversation into a new session that opens with the summary and links back. With
+  `autoCompact` on, the default, a session at 90% of its context window is summarised
+  before the next message runs.
+- **A waiting approval shows outside the chat.** The tab title reads "(1) Approve" and
+  blinks while you are in another tab or app, the tab icon gets a red dot, and the
+  session gets a dot in the sidebar. It covers every session, not only the one on screen.
+  Settings → Account → Notifications adds an opt-in desktop notification.
+- **`darkwire chat` alerts when an approval opens and the terminal is not focused.**
+  iTerm2, WezTerm and Ghostty get a desktop notification, Kitty gets its own, and other
+  terminals and tmux get the bell. `ui.terminalAlert` is `auto`, `bell` or `none`.
+- **`server.trustedProxies`** names the proxies whose `X-Forwarded-For` is believed.
+- **Message info shows when the message was written.**
+- **Protocol additions.** `approvals.pending`, `session.compact`, `session.compacted` and
+  `job.stop` frames. `session.status` lists running jobs, `turn.start` carries a posted
+  result, a stored message carries a typed `from`, `stats` carry `createdAtMs`, and a
+  session summary carries `continuedFrom`.
+
+### Changed
+
+- **A rule or permission counts from the next tool call.** The loop re-reads the agent's
+  settings before each call, so a rule saved mid-turn applies at once. A tool switched on
+  mid-turn still waits for the next turn, since the model was not offered it.
+- **A steer shows as an ordinary message** in the transcript, where the turn read it,
+  with the same actions as any other.
+- **A saved memory has no length limit**, and a read by key returns the whole file.
+- **`bash -c` follows `exec.shell`, which defaults to ask.** Host `exec` reaches any path.
+- **An allow-list name admits public addresses only.** A private address needs its block
+  listed.
+- **The account lock lets an address with no failures through**, and counts IPv6 by /64.
+- **`GET /api/sessions` returns every origin** unless the caller excludes one by name. The
+  sidebar excludes subagent sessions.
+
+### Fixed
+
+- **An agent deleted, disabled or broken mid-turn stops the turn** with an
+  `agent_removed` notice, rather than running on with its old permissions.
+- **A finished turn is no longer reported as aborted.** Stop also stops later delegations
+  in the same batch, and MCP calls.
+- **`exec` returns when the command leaves a background process holding its output**, and
+  keeps reading past the output cap rather than killing a chatty child.
+- **A tool result is cut once**, with the true omitted count. `read` stays inside
+  `maxOutputChars`, and the agent's `toolTimeoutMs` is honoured.
+- **A reconnect no longer shows the last stretch of text twice.**
+- **A locked keychain no longer loses the vault.** The vault never mints a key while a
+  vault file exists.
+- **A regenerate or an edit runs before a message another tab sent meanwhile.**
+- **The file editor keeps keystrokes typed during a save**, and a `/clear` from another
+  tab stays cleared.
+- **Reference links resolve when an answer ends.** Signed URLs renew before they expire, a
+  missing attachment says Unavailable, and a failed highlighter load is retried.
+- **The terminal stream no longer slows on a long unbroken line.**
+- **Telegram:** `/workspace` is admin-only, a long answer posts only its new pieces, and a
+  rate-limited answer waits in its own chat's queue.
+- **A setup code cannot be claimed twice.**
+
+### Removed
+
+- **`server.replayBufferSize` and `server.turnLogMaxBytes`.** The turn log is a fixed 16
+  MiB. A config file that still names either loads, and the key is ignored.
+
 ## [0.6.2]
 
 A new conversation shows in the sidebar as soon as its first turn starts, and the
