@@ -8,81 +8,92 @@ a test holds equal; what you install is one binary, `darkwire`.
 
 ## [0.7.0]
 
-A command can run in the background and report back when it ends, a long conversation
-can be summarised into a new one, and a tool call waiting for approval shows in the
-browser tab and the terminal.
+A command can run in the background and report back when it ends, `/compact` summarises
+a long conversation into a new one, and the browser tab and the terminal show a tool call
+that is waiting for approval.
 
 ### Added
 
 - **Background jobs.** `exec` with `background: true` returns a job id at once, and the
-  command keeps running. When it exits, its output arrives in the conversation: a running
-  turn reads it before its next step, and an idle conversation is woken with a turn of
-  its own. The new `kill` tool stops a job, and a strip above the composer lists running
-  jobs with Stop. `backgroundJobs` on the agent caps how many one conversation runs
-  (default 4, `0` turns them off). Jobs live in memory and stop with the server.
+  command keeps running. When it exits, its output arrives in the conversation. A running
+  turn reads it before its next step. An idle conversation gets a new turn of its own to
+  read it in. The new `kill` tool stops a job, and a strip above the composer lists the
+  running jobs with a Stop button. `backgroundJobs` on the agent caps how many one
+  conversation runs at a time. The default is 4, and `0` turns them off. The server keeps
+  jobs in memory only and stops them when it stops.
 - **A scheduled job reports to the conversation that made it.** When a job an agent
-  created succeeds or fails, the result is posted into that conversation, the way a
-  background job's is. The browser draws both as a result card.
+  created succeeds or fails, the scheduler posts the result into that conversation, as a
+  background job does. The browser draws both as a result card.
 - **`/compact [instructions]`** in the web UI, the terminal and Telegram summarises the
-  conversation into a new session that opens with the summary and links back. With
-  `autoCompact` on, the default, a session at 90% of its context window is summarised
-  before the next message runs.
-- **A waiting approval shows outside the chat.** The tab title reads "(1) Approve" and
-  blinks while you are in another tab or app, the tab icon gets a red dot, and the
-  session gets a dot in the sidebar. It covers every session, not only the one on screen.
-  Settings → Account → Notifications adds an opt-in desktop notification.
-- **`darkwire chat` alerts when an approval opens and the terminal is not focused.**
-  iTerm2, WezTerm and Ghostty get a desktop notification, Kitty gets its own, and other
-  terminals and tmux get the bell. `ui.terminalAlert` is `auto`, `bell` or `none`.
-- **`server.trustedProxies`** names the proxies whose `X-Forwarded-For` is believed.
-- **Message info shows when the message was written.**
-- **Protocol additions.** `approvals.pending`, `session.compact`, `session.compacted` and
-  `job.stop` frames. `session.status` lists running jobs, `turn.start` carries a posted
-  result, a stored message carries a typed `from`, `stats` carry `createdAtMs`, and a
-  session summary carries `continuedFrom`.
+  conversation into a new session. The new session opens with the summary and links back
+  to the old one. With `autoCompact` on, which is the default, DarkWire summarises a
+  session that reaches 90% of its context window before the next message runs.
+- **The browser shows a waiting approval outside the chat.** The tab title reads "(1)
+  Approve" and blinks while you are in another tab or app. The tab icon gets a red dot,
+  and the session gets a dot in the sidebar. This covers every session, not only the one
+  on screen. An opt-in desktop notification is under Notifications, in Settings on the
+  Account page.
+- **`darkwire chat` alerts you when an approval is waiting and the terminal window does
+  not have focus.** iTerm2, WezTerm and Ghostty show a desktop notification, and Kitty
+  shows one through its own protocol. Other terminals and tmux ring the bell.
+  `ui.terminalAlert` is `auto`, `bell` or `none`.
+- **`server.trustedProxies`** lists the proxies whose `X-Forwarded-For` header the server
+  trusts.
+- **Message info shows the time a message was written.**
+- **Protocol additions.** The new frames are `approvals.pending`, `session.compact`,
+  `session.compacted` and `job.stop`. `session.status` lists running jobs, `turn.start`
+  carries a posted result, a stored message carries a typed `from`, `stats` carry
+  `createdAtMs`, and a session summary carries `continuedFrom`.
 
 ### Changed
 
-- **A rule or permission counts from the next tool call.** The loop re-reads the agent's
-  settings before each call, so a rule saved mid-turn applies at once. A tool switched on
-  mid-turn still waits for the next turn, since the model was not offered it.
-- **A steer shows as an ordinary message** in the transcript, where the turn read it,
-  with the same actions as any other.
+- **A rule or permission applies from the next tool call.** The loop reads the agent's
+  settings again before each call, so a rule saved during a turn applies at once. A tool
+  switched on during a turn still waits for the next turn, because the model has not been
+  offered it yet.
+- **A steer shows as an ordinary message** in the transcript. It appears where the turn
+  read it and has the same actions as any other message.
 - **A saved memory has no length limit**, and a read by key returns the whole file.
-- **`bash -c` follows `exec.shell`, which defaults to ask.** Host `exec` reaches any path.
-- **An allow-list name admits public addresses only.** A private address needs its block
-  listed.
-- **The account lock lets an address with no failures through**, and counts IPv6 by /64.
-- **`GET /api/sessions` returns every origin** unless the caller excludes one by name. The
-  sidebar excludes subagent sessions.
+- **`bash -c` follows `exec.shell`, which defaults to ask.** On the host, `exec` can reach
+  any path.
+- **A name on the network allow-list reaches public addresses only.** To reach a private
+  address, list its address block as well.
+- **An address with no failed logins can still log in** when the account lock trips. The
+  lock counts IPv6 addresses by their /64 block.
+- **`GET /api/sessions` returns sessions of every origin** unless the caller excludes an
+  origin by name. The sidebar excludes subagent sessions.
 
 ### Fixed
 
-- **An agent deleted, disabled or broken mid-turn stops the turn** with an
-  `agent_removed` notice, rather than running on with its old permissions.
-- **A finished turn is no longer reported as aborted.** Stop also stops later delegations
-  in the same batch, and MCP calls.
-- **`exec` returns when the command leaves a background process holding its output**, and
-  keeps reading past the output cap rather than killing a chatty child.
-- **A tool result is cut once**, with the true omitted count. `read` stays inside
-  `maxOutputChars`, and the agent's `toolTimeoutMs` is honoured.
-- **A reconnect no longer shows the last stretch of text twice.**
-- **A locked keychain no longer loses the vault.** The vault never mints a key while a
-  vault file exists.
-- **A regenerate or an edit runs before a message another tab sent meanwhile.**
+- **Deleting or disabling an agent during a turn stops the turn**, and so does a change
+  that leaves the agent unable to build. The turn ends with an `agent_removed` notice.
+  Before, it carried on with the old permissions.
+- **The server no longer reports a finished turn as aborted.** Stop now also stops MCP
+  calls and the later delegations in the same batch.
+- **`exec` returns when the command exits**, even if a background process it started
+  still holds its output. Past the output cap it keeps reading, rather than killing a
+  child process that writes a lot.
+- **The dispatcher cuts a long tool result once** and reports how much it left out.
+  `read` stops within `maxOutputChars`, and tool calls respect the agent's
+  `toolTimeoutMs`.
+- **A reconnect no longer shows the last part of the text twice.**
+- **A locked keychain no longer makes the vault unreadable.** DarkWire never creates a new
+  vault key while a vault file exists.
+- **A regenerate or an edit runs before a message that another tab sent in the meantime.**
 - **The file editor keeps keystrokes typed during a save**, and a `/clear` from another
   tab stays cleared.
-- **Reference links resolve when an answer ends.** Signed URLs renew before they expire, a
-  missing attachment says Unavailable, and a failed highlighter load is retried.
-- **The terminal stream no longer slows on a long unbroken line.**
-- **Telegram:** `/workspace` is admin-only, a long answer posts only its new pieces, and a
-  rate-limited answer waits in its own chat's queue.
-- **A setup code cannot be claimed twice.**
+- **Reference links resolve when an answer ends.** Signed URLs renew before they expire,
+  a missing attachment says Unavailable, and the browser retries a code highlighter that
+  failed to load.
+- **The terminal stream no longer slows down on a long line with no breaks.**
+- **In Telegram, `/workspace` is for admins only.** A long answer sends only its new
+  parts, and a rate-limited answer waits in its own chat's queue.
+- **Nobody can claim a setup code twice.**
 
 ### Removed
 
-- **`server.replayBufferSize` and `server.turnLogMaxBytes`.** The turn log is a fixed 16
-  MiB. A config file that still names either loads, and the key is ignored.
+- **`server.replayBufferSize` and `server.turnLogMaxBytes`.** The turn log is now fixed at
+  16 MiB. A config file that still sets either key loads, and DarkWire ignores the key.
 
 ## [0.6.2]
 
